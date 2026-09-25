@@ -195,5 +195,112 @@ class TestLocalQueueAndWatch(unittest.TestCase):
         self.assertFalse(control.runner_alive(self.cfg))
 
 
+class TestCliLokaleBefehle(unittest.TestCase):
+    """Prüft die lokalen Befehle genau so, wie sie getippt werden (über die CLI).
+
+    Eigene Konfiguration in einem Wegwerf-Verzeichnis: der echte Eingang
+    (inbox/) bleibt unberührt, es wird nichts an den laufenden Harness geschickt.
+    """
+
+    def setUp(self):
+        self.tmp = ensure_dir(Path(__file__).resolve().parent / "_tmp_cli")
+        shutil.rmtree(self.tmp, ignore_errors=True)
+        self.root = ensure_dir(self.tmp / "root")
+        sec = ensure_dir(self.root / "secrets")
+        self.cfg_path = self.tmp / "harness.toml"
+        self.cfg_path.write_text(
+            "[paths]\n"
+            f'root = "{self.root.as_posix()}"\n'
+            f'decomp = "{(self.tmp / "repo").as_posix()}"\n'
+            f'secrets = "{sec.as_posix()}"\n'
+            f'prompts = "{(ROOT / "prompts").as_posix()}"\n'
+            "[telegram]\n"
+            "allowlist_user_ids = []\n"
+            "[mock]\n"
+            "enabled = true\n",
+            encoding="utf-8")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _cli(self, *argv) -> int:
+        from hx import cli
+        return cli.main(["--config", str(self.cfg_path), *argv])
+
+    def _queue(self, target: str) -> list[Path]:
+        return sorted((self.root / "inbox" / target).glob("*.md"))
+
+    # ------------------------------------------------------------ send
+    def test_send_ds_mit_text(self):
+        self.assertEqual(self._cli("send", "ds", "Zusatzauftrag Text"), 0)
+        files = self._queue("ds")
+        self.assertEqual(len(files), 1)
+        body = files[0].read_text(encoding="utf-8")
+        self.assertIn("target: ds", body)
+        self.assertIn("source: lokal", body)
+        self.assertIn("Zusatzauftrag Text", body)
+
+    def test_send_claude_mit_text(self):
+        self.assertEqual(self._cli("send", "claude", "Projektziele pruefen"), 0)
+        body = self._queue("claude")[0].read_text(encoding="utf-8")
+        self.assertIn("target: claude", body)
+        self.assertIn("Projektziele pruefen", body)
+
+    def test_send_mit_datei(self):
+        md = self.tmp / "auftrag.md"
+        md.write_text("# Langer Auftrag\n\nZeile zwei mit Umlaut: Gr\u00fc\u00dfe.\n", encoding="utf-8")
+        for target in ("ds", "claude"):
+            self.assertEqual(self._cli("send", target, "--file", str(md)), 0)
+            body = self._queue(target)[0].read_text(encoding="utf-8")
+            self.assertIn("Langer Auftrag", body)
+            self.assertIn("Gr\u00fc\u00dfe", body)          # Umlaute bleiben erhalten
+
+    def test_send_fehlerfaelle(self):
+        self.assertEqual(self._cli("send", "ds"), 2)                                 # kein Text
+        self.assertEqual(self._cli("send", "ds", "--file", str(self.tmp / "x")), 2)   # Datei fehlt
+        leer = self.tmp / "leer.md"
+        leer.write_text("   \n", encoding="utf-8")
+        self.assertEqual(self._cli("send", "ds", "--file", str(leer)), 2)             # Datei leer
+        self.assertEqual(self._queue("ds"), [])
+
+    # -------------------------------------------------- run-instruction
+    def test_run_instruction_mit_datei(self):
+        md = self.tmp / "ziel.md"
+        md.write_text("Batch 159 - Projektziele dokumentieren\n", encoding="utf-8")
+        self.assertEqual(self._cli("run-instruction", "--file", str(md), "--profile", "none"), 0)
+        cfg = load_config(self.cfg_path)
+        obj = control.take_instruction(cfg)
+        self.assertIsNotNone(obj, "instruction.json muss vorliegen")
+        self.assertEqual(obj["source"], "user")
+        self.assertEqual(obj["profile"], "none")
+        self.assertIsNone(obj["program"])                 # Profil none -> kein Programm
+        self.assertIn("Batch 159", obj["instruction"])
+        self.assertEqual(obj["source_file"], str(md))
+        self.assertEqual(control.pending(cfg), [])        # genau einmal, dann weg
+
+    def test_run_instruction_fehlerfall(self):
+        self.assertEqual(self._cli("run-instruction"), 2)
+        self.assertEqual(self._cli("run-instruction", "--file", str(self.tmp / "y")), 2)
+
+    # ------------------------------------------------- Steuerbefehle selbst
+    def test_pause_resume_stop_approve_ueber_cli(self):
+        cfg = load_config(self.cfg_path)
+        self.assertEqual(self._cli("pause"), 0)
+        self.assertEqual(control.take(cfg, "pause"), "")
+        self.assertEqual(self._cli("resume", "--accept-dirty"), 0)
+        self.assertEqual(control.take(cfg, "resume"), "ok")
+        self.assertEqual(self._cli("approve", "--text", "weiter so"), 0)
+        self.assertEqual(control.take(cfg, "approve"), "weiter so")
+        self.assertEqual(self._cli("stop"), 0)
+        self.assertEqual(control.take(cfg, "stop"), "")
+
+    def test_status_zeigt_wartende_befehle(self):
+        cfg = load_config(self.cfg_path)
+        control.put(cfg, "pause")
+        text = Orchestrator(cfg, Log(self.tmp / "s.jsonl", echo=False),
+                            mock=True, state_file=self.tmp / "s.json").status_text()
+        self.assertIn("pause", text)
+
+
 if __name__ == "__main__":
     unittest.main()
