@@ -34,3 +34,35 @@ cmake_install.cmake
 *.tmp
 *.bak
 *.ppm
+
+# --- Secrets (niemals versionieren) ---------------------------------------
+# Enthaelt z. B. secrets/deepseek.key (API-Key fuer den Sandbox-Test B-prime).
+secrets/
+
+# --- Sandkasten (niemals versionieren) ------------------------------------
+# Enthaelt die Junction sandbox/decomp-link -> g:\Silent Scope Decomp, rohe
+# Mitschnitte mit vollstaendigen Prompts (_probe_stream.jsonl, _b2_*.stdout.txt),
+# eigene Claude-Konfigurationen (cc-worker-config, _b2_otel) und die
+# Worker-Arbeitskopie (workspace/).
+sandbox/
+
+# --- Harness-Laufzeitdaten (keine Belege, kein Zustand, keine Mitschnitte) --
+# Der Quellcode (hx/, tests/, profiles/, prompts/, *.ps1) bleibt getrackt.
+harness/runs/
+harness/logs/
+harness/state/
+harness/inbox/
+harness/outbox/
+harness/preview/
+harness/snapshots/
+harness/sessions/
+# CLAUDE_CONFIG_DIR von Worker und Reviewer: enthaelt Sitzungsverlauf.
+harness/cc-worker/
+harness/cc-reviewer/
+
+# --- Ghidra-Projektsicherungen (gross, jederzeit neu erzeugbar) -----------
+backups/
+
+# --- Python ---------------------------------------------------------------
+__pycache__/
+*.pyc

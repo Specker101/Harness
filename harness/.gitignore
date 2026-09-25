@@ -1,0 +1,22 @@
+# Laufzeitdaten des Harness: keine Belege, keine Secrets -> nicht ins Repo.
+# (Die Profile in profiles/ SIND Ergebnis einer Handpruefung und bleiben getrackt.)
+state/
+logs/
+runs/
+snapshots/
+preview/
+inbox/
+outbox/
+sessions/
+cc-worker/
+cc-reviewer/
+__pycache__/
+*.pyc
+*.log
+*.jsonl
+!tests/**
+
+# Diese beiden Muster stehen NACH der Test-Ausnahme: ohne sie waeren
+# tests/__pycache__/*.pyc wieder dabei ("!tests/**" hebt sonst alles auf).
+__pycache__/
+*.pyc

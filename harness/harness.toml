@@ -1,0 +1,66 @@
+# Harness-Konfiguration (MVP, P0-P3)
+# Aenderungen hier sind "die eine Wahrheit" fuer Grenzen, Pfade und Profile.
+
+[paths]
+root        = "g:/Harness/harness"
+decomp      = "g:/Silent Scope Decomp"
+secrets     = "g:/Harness/secrets"
+prompts     = "g:/Harness/harness/prompts"
+backups     = "g:/Harness/backups"
+# Nur fuer den Umgebungs-Nachweis (R16): der Testlauf darf NICHT ins Decomp-Repo.
+sandbox     = "g:/Harness/sandbox/workspace"
+
+[claude]
+exe                 = "C:/Users/Benji/.local/bin/claude.exe"
+model_worker        = "deepseek-flash[1m]"
+base_url            = "https://api.deepseek.com/anthropic"
+config_dir_worker   = "g:/Harness/harness/cc-worker"
+config_dir_reviewer = "g:/Harness/harness/cc-reviewer"
+# Nur ein grobes Sicherheitsnetz - die echten Grenzen sind [limits] (E6).
+max_turns_safety    = 800
+
+[limits]
+# ALARM = Telegram-Hinweis, Lauf geht weiter. HARD = Prozess wird beendet.
+alarm_wall_s      = 5400      # 90 min
+alarm_requests    = 250
+alarm_cost_usd    = 1.0
+hard_wall_s       = 10800     # 3 h
+hard_requests     = 400
+hard_cost_usd     = 2.0
+daily_budget_usd  = 10.0
+reviewer_wall_s   = 900
+reviewer_alarm_s  = 600
+
+[peak]
+# R5b: in Peak-Zeiten keine NEUEN Batches starten (laufender Batch darf fertig werden).
+block_new_batches   = true
+# Chinesische Feiertage sind laut Preisseite off-peak; nicht ableitbar -> Liste.
+extra_offpeak_dates = []
+
+[reviewer]
+rotation_after = 10
+
+[git]
+push_after_batch = true
+remote           = "origin"
+branch           = "main"
+
+[ghidra]
+port            = 8089
+program_default = "/830d01.27p.main.bin"
+server_script   = "g:/Silent Scope Decomp/scripts/start-ghidra-headless.ps1"
+bridge_exe      = "g:/Silent Scope Decomp/tools/bridge-venv/Scripts/bridge-mcp-ghidra.exe"
+bridge_args     = ["--lazy"]
+bridge_groups   = "listing,function,program"
+backup_dir      = "g:/Harness/backups/ghidra"
+backup_keep     = 5
+start_timeout_s = 300
+
+[telegram]
+# Leer = Bot ignoriert alles. Wird erst nach ausdruecklicher Bestaetigung gefuellt.
+allowlist_user_ids = ["47190682"]
+poll_timeout_s     = 25
+
+[mock]
+# true = Attrappen statt echter API-Aufrufe (Testmodus, keine Kosten)
+enabled = false
