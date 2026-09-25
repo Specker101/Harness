@@ -1,0 +1,45 @@
+# Zeilenenden und Dateitypen vereinheitlichen.
+# Text wird im Repo immer mit LF gespeichert, Binaerdaten bleiben unangetastet.
+# Konvention aus dem Hauptprojekt (Silent Scope Decomp) uebernommen.
+* text=auto
+
+# ---------------------------------------------------------------------------
+# Binaerformate (keine Zeilenenden-Konvertierung, keine Diffs)
+# ---------------------------------------------------------------------------
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.bmp   binary
+*.ppm   binary
+*.raw   binary
+*.bin   binary
+*.gz    binary
+*.zip   binary
+*.7z    binary
+*.exe   binary
+*.dll   binary
+*.lib   binary
+*.a     binary
+*.o     binary
+*.obj   binary
+*.pdb   binary
+
+# ---------------------------------------------------------------------------
+# Textformate
+# ---------------------------------------------------------------------------
+*.md    text
+*.py    text
+*.ps1   text
+*.cmd   text
+*.json  text
+*.c     text
+*.cpp   text
+*.h     text
+*.hpp   text
+
+# ---------------------------------------------------------------------------
+# Git-Housekeeping
+# ---------------------------------------------------------------------------
+.gitignore      text
+.gitattributes  text
