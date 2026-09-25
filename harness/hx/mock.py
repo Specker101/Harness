@@ -135,24 +135,33 @@ REVIEWER_LIMIT = """Usage limit reached. Your limit will reset at 2026-09-25 22:
 """
 
 
-def mock_reviewer_text(mode: str = "ok", batch: int | None = None) -> str:
+def mock_reviewer_text(mode: str = "ok", batch: int | None = None, attempt: int = 1) -> str:
     if mode == "parser_error":
         return REVIEWER_BROKEN
     if mode == "limit":
         return REVIEWER_LIMIT
+    if mode == "reviewer_crash":
+        return ""
+    if mode == "modell_falsch":
+        return mock_reviewer_text("ok", batch)
+    if mode == "ok_zweiter_versuch":
+        # R13b: erster Versuch absichtlich ohne Protokollblock, Wiederholung sauber.
+        return REVIEWER_BROKEN if attempt <= 1 else mock_reviewer_text("ok", batch)
     if batch:
         # Die Nummer muss stimmen: der Harness haelt bei Abweichung an (R10-1).
         return REVIEWER_OK.replace("Batch 160", f"Batch {batch}")
     return REVIEWER_OK
 
 
-def mock_reviewer_stream(run_dir: Path, batch: int | None = None) -> Path:
+def mock_reviewer_stream(run_dir: Path, batch: int | None = None, mode: str = "ok",
+                         attempt: int = 1) -> Path:
     """Schreibt einen Reviewer-Mitschnitt wie `claude -p --output-format stream-json`.
 
     Damit ist auch der Review in `watch` lesbar (statt nur der Worker-Lauf).
+    Der Mitschnitt traegt denselben Text wie `mock_reviewer_text` (R13b).
     """
     run_dir = Path(run_dir)
-    text = mock_reviewer_text("ok", batch)
+    text = mock_reviewer_text(mode, batch, attempt)
     lines = [
         _ev({"type": "system", "subtype": "init", "session_id": "mock-reviewer-0001",
              "model": "claude-sonnet-5 (mock)",

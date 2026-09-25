@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -37,6 +38,14 @@ class Orchestrator:
         self.quit = False
         self._wip_done = False
         self._notified: dict[str, float] = {}
+        # Attrappen-Modus des Reviewers (Tests/Demo): "ok", "parser_error",
+        # "ok_zweiter_versuch", "reviewer_crash", "modell_falsch", "limit".
+        self.mock_reviewer_mode = str(cfg.get("mock", "reviewer_mode", "ok") or "ok")
+        self._review_target: int | None = None
+        self._review_dir: Path | None = None
+        self._review_rotation = False
+        self._review_handover = ""
+        self._review_previous_raw = ""
         self._init_telegram()
 
     # --------------------------------------------------------------- Telegram
@@ -93,6 +102,23 @@ class Orchestrator:
             return "NEIN - " + str(gs.get("hinweis") or "")
         return "nicht noetig - " + str(gs.get("hinweis") or "")
 
+    def dauer_line(self, res: dict) -> str:
+        """Laufzeit mit Herkunft (R13c): Wanduhr des Worker-Prozesses, nie eine nackte Zahl."""
+        d = float((res or {}).get("duration_s") or 0)
+        quelle = str((res or {}).get("duration_quelle") or "")
+        basis = {
+            "cli": "Wanduhr des Worker-Prozesses laut claude-Prozess",
+            "wanduhr": "vom Harness gemessene Wanduhr (Prozess nennt keine Dauer)",
+            "api": "NUR API-Zeit - keine Prozess-Wanduhr vorhanden",
+        }.get(quelle, "Herkunft unbekannt (alter Lauf)")
+        txt = f"{secs_human(d)} ({basis}"
+        harness = (res or {}).get("duration_harness_s")
+        if quelle == "cli" and isinstance(harness, (int, float)) and harness:
+            rest = float(harness) - d
+            if rest >= 120:
+                txt += f"; zusaetzlich {secs_human(rest)} Harness-Nachlauf/Rueckstau"
+        return txt + ")"
+
     def notify_once(self, key: str, text: str, cooldown_s: float = 900.0):
         last = self._notified.get(key, 0.0)
         if time.time() - last < cooldown_s:
@@ -101,14 +127,30 @@ class Orchestrator:
         self.say(text)
 
     # ------------------------------------------------------------------ Queue
-    def read_queue_block(self, target: str) -> tuple[str, list[str]]:
+    def read_queue_block(self, target: str, mark: bool = True) -> tuple[str, list[str]]:
+        """Nachrichten fuer den naechsten Auftrag sammeln.
+
+        R13b: `mark=False` liefert den Block, OHNE ihn als zugestellt zu verbuchen.
+        Das tut erst `commit_queue` - und zwar erst, wenn der Review wirklich einen
+        gueltigen Protokollblock geliefert hat. Sonst waere eine Nachricht weg, obwohl
+        niemand sie je gesehen hat (B159: Review gescheitert, Nachricht in inbox/done).
+        """
         delivered = list(self.state.data.get("delivered") or [])
         block, ids = queue.deliver_block(self.qroot, target, delivered)
+        if mark and ids:
+            self.commit_queue(target, ids)
+        return block, ids
+
+    def commit_queue(self, target: str, ids: list[str]) -> int:
+        """Zugestellt = verbuchen UND archivieren (erst nach gueltigem Review)."""
+        ids = [i for i in (ids or []) if i]
+        if not ids:
+            return 0
         for i in ids:
             self.state.mark_delivered(i)
-        if ids:
-            queue.archive(self.qroot, ids, target)
-        return block, ids
+        moved = queue.archive(self.qroot, ids, target)
+        self.log.info("Queue zugestellt", ziel=target, anzahl=len(ids), archiviert=len(moved))
+        return len(ids)
 
     # --------------------------------------------------- gemeinsame Aktionen
     # Von Telegram UND von der lokalen Steuerung (state/ctl/) benutzt.
@@ -584,76 +626,111 @@ class Orchestrator:
             self.say("Die alte Session hat keine Uebergabe geliefert.")
         return text
 
-    def do_review(self, kind: str, snapshot_text: str, reviewer_note: str = "") -> rv.ReviewResult:
+    def do_review(self, kind: str, snapshot_text: str, reviewer_note: str = "",
+                  attempt: int = 1, handover: str = "") -> rv.ReviewResult:
+        """Einen Review fahren (R13b: Nummern nach dem Anker, Rotation genau einmal).
+
+        Nummern:
+          * `evidence` = der Batch, dessen Belege bewertet werden (`state.batch`),
+          * `target`   = der Batch, fuer den freigegeben wird (`expected_batch()`, Anker+1).
+        Das Review liegt in `runs/b<target>` (dort steht, was den naechsten Batch betrifft);
+        die Worker-Belege des bewerteten Laufs bleiben in `runs/b<evidence>`.
+
+        Bei `attempt == 1` wird - falls faellig - rotiert (mit Uebergabe). Der Wechsel wird
+        SOFORT verbucht: neue Kennung im Zustand, Uebergabe in `sessions/`. So bleibt beides
+        erhalten, auch wenn der Review scheitert oder der Harness abstuerzt. `attempt >= 2`
+        wiederholt nur den Review - ohne zweite Rotation und ohne zweite Uebergabe.
+        """
         rev_state = self.state.data.get("reviewer") or {}
         session_id = rev_state.get("session_id")
         count = int(rev_state.get("reviews", 0))
         rot = int(self.cfg.get("reviewer", "rotation_after", 10))
         force = bool(rev_state.get("force_rotate"))
-        rotate = force or (not session_id) or (count >= rot)
-        # Verzeichnis nach der ECHTEN Batch-Nummer, nicht nach einem internen Zaehler:
-        # ohne gelaufenen Batch ist das die Nummer, die der Anker als naechste nennt.
-        target = self.state.batch or self.expected_batch() or 0
+        evidence = int(self.state.batch or 0)
+        target = self.expected_batch() or evidence or 0
         rdir = ensure_dir(Path(self.cfg.sub("runs")) / f"b{target:03d}")
-        handover = ""
-        if rotate and session_id:
+        self._review_target = target
+        self._review_dir = rdir
+        self._review_rotation = False
+        self._review_handover = handover
+        if target != evidence:
+            self.log.info("Review-Verzeichnis", verzeichnis=str(rdir), bewerteter_batch=evidence,
+                          freigabe_fuer=target)
+
+        if attempt > 1:
+            handover = handover or str((rev_state.get("pending_handover") or {}).get("text") or "")
+        elif force or (not session_id) or (count >= rot):
             grund = "auf Wunsch (frische Session)" if force else f"Rotation nach {count} Reviews"
-            self.say(f"Reviewer-Session wird gewechselt - {grund}. Die alte Session uebergibt.")
-            self.log.info("Reviewer-Session-Wechsel", grund=grund, alte_session=session_id)
-            handover = self.ask_handover(session_id, rdir)
-        prompt = rv.build_prompt(self.cfg, kind,
-                                 self.review_context(snapshot_text, reviewer_note,
-                                                     handover=handover))
+            alt = session_id
+            merker = rev_state.get("pending_handover") or {}
+            if alt and merker.get("from_session") == alt and merker.get("text"):
+                # Die vorhandene Uebergabe ist gueltig und bezahlt: nicht noch einmal fragen.
+                handover = str(merker["text"])
+                self.log.info("Uebergabe wiederverwendet", alte_session=alt, zeichen=len(handover))
+                self.say("Frische Reviewer-Session - die vorhandene Uebergabe wird wiederverwendet.")
+            elif alt:
+                self.say(f"Reviewer-Session wird gewechselt - {grund}. Die alte Session uebergibt.")
+                self.log.info("Reviewer-Session-Wechsel", grund=grund, alte_session=alt)
+                handover = self.ask_handover(alt, rdir)
+            neu = str(uuid.uuid4())
+            if neu == alt:                       # Sicherheitsnetz: nie die alte Kennung erben
+                neu = str(uuid.uuid4())
+            self.state.reviewer_new_session(neu, handover=handover, from_session=alt or "")
+            self.state.save()
+            sp = Path(self.cfg.sub("sessions"))
+            write_text_atomic(sp / f"claude-{neu}.md", handover or "(keine Uebergabe erhalten)")
+            write_text_atomic(sp / "vorherige-session.md",
+                              f"# Vorherige Reviewer-Session\n\nID: {alt}\n"
+                              + (handover or "(keine Uebergabe erhalten)") + "\n")
+            self.log.info("Neue Reviewer-Session", alt=alt, neu=neu,
+                          uebergabe_zeichen=len(handover))
+            session_id = neu
+            self._review_rotation = True
+
+        if attempt > 1:
+            # Mitschnitt des ersten Versuchs behalten (watch zeigt `reviewer.jsonl`).
+            alt = rdir / "reviewer.jsonl"
+            v1 = rdir / "reviewer-v1.jsonl"
+            if alt.is_file() and not v1.is_file():
+                try:
+                    alt.replace(v1)
+                except OSError:
+                    pass
+        prompt = rv.build_prompt(
+            self.cfg, kind,
+            self.review_context(snapshot_text, reviewer_note, handover=handover,
+                                attempt=attempt, rdir=rdir,
+                                previous_raw=self._review_previous_raw))
         if self.state.data.get("pause_work"):
             self.state.data.pop("pause_work", None)   # einmal zugestellt
             self.state.save()
         self.state.set(st.CLAUDE_REVIEWING, kind)
-        res = rv.run_review(self.cfg, self.log, prompt, session_id=session_id, new_session=rotate,
-                            mock=self.mock, stream_path=rdir / "reviewer.jsonl",
-                            mock_batch=target)
+        res = rv.run_review(self.cfg, self.log, prompt, session_id=session_id,
+                            new_session=bool(self._review_rotation), mock=self.mock,
+                            mock_mode=self.mock_reviewer_mode,
+                            stream_path=rdir / "reviewer.jsonl", mock_batch=target,
+                            attempt=attempt)
+        res.review_dir = str(rdir)
+        self._review_previous_raw = (res.text or "")[:4000]
+        stempel = now_iso().replace(":", "").replace("-", "").replace("T", "-")[:15]
+        name = "review.md" if kind == "batch_end" else "review-pre.md"
+        if not self.review_ok(res):
+            # R13b: Nichts freigeben - Rohantwort eindeutig als Beleg ablegen (nie
+            # ueberschreiben), nichts verbuchen.
+            name = f"review-verworfen-{stempel}-v{attempt}.md"
+        res.review_file = str(rdir / name)
         try:
-            name = "review.md" if kind == "batch_end" else "review-pre.md"
             write_text_atomic(rdir / name, (res.text or "") + "\n")
         except OSError:
-            name = "review-pre.md"
-        if res.model_ok is False:
-            # R11-5c: falsches Modell (z. B. automatischer Rueckfall) -> Review
-            # verwerfen, melden, nichts starten. Der Mitschnitt bleibt als Beleg.
-            try:
-                (rdir / name).replace(rdir / "review-verworfen.md")
-            except OSError:
-                pass
-            self.state.reviewer_note_review(None)
-            self.state.data["paused"] = True
-            self.state.set(st.PAUSED, "Reviewer-Modell abweichend")
-            self.phase(None)
-            self.say("REVIEW VERWORFEN: " + (res.error or "Modellabweichung") +
-                     f"\nErwartet: {res.model_expected}; laut Ausgabe: {res.model_seen}" +
-                     f"\nRohmitschnitt: {res.raw_path}\nIch starte nichts. Bitte pruefen.")
-            self.log.error("Review verworfen - Modellabweichung", erwartet=res.model_expected,
-                           gesehen=res.model_seen)
-            return res
-        if rotate:
-            new_id = res.session_id or "unbekannt"
-            self.state.reviewer_new_session(new_id)
-            self.state.data["reviewer"]["force_rotate"] = False
-            uebergabe = handover or ((res.parsed.blocks.get("HANDOVER") or [""])[0]
-                                     if res.parsed else "")
-            if uebergabe:
-                p = write_text_atomic(Path(self.cfg.sub("sessions")) / f"claude-{new_id}.md",
-                                      uebergabe)
-                self.log.info("Uebergabedatei geschrieben", datei=str(p), zeichen=len(uebergabe))
-            prev = Path(self.cfg.sub("sessions")) / "vorherige-session.md"
-            write_text_atomic(prev, f"# Vorherige Reviewer-Session\n\nID: {session_id}\n"
-                                    + (uebergabe or "(keine Uebergabe erhalten)") + "\n")
-            self.log.info("Neue Reviewer-Session", alt=session_id, neu=new_id,
-                          uebergabe_zeichen=len(uebergabe))
-        self.state.reviewer_note_review(res.parsed.decision if res.parsed else None)
-        rev = self.state.data.setdefault("reviewer", {})
-        rev["model_seen"] = res.model_seen
-        rev["model_ok"] = res.model_ok
-        rev["effort"] = self.reviewer_effort()
-        self.state.save()
+            pass
+        if self._review_rotation and res.session_id and res.session_id != session_id:
+            # Der Prozess meldet eine andere Kennung - die gilt.
+            self.log.warn("Reviewer-Kennung abweichend - uebernommen", erwartet=session_id,
+                          gemeldet=res.session_id)
+            rev = self.state.data.setdefault("reviewer", {})
+            rev["session_id"] = res.session_id
+            session_id = res.session_id
+            self.state.save()
         if res.limit_reached:
             self.state.set(st.LIMIT_WAIT, "Pro-Limit erreicht")
             self.state.data["paused"] = True
@@ -661,7 +738,94 @@ class Orchestrator:
             self.say("Claude-Limit erreicht - das ist ein regulärer Wartezustand. "
                      "Ich pausiere; mit /resume geht es weiter.")
             return res
+        if not self.review_ok(res):
+            # Modellabweichung oder leerer/kaputter Lauf: der Aufrufer entscheidet ueber
+            # Wiederholung/Pause (R13b). Hier wird NICHTS gezaehlt und nichts freigegeben.
+            self.log.error("Review ohne gueltigen Protokollblock", versuch=attempt,
+                           grund=self.review_fehler_grund(res), rohtext=res.raw_path,
+                           modell=res.model_seen)
+            return res
+        self.state.reviewer_note_review(res.parsed.decision)
+        rev = self.state.data.setdefault("reviewer", {})
+        rev["model_seen"] = res.model_seen
+        rev["model_ok"] = res.model_ok
+        rev["effort"] = self.reviewer_effort()
+        self.state.save()
         return res
+
+    # ------------------------------------------------- Review-Gueltigkeit (R13b)
+    def review_ok(self, res) -> bool:
+        """Darf dieser Review eine Freigabe erzeugen?
+
+        Nur mit Protokollblock UND richtigem Modell - und nur, wenn er vollstaendig ist:
+        Zusammenfassung, Instruktion mit Batch-Nummer und ein erkennbares Werkzeugprofil.
+        Eine Watchdog-Antwort braucht nur die Entscheidung. Was hier durchfaellt, wird
+        verworfen (Rohantwort als Beleg) und NIE freigegeben; die Schleife wiederholt
+        einmal mit Format-Erinnerung.
+        """
+        if res is None or res.parsed is None or res.model_ok is False or res.error:
+            return False
+        p = res.parsed
+        if not p.blocks:
+            return False
+        if p.decision is not None:          # Watchdog-Review: nur die Entscheidung
+            return True
+        return bool(p.summary and p.instruction and p.batch is not None and p.profile)
+
+    def review_fehler_grund(self, res) -> str:
+        """Kurz und konkret, was gefehlt hat - das geht so per Telegram raus."""
+        if res is None:
+            return "kein Ergebnis"
+        if res.model_ok is False:
+            return f"Modell {res.model_seen or '?'} statt {res.model_expected or '?'}"
+        if res.error:
+            return str(res.error)[:200]
+        p = res.parsed
+        if p is None or not p.blocks:
+            issues = "; ".join((p.issues if p else [])[:3])
+            return "kein Protokollblock" + (f" ({issues})" if issues else "")
+        fehlt = []
+        if not p.summary:
+            fehlt.append("TELEGRAM_SUMMARY")
+        if not p.instruction:
+            fehlt.append("DS_INSTRUCTION")
+        if p.batch is None:
+            fehlt.append("Batch-Nummer")
+        if p.decision is None and not p.profile:
+            fehlt.append("DS_TOOLS mit Profil")
+        if fehlt:
+            return "Protokollblock unvollstaendig: " + ", ".join(fehlt)
+        return "unbekannt"
+
+    def review_failed(self, versuche: list, kind: str, queue_ids: list[str]) -> None:
+        """Review zweimal ohne Ergebnis: KEIN Gate, Queue bleibt liegen, pausieren (R13b)."""
+        gruende = [self.review_fehler_grund(r) for r in versuche]
+        self.phase(None)
+        self.state.data["paused"] = True
+        self.state.set(st.PAUSED, f"Review ohne Protokollblock ({gruende[-1]})")
+        self.state.save()
+        rec = {"ts": now_iso(), "kind": kind, "batch_ziel": int(self._review_target or 0),
+               "batch_bewertet": int(self.state.batch or 0), "gruende": gruende,
+               "rohtext": [r.raw_path for r in versuche],
+               "verworfen": [getattr(r, "review_file", "") for r in versuche],
+               "modelle": [r.model_seen for r in versuche],
+               "queue_ids": list(queue_ids or []),
+               "entwurf": [(r.text or "")[:2000] for r in versuche]}
+        p = Path(self.cfg.sub("logs")) / f"review-verworfen-{now_iso().replace(':', '')}.json"
+        try:
+            write_text_atomic(p, json.dumps(rec, ensure_ascii=False, indent=1) + "\n")
+        except OSError:
+            p = None
+        self.log.error("Review zweimal gescheitert - nichts freigegeben", gruende=gruende,
+                       protokoll=str(p) if p else "-")
+        self.say("REVIEW ZWEIMAL OHNE PROTOKOLLBLOCK - ich gebe NICHTS frei und pausiere."
+                 + "\nGrund 1: " + (gruende[0] or "?")
+                 + "\nGrund 2: " + (gruende[-1] or "?")
+                 + "\nRohtext 1: " + str(getattr(versuche[0], "raw_path", "-"))
+                 + "\nRohtext 2: " + str(getattr(versuche[-1], "raw_path", "-"))
+                 + (("\nProtokoll: " + str(p)) if p else "")
+                 + f"\nDie /claude-Nachricht bleibt in der Queue ({len(queue_ids or [])})."
+                 + "\nBitte pruefen, dann /resume (neuer Versuch) oder /review.")
 
     # ------------------------------------------------------- Batch-Nummer (Anker)
     def anchor_batch(self) -> int | None:
@@ -768,8 +932,12 @@ class Orchestrator:
                       batch=(gate.get("tools") or {}).get("batch"))
 
     # ------------------------------------------- Harness-Messdaten fuer den Review
-    def harness_facts(self, batch: int) -> str:
-        """Gemessene Zahlen, die der Reviewer braucht (Abschnitt G3 des Plans)."""
+    def harness_facts(self, batch: int, ziel: Path | None = None) -> str:
+        """Gemessene Zahlen, die der Reviewer braucht (Abschnitt G3 des Plans).
+
+        `ziel` ist der Ordner, in dem die Belegdatei landet (das Review-Verzeichnis);
+        gelesen wird der bewertete Lauf `runs/b<batch>`.
+        """
         batch = int(self.state.data.get("last_batch_number") or batch or 0)
         ref = str(self.state.data.get("last_checkpoint") or f"harness/b{batch}-start")
         today = datetime.now(timezone.utc).date().isoformat()
@@ -787,12 +955,14 @@ class Orchestrator:
         res = read_json(rd / "result.json", {}) or {}
         st = res.get("stats") or {}
         lines = [
+            f"- Review: bewertet wird Batch {batch}; die Instruktion gilt fuer Batch "
+            f"{self.expected_batch() or '?'}",
             "- " + self.batch_number_line(),
             (f"- Reviewer: Modell {self.reviewer_model_seen() or '-'} "
              f"(Soll {self.model_reviewer()}), Effort {self.cfg.get('claude', 'reviewer_effort', 'high')}"),
             f"- Ghidra gespeichert: {self.ghidra_save_line(res)}",
             f"- Profil: {res.get('profile')} | Programm: {res.get('program')}",
-            f"- Exit-Code: {res.get('rc')} | Laufzeit: {secs_human(float(res.get('duration_s') or 0))} "
+            f"- Exit-Code: {res.get('rc')} | Laufzeit: {self.dauer_line(res)} "
             f"| Abbruchgrund: {res.get('killed_reason') or 'kein Abbruch'}",
             f"- Alarmmeldungen: {'; '.join(res.get('alarms') or []) or 'keine'}",
             f"- Kosten (gerechnet, Tarif je Aufruf): ${float(res.get('cost_usd') or 0):.4f} "
@@ -832,7 +1002,7 @@ class Orchestrator:
         except Exception as exc:
             lines.append(f"- Git-Messwerte nicht ermittelbar: {str(exc)[:150]}")
         text = "\n".join(lines)
-        p = Path(self.cfg.sub("runs")) / f"b{batch:03d}"
+        p = Path(ziel) if ziel else Path(self.cfg.sub("runs")) / f"b{batch:03d}"
         try:
             write_text_atomic(p / "harness-facts.md", text + "\n")
         except OSError:
@@ -840,11 +1010,16 @@ class Orchestrator:
         return text
 
     def review_context(self, snapshot_text: str, reviewer_note: str = "",
-                       handover: str = "") -> dict:
-        """Alles, was der Reviewer je Review bekommt (Abschnitt F/G)."""
-        batch = self.state.batch
-        rd = Path(self.cfg.sub("runs")) / f"b{batch:03d}"
-        report = read_text(rd / "antwort.md") if batch > 0 else ""
+                       handover: str = "", attempt: int = 1, rdir: Path | None = None,
+                       previous_raw: str = "") -> dict:
+        """Alles, was der Reviewer je Review bekommt (Abschnitt F/G).
+
+        Die Belege kommen aus dem BEWERTETEN Lauf (`runs/b<state.batch>`), die Review-Ablage
+        aus dem Zielordner (`runs/b<expected_batch>`) - beides wird hier getrennt gehalten.
+        """
+        batch = int(self.state.batch or 0)
+        edir = Path(self.cfg.sub("runs")) / f"b{batch:03d}"
+        report = read_text(edir / "antwort.md") if batch > 0 else ""
         markers = protocol.parse_worker_markers(report) if report else {}
         marker_lines = []
         for name in ("tool_request", "program_request"):
@@ -859,13 +1034,15 @@ class Orchestrator:
             "next_batch": self.expected_batch(),
             "anchor_batch": self.anchor_batch(),
             "anchor_hint": self.anchor_next_hint(),
-            "facts": self.harness_facts(batch),
+            "facts": self.harness_facts(batch, ziel=rdir),
             "worker_report": report,
             "markers": "\n".join(marker_lines),
             "queue_block": reviewer_note,
             "anchor": anchor,
             "snapshot": snapshot_text,
             "handover": handover,
+            "retry_hint": bool(attempt > 1),
+            "previous_raw": previous_raw,
             "extra": self.pause_work_note(),
         }
 
@@ -991,16 +1168,30 @@ class Orchestrator:
                     continue
                 kind = "batch_end" if s.batch > 0 else "bootstrap"
                 snap = self.build_snapshot_text()
-                note_block, _ids = self.read_queue_block("claude")
+                # R13b: Nachrichten erst NACH einem gueltigen Review als zugestellt buchen.
+                note_block, note_ids = self.read_queue_block("claude", mark=False)
                 self.phase("review", kind)
                 res = self.do_review(kind, snap, reviewer_note=note_block)
                 if res.limit_reached:
                     continue
-                if res.parsed is None or not res.parsed.blocks:
-                    s.set(st.GATE_APPROVAL, "Review ohne Protokollblock")
-                    self.say("Review-Antwort hatte KEINEN Protokollblock. Rohtext: " + str(res.raw_path))
-                    self.approved_gate = None
-                    continue
+                if not self.review_ok(res):
+                    # Ein Wiederholungsversuch mit ausdruecklicher Format-Erinnerung.
+                    grund1 = self.review_fehler_grund(res)
+                    self.log.warn("Review ohne gueltigen Protokollblock - Wiederholung",
+                                  grund=grund1, ziel=self._review_target)
+                    self.say("REVIEW OHNE PROTOKOLLBLOCK (" + grund1 + ")."
+                             "\nIch wiederhole EINMAL mit ausdruecklicher Format-Erinnerung. "
+                             "Freigegeben wird nichts.")
+                    self.phase("review", f"{kind} (2. Versuch)")
+                    res2 = self.do_review(kind, snap, reviewer_note=note_block, attempt=2,
+                                          handover=self._review_handover)
+                    if not self.review_ok(res2):
+                        # Nach zwei Versuchen: pausieren, Queue behalten, KEIN Gate.
+                        self.review_failed([res, res2], kind, note_ids)
+                        continue
+                    res = res2
+                # Ab hier ist der Review gueltig: jetzt ist die Queue zugestellt.
+                self.commit_queue("claude", note_ids)
                 p = res.parsed
                 if p.issues:
                     self.say("Review unvollstaendig: " + "; ".join(p.issues) +

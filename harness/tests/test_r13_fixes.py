@@ -143,6 +143,7 @@ class TestFrischeReviewerSession(Base):
     def _review_mit_aufzeichnung(self):
         """Fuehrt do_review aus und zeichnet auf, wie der Reviewer gestartet wurde."""
         aufzeichnung: dict = {}
+        handover: dict = {}
         echt = rvmod.run_review
 
         def fake(cfg, log, prompt, **kw):
@@ -150,10 +151,14 @@ class TestFrischeReviewerSession(Base):
             aufzeichnung["prompt"] = prompt
             return echt(cfg, log, prompt, **kw)
 
-        with mock.patch.object(rvmod, "run_handover",
-                               lambda *a, **k: "UEBERGABE-MARKE: Stand B159, cc54 offen"):
+        def fake_handover(cfg, log, session_id, **kw):
+            handover["session_id"] = session_id
+            return "UEBERGABE-MARKE: Stand B159, cc54 offen"
+
+        with mock.patch.object(rvmod, "run_handover", fake_handover):
             with mock.patch.object(rvmod, "run_review", fake):
                 self.orch.do_review("batch_end", "(snapshot)")
+        aufzeichnung["handover_session"] = handover.get("session_id")
         return aufzeichnung
 
     def test_force_rotate_startet_neue_session_mit_uebergabe(self):
@@ -162,16 +167,24 @@ class TestFrischeReviewerSession(Base):
         self.orch.state.save()
         auf = self._review_mit_aufzeichnung()
         self.assertTrue(auf["new_session"], "es muss eine NEUE Session starten")
-        self.assertEqual(auf["session_id"], "alte-session-123", "die alte wird nur fuer die Uebergabe genutzt")
+        self.assertNotEqual(auf["session_id"], "alte-session-123",
+                            "der Review laeuft in der NEUEN Session, nie in der alten")
+        self.assertEqual(auf["handover_session"], "alte-session-123",
+                         "die Uebergabe kommt aus der ALTEN Session")
         self.assertIn("UEBERGABE AUS DER VORIGEN SESSION", auf["prompt"])
         self.assertIn("UEBERGABE-MARKE", auf["prompt"])
         rev = self.orch.state.data["reviewer"]
         self.assertNotEqual(rev["session_id"], "alte-session-123")
+        self.assertEqual(auf["session_id"], rev["session_id"],
+                         "die Kennung im Zustand ist die des Laufs")
         self.assertFalse(rev.get("force_rotate"), "das Flag wird nach der Rotation geloescht")
         self.assertEqual(rev["reviews"], 1, "die neue Session zaehlt wieder bei 1")
         datei = Path(self.cfg.sub("sessions")) / "vorherige-session.md"
         self.assertTrue(datei.is_file())
         self.assertIn("UEBERGABE-MARKE", datei.read_text(encoding="utf-8"))
+        self.assertTrue((Path(self.cfg.sub("sessions")) /
+                         f"claude-{rev['session_id']}.md").is_file(),
+                        "die Uebergabe liegt schon VOR dem Review auf der Platte")
 
     def test_ohne_rotation_wird_die_session_fortgesetzt(self):
         self.orch.state.data["reviewer"] = {"session_id": "laufende-session-999", "reviews": 2}

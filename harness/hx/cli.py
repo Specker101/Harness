@@ -316,6 +316,88 @@ def cmd_demo(args) -> int:
     check("Merker wird bei Stopp/Ende abgearbeitet",
           orch.save_ghidra_if_pending("Demo-Stopp") and not orch.state.data.get("ghidra_pending"))
 
+    print("== 11: Rotation + Uebergabe + gescheiterter Review (echter Schleifendurchlauf) ==")
+    # Genau der Fall vom 2026-09-25: alte Session, Wechsel erzwungen, Uebergabe liegt
+    # vor, der erste Review liefert keinen gueltigen Protokollblock.
+    orch.state.data["batch"] = 159
+    orch.state.data["last_batch_number"] = 159
+    orch.state.data["reviewer"] = {"session_id": "alte-demo-session", "reviews": 2,
+                                   "force_rotate": True,
+                                   "pending_handover": {"from_session": "alte-demo-session",
+                                                        "text": "UEBERGABE-MARKE (Demo)",
+                                                        "at": now_iso()}}
+    orch.state.data["paused"] = True
+    orch.state.clear_gate()
+    orch.state.save()
+    rd159 = ensure_dir(Path(cfg.sub("runs")) / "b159")
+    write_text_atomic(rd159 / "antwort.md", "## 1) Uebernommener Stand\n(Demo) B159 fertig.\n")
+    write_text_atomic(rd159 / "result.json", '{\n "batch": 159, "profile": "none",\n'
+                                             ' "duration_s": 377.257, "duration_quelle": "cli",\n'
+                                             ' "duration_cli_s": 377.257,\n'
+                                             ' "stats": {"requests": 72}, "cost_usd": 0.068\n}\n')
+
+    def ein_durchlauf(mode: str) -> tuple[list[str], Path]:
+        """Einen Schleifendurchlauf fahren und danach anhalten (Demo-Hilfe)."""
+        gesagt: list[str] = []
+        orch.say = lambda t: gesagt.append(str(t))
+        orch.mock_reviewer_mode = mode
+        orch.state.data["paused"] = False
+        orch.state.save()
+        echt_review = orch.do_review
+        echt_peak = orch.peak_gate
+
+        def einmal(*a, **k):
+            res = echt_review(*a, **k)
+            orch.quit = True
+            return res
+
+        orch.do_review = einmal
+        orch.peak_gate = lambda: (True, "")
+        try:
+            orch._loop()
+        finally:
+            orch.do_review = echt_review
+            orch.peak_gate = echt_peak
+            orch.quit = False
+        return gesagt, Path(cfg.sub("runs")) / f"b{orch.expected_batch():03d}"
+
+    p_a = queue.enqueue(cfg.root, "claude", "Demo-Nachricht A: Audio-Frage klaeren.", "demo")
+    gesagt, ziel = ein_durchlauf("ok_zweiter_versuch")
+    check("Review landete im Anker-Verzeichnis (nicht b159)", ziel.name == "b160", ziel.name)
+    check("1. Versuch als Beleg verworfen",
+          len(list(ziel.glob("review-verworfen-*-v1.md"))) == 1)
+    check("2. Versuch ist das Review", (ziel / "review.md").is_file())
+    check("Gate traegt den Anker-Nachfolger",
+          (orch.state.gate or {}).get("tools", {}).get("batch") == orch.expected_batch(),
+          str((orch.state.gate or {}).get("tools")))
+    check("Belege bleiben in runs/b159", (rd159 / "antwort.md").is_file())
+    check("Queue nach gueltigem Review zugestellt",
+          not p_a.is_file() and (Path(cfg.root) / "inbox" / "done" / p_a.name).is_file())
+    check("Wiederholung wurde angekuendigt",
+          any("EINMAL" in s.upper() or "WIEDERHOL" in s.upper() for s in gesagt))
+    neuer_stand = orch.state.data["reviewer"]
+    check("Review laeuft in NEUER Session", neuer_stand["session_id"] != "alte-demo-session",
+          neuer_stand["session_id"])
+    check("Uebergabe wurde wiederverwendet (kein zweiter Aufruf)",
+          "Uebergabe wiederverwendet" in read_text(str(orch.log.path)))
+
+    # Zweiter Durchlauf: Review scheitert zweimal -> Pause, kein Gate, Queue bleibt liegen.
+    orch.discard_gate("Demo: Gate verwerfen")
+    p_b = queue.enqueue(cfg.root, "claude", "Demo-Nachricht B: bleibt liegen.", "demo")
+    gesagt2, _ = ein_durchlauf("parser_error")
+    check("kein Gate nach zwei Fehlversuchen", orch.state.gate is None)
+    check("Zustand PAUSED", orch.state.state == "PAUSED", orch.state.state)
+    check("Nachricht B bleibt in inbox/claude", p_b.is_file())
+    check("Nachricht B nicht als zugestellt verbucht",
+          queue.pending(cfg.root, "claude")[0].id not in (orch.state.data.get("delivered") or []))
+    check("Rohtexte als Belege (v1 und v2)",
+          len(list(ziel.glob("review-verworfen-*-v1.md"))) >= 1
+          and len(list(ziel.glob("review-verworfen-*-v2.md"))) >= 1)
+    check("Protokoll in logs/",
+          bool(list((Path(cfg.sub("logs"))).glob("review-verworfen-*.json"))))
+    check("Meldung nennt den Grund", any("PROTOKOLLBLOCK" in s.upper() for s in gesagt2))
+    queue.archive(cfg.root, [queue.pending(cfg.root, "claude")[0].id], "claude")
+
     print()
     if fails:
         print(f"DEMO: {len(fails)} FEHLER: " + ", ".join(fails))

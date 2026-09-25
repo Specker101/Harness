@@ -310,17 +310,20 @@ class TestReviewerModell(Base):
             res.error = "Reviewer-Modell weicht ab: 'claude-sonnet-5' statt 'claude-opus-5-5'"
             return res
 
-        gesagt: list[str] = []
-        self.orch.say = lambda t: gesagt.append(t)
         with mock.patch.object(rvmod, "run_review", fake):
-            self.orch.do_review("bootstrap", "(snapshot)")
+            res = self.orch.do_review("bootstrap", "(snapshot)")
+        # R13b: do_review verwirft nur (Rohantwort ablegen, nichts zaehlen, kein Gate);
+        # ueber Wiederholung/Pause entscheidet die Schleife (tests/test_r13b_fixes.py).
+        self.assertFalse(self.orch.review_ok(res), "falsches Modell ist kein gueltiger Review")
+        self.assertIn("claude-opus-5-5", self.orch.review_fehler_grund(res))
         self.assertIsNone(self.orch.state.gate, "kein Auftrag aus einem verworfenen Review")
-        self.assertTrue(self.orch.state.data["paused"])
-        text = "\n".join(gesagt)
-        self.assertIn("REVIEW VERWORFEN", text)
-        self.assertIn("claude-opus-5-5", text)
-        self.assertTrue((self.root / "runs" / "b159" / "review-verworfen.md").is_file())
-        self.assertFalse((self.root / "runs" / "b159" / "review-pre.md").is_file())
+        ziel = Path(self.orch._review_dir)
+        self.assertEqual(len(list(ziel.glob("review-verworfen-*-v1.md"))), 1,
+                         "die Rohantwort wird als Beleg abgelegt")
+        self.assertFalse((ziel / "review-pre.md").is_file())
+        self.assertFalse((ziel / "review.md").is_file())
+        self.assertEqual(int((self.orch.state.data["reviewer"] or {}).get("reviews", 0)), 0,
+                         "ein ungueltiger Review zaehlt nicht")
 
     def test_modell_und_effort_im_status_und_den_messdaten(self):
         self.orch.say = lambda *a, **k: None

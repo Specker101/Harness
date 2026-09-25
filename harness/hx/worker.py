@@ -22,13 +22,17 @@ from . import envs, pricing, secrets, streamjson
 from .ghidra import Ghidra
 from .proc import run_stream
 from .profiles import builtin_args, load_profile
-from .util import ensure_dir, now_iso, read_text, write_json_atomic, write_text_atomic
+from .util import ensure_dir, now_iso, read_text, secs_human, write_json_atomic, write_text_atomic
 
 
 class WorkerResult:
     def __init__(self):
         self.rc: int | None = None
-        self.duration_s = 0.0
+        self.duration_s = 0.0               # Wanduhr des Worker-Prozesses (R13c)
+        self.duration_harness_s: float | None = None   # vom Harness gemessen
+        self.duration_cli_s: float | None = None       # vom claude-Prozess gemeldet
+        self.duration_api_s: float | None = None       # nur API-Zeit
+        self.duration_quelle: str = ""     # woraus duration_s stammt
         self.killed_reason: str | None = None
         self.alarms: list[str] = []
         self.limits: dict = {}
@@ -49,6 +53,21 @@ class WorkerResult:
         return (f"rc={self.rc} dauer={self.duration_s:.0f}s grenze={self.killed_reason or '-'} "
                 f"anfragen={self.stats.get('requests')} kosten=${self.cost_usd:.4f} "
                 f"modell={self.model_seen} (ok={self.model_ok})")
+
+    def dauer_text(self) -> str:
+        """Laufzeit mit Herkunft - nie eine Zahl ohne Bezug (R13c)."""
+        basis = {
+            "cli": "Wanduhr des Worker-Prozesses laut claude-Prozess",
+            "wanduhr": "vom Harness gemessene Wanduhr (Prozess nennt keine Dauer)",
+            "api": "NUR API-Zeit - der Prozess nennt keine Wanduhr",
+        }.get(self.duration_quelle or "", self.duration_quelle or "Herkunft unbekannt")
+        txt = f"{secs_human(self.duration_s)} ({basis}"
+        if self.duration_quelle == "cli" and self.duration_harness_s:
+            rest = self.duration_harness_s - self.duration_s
+            if rest >= 120:
+                txt += f"; zusaetzlich {secs_human(rest)} Harness-Nachlauf/Rueckstau"
+        txt += ")"
+        return txt
 
 
 def save_ghidra_after_batch(cfg, log, state, profile_name: str, mock: bool = False) -> dict:
@@ -208,6 +227,16 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
         rc_file = Path(rd) / "mock_rc.txt"
         res.rc = int(rc_file.read_text(encoding="utf-8").strip()) if rc_file.is_file() else 0
         res.duration_s = 1.0
+        # Auch die Attrappe traegt die Herkunft der Laufzeit (R13c) - mit derselben
+        # Vorrangregel wie der echte Lauf: Prozess-Wanduhr vor Harness-Messung.
+        res.duration_harness_s = res.duration_s
+        d_cli, d_feld = stats.duration_field()
+        res.duration_cli_s = d_cli
+        if d_cli:
+            res.duration_s = d_cli
+            res.duration_quelle = "cli" if d_feld == "duration_ms" else "api"
+        else:
+            res.duration_quelle = "wanduhr"
         if res.rc != 0:
             res.killed_reason = "mock_crash"
     else:
@@ -264,9 +293,31 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
                          on_start=lambda pid: state.worker_started(pid, str(stream_path),
                                                                    session_id))
         res.rc = run.rc
-        res.duration_s = run.duration_s
+        res.duration_harness_s = run.duration_s
+        d_cli, d_feld = stats.duration_field()
+        res.duration_cli_s = d_cli
+        res.duration_api_s = (round(float((stats.result or {}).get("duration_api_ms", 0)) / 1000.0, 3)
+                              if isinstance((stats.result or {}).get("duration_api_ms"), (int, float))
+                              else None)
+        # R13c: die Laufzeit ist die Wanduhr des Worker-Prozesses. Vorrang hat die
+        # Selbstauskunft des claude-Prozesses (`duration_ms`); sie zaehlt bis zu seinem
+        # Ende. Unsere eigene Messung laeuft weiter, bis die Ausgabe abgearbeitet ist -
+        # ein Rueckstau im Harness wuerde die Zahl sonst aufblaehen (B159: 20 min statt 6).
+        if res.duration_cli_s:
+            res.duration_s = res.duration_cli_s
+            res.duration_quelle = "cli" if d_feld == "duration_ms" else "api"
+        else:
+            res.duration_s = run.duration_s
+            res.duration_quelle = "wanduhr"
         res.killed_reason = res.killed_reason or run.killed_reason
         res.stream_path = str(stream_path)
+        if res.duration_cli_s and (run.duration_s - res.duration_cli_s) >= 120:
+            # R13c: eine grosse Luecke heisst, der Harness hing hinterher (Rueckstau der
+            # Ausgabe) - das gehoert sichtbar in die Bilanz, nicht in eine stille Zahl.
+            res.alarms.append(
+                f"ALARM: Harness-Nachlauf {run.duration_s - res.duration_cli_s:.0f}s "
+                f"(Prozess {res.duration_cli_s:.0f}s laut {d_feld or 'claude'}, "
+                f"{run.duration_s:.0f}s aus Harness-Sicht) - Ausgabe-Rueckstau pruefen")
         if res.duration_s >= lim["alarm_wall"]:
             res.alarms.append(f"ALARM: Laufzeit {res.duration_s:.0f}s (Alarmgrenze {lim['alarm_wall']:.0f}s)")
 
@@ -302,6 +353,9 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
     res.stats["result_usage"] = stats.result_usage()
     res.stats["usage_check"] = stats.usage_check()
     res.stats["rebuilt"] = bool(rebuilt)
+    res.stats["dauer"] = {"wanduhr_s": res.duration_s, "quelle": res.duration_quelle,
+                          "harness_s": res.duration_harness_s, "claude_s": res.duration_cli_s,
+                          "api_s": res.duration_api_s}
     if ghidra_save:
         res.ghidra_save = save_ghidra_after_batch(cfg, log, state, profile_name, mock=mock)
         if res.ghidra_save.get("needed") and res.ghidra_save.get("ok"):
@@ -316,6 +370,8 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
         "cost_naive_usd": res.cost_naive_usd, "model_seen": res.model_seen,
         "model_ok": res.model_ok, "finished_at": now_iso(),
         "rebuilt": bool(rebuilt), "ghidra_save": res.ghidra_save,
+        "duration_quelle": res.duration_quelle, "duration_cli_s": res.duration_cli_s,
+        "duration_harness_s": res.duration_harness_s, "duration_api_s": res.duration_api_s,
     }
     write_json_atomic(rd / "result.json", payload)
     write_text_atomic(rd / "antwort.md", res.final_text)
@@ -349,10 +405,17 @@ def rebuild_from_stream(cfg, log, state, batch: int):
                 res.profile = line.split(":", 1)[1].strip() or "unbekannt"
     res.rc = 0 if (stats.result or {}).get("subtype") == "success" else None
     res.killed_reason = "nachgerechnet (Harness stand nach dem Worker-Ende still)"
-    dauer = (stats.result or {}).get("duration_api_ms")
-    res.duration_s = round(float(dauer) / 1000.0, 3) if isinstance(dauer, (int, float)) else 0.0
+    # R13c: Laufzeit = Wanduhr des Worker-Prozesses. Der Mitschnitt traegt sie selbst
+    # (`duration_ms`); `duration_api_ms` ist nur die API-Zeit und war zu klein.
+    d_cli, d_feld = stats.duration_field()
+    res.duration_cli_s = d_cli
+    res.duration_quelle = "cli" if d_feld == "duration_ms" else ("api" if d_feld else "")
+    res.duration_s = d_cli or 0.0
+    v_api = (stats.result or {}).get("duration_api_ms")
+    res.duration_api_s = round(float(v_api) / 1000.0, 3) if isinstance(v_api, (int, float)) else None
     if log:
-        log.warn("Lauf aus dem Mitschnitt nachgerechnet", batch=batch, profil=res.profile)
+        log.warn("Lauf aus dem Mitschnitt nachgerechnet", batch=batch, profil=res.profile,
+                 laufzeit_s=res.duration_s, quelle=res.duration_quelle or "unbekannt")
     return _finish_run(cfg, state, res, stats, batch, res.profile, log, rebuilt=True,
                        ghidra_save=False)
 
@@ -443,7 +506,7 @@ def write_snapshot(cfg, state, res: WorkerResult, stats: streamjson.StreamStats,
 
 ## Harness-Kennzahlen
 - Profil: {res.profile} | Programm: {res.program or '-'}
-- Exit-Code: {res.rc} | Dauer: {res.duration_s:.0f}s | Grenze ausgeloest: {res.killed_reason or 'nein'}
+- Exit-Code: {res.rc} | Dauer: {res.dauer_text()} | Grenze ausgeloest: {res.killed_reason or 'nein'}
 - Alarmmeldungen: {'; '.join(res.alarms) if res.alarms else 'keine'}
 - Anfragen: {t.get('requests')} | Eingabe Miss: {t.get('input_miss')} | Cache-Hit: {t.get('cache_read')} \
 | Cache-Neu: {t.get('cache_creation')} | Ausgabe: {t.get('output')}

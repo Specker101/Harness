@@ -126,12 +126,22 @@ class State:
         self.save()
         return int(rev["reviews"])
 
-    def reviewer_new_session(self, session_id: str) -> None:
+    def reviewer_new_session(self, session_id: str, handover: str = "",
+                             from_session: str = "") -> None:
+        """Neue Reviewer-Session verbuchen (R13b).
+
+        Die Uebergabe der alten Session wird MITGESPEICHERT. Scheitert der Review oder
+        bricht der Harness ab, ist sie nicht verloren: `do_review` verwendet sie wieder,
+        statt die alte Session ein zweites Mal zu fragen.
+        """
         self.data["reviewer"] = {
             "session_id": session_id,
             "reviews": 0,
             "started_at": now_iso(),
             "last_decision": None,
+            "force_rotate": False,
+            "pending_handover": ({"from_session": from_session, "text": handover,
+                                  "at": now_iso()} if handover else {}),
         }
         self.save()
 

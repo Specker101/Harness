@@ -198,6 +198,20 @@ rechnet `python -m hx.cli rebuild <N>` Tokens, Kosten und Snapshot aus
 `result`-Ereignis (die Ereignisse selbst tragen bei DeepSeek keine Ausgabe); die
 Gegenprobe steht in den Messdaten (`usage_check`).
 
+**Laufzeit = Wanduhr des Worker-Prozesses.** Gemessen wird die Zeit vom Start bis zum Ende
+des Worker-Prozesses; beim Nachrechnen kommt sie aus `duration_ms` des Mitschnitts (nicht
+aus `duration_api_ms`, das nur die API-Zeit ist — B159 stand damit mit 289 s in der Bilanz,
+während der Prozess 377 s lief). Jede Laufzeit nennt ihre Herkunft; liegt die Harness-Messung
+um mehr als 120 s über der Selbstauskunft des `claude`-Prozesses, meldet der Lauf
+`ALARM: Harness-Nachlauf … - Ausgabe-Rueckstau pruefen`.
+
+**Frische Reviewer-Session und Übergabe.** Der Wechsel ist verbucht, sobald er entschieden
+ist: neue Kennung im Zustand, Übergabe in `sessions/claude-<neu>.md` und
+`sessions/vorherige-session.md`. Liegt für die alte Session schon eine brauchbare Übergabe
+vor (`reviewer.pending_handover`), wird sie **wiederverwendet** statt erneut abgefragt.
+Der Review läuft immer in der neuen Kennung (`--session-id <neu>`); die alte wird nur per
+`--resume` für die Übergabe benutzt.
+
 **Frische Reviewer-Session (R13-2).** Eine Session wird nach `[claude] reviewer_rotate`
 Reviews **regulär rotiert**. Vor der Rotation bittet der Harness die alte Session um eine
 **Übergabe** (`UEBERGABE`-Aufruf, Phase „uebergabe“, Zeitlimit, Fehler ist nicht tödlich);
@@ -228,3 +242,24 @@ meldet beide Nummern und bietet an
   * `/review` — neuen Review anfordern (verwirft den offenen Auftrag).
 
 Die Nummer des verworfenen Auftrags wird in `logs/verworfen-<id>.json` abgelegt.
+
+**Review-Verzeichnis = Anker-Nummer.** `runs/b<N>` sammelt alles zu Batch N: die **Worker**-Belege
+(`auftrag.md`, `stream.jsonl`, `antwort.md`, `result.json`) und das **Review**, das den
+nächsten Batch vorbereitet (`review.md`/`review-pre.md`, `harness-facts.md`, `reviewer.jsonl`).
+Ein Review, das Batch 159 bewertet, liegt also in `runs/b160` — die Belege des bewerteten
+Laufs bleiben in `runs/b159`. Das Gate trägt dieselbe Nummer (160, der Batch, für den
+freigegeben wird); die Messdatenzeile nennt beide (`- Review: bewertet wird Batch 159; die
+Instruktion gilt fuer Batch 160`).
+
+**Ein Review ohne gültigen Protokollblock öffnet nie ein Gate.** Fehlt ein Block
+(`TELEGRAM_SUMMARY`, `DS_TOOLS` mit Profil, `DS_INSTRUCTION` mit Batch-Nummer) oder stimmt
+das Modell nicht, wird der Review **verworfen** (Rohantwort als
+`runs/b<N>/review-verworfen-<Stempel>-v<Versuchsnummer>.md`, Mitschnitt v1 als
+`reviewer-v1.jsonl`), dann läuft **ein** Wiederholungsversuch mit ausdrücklicher
+Format-Erinnerung (`=== FORMAT-ERINNERUNG (ZWEITER VERSUCH) ===` plus die vorige Antwort).
+Scheitert auch der, **pausiert** der Harness und meldet per Telegram mit Verweis auf beide
+Rohtexte; Protokoll in `logs/review-verworfen-<ts>.json`. Kein Gate, keine Freigabe.
+
+**Queue erst nach gültigem Review.** `/claude`-Nachrichten gelten erst als zugestellt, wenn
+der Review einen gültigen Protokollblock geliefert hat — sonst bleiben sie unverändert in
+`inbox/claude` (und werden beim nächsten Review wieder mitgeschickt).

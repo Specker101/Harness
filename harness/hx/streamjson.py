@@ -237,6 +237,21 @@ class StreamStats:
         v = (self.result or {}).get("total_cost_usd")
         return float(v) if isinstance(v, (int, float)) else None
 
+    def duration_field(self) -> tuple[float | None, str]:
+        """Die vom Worker-Prozess SELBST gemeldete Laufzeit + ihre Herkunft (R13c).
+
+        `duration_ms` ist die Wanduhr-Zeit des `claude`-Prozesses, `duration_api_ms`
+        nur die darin verbrachte API-Zeit. Fuer die Bilanz ist die Wanduhr massgeblich:
+        B159 stand mit `duration_api_ms` (288 s) in der Bilanz, waehrend der Prozess
+        377 s lief - der Unterschied ist Ausfuehrungszeit im Kind (Werkzeuge, Rueckstau).
+        """
+        r = self.result or {}
+        for key in ("duration_ms", "duration_api_ms"):
+            v = r.get(key)
+            if isinstance(v, (int, float)) and v > 0:
+                return round(float(v) / 1000.0, 3), key
+        return None, ""
+
     def tool_table(self) -> list[tuple[str, int]]:
         return sorted(self.tool_counts.items(), key=lambda kv: (-kv[1], kv[0]))
 
