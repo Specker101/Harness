@@ -52,11 +52,12 @@ class StreamRun:
 def run_stream(cmd: list[str], env: dict, cwd: str, out_path: str | Path,
                on_event=None, hard_wall_s: float | None = None,
                cancel=None, log=None, stdin_text: str | None = None,
-               stderr_path: str | Path | None = None) -> StreamRun:
+               stderr_path: str | Path | None = None, on_start=None) -> StreamRun:
     """Startet den Prozess, liest stdout zeilenweise (UTF-8) und ruft on_event(line).
 
     on_event(line) darf "kill" zurueckgeben -> Prozessbaum wird beendet und
     killed_reason auf "event" gesetzt. cancel() wird im Sekundentakt gefragt.
+    on_start(pid) wird sofort nach dem Start gerufen (fuer den Zustand).
     """
     res = StreamRun()
     out_path = Path(out_path)
@@ -77,6 +78,11 @@ def run_stream(cmd: list[str], env: dict, cwd: str, out_path: str | Path,
         res.started_at = now_iso()
         res.stdout_path = str(out_path)
         res.stderr_path = str(stderr_path)
+        if on_start is not None:
+            try:
+                on_start(proc.pid)
+            except Exception:
+                pass
 
         q: "queue.Queue[bytes | None]" = queue.Queue()
 
@@ -178,9 +184,20 @@ def run_stream(cmd: list[str], env: dict, cwd: str, out_path: str | Path,
 
 def run_capture(cmd: list[str], cwd: str, env: dict | None = None,
                 timeout: float = 120.0, text_input: str | None = None) -> tuple[int, str, str]:
-    """Einfacher Einmalaufruf (Git, taskkill, Pruefbefehle) mit UTF-8-Ausgabe."""
-    p = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, timeout=timeout,
-                       input=text_input.encode("utf-8") if text_input is not None else None)
+    """Einfacher Einmalaufruf (Git, taskkill, Pruefbefehle) mit UTF-8-Ausgabe.
+
+    Ein Zeitlimit bricht IMMER ab und meldet es - ein haengender Aufruf darf den
+    Harness nicht stehen lassen (R11-1: git wartete auf Zugangsdaten).
+    """
+    try:
+        p = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, timeout=timeout,
+                           input=text_input.encode("utf-8") if text_input is not None else None)
+    except subprocess.TimeoutExpired as exc:
+        out = (exc.stdout or b"").decode("utf-8", errors="replace")
+        err = (exc.stderr or b"").decode("utf-8", errors="replace")
+        return -9, out, (err + f"\n[ZEITLIMIT {timeout:.0f}s erreicht - Aufruf abgebrochen]").strip()
+    except OSError as exc:
+        return -1, "", f"[Start fehlgeschlagen: {exc}]"
     return (p.returncode,
             p.stdout.decode("utf-8", errors="replace"),
             p.stderr.decode("utf-8", errors="replace"))

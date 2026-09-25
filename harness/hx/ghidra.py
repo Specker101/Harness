@@ -44,9 +44,13 @@ class Ghidra:
         except json.JSONDecodeError:
             return {"raw": body}
 
-    def _post(self, path: str, body: dict, timeout: float = 120.0) -> dict:
+    def _post(self, path: str, body: dict, timeout: float = 120.0,
+              params: dict | None = None) -> dict:
+        url = self.base + path
+        if params:
+            url += "?" + urllib.parse.urlencode(params)
         data = json.dumps(body).encode("utf-8")
-        req = urllib.request.Request(self.base + path, data=data, method="POST",
+        req = urllib.request.Request(url, data=data, method="POST",
                                      headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=timeout) as r:
             raw = r.read().decode("utf-8", errors="replace")
@@ -54,6 +58,25 @@ class Ghidra:
             return json.loads(raw)
         except json.JSONDecodeError:
             return {"raw": raw}
+
+    # ------------------------------------------------- Rohe Werkzeugaufrufe (R12)
+    def call(self, path: str, params: dict | None = None, timeout: float = 60.0) -> dict:
+        """GET auf einen beliebigen Endpunkt (fuer Rauchtest und Nachpruefungen)."""
+        return self._get(path, params, timeout=timeout)
+
+    def set_comment(self, address: str, comment: str, program: str = "",
+                    kind: str = "eol") -> dict:
+        """Kommentar setzen ODER loeschen (leerer Text = entfernen)."""
+        return self._post("/set_comment",
+                          {"address": address, "comment": comment, "type": kind},
+                          params={"program": program} if program else None)
+
+    def get_comment(self, address: str, program: str = "") -> dict:
+        return self._get("/get_comment", {"address": address, "program": program})
+
+    def save_program(self, program: str = "") -> dict:
+        return self._get("/save_program", {"program": program} if program else None,
+                         timeout=180.0)
 
     # ------------------------------------------------------------ Pruefungen
     def reachable(self, timeout: float = 4.0) -> tuple[bool, dict]:

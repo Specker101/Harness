@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import uuid
 from pathlib import Path
 
@@ -21,7 +22,7 @@ from . import envs, pricing, secrets, streamjson
 from .ghidra import Ghidra
 from .proc import run_stream
 from .profiles import builtin_args, load_profile
-from .util import ensure_dir, now_iso, write_json_atomic, write_text_atomic
+from .util import ensure_dir, now_iso, read_text, write_json_atomic, write_text_atomic
 
 
 class WorkerResult:
@@ -42,11 +43,45 @@ class WorkerResult:
         self.run_dir: str | None = None
         self.profile: str | None = None
         self.program: str | None = None
+        self.ghidra_save: dict = {}          # R13-1: nach dem Batch gespeichert?
 
     def describe(self) -> str:
         return (f"rc={self.rc} dauer={self.duration_s:.0f}s grenze={self.killed_reason or '-'} "
                 f"anfragen={self.stats.get('requests')} kosten=${self.cost_usd:.4f} "
                 f"modell={self.model_seen} (ok={self.model_ok})")
+
+
+def save_ghidra_after_batch(cfg, log, state, profile_name: str, mock: bool = False) -> dict:
+    """Nach einem Batch mit SCHREIBENDEM Profil sofort speichern (R13-1).
+
+    Ohne das bleiben die Aenderungen nur im Speicher des Servers: bei Absturz oder
+    Neustart sind sie weg, und der Git-Commit waere weiter als die Ghidra-DB.
+    Rueckgabe: {"needed":bool, "ok":bool|None, "hinweis":str, "steps":[...]}
+    """
+    try:
+        profile = load_profile(cfg.root, profile_name)
+    except Exception as exc:
+        return {"needed": False, "ok": None, "hinweis": f"Profil unbekannt: {str(exc)[:80]}"}
+    if not profile.writes_ghidra:
+        return {"needed": False, "ok": None,
+                "hinweis": f"nicht noetig (Profil {profile_name} schreibt nicht)"}
+    if mock:
+        return {"needed": True, "ok": True, "hinweis": "Attrappe: Speichern nur simuliert",
+                "steps": ["mock: save_all_programs simuliert"]}
+    try:
+        res = Ghidra(cfg, log).save_all_programs()
+    except Exception as exc:
+        if log:
+            log.error("Ghidra-Speichern nach dem Batch fehlgeschlagen", fehler=str(exc)[:200])
+        return {"needed": True, "ok": False, "hinweis": f"Fehler: {str(exc)[:200]}", "steps": []}
+    ok = bool(res.get("success", True)) if isinstance(res, dict) else True
+    hinweis = (f"save_all_programs ok ({res.get('saved_count')} Programme)"
+               if ok else f"save_all_programs meldet Fehler: {json.dumps(res)[:200]}")
+    if log:
+        (log.info if ok else log.error)("Ghidra nach dem Batch gespeichert" if ok
+                                        else "Ghidra NICHT gespeichert", hinweis=hinweis)
+    return {"needed": True, "ok": ok, "hinweis": hinweis,
+            "steps": [f"save_all_programs -> {json.dumps(res, ensure_ascii=False)[:300]}"]}
 
 
 def run_dir(cfg, batch: int) -> Path:
@@ -115,8 +150,22 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
     batch = state.batch
     rd = run_dir(cfg, batch)
     res.run_dir = str(rd)
+    if profile.writes_ghidra:
+        # R13-1: ab jetzt koennen Aenderungen im Server-Speicher stehen, die noch
+        # nicht in der Projektdatei sind. Der Merker wird erst nach dem Speichern
+        # wieder geloescht (auch bei Stopp und Harness-Ende geprueft).
+        state.data["ghidra_pending"] = True
+        state.save()
 
     # --- 1./2. Ghidra -----------------------------------------------------------------
+    if not profile.mcp:
+        # Profil ohne Ghidra-Zugriff (z. B. none): KEIN Programmwechsel, KEINE Sicherung
+        # und KEIN Programm in den Messdaten - sonst stuende im Bericht ein Programm,
+        # das nie gestellt wurde.
+        if res.program:
+            log.info("Profil ohne Ghidra-Zugriff - Programm wird nicht gestellt",
+                     profil=profile_name, programm=str(res.program))
+        res.program = None
     if profile.mcp and not mock:
         gh = Ghidra(cfg, log)
         if not gh.ensure_server(log):
@@ -178,9 +227,11 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
         }
         fired: set[str] = set()
         extra_dates = list(cfg.get("peak", "extra_offpeak_dates", []) or [])
+        letzter_takt = [0.0]
 
         def on_event(line: str):
-            if tick is not None:
+            if tick is not None and (time.time() - letzter_takt[0]) >= TICK_MIN_INTERVAL_S:
+                letzter_takt[0] = time.time()
                 try:
                     tick()
                 except Exception:
@@ -209,7 +260,9 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
 
         run = run_stream(cmd, env, cwd=str(cfg.decomp), out_path=stream_path,
                          on_event=on_event, hard_wall_s=lim["hard_wall"], log=log,
-                         cancel=cancel, stdin_text=prompt, stderr_path=rd / "stream.err.txt")
+                         cancel=cancel, stdin_text=prompt, stderr_path=rd / "stream.err.txt",
+                         on_start=lambda pid: state.worker_started(pid, str(stream_path),
+                                                                   session_id))
         res.rc = run.rc
         res.duration_s = run.duration_s
         res.killed_reason = res.killed_reason or run.killed_reason
@@ -218,6 +271,18 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
             res.alarms.append(f"ALARM: Laufzeit {res.duration_s:.0f}s (Alarmgrenze {lim['alarm_wall']:.0f}s)")
 
     # --- 6. Nachher-Pruefung + Snapshot ------------------------------------------------
+    return _finish_run(cfg, state, res, stats, batch, profile_name, log, mock=mock)
+
+
+def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebuilt: bool = False,
+                mock: bool = False, ghidra_save: bool = True):
+    """Messdaten, result.json, antwort.md und Snapshot schreiben (R11-2).
+
+    Gemeinsam fuer den normalen Lauf und fuer das Nachrechnen aus einem
+    Mitschnitt (`rebuild_from_stream`). Bei schreibenden Profilen wird hier auch
+    die Ghidra-DB gespeichert (R13-1) - vor Push und Review.
+    """
+    rd = run_dir(cfg, batch)
     res.stats = stats.totals()
     extra_dates = list(cfg.get("peak", "extra_offpeak_dates", []) or [])
     res.cost_usd = stats.cost_usd(extra_dates)
@@ -234,6 +299,15 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
     res.stats["num_turns"] = stats.num_turns()
     res.stats["total_cost_usd_field"] = stats.total_cost_usd_field()
     res.stats["tariff_now"] = pricing.tariff(None, extra_dates)
+    res.stats["result_usage"] = stats.result_usage()
+    res.stats["usage_check"] = stats.usage_check()
+    res.stats["rebuilt"] = bool(rebuilt)
+    if ghidra_save:
+        res.ghidra_save = save_ghidra_after_batch(cfg, log, state, profile_name, mock=mock)
+        if res.ghidra_save.get("needed") and res.ghidra_save.get("ok"):
+            state.data["ghidra_pending"] = False
+            state.save()
+        res.stats["ghidra_save"] = res.ghidra_save
 
     payload = {
         "batch": batch, "profile": profile_name, "program": res.program,
@@ -241,11 +315,46 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
         "alarms": res.alarms, "stats": res.stats, "cost_usd": res.cost_usd,
         "cost_naive_usd": res.cost_naive_usd, "model_seen": res.model_seen,
         "model_ok": res.model_ok, "finished_at": now_iso(),
+        "rebuilt": bool(rebuilt), "ghidra_save": res.ghidra_save,
     }
     write_json_atomic(rd / "result.json", payload)
     write_text_atomic(rd / "antwort.md", res.final_text)
     res.snapshot_path = write_snapshot(cfg, state, res, stats, log)
     return res
+
+
+def rebuild_from_stream(cfg, log, state, batch: int):
+    """Einen Lauf aus dem vorhandenen Mitschnitt nachrechnen (R11-2).
+
+    Gedacht fuer den Fall, dass der Harness nach dem Worker-Ende stehen bleibt:
+    Die Zahlen kommen dann aus `runs/b<N>/stream.jsonl` und `auftrag.md` selbst -
+    nichts wird geschaetzt. Das Ergebnis wird als `rebuilt` gekennzeichnet.
+    """
+    rd = run_dir(cfg, batch)
+    stream = rd / "stream.jsonl"
+    if not stream.is_file():
+        raise RuntimeError(f"kein Mitschnitt vorhanden: {stream}")
+    stats = streamjson.StreamStats()
+    with open(stream, "r", encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            stats.feed(line)
+    res = WorkerResult()
+    res.run_dir = str(rd)
+    res.stream_path = str(stream)
+    res.profile = "unbekannt"
+    auftrag = rd / "auftrag.md"
+    if auftrag.is_file():
+        for line in read_text(auftrag).splitlines()[:60]:
+            if "ghidra-profil dieses laufs" in line.lower():
+                res.profile = line.split(":", 1)[1].strip() or "unbekannt"
+    res.rc = 0 if (stats.result or {}).get("subtype") == "success" else None
+    res.killed_reason = "nachgerechnet (Harness stand nach dem Worker-Ende still)"
+    dauer = (stats.result or {}).get("duration_api_ms")
+    res.duration_s = round(float(dauer) / 1000.0, 3) if isinstance(dauer, (int, float)) else 0.0
+    if log:
+        log.warn("Lauf aus dem Mitschnitt nachgerechnet", batch=batch, profil=res.profile)
+    return _finish_run(cfg, state, res, stats, batch, res.profile, log, rebuilt=True,
+                       ghidra_save=False)
 
 
 WORKER_PREAMBLE = """Du bist der Worker (DeepSeek über Claude Code) im Projekt Silent Scope Decomp.
@@ -286,6 +395,11 @@ MARKER (genau so schreiben, einer pro Zeile, am Ende des Berichts)
 
 # Harte Grenze der stdin-Übergabe (Doku: "Piped stdin is capped at 10MB").
 MAX_STDIN_BYTES = 9_000_000
+
+# R11-1: der Takt (Telegram-Abfrage + lokale Befehle) darf NICHT bei jeder Zeile
+# laufen. B159 hatte 20.486 Zeilen - mit einem Langpoll je Zeile stand der Harness
+# nach dem Worker-Ende minutenlang still. Ein Takt alle 2 s genuegt.
+TICK_MIN_INTERVAL_S = 2.0
 
 
 def build_prompt(cfg, instruction: str, queue_block: str, program: str | None, profile: str) -> str:

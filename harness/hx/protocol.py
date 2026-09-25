@@ -164,6 +164,8 @@ def parse_tools(raw: str) -> tuple[str | None, str | None]:
 
 BATCH_RE = re.compile(r"\bBatch\s*(?:Nr\.?\s*)?(\d{1,4})\b", re.IGNORECASE)
 ANCHOR_BATCH_RE = re.compile(r"\bBATCH\s+(\d{1,4})\b")
+# Querverweis aus der Zeile "**Naechster Schritt:** ... **B159:** ..." des Ankers.
+ANCHOR_NEXT_RE = re.compile(r"\bB\s?(\d{3,4})\b")
 
 
 def parse_batch_number(text: str) -> int | None:
@@ -173,9 +175,23 @@ def parse_batch_number(text: str) -> int | None:
 
 
 def parse_anchor_batch(text: str) -> int | None:
-    """Liest die Batch-Nummer des Ankers ("**Stand:** BATCH 158 ...")."""
+    """Liest die Batch-Nummer des Anker-Kopfes ("**Stand:** BATCH 158 ...")."""
     m = ANCHOR_BATCH_RE.search(text or "")
     return int(m.group(1)) if m else None
+
+
+def parse_anchor_next_hint(text: str) -> int | None:
+    """Liest die im Anker genannte NAECHSTE Nummer ("**Naechster Schritt:** (a) **B159:**").
+
+    Nur ein Querverweis zum Anker-Kopf: der Kopf sagt, welcher Batch abgeschlossen
+    ist, diese Zeile sagt, welcher als naechster gemeint ist. Gelesen wird die
+    ERSTE solche Zeile (der aktuelle Kopf; die ARCHIV-Abschnitte folgen spaeter).
+    """
+    for line in (text or "").splitlines():
+        if "Naechster Schritt" in line:
+            h = ANCHOR_NEXT_RE.search(line)
+            return int(h.group(1)) if h else None
+    return None
 
 
 def looks_like_limit(text: str) -> bool:

@@ -17,7 +17,7 @@ from pathlib import Path
 
 from .util import ensure_dir, now_iso, read_text, write_text_atomic
 
-NAMES = ("pause", "resume", "stop", "approve")
+NAMES = ("pause", "resume", "stop", "approve", "number")
 
 
 def ctl_dir(root: str | Path) -> Path:

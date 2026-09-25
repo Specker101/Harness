@@ -34,6 +34,7 @@ DEFAULTS = {
     "spent": {},
     "note": None,
     "last_error": None,
+    "phase": None,
 }
 
 

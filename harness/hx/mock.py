@@ -135,9 +135,43 @@ REVIEWER_LIMIT = """Usage limit reached. Your limit will reset at 2026-09-25 22:
 """
 
 
-def mock_reviewer_text(mode: str = "ok") -> str:
+def mock_reviewer_text(mode: str = "ok", batch: int | None = None) -> str:
     if mode == "parser_error":
         return REVIEWER_BROKEN
     if mode == "limit":
         return REVIEWER_LIMIT
+    if batch:
+        # Die Nummer muss stimmen: der Harness haelt bei Abweichung an (R10-1).
+        return REVIEWER_OK.replace("Batch 160", f"Batch {batch}")
     return REVIEWER_OK
+
+
+def mock_reviewer_stream(run_dir: Path, batch: int | None = None) -> Path:
+    """Schreibt einen Reviewer-Mitschnitt wie `claude -p --output-format stream-json`.
+
+    Damit ist auch der Review in `watch` lesbar (statt nur der Worker-Lauf).
+    """
+    run_dir = Path(run_dir)
+    text = mock_reviewer_text("ok", batch)
+    lines = [
+        _ev({"type": "system", "subtype": "init", "session_id": "mock-reviewer-0001",
+             "model": "claude-sonnet-5 (mock)",
+             "tools": [{"name": "Read"}, {"name": "Grep"}, {"name": "Glob"}]}),
+        _ev({"type": "assistant", "timestamp": "2026-09-25T20:10:00.000Z",
+             "message": {"id": "msg_r_mock_0", "model": "claude-sonnet-5 (mock)",
+                         "usage": _usage(1200, 0, 80),
+                         "content": [{"type": "tool_use", "id": "tu_r_mock_0", "name": "Read",
+                                      "input": {"file_path": "analysis/r1b-workstream.md"}}]}}),
+        _ev({"type": "assistant", "timestamp": "2026-09-25T20:10:02.000Z",
+             "message": {"id": "msg_r_mock_1", "model": "claude-sonnet-5 (mock)",
+                         "usage": _usage(200, 1400, 120),
+                         "content": [{"type": "tool_use", "id": "tu_r_mock_1", "name": "Grep",
+                                      "input": {"pattern": "BATCH", "path": "analysis"}}]}}),
+        _ev({"type": "assistant", "timestamp": "2026-09-25T20:10:04.000Z",
+             "message": {"id": "msg_r_mock_2", "model": "claude-sonnet-5 (mock)",
+                         "usage": _usage(0, 1600, 300),
+                         "content": [{"type": "text", "text": text}]}}),
+        _ev({"type": "result", "subtype": "success", "is_error": False, "num_turns": 3,
+             "duration_ms": 4200, "result": text, "session_id": "mock-reviewer-0001"}),
+    ]
+    return write_text_atomic(run_dir / "reviewer.jsonl", "\n".join(lines) + "\n")

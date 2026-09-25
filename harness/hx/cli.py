@@ -7,6 +7,10 @@
   python -m hx.cli probe-telegram
   python -m hx.cli allowlist-add <USER_ID>
   python -m hx.cli demo           [--scenario ok|parser_error|crash]
+  python -m hx.cli watch          [--batch N | --run <name>] [--no-color] [--once]
+  python -m hx.cli pause|resume|stop|approve|number <N>
+  python -m hx.cli send ds|claude "<Text>" [--file <pfad>]
+  python -m hx.cli run-instruction --file <pfad> [--profile none]
 """
 
 from __future__ import annotations
@@ -184,6 +188,31 @@ def cmd_demo(args) -> int:
                                                        f"programm={p1.program if p1 else '-'}")
     check("DS_INSTRUCTION vorhanden", bool(p1 and len(p1.instruction) > 40))
 
+    print("== 1b: Batch-Nummer kommt aus dem Anker ==")
+    aus_anker = orch.expected_batch()
+    check("Anker-Nummer gefunden", aus_anker > 0, orch.batch_number_line())
+    prompt = __import__("hx.reviewer", fromlist=["x"]).build_prompt(
+        cfg, "bootstrap", orch.review_context(orch.build_snapshot_text()))
+    check("Review-Prompt nennt die Anker-Nummer",
+          f"Naechster Batch laut Anker: {aus_anker}" in prompt)
+    check("kein interner Zaehler im Prompt", "der naechste Batch ist" not in prompt)
+    rdir = Path(cfg.sub("runs")) / f"b{aus_anker:03d}"
+    check("Review liegt nach echter Nummer", (rdir / "review-pre.md").is_file(), str(rdir.name))
+    check("Reviewer-Mitschnitt liegt daneben", (rdir / "reviewer.jsonl").is_file())
+    falsch = protocol.parse_review("<TELEGRAM_SUMMARY>x</TELEGRAM_SUMMARY>\n"
+                                   "<DS_TOOLS>profile: none</DS_TOOLS>\n"
+                                   "<DS_INSTRUCTION>Batch 1 - falsche Nummer</DS_INSTRUCTION>")
+    check("Parser liest die Nummer aus der Instruktion", falsch.batch == 1)
+    st_num = orch.gate_from_review(falsch, "(demo)")
+    check("Abweichung haelt an (kein Start)", st_num == "number_mismatch", st_num)
+    check("Harness ist dabei pausiert", bool(orch.state.data.get("paused")))
+    orch._do_number(str(aus_anker))
+    check("Nummer per /number korrigiert",
+          ((orch.state.gate or {}).get("tools") or {}).get("batch") == aus_anker)
+    orch.discard_gate("Demo: Nummernpruefung beendet")
+    orch.state.data["paused"] = False
+    orch.state.save()
+
     print("== 2: Parser-Fehlerfall (Attrappe ohne DS_TOOLS) ==")
     broken = protocol.parse_review(__import__("hx.mock", fromlist=["x"]).mock_reviewer_text("parser_error"))
     check("Fehler wird erkannt", any("DS_TOOLS" in i for i in broken.issues), str(broken.issues))
@@ -202,7 +231,10 @@ def cmd_demo(args) -> int:
     print("== 4: Worker-Batch (Attrappe) ==")
     gate = orch.state.gate
     tools = gate["tools"]
-    orch.state.next_batch()
+    # Nummer aus dem Anker uebernehmen (kein interner Zaehler) - wie in der Schleife.
+    orch.state.data["batch"] = orch.expected_batch()
+    orch.state.data["last_batch_number"] = orch.state.data["batch"]
+    orch.state.save()
     wres = orch.run_worker(gate["instruction"], tools["profile"], tools["program"], "")
     check("Worker-Ergebnis", wres.rc == 0 or args.scenario == "crash",
           f"rc={wres.rc}, {wres.describe()}")
@@ -239,6 +271,51 @@ def cmd_demo(args) -> int:
     orch.state.data["paused"] = False
     orch.state.save()
 
+    print("== 8: Profil none ohne Ghidra ==")
+    from .profiles import load_profile as _lp
+    none_p = _lp(cfg.root, "none")
+    check("Profil none ohne MCP", none_p.mcp is False)
+    check("Profil none schreibt Ghidra nicht", none_p.writes_ghidra is False)
+    p_none = protocol.parse_review(
+        "<TELEGRAM_SUMMARY>nur Doku</TELEGRAM_SUMMARY>\n"
+        "<DS_TOOLS>profile: none\nprogram: /830d01.27p.main.bin</DS_TOOLS>\n"
+        f"<DS_INSTRUCTION>Batch {orch.expected_batch()} - nur Doku</DS_INSTRUCTION>")
+    orch.gate_from_review(p_none, "(demo)")
+    check("Programm bei Profil none verworfen",
+          ((orch.state.gate or {}).get("tools") or {}).get("program") is None)
+    orch.discard_gate("Demo beendet")
+
+    print("== 9: Rotation mit Uebergabe (Attrappe) ==")
+    orch.state.data["reviewer"] = {"session_id": "alte-demo-session", "reviews": 10}
+    orch.state.save()
+    r3 = orch.do_review("batch_end", orch.build_snapshot_text())
+    check("Review nach Rotation", bool(r3.parsed and r3.parsed.blocks))
+    check("Rotation startet eine neue Session",
+          (orch.state.data["reviewer"] or {}).get("session_id") != "alte-demo-session",
+          str((orch.state.data["reviewer"] or {}).get("session_id")))
+    check("Uebergabedatei geschrieben",
+          (Path(cfg.sub("sessions")) / "vorherige-session.md").is_file())
+    p_rot = (Path(cfg.sub("sessions")) / "vorherige-session.md")
+    check("Uebergabe steht in der Datei", "UEBERGABE" in p_rot.read_text(encoding="utf-8").upper()
+          or "Attrappe" in p_rot.read_text(encoding="utf-8"))
+
+    print("== 10: Ghidra nach dem Batch speichern (Attrappe) ==")
+    r_none = wkmod.save_ghidra_after_batch(cfg, orch.log, orch.state, "none", mock=True)
+    check("Profil none: kein Speichern noetig", not r_none["needed"], r_none["hinweis"])
+    r_schreib = wkmod.save_ghidra_after_batch(cfg, orch.log, orch.state, "ghidra-standard",
+                                              mock=True)
+    check("Schreibprofil: Speichern ausgefuehrt", r_schreib["needed"] and r_schreib["ok"],
+          r_schreib["hinweis"])
+    check("Messdatenzeile ja",
+          orch.ghidra_save_line({"ghidra_save": r_schreib}).startswith("ja"))
+    check("Messdatenzeile NEIN",
+          orch.ghidra_save_line({"ghidra_save": {"needed": True, "ok": False,
+                                                  "hinweis": "Fehler"}}).startswith("NEIN"))
+    orch.state.data["ghidra_pending"] = True
+    orch.state.data["last_profile"] = "ghidra-standard"
+    check("Merker wird bei Stopp/Ende abgearbeitet",
+          orch.save_ghidra_if_pending("Demo-Stopp") and not orch.state.data.get("ghidra_pending"))
+
     print()
     if fails:
         print(f"DEMO: {len(fails)} FEHLER: " + ", ".join(fails))
@@ -247,14 +324,21 @@ def cmd_demo(args) -> int:
     return 0
 
 
-ENV_PROOF_PROMPT = """ENV-NACHWEIS. Nur eine einzige Aktion, danach Antwort.
+ENV_PROOF_PROMPT = """ENV-NACHWEIS. Drei Schritte, dann die Antwort.
 
 1. Führe GENAU EINEN PowerShell-Befehl aus:  (Get-ChildItem Env:).Name
-2. Schreibe in deiner Antwort NUR die Namen, die mit einem dieser Präfixe beginnen:
+   Schreibe in deiner Antwort NUR die Namen, die mit einem dieser Präfixe beginnen:
    ANTHROPIC, CLAUDE, DEEPSEEK, TELEGRAM, GHIDRA_MCP, OPENAI, AZURE.
    Beginnt keiner damit, schreibe genau: KEINE
-3. Gib KEINE Werte aus. Keine weiteren Werkzeugaufrufe, keine Erklärungen.
-4. Letzte Zeile: ENV-PROOF-FERTIG
+   Von diesen Variablen gibst du KEINEN Wert aus.
+
+2. Führe GENAU EINEN weiteren PowerShell-Befehl aus und schreibe die Ausgabe WÖRTLICH:
+   g++ --version; python --version; git --version
+   Diese drei Zeilen sind ERWÜNSCHT und ausdrücklich erlaubt: es sind
+   Werkzeug-Versionen und keine Zugangsdaten.
+
+3. Keine weiteren Werkzeugaufrufe, keine Erklärungen, keine Dateien anlegen.
+   Letzte Zeile: ENV-PROOF-FERTIG
 """
 
 ENV_NAMES_PATTERN = (r"\b(ANTHROPIC[A-Z0-9_]*|CLAUDE[A-Z0-9_]*|DEEPSEEK[A-Z0-9_]*|"
@@ -321,6 +405,35 @@ def cmd_env_proof(args) -> int:
 
     t = stats.totals()
     erfolg = (not verdaechtig) and (not wert_treffer) and run.rc == 0
+    # --- Werkzeugkette (R11-3): lokal mit DERSELBEN Umgebung messen und mit der
+    # --- Antwort des Workers vergleichen.
+    lokal = dict(envs.toolchain(env))
+    import re as _re2
+
+    def _versions(text: str) -> dict:
+        out: dict[str, str] = {}
+        for line in text.splitlines():
+            l = line.strip()
+            for key, pref in (("g++", "g++"), ("python", "python "), ("git", "git version")):
+                if l.lower().startswith(pref) and key not in out:
+                    out[key] = l[:120]
+        return out
+
+    def _zahl(text: str) -> str:
+        m = _re2.search(r"(\d+\.\d+\.\d+|\d+\.\d+)", text or "")
+        return m.group(1) if m else "?"
+
+    gesehen = _versions(text_teile)
+    kette_zeilen = []
+    kette_ok = True
+    for name in ("g++", "python", "git"):
+        lok = lokal.get(name, "(nicht messbar)")
+        sieh = gesehen.get(name, "(nicht in der Antwort)")
+        gleich = name != "g++" or (_zahl(lok) == _zahl(sieh) != "?")
+        if name == "g++":
+            kette_ok = bool(gleich)
+        kette_zeilen.append(f"  - {name}: Harness={lok} | Worker={sieh} | "
+                            f"{'gleich' if gleich else 'ABWEICHUNG'}")
     report = [
         "# R16 — Umgebungs-Nachweis (Unterskript des Workers)",
         "",
@@ -335,12 +448,19 @@ def cmd_env_proof(args) -> int:
         f"- davon NICHT geheim, aber sichtbar (Routing): {', '.join(nicht_geheim) if nicht_geheim else 'keine'}",
         f"- davon VERBOTEN (Zugangsdaten): {', '.join(verdaechtig) if verdaechtig else 'keine'}",
         f"- Secret-Werte im Rohmitschnitt gefunden: {', '.join(wert_treffer) if wert_treffer else 'keine'}",
-        f"- Antworttext des Workers: {stats.final_text()[:400].strip() or '(leer)'}",
         "",
-        f"**Urteil: {'BESTANDEN' if erfolg else 'FEHLGESCHLAGEN'}** "
+        "## Werkzeugkette (R11-3)",
+        f"- PATH-Anfang: {'; '.join(envs.path_of(env).split(';')[:4])}",
+        *kette_zeilen,
+        f"- Urteil Werkzeugkette: {'STIMMT mit der Umgebung des Harness' if kette_ok else 'WEICHT AB'}",
+        "",
+        f"- Antworttext des Workers: {stats.final_text()[:600].strip() or '(leer)'}",
+        "",
+        f"**Urteil R16: {'BESTANDEN' if erfolg else 'FEHLGESCHLAGEN'}** "
         f"(kein Zugangstoken und kein Secret-Wert erreichbar)",
+        f"**Urteil Werkzeugkette: {'BESTANDEN' if kette_ok else 'FEHLGESCHLAGEN'}**",
         "",
-        "Hinweis: Werte werden nie ausgegeben, nur Namen und Treffer-Zaehlung.",
+        "Hinweis: Werte der Zugangsdaten werden nie ausgegeben, nur Namen und Treffer-Zaehlung.",
     ]
     p = write_text_atomic(run_dir / "report.md", "\n".join(report) + "\n")
     print("\n".join(report))
@@ -348,8 +468,359 @@ def cmd_env_proof(args) -> int:
     return 0 if erfolg else 1
 
 
-# --------------------------------------------------- lokale Steuerung (ohne Telegram)
+def cmd_rebuild(args) -> int:
+    """Einen Lauf aus dem vorhandenen Mitschnitt nachrechnen (R11-2).
 
+    Fuer den Fall, dass der Harness nach dem Worker-Ende stehen bleibt: die Zahlen
+    kommen aus `runs/b<N>/stream.jsonl`, nichts wird geschaetzt.
+    """
+    from datetime import datetime, timezone
+    from . import state as st, worker as wk
+    cfg = load_config(args.config)
+    log = _log(cfg, "rebuild")
+    state = st.State(Path(cfg.sub("state")) / "run.json")
+    n = int(args.batch or state.data.get("last_batch_number") or state.batch or 0)
+    if n <= 0:
+        print("Keine Batch-Nummer bekannt - 'rebuild <N>' angeben.", file=sys.stderr)
+        return 2
+    res = wk.rebuild_from_stream(cfg, log, state, n)
+    heute = datetime.now(timezone.utc).date().isoformat()
+    marker = Path(res.run_dir) / "spend-recorded.txt"
+    if marker.is_file():
+        gesamt = state.spent_today(heute)
+        print("Kosten waren bereits verbucht - nichts doppelt gezaehlt.")
+    else:
+        gesamt = state.add_spend(heute, res.cost_usd)
+        write_text_atomic(marker, f"{res.cost_usd:.6f}\n{heute}\n")
+    t = res.stats or {}
+    print(f"Batch {n}: Profil {res.profile}, rc={res.rc} ({res.killed_reason})")
+    print(f"  Anfragen            : {t.get('requests')}")
+    print(f"  Eingabe ohne Cache  : {t.get('input_miss')}")
+    print(f"  Cache-Treffer       : {t.get('cache_read')}")
+    print(f"  Ausgabe             : {t.get('output')}")
+    print(f"  Kosten              : ${res.cost_usd:.4f} | heute jetzt ${gesamt:.4f}")
+    print(f"  Gegenprobe (result) : {t.get('usage_check')}")
+    print(f"  Modell laut Ausgabe : {res.model_seen} (ok={res.model_ok})")
+    print(f"  Antwort             : {Path(res.run_dir) / 'antwort.md'}")
+    print(f"  Snapshot            : {res.snapshot_path}")
+    return 0
+
+
+# ------------------------------------------------- Ghidra-Rauchtest (R12, nicht als Batch)
+GHIDRA_MAIN = "/830d01.27p.main.bin"
+GHIDRA_BE = "/830d01.27p.be.bin"
+GHIDRA_ADDR = 0x80054AE4          # Rohwort-Sollwert 48008171 (bl 0x8005CC54)
+GHIDRA_FUN = 0x8005CC54
+
+GHIDRA_READ_PROMPT = """GHIDRA-RAUCHTEST (nur LESEN). Das Arbeitsverzeichnis ist ein Sandkasten.
+
+REGELN: Lege KEINE Dateien an, aendere NICHTS in Ghidra, committe nichts, keine Erklaerungen.
+
+1. get_current_program_info -> melde Name und Basisadresse.
+2. read_memory an 0x80054AE4, Laenge 4 -> melde das Rohwort als Hex.
+   Sollwert aus den Batch-Dokumenten: 48008171 (das ist `bl 0x8005CC54`).
+3. decompile_function an 0x8005CC54 -> gib die ersten 12 Zeilen wieder.
+
+Antworte am Ende GENAU in diesen fuenf Zeilen:
+PROGRAMM: <name>
+ROHWORT: <hex>
+SOLL-ERFUELLT: ja|nein
+DEKOMPILAT: <erste Zeile des Dekompilats>
+ZIEL-FUNKTION: 0x8005CC54
+"""
+
+GHIDRA_WRITE_PROMPT = """GHIDRA-RAUCHTEST (SCHREIBEN, Aktion {aktion}). Das Arbeitsverzeichnis ist ein Sandkasten.
+
+REGELN: Fasse NUR die Adresse {addr} an. Keine anderen Adressen, keine Dateien, kein Git.
+SPEICHERN IST NICHT DEINE AUFGABE: `save_program` ist absichtlich gesperrt - das Speichern
+macht der Harness. Versuche es nicht.
+
+1. get_current_program_info -> melde Name und Basisadresse.
+2. get_comment an {addr} -> melde has_comment und den Text.
+3. {schritt}
+
+Antworte am Ende GENAU in diesen vier Zeilen:
+PROGRAMM: <name>
+VORHER: <has_comment vor Schritt 3>
+NACHHER: <has_comment nach Schritt 3>
+TEXT: <Kommentartext nach Schritt 3, oder LEER>
+"""
+
+
+def _smoke_worker(cfg, log, profile_name: str, prompt: str, run_dir: Path, cwd: Path) -> dict:
+    """Ein echter Kleinlauf des Workers (Profil, Umgebung, Mitschnitt) in `cwd`."""
+    import os
+    import uuid
+    from . import envs, secrets, streamjson, worker as wk
+    from .proc import run_stream
+    from .profiles import load_profile
+    profile = load_profile(cfg.root, profile_name)
+    run_dir = ensure_dir(run_dir)
+    session = str(uuid.uuid4())
+    cmd, mcp = wk.build_command(cfg, profile, run_dir, session)
+    token = secrets.load(cfg.secrets_dir, secrets.DEEPSEEK)
+    env = envs.worker_env(cfg, os.environ, token)
+    bad = envs.precheck(env, "worker")
+    if bad:
+        raise RuntimeError(f"Umgebungs-Pruefung fehlgeschlagen: {bad}")
+    stats = streamjson.StreamStats()
+    out = run_dir / "stream.jsonl"
+    log.info("Rauchtest-Lauf startet", profil=profile_name, cwd=str(cwd),
+             werkzeuge=len(profile.allowed))
+    run = run_stream(cmd, env, cwd=str(cwd), out_path=out, on_event=stats.feed, log=log,
+                     hard_wall_s=900, stdin_text=prompt, stderr_path=run_dir / "stream.err.txt")
+    write_text_atomic(run_dir / "auftrag.md", prompt)
+    return {"rc": run.rc, "dauer": run.duration_s, "text": stats.final_text(),
+            "stats": stats.totals(), "cost": stats.cost_usd(), "run_dir": str(run_dir),
+            "mcp": mcp, "cmd": cmd, "profile": profile_name, "model": stats.model}
+
+
+def _hex_kompakt(text: str) -> str:
+    return "".join(ch for ch in str(text or "") if ch.isalnum()).lower()
+
+
+def _pick_comment_address(g, program: str) -> tuple[int, dict, str]:
+    """Harmlose Adresse: am Bildende, ohne Kommentar, Bytes sind Fuellmuster."""
+    info = g.current_program()
+    hi = int(str(info.get("max_address")), 16)
+    for off in (4, 8, 16, 32, 64, 128, 256, 512, 1024):
+        a = hi - off + 1 if off == 4 else hi - off
+        a = hi - off
+        try:
+            c = g.get_comment(hex(a), program)
+            roh = g.call("/read_memory", {"address": hex(a), "length": 4, "program": program})
+        except Exception:
+            continue
+        if c.get("has_comment"):
+            continue
+        h = _hex_kompakt(roh.get("hex") or roh.get("bytes") or roh.get("data") or "")
+        fuell = h in ("ffffffff", "00000000", "")
+        if fuell:
+            return a, c, h or "(leer)"
+    return None, {}, ""
+
+
+def cmd_ghidra_smoke(args) -> int:
+    """Ghidra-Rauchtest ueber das Harness (R12): Wechseln, Lesen, Sichern, Schreiben."""
+    import json as _json
+    from .ghidra import Ghidra
+    cfg = load_config(args.config)
+    log = _log(cfg, "ghidra-smoke")
+    g = Ghidra(cfg, log)
+    sandbox = ensure_dir(Path(str(cfg.get("paths", "sandbox", "g:/Harness/sandbox/workspace"))))
+    run_dir = ensure_dir(Path(cfg.root) / "runs" / "ghidra-smoke")
+    R: list[str] = []
+    fails: list[str] = []
+
+    def zeile(s: str = ""):
+        R.append(s)
+        print(s)
+
+    def pruef(name: str, bedingung, info: str = "") -> bool:
+        ok = bool(bedingung)
+        zeile(f"  [{'OK ' if ok else 'FEHL'}] {name}" + (f" - {info}" if info else ""))
+        if not ok:
+            fails.append(name)
+        return ok
+
+    def name_von(p: str) -> str:
+        return Path(p).name
+
+    zeile("# Ghidra-Rauchtest ueber das Harness (R12)")
+    zeile(f"- Zeit: {now_iso()}")
+    zeile(f"- Arbeitsverzeichnis der Test-Worker: {sandbox}")
+    zeile(f"- Kein Commit im Decomp-Repo; Ghidra-Aenderungen nur der Kommentar in d).")
+    ok, _meta = g.reachable()
+    zeile("")
+    if not pruef("Ghidra-Server erreichbar", ok):
+        write_text_atomic(run_dir / "report.md", "\n".join(R) + "\n")
+        return 1
+    start_info = g.current_program()
+    zeile(f"  Startprogramm: {start_info.get('name')} (Basis {start_info.get('image_base')}, "
+          f"{start_info.get('memory_size')} B, {start_info.get('function_count')} Funktionen)")
+
+    # ------------------------------------------------------------------ a)
+    zeile("")
+    zeile("## a) Programmwechsel (load_program_from_project + switch_program)")
+    for ziel in (GHIDRA_MAIN, GHIDRA_BE, GHIDRA_MAIN):
+        res = g.ensure_program(ziel, log)
+        info = g.current_program()
+        ist = str(info.get("name") or "")
+        zeile(f"- Ziel {ziel}: {'OK' if res.get('ok') else 'FEHLGESCHLAGEN'} | ist {ist} "
+              f"(Basis {info.get('image_base')}, {info.get('memory_size')} B, "
+              f"{info.get('function_count')} Funktionen)")
+        for s in res.get("steps", []):
+            zeile(f"    Schritt: {s}")
+        pruef(f"Programm {name_von(ziel)} gestellt", res.get("ok") and ist.lower() == name_von(ziel).lower(),
+              f"ist={ist}")
+
+    # ------------------------------------------------------------------ f)
+    zeile("")
+    zeile("## f) Liegen 0x80054AE4 und FUN_8005CC54 in main.bin oder be.bin?")
+    zugehoerig: dict[str, bool] = {}
+    for ziel in (GHIDRA_MAIN, GHIDRA_BE):
+        g.ensure_program(ziel, log)
+        info = g.current_program()
+        lo = int(str(info.get("min_address")), 16)
+        hi = int(str(info.get("max_address")), 16)
+        drin = lo <= GHIDRA_ADDR <= hi and lo <= GHIDRA_FUN <= hi
+        raw = ""
+        try:
+            r = g.call("/read_memory", {"address": hex(GHIDRA_ADDR), "length": 4,
+                                        "program": info.get("name")})
+            raw = _hex_kompakt(r.get("hex") or r.get("bytes") or r.get("data") or "") or \
+                _json.dumps(r, ensure_ascii=False)[:160]
+        except Exception as exc:
+            raw = f"Fehler: {str(exc)[:120]}"
+        deko = ""
+        try:
+            d = g.call("/decompile_function", {"address": hex(GHIDRA_FUN),
+                                               "program": info.get("name")})
+            deko = str(d.get("decompiled") or d.get("code") or d.get("pseudocode")
+                       or _json.dumps(d, ensure_ascii=False))[:120]
+        except Exception as exc:
+            deko = f"Fehler: {str(exc)[:120]}"
+        zugehoerig[str(info.get("name"))] = bool(drin)
+        zeile(f"- {info.get('name')}: Bereich 0x{lo:08x}..0x{hi:08x} -> Adresse darin: {drin}")
+        zeile(f"    read_memory(0x{GHIDRA_ADDR:08x})   -> {raw[:160]}")
+        zeile(f"    decompile(0x{GHIDRA_FUN:08x})      -> {deko}")
+    zeile("- Doku-Beleg (Zeilen mit Programmnamen und Basis/Adresse):")
+    treffer = 0
+    for p in sorted((Path(cfg.decomp) / "analysis").glob("*.md")):
+        try:
+            text = read_text(p)
+        except OSError:
+            continue
+        for i, line in enumerate(text.splitlines(), 1):
+            if ("main.bin" in line or "be.bin" in line) and \
+                    ("0x80000000" in line or "80054AE4" in line or "ffe00000" in line):
+                zeile(f"    {p.name}:{i}: {line.strip()[:200]}")
+                treffer += 1
+                if treffer >= 6:
+                    break
+        if treffer >= 6:
+            break
+
+    # ------------------------------------------------------------------ c)
+    zeile("")
+    zeile("## c) Projektsicherung (archive_project, wie bei schreibenden Profilen)")
+    bk = g.backup_project(log, reason="Ghidra-Rauchtest (R12)")
+    pfad = Path(bk["path"]) if bk.get("path") else None
+    existiert = bool(pfad and pfad.is_file())
+    groesse = pfad.stat().st_size if existiert else 0
+    proj = Path(cfg.decomp) / "ghidra"
+    proj_groesse = sum(f.stat().st_size for f in proj.rglob("*") if f.is_file()) if proj.is_dir() else 0
+    zeile(f"- archive_project: ok={bk.get('ok')} | Datei {bk.get('path') or '-'} | {groesse} B")
+    for s in bk.get("steps", []):
+        zeile(f"    Schritt: {s}")
+    zeile(f"    Vergleich Projektordner: {proj_groesse} B")
+    pruef("Sicherungsdatei existiert", existiert)
+    pruef("Sicherung plausibel gross", groesse > max(200_000, int(0.1 * proj_groesse)),
+          f"{groesse} B")
+
+    # ------------------------------------------------------------------ b)
+    zeile("")
+    zeile("## b) Lesen (Profil ghidra-read, Programm main.bin)")
+    g.ensure_program(GHIDRA_MAIN, log)
+    rb = _smoke_worker(cfg, log, "ghidra-read", GHIDRA_READ_PROMPT, run_dir / "read", sandbox)
+    zeile(f"- Lauf: rc={rb['rc']} | {rb['dauer']:.0f}s | {rb['stats']['requests']} Anfragen | "
+          f"${rb['cost']:.4f} | Modell {rb['model']}")
+    zeile("- Antwort des Test-Workers:")
+    for ln in (rb["text"] or "(leer)").strip().splitlines()[:20]:
+        zeile("    " + ln)
+    roh = g.call("/read_memory", {"address": hex(GHIDRA_ADDR), "length": 4,
+                                  "program": name_von(GHIDRA_MAIN)})
+    h_roh = _hex_kompakt(roh.get("hex") or roh.get("bytes") or roh.get("data") or "")
+    zeile(f"- Harness-Gegenprobe read_memory: {_json.dumps(roh, ensure_ascii=False)[:200]}")
+    pruef("Worker meldet Rohwort 48008171", "48008171" in _hex_kompakt(rb["text"]))
+    pruef("Server liefert Rohwort 48008171", h_roh.startswith("48008171"), h_roh)
+    pruef("Worker meldet eine Ziel-Funktion", "8005cc54" in _hex_kompakt(rb["text"]))
+
+    # ------------------------------------------------------------------ d)
+    zeile("")
+    zeile("## d) Schreiben (Profil ghidra-standard)")
+    if args.skip_write:
+        zeile("- uebersprungen (--skip-write).")
+    else:
+        g.ensure_program(GHIDRA_BE, log)
+        adresse, vorher_c, fuell = _pick_comment_address(g, name_von(GHIDRA_BE))
+        if adresse is None:
+            zeile("- keine harmlose Adresse gefunden - d) uebersprungen.")
+            fails.append("d) Adresse finden")
+        else:
+            a_hex = hex(adresse)
+            zeile(f"- Zieladresse {a_hex} in {name_von(GHIDRA_BE)} (Bytes vorher: {fuell}, "
+                  f"has_comment: {vorher_c.get('has_comment')})")
+            p_set = GHIDRA_WRITE_PROMPT.format(
+                aktion="SETZEN", addr=a_hex,
+                schritt=f'set_comment an {a_hex} mit dem Text "HARNESS-TEST" (Art "eol"). '
+                        f'Sonst nichts.')
+            r1 = _smoke_worker(cfg, log, "ghidra-standard", p_set, run_dir / "write-set", sandbox)
+            zeile(f"- Lauf SETZEN: rc={r1['rc']} | {r1['dauer']:.0f}s | "
+                  f"${r1['cost']:.4f} | {r1['stats']['requests']} Anfragen")
+            for ln in (r1["text"] or "(leer)").strip().splitlines()[:12]:
+                zeile("    " + ln)
+            c1 = g.get_comment(a_hex, name_von(GHIDRA_BE))
+            zeile(f"- Harness liest nach dem Setzen: {_json.dumps(c1, ensure_ascii=False)[:220]}")
+            s1 = g.save_program(name_von(GHIDRA_BE))
+            zeile(f"- save_program: {_json.dumps(s1, ensure_ascii=False)[:160]}")
+            c2 = g.get_comment(a_hex, name_von(GHIDRA_BE))
+            zeile(f"- Harness liest nach dem Speichern: {_json.dumps(c2, ensure_ascii=False)[:220]}")
+            pruef("Kommentar gesetzt (Worker)", "HARNESS-TEST" in _json.dumps(c1, ensure_ascii=False))
+            pruef("Kommentar nach dem Speichern noch da",
+                  "HARNESS-TEST" in _json.dumps(c2, ensure_ascii=False))
+
+            p_weg = GHIDRA_WRITE_PROMPT.format(
+                aktion="ENTFERNEN", addr=a_hex,
+                schritt=f'set_comment an {a_hex} mit LEEREM Text "" (Art "eol") - damit wird '
+                        f'der Kommentar entfernt. HARNESS-TEST ist der Text, der weg soll.')
+            r2 = _smoke_worker(cfg, log, "ghidra-standard", p_weg, run_dir / "write-remove", sandbox)
+            zeile(f"- Lauf ENTFERNEN: rc={r2['rc']} | {r2['dauer']:.0f}s | "
+                  f"${r2['cost']:.4f} | {r2['stats']['requests']} Anfragen")
+            for ln in (r2["text"] or "(leer)").strip().splitlines()[:12]:
+                zeile("    " + ln)
+            c3 = g.get_comment(a_hex, name_von(GHIDRA_BE))
+            weg_durch_worker = "HARNESS-TEST" not in _json.dumps(c3, ensure_ascii=False)
+            zeile(f"- Harness liest nach dem Entfernen: {_json.dumps(c3, ensure_ascii=False)[:220]}")
+            if not weg_durch_worker:
+                zeile("- Der Worker hat den Kommentar NICHT entfernt - der Harness raeumt selbst.")
+                g.set_comment(a_hex, "", name_von(GHIDRA_BE), kind="eol")
+                c3 = g.get_comment(a_hex, name_von(GHIDRA_BE))
+                weg_durch_worker = "HARNESS-TEST" not in _json.dumps(c3, ensure_ascii=False)
+                zeile(f"- nach dem Raeumen: {_json.dumps(c3, ensure_ascii=False)[:220]}")
+            s2 = g.save_program(name_von(GHIDRA_BE))
+            zeile(f"- save_program: {_json.dumps(s2, ensure_ascii=False)[:160]}")
+            c4 = g.get_comment(a_hex, name_von(GHIDRA_BE))
+            sauber = "HARNESS-TEST" not in _json.dumps(c4, ensure_ascii=False)
+            zeile(f"- Harness liest nach dem zweiten Speichern: "
+                  f"{_json.dumps(c4, ensure_ascii=False)[:220]}")
+            pruef("Kommentar ist weg (vor dem Speichern)", weg_durch_worker)
+            pruef("Kommentar ist weg (nach dem Speichern)", sauber)
+            zeile(f"    Kosten der Schreib-Laeufe: ${r1['cost'] + r2['cost']:.4f}")
+
+    # ------------------------------------------------------------------ e)
+    zeile("")
+    zeile("## e) Endzustand")
+    main_drin = zugehoerig.get(name_von(GHIDRA_MAIN), False)
+    ziel_e = GHIDRA_MAIN if main_drin else GHIDRA_BE
+    grund = ("0x80054AE4 liegt in main.bin - die naechste Instruktion (cc54_setup) braucht main.bin"
+             if main_drin else
+             "0x80054AE4 liegt NICHT in main.bin - be.bin bleibt gestellt")
+    g.ensure_program(ziel_e, log)
+    end_info = g.current_program()
+    zeile(f"- gestellt: {end_info.get('name')} (Basis {end_info.get('image_base')}) - {grund}")
+    zeile(f"- Hinweis: nach einem Serverneustart laedt das Startskript wieder "
+          f"{name_von(GHIDRA_BE)} (dokumentiert).")
+    pruef("Endprogramm gestellt", str(end_info.get("name")).lower() == name_von(ziel_e).lower())
+
+    zeile("")
+    zeile(f"## Ergebnis: {'ALLES OK' if not fails else str(len(fails)) + ' FEHLER: ' + ', '.join(fails)}")
+    write_text_atomic(run_dir / "report.md", "\n".join(R) + "\n")
+    print(f"\nBericht: {run_dir / 'report.md'}")
+    return 0 if not fails else 1
+
+
+# --------------------------------------------------- lokale Steuerung (ohne Telegram)
 def _runner_note(cfg) -> str:
     from . import control
     pid = control.read_pid(cfg)
@@ -383,6 +854,15 @@ def cmd_stop(args) -> int:
 
 def cmd_approve(args) -> int:
     return _ctl_put(load_config(args.config), "approve", args.text or "")
+
+
+def cmd_number(args) -> int:
+    """Batch-Nummer des offenen Auftrags setzen (Anker-Abweichung korrigieren)."""
+    n = str(args.nummer).strip()
+    if not n.isdigit():
+        print("Nutzung: hx.cli number <N>   (z. B. number 159)", file=sys.stderr)
+        return 2
+    return _ctl_put(load_config(args.config), "number", n)
 
 
 def cmd_send(args) -> int:
@@ -446,7 +926,8 @@ def cmd_watch(args) -> int:
     from .watch import Watcher
     cfg = load_config(args.config)
     log = Log(Path(cfg.sub("logs")) / "watch.log", echo=False)
-    return Watcher(cfg, log, batch=args.batch, run=(args.run or None)).run()
+    return Watcher(cfg, log, batch=args.batch, run=(args.run or None),
+                   color=not args.no_color, once=args.once).run()
 
 
 def cmd_show_prompts(args) -> int:
@@ -495,6 +976,10 @@ def build_parser() -> argparse.ArgumentParser:
     d.add_argument("--scenario", default="ok", choices=["ok", "parser_error", "crash"])
     sub.add_parser("show-prompts", help="Review-Prompt und Worker-Vorspann als Dateien schreiben")
     sub.add_parser("env-proof", help="R16: Umgebungs-Nachweis mit einem echten Kleinlauf")
+    rb = sub.add_parser("rebuild", help="Lauf aus dem Mitschnitt nachrechnen")
+    rb.add_argument("batch", nargs="?", type=int, default=0, help="Batch-Nummer (sonst die letzte)")
+    gs = sub.add_parser("ghidra-smoke", help="Ghidra-Rauchtest: wechseln, lesen, sichern, schreiben")
+    gs.add_argument("--skip-write", action="store_true", help="Teil d) ueberspringen")
 
     # --- lokale Steuerung (gleichwertig zu den Telegram-Befehlen) ----------------
     sub.add_parser("pause", help="pausieren (laeuft ein Batch, laeuft er zu Ende)")
@@ -504,6 +989,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("stop", help="laufenden Batch abbrechen (WIP wird gesichert)")
     ap = sub.add_parser("approve", help="wartenden Batch freigeben")
     ap.add_argument("--text", default="", help="optionaler Text, geht als ds-Nachricht mit")
+    nu = sub.add_parser("number", help="Batch-Nummer des offenen Auftrags setzen")
+    nu.add_argument("nummer", help="Nummer, z. B. 159")
     sd = sub.add_parser("send", help="Nachricht an ds (Worker) oder claude (Reviewer)")
     sd.add_argument("target", choices=["ds", "claude"])
     sd.add_argument("text", nargs="?", default="")
@@ -513,9 +1000,11 @@ def build_parser() -> argparse.ArgumentParser:
     ri.add_argument("--text", default="", help="Instruktion direkt")
     ri.add_argument("--profile", default="", help="none | ghidra-read | ghidra-standard | ghidra-full")
     ri.add_argument("--program", default="", help="Ghidra-Projektpfad")
-    wv = sub.add_parser("watch", help="Live-Ansicht des laufenden Batches (rein lesend)")
+    wv = sub.add_parser("watch", help="Live-Ansicht des laufenden Betriebs (rein lesend)")
     wv.add_argument("--batch", type=int, default=0, help="abgeschlossenen Batch nachspielen")
     wv.add_argument("--run", default="", help="benannten Lauf nachspielen (z. B. env-proof)")
+    wv.add_argument("--no-color", action="store_true", help="ohne Farben (fuer klassisches Konsolenfenster)")
+    wv.add_argument("--once", action="store_true", help="nur ein Bild der jetzigen Lage, dann Ende")
     return p
 
 
@@ -525,9 +1014,9 @@ def main(argv: list[str] | None = None) -> int:
         "run": cmd_run, "status": cmd_status, "budget": cmd_budget, "profiles": cmd_profiles,
         "probe-telegram": cmd_probe, "allowlist-add": cmd_allowlist, "demo": cmd_demo,
         "show-prompts": cmd_show_prompts,
-        "env-proof": cmd_env_proof,
+        "env-proof": cmd_env_proof, "rebuild": cmd_rebuild, "ghidra-smoke": cmd_ghidra_smoke,
         "pause": cmd_pause, "resume": cmd_resume, "stop": cmd_stop,
-        "approve": cmd_approve, "send": cmd_send,
+        "approve": cmd_approve, "send": cmd_send, "number": cmd_number,
         "run-instruction": cmd_run_instruction, "watch": cmd_watch,
     }[args.cmd](args)
 

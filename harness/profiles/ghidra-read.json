@@ -1,7 +1,7 @@
 {
   "name": "ghidra-read",
   "mcp": true,
-  "groups": "listing,function,program",
+  "groups": "listing,function,program,comment",
   "builtins": "worker",
   "allowed": [
     "get_metadata",

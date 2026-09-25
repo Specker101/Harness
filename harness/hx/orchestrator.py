@@ -32,6 +32,8 @@ class Orchestrator:
         self.tg: Telegram | None = None
         self.approved_gate: str | None = None
         self.stop_requested = False
+        self.review_now = False
+        self.ghidra_failed = False
         self.quit = False
         self._wip_done = False
         self._notified: dict[str, float] = {}
@@ -55,6 +57,41 @@ class Orchestrator:
     def say(self, text: str):
         if self.tg:
             self.tg.send(text)
+
+    # ------------------------------------------------------------------ Phase
+    def phase(self, name: str | None, extra: str = "") -> None:
+        """Was der Harness JETZT tut - sichtbar in /status und in watch (R11-4)."""
+        self.state.data["phase"] = ({"name": name, "extra": extra, "since": now_iso()}
+                                    if name else None)
+        self.state.save()
+
+    def phase_text(self) -> str:
+        p = self.state.data.get("phase") or {}
+        if not p:
+            return "-"
+        return str(p.get("name") or "-") + (f" ({p.get('extra')})" if p.get("extra") else "") \
+            + f" seit {p.get('since')}"
+
+    # ----------------------------------------------------- Reviewer-Modell (R11-5)
+    def model_reviewer(self) -> str:
+        return str(self.cfg.get("claude", "model_reviewer", "claude-opus-5-5"))
+
+    def reviewer_effort(self) -> str:
+        return str(self.cfg.get("claude", "reviewer_effort", "high"))
+
+    def reviewer_model_seen(self) -> str | None:
+        return (self.state.data.get("reviewer") or {}).get("model_seen")
+
+    def ghidra_save_line(self, res: dict) -> str:
+        """Eine Zeile fuer den Review: wurde die Ghidra-DB gespeichert? (R13-1)"""
+        gs = (res or {}).get("ghidra_save") or {}
+        if not gs:
+            return "nicht noetig (keine Angabe im Lauf - altes Ergebnis)"
+        if gs.get("needed") and gs.get("ok"):
+            return "ja - " + str(gs.get("hinweis") or "")
+        if gs.get("needed"):
+            return "NEIN - " + str(gs.get("hinweis") or "")
+        return "nicht noetig - " + str(gs.get("hinweis") or "")
 
     def notify_once(self, key: str, text: str, cooldown_s: float = 900.0):
         last = self._notified.get(key, 0.0)
@@ -126,6 +163,27 @@ class Orchestrator:
         self.state.set(st.STOPPED, note)
         self.say("Stop angefordert: WIP wird gesichert, dann wird der Prozess beendet.")
 
+    def _do_number(self, rest: str) -> None:
+        """Batch-Nummer fuer den offenen Auftrag festlegen (Anker-Abweichung korrigieren)."""
+        gate = self.state.gate
+        if not gate:
+            self.say("Kein offener Auftrag - /number hat nichts zu aendern.")
+            return
+        wort = (rest or "").strip().split()[0] if (rest or "").strip() else ""
+        if not wort.isdigit() or not (1 <= int(wort) <= 9999):
+            self.say("Nutzung: /number <N>  (z. B. /number 159)")
+            return
+        n = int(wort)
+        tools = dict(gate.get("tools") or {})
+        alt = tools.get("batch")
+        tools["batch"] = n
+        tools["number_set_by_user"] = True
+        gate["tools"] = tools
+        self.state.save()
+        self.log.info("Batch-Nummer gesetzt", alt=alt, neu=n)
+        self.say(f"Batch-Nummer des offenen Auftrags: {alt} -> {n} (vom Nutzer). Mit /approve startet "
+                 f"er; Run-Verzeichnis und Checkpoint-Tag tragen die Nummer {n}.")
+
     def _do_approve(self, text: str = ""):
         gate = self.state.gate
         if not gate:
@@ -173,6 +231,9 @@ class Orchestrator:
             txt = control.take(self.cfg, "approve")
             if txt is not None:
                 self._do_approve(txt)
+            txt = control.take(self.cfg, "number")
+            if txt is not None:
+                self._do_number(txt)
             obj = control.take_instruction(self.cfg)
             if obj:
                 self._take_user_instruction(obj)
@@ -180,7 +241,13 @@ class Orchestrator:
             self.log.warn("lokaler Steuerbefehl fehlgeschlagen", fehler=str(exc)[:200])
 
     # ------------------------------------------------------------------ Pollen
-    def poll(self):
+    def poll(self, fast: bool = False):
+        """Lokale Befehle + Telegram abfragen.
+
+        `fast=True` nimmt den KURZEN Telegram-Aufruf (kein Langpoll) - waehrend
+        eines Worker-Batches wird der Takt oft aufgerufen, und ein 25-s-Langpoll
+        je Zeile hat B159 zum Stehen gebracht (R11-1).
+        """
         self.check_local_control()
         # Stop-Marker (stop.ps1) hat Vorrang vor allem - auch waehrend eines Batches.
         marker = Path(self.cfg.sub("state")) / "STOP"
@@ -198,7 +265,7 @@ class Orchestrator:
             return
         offset = int(self.state.data.get("telegram_offset", 0))
         try:
-            updates = self.tg.get_updates(offset)
+            updates = self.tg.get_updates(offset, timeout=0 if fast else None)
         except TelegramError:
             return
         for u in updates:
@@ -266,7 +333,13 @@ class Orchestrator:
             self.say("Dauerbetrieb: " + ("AN" if new else "AUS"))
         elif cmd == "review":
             self.review_now = True
-            self.say("Review angefordert.")
+            self.state.data["paused"] = False
+            self.state.save()
+            self.say("Review angefordert" + ("; ein offener Auftrag wird dabei verworfen."
+                                             if self.state.gate else ".") +
+                     " Die Pause ist dafuer aufgehoben.")
+        elif cmd == "number":
+            self._do_number(rest)
         elif cmd == "last":
             self.send_last(rest)
         elif cmd == "queue":
@@ -308,11 +381,20 @@ class Orchestrator:
             self.say(ans[-n * 120:] if ans else "(leer)")
         else:
             gate = self.state.gate
-            if gate and gate.get("summary"):
-                self.say(gate["summary"])
+            if gate and gate.get("instruction"):
+                self.say(f"Letzte Instruktion (vollstaendig, Batch "
+                         f"{(gate.get('tools') or {}).get('batch')}) - offener Auftrag:\n"
+                         + str(gate["instruction"]))
                 return
-            files = sorted((Path(self.cfg.sub("logs"))).glob("review-*.md"))
-            self.say(read_text(files[-1])[:3000] if files else "Noch kein Review.")
+            cands = sorted(Path(self.cfg.sub("runs")).glob("b*/review*.md"),
+                           key=lambda p: p.stat().st_mtime, reverse=True)
+            for path in cands:
+                r = protocol.parse_review(read_text(path))
+                if r.instruction:
+                    self.say(f"Letzte Instruktion (vollstaendig, aus {path.parent.name}/"
+                             f"{path.name}):\n" + r.instruction)
+                    return
+            self.say("Noch keine Instruktion vorhanden.")
 
     # ------------------------------------------------------------------ Texte
     def status_text(self) -> str:
@@ -321,10 +403,14 @@ class Orchestrator:
         today = datetime.now(timezone.utc).date().isoformat()
         lines = [
             f"Zustand: {s.state}",
-            f"Batch: {s.batch} (naechster: {s.batch + 1})",
+            f"Batch: {self.expected_batch() or '?'} faellig | zuletzt gelaufen: "
+            f"{s.data.get('last_batch_number') or 'keiner'} | {self.batch_number_line()}",
             f"Dauerbetrieb: {'AN' if s.data.get('autonomous') else 'AUS'}",
             f"Worker: {'PID ' + str(s.live_worker_pid()) if s.live_worker_pid() else 'laeuft nicht'}",
             f"Reviewer-Session: {rev.get('session_id')} ({rev.get('reviews')}/{self.cfg.get('reviewer','rotation_after',10)} Reviews)",
+            (f"Reviewer-Modell: {self.reviewer_model_seen() or '-'} (Soll {self.model_reviewer()}, "
+             f"Effort {self.reviewer_effort()})"),
+            f"Phase: {self.phase_text()}",
             f"Letzte Entscheidung: {rev.get('last_decision') or '-'}",
         ]
         gate = s.gate
@@ -388,11 +474,10 @@ class Orchestrator:
                            "- kein Merge durch das Harness")
         return True, ""
 
-    def git_push(self) -> str:
+    def git_push(self) -> tuple[bool, str]:
         if not self.cfg.get("git", "push_after_batch", True):
-            return "Push laut Konfiguration aus"
-        ok, msg = self.git.push()
-        return ("Push ok: " + (msg or "up-to-date")) if ok else ("PUSH FEHLGESCHLAGEN: " + msg)
+            return True, "Push laut Konfiguration aus"
+        return self.git.push()
 
     # ---------------------------------------------------------------- Grenzen
     def daily_budget_left(self) -> float:
@@ -416,6 +501,7 @@ class Orchestrator:
             return False
         if not self._wip_done:
             self._wip_done = True
+            self.save_ghidra_if_pending("Stopp")
             info = self.git.wip_rescue(self.state.batch, Path(self.cfg.sub("logs")))
             if info.get("dirty"):
                 self.say(f"STOP: WIP gesichert ({len(info['status'])} Aenderungen"
@@ -425,12 +511,38 @@ class Orchestrator:
                 self.say("STOP: Arbeitsbaum war sauber.")
         return True
 
+    # ------------------------------------------------------- Ghidra-Speichern (R13-1)
+    def save_ghidra_if_pending(self, reason: str) -> bool:
+        """Nur speichern, wenn ein schreibender Batch lief und noch nicht gespeichert ist."""
+        if not self.state.data.get("ghidra_pending"):
+            self.log.info("Ghidra-Speichern nicht noetig", grund=reason)
+            return True
+        prof = str(self.state.data.get("last_profile") or "")
+        res = wk.save_ghidra_after_batch(self.cfg, self.log, self.state, prof, mock=self.mock)
+        if res.get("ok"):
+            self.state.data["ghidra_pending"] = False
+            self.state.save()
+            self.log.info("Ghidra gespeichert", grund=reason, hinweis=res.get("hinweis"))
+            return True
+        self.log.error("Ghidra NICHT gespeichert", grund=reason, hinweis=res.get("hinweis"))
+        self.say(f"GHIDRA NICHT GESPEICHERT ({reason}): {res.get('hinweis')}")
+        return False
+
     def run_worker(self, instruction: str, profile: str, program: str | None, queue_block: str) -> wk.WorkerResult:
         self.state.set(st.DS_WORKING, f"Profil {profile}")
+        self.phase("worker", f"Batch {self.state.batch}, Profil {profile}")
         res = wk.run_batch(self.cfg, self.log, self.state, instruction, profile, program,
                            queue_block=queue_block, notify=self.say,
-                           tick=self.poll, cancel=self.cancel_check, mock=self.mock)
+                           tick=lambda: self.poll(fast=True), cancel=self.cancel_check,
+                           mock=self.mock)
         self.state.worker_finished()
+        self.state.data["last_profile"] = profile
+        gs = res.ghidra_save or {}
+        if gs.get("needed") and not gs.get("ok"):
+            # R13-1: ohne Speichern waere der Git-Commit weiter als die Ghidra-DB.
+            self.ghidra_failed = True
+            self.state.data["paused"] = True
+            self.state.set(st.PAUSED, "Ghidra-Speichern fehlgeschlagen")
         today = datetime.now(timezone.utc).date().isoformat()
         total = self.state.add_spend(today, res.cost_usd)
         head = (f"Batch {self.state.batch} fertig: rc={res.rc}, {secs_human(res.duration_s)}, "
@@ -442,43 +554,105 @@ class Orchestrator:
         if res.model_ok is False:
             head += f"\nMODELL-ABWEICHUNG: gesehen {res.model_seen}, erwartet {self.cfg.get('claude','model_worker')}"
         self.say(head)
+        if gs.get("needed"):
+            self.say(("Ghidra gespeichert: " + str(gs.get("hinweis"))) if gs.get("ok") else
+                     ("GHIDRA NICHT GESPEICHERT: " + str(gs.get("hinweis")) +
+                      "\nIch pausiere - Push und Review unterbleiben."))
         self.log.info("Batch beendet", info=res.describe())
         return res
+
+    def ask_handover(self, session_id: str, rdir: Path) -> str:
+        """Die alte Reviewer-Session um eine Uebergabe bitten (R13-2).
+
+        Faellt der Aufruf aus (Limit, Netz, alter Prozess), geht es OHNE Uebergabe
+        weiter - der neue Review bekommt Anker, Messdaten und Snapshot ohnehin.
+        """
+        self.phase("uebergabe", "alte Reviewer-Session")
+        try:
+            text = rv.run_handover(self.cfg, self.log, session_id, mock=self.mock,
+                                   stream_path=rdir / "handover.jsonl")
+        except Exception as exc:
+            self.log.warn("Uebergabe fehlgeschlagen - neue Session startet ohne",
+                          fehler=str(exc)[:200])
+            self.say("Uebergabe der alten Session fehlgeschlagen - die neue startet ohne.")
+            return ""
+        text = (text or "").strip()
+        if text:
+            self.log.info("Uebergabe erhalten", zeichen=len(text))
+        else:
+            self.say("Die alte Session hat keine Uebergabe geliefert.")
+        return text
 
     def do_review(self, kind: str, snapshot_text: str, reviewer_note: str = "") -> rv.ReviewResult:
         rev_state = self.state.data.get("reviewer") or {}
         session_id = rev_state.get("session_id")
         count = int(rev_state.get("reviews", 0))
         rot = int(self.cfg.get("reviewer", "rotation_after", 10))
-        rotate = (not session_id) or (count >= rot)
+        force = bool(rev_state.get("force_rotate"))
+        rotate = force or (not session_id) or (count >= rot)
+        # Verzeichnis nach der ECHTEN Batch-Nummer, nicht nach einem internen Zaehler:
+        # ohne gelaufenen Batch ist das die Nummer, die der Anker als naechste nennt.
+        target = self.state.batch or self.expected_batch() or 0
+        rdir = ensure_dir(Path(self.cfg.sub("runs")) / f"b{target:03d}")
+        handover = ""
         if rotate and session_id:
-            self.say(f"Claude-Session-Rotation nach {count} Reviews.")
-        prompt = rv.build_prompt(self.cfg, kind, self.review_context(snapshot_text, reviewer_note))
+            grund = "auf Wunsch (frische Session)" if force else f"Rotation nach {count} Reviews"
+            self.say(f"Reviewer-Session wird gewechselt - {grund}. Die alte Session uebergibt.")
+            self.log.info("Reviewer-Session-Wechsel", grund=grund, alte_session=session_id)
+            handover = self.ask_handover(session_id, rdir)
+        prompt = rv.build_prompt(self.cfg, kind,
+                                 self.review_context(snapshot_text, reviewer_note,
+                                                     handover=handover))
         if self.state.data.get("pause_work"):
             self.state.data.pop("pause_work", None)   # einmal zugestellt
             self.state.save()
-        if rotate and session_id:
-            prompt += ("\n\nWICHTIG: Dies ist der LETZTE Review dieser Session. Fuege zusaetzlich einen Block "
-                       "<HANDOVER>...</HANDOVER> an: laufender Batch, getroffene Entscheidungen, offene Punkte, "
-                       "was die neue Session zuerst lesen soll.")
         self.state.set(st.CLAUDE_REVIEWING, kind)
         res = rv.run_review(self.cfg, self.log, prompt, session_id=session_id, new_session=rotate,
-                            mock=self.mock)
+                            mock=self.mock, stream_path=rdir / "reviewer.jsonl",
+                            mock_batch=target)
         try:
-            write_text_atomic(Path(self.cfg.sub("runs")) / f"b{self.state.batch:03d}" / "review.md",
-                              (res.text or "") + "\n")
+            name = "review.md" if kind == "batch_end" else "review-pre.md"
+            write_text_atomic(rdir / name, (res.text or "") + "\n")
         except OSError:
-            pass
+            name = "review-pre.md"
+        if res.model_ok is False:
+            # R11-5c: falsches Modell (z. B. automatischer Rueckfall) -> Review
+            # verwerfen, melden, nichts starten. Der Mitschnitt bleibt als Beleg.
+            try:
+                (rdir / name).replace(rdir / "review-verworfen.md")
+            except OSError:
+                pass
+            self.state.reviewer_note_review(None)
+            self.state.data["paused"] = True
+            self.state.set(st.PAUSED, "Reviewer-Modell abweichend")
+            self.phase(None)
+            self.say("REVIEW VERWORFEN: " + (res.error or "Modellabweichung") +
+                     f"\nErwartet: {res.model_expected}; laut Ausgabe: {res.model_seen}" +
+                     f"\nRohmitschnitt: {res.raw_path}\nIch starte nichts. Bitte pruefen.")
+            self.log.error("Review verworfen - Modellabweichung", erwartet=res.model_expected,
+                           gesehen=res.model_seen)
+            return res
         if rotate:
             new_id = res.session_id or "unbekannt"
             self.state.reviewer_new_session(new_id)
-            handover = (res.parsed.blocks.get("HANDOVER") or [""])[0] if res.parsed else ""
-            if handover:
-                p = write_text_atomic(Path(self.cfg.sub("sessions")) / f"claude-{new_id}.md", handover)
-                self.log.info("Uebergabedatei geschrieben", datei=str(p))
+            self.state.data["reviewer"]["force_rotate"] = False
+            uebergabe = handover or ((res.parsed.blocks.get("HANDOVER") or [""])[0]
+                                     if res.parsed else "")
+            if uebergabe:
+                p = write_text_atomic(Path(self.cfg.sub("sessions")) / f"claude-{new_id}.md",
+                                      uebergabe)
+                self.log.info("Uebergabedatei geschrieben", datei=str(p), zeichen=len(uebergabe))
             prev = Path(self.cfg.sub("sessions")) / "vorherige-session.md"
-            write_text_atomic(prev, f"# Vorherige Reviewer-Session\n\nID: {session_id}\n" + handover + "\n")
+            write_text_atomic(prev, f"# Vorherige Reviewer-Session\n\nID: {session_id}\n"
+                                    + (uebergabe or "(keine Uebergabe erhalten)") + "\n")
+            self.log.info("Neue Reviewer-Session", alt=session_id, neu=new_id,
+                          uebergabe_zeichen=len(uebergabe))
         self.state.reviewer_note_review(res.parsed.decision if res.parsed else None)
+        rev = self.state.data.setdefault("reviewer", {})
+        rev["model_seen"] = res.model_seen
+        rev["model_ok"] = res.model_ok
+        rev["effort"] = self.reviewer_effort()
+        self.state.save()
         if res.limit_reached:
             self.state.set(st.LIMIT_WAIT, "Pro-Limit erreicht")
             self.state.data["paused"] = True
@@ -498,9 +672,99 @@ class Orchestrator:
         return protocol.parse_anchor_batch(text)
 
     def expected_batch(self) -> int:
-        """Erwartete Nummer = Anker + 1. 0, wenn der Anker keine Nummer nennt."""
+        """Erwartete Nummer = Anker-Kopf + 1. 0, wenn der Anker keine Nummer nennt.
+
+        Es gibt bewusst KEINEN zweiten Zaehler im Harness: die Nummer kommt
+        ausschliesslich aus dem Anker.
+        """
         n = self.anchor_batch()
         return (n + 1) if n is not None else 0
+
+    def anchor_next_hint(self) -> int | None:
+        """Querverweis aus der Zeile 'Naechster Schritt' des Ankers (B159)."""
+        try:
+            text = read_text(self.cfg.anchor_file)
+        except OSError:
+            return None
+        return protocol.parse_anchor_next_hint(text)
+
+    def batch_number_line(self) -> str:
+        """Eine Zeile fuer Prompt/Status: welche Nummer gilt und woher sie kommt."""
+        nxt = self.expected_batch()
+        anker = self.anchor_batch()
+        hint = self.anchor_next_hint()
+        if not nxt:
+            return "Naechster Batch laut Anker: UNBEKANNT (Anker nennt keine Nummer)"
+        txt = f"Naechster Batch laut Anker: {nxt}"
+        if anker:
+            txt += f" (Anker-Kopf: BATCH {anker})"
+        if hint and hint != nxt:
+            txt += f" - ACHTUNG: der Anker nennt im 'Naechster Schritt' B{hint}; ich rechne mit {nxt}"
+        return txt
+
+    def gate_from_review(self, p, raw_path: str) -> str:
+        """Uebernimmt die Reviewer-Antwort als offenen Auftrag (Gate).
+
+        Rueckgabe: "ok" | "number_missing" | "number_mismatch".
+        Bei unklarer oder abweichender Nummer wird NICHTS gestartet: der Auftrag
+        bleibt als Gate liegen, der Harness pausiert und meldet die Nummern.
+        """
+        expected = self.expected_batch()
+        instr = p.instruction or ""
+        batch_no = p.batch
+        hinweise: list[str] = []
+        status = "ok"
+        if batch_no is None:
+            if expected:
+                batch_no = expected
+                hinweise.append(f"Die Instruktion nennt keine Batch-Nummer - ich rechne mit "
+                                f"{batch_no} ({self.batch_number_line()}).")
+            else:
+                batch_no = 0
+                status = "number_missing"
+                hinweise.append("Weder die Instruktion noch der Anker nennen eine Batch-Nummer.")
+        elif expected and batch_no != expected:
+            status = "number_mismatch"
+            hinweise.append(f"ACHTUNG: Die Instruktion nennt Batch {batch_no}, laut Anker ist "
+                            f"Batch {expected} dran ({self.batch_number_line()}).")
+        profile = p.profile or "none"
+        program = p.program
+        if profile == "none" and program:
+            self.log.info("Profil none - Programm aus dem Review verworfen", program=program)
+            program = None
+        self.state.set_gate(st.new_review_id(), p.summary, instr,
+                            {"profile": profile, "program": program, "batch": batch_no,
+                             "expected": expected, "source": "reviewer"},
+                            raw_path)
+        if status == "ok":
+            return "ok"
+        self.say("\n".join(hinweise) + "\n\nIch starte diesen Auftrag NICHT.")
+        if status == "number_mismatch":
+            self.say(f"Wege:\n  /number {expected}  -> Nummer des offenen Auftrags auf {expected} "
+                     f"setzen, danach /approve\n  /review  -> neuen Review anfordern (verwirft "
+                     f"diesen Auftrag)")
+        else:
+            self.say("Wege:\n  /number <N>  -> Nummer festlegen, danach /approve\n"
+                     "  /review  -> neuen Review anfordern (verwirft diesen Auftrag)")
+        self.state.data["paused"] = True
+        self.state.set(st.PAUSED, "Batch-Nummer passt nicht zum Anker")
+        return status
+
+    def discard_gate(self, reason: str) -> None:
+        """Offenen Auftrag verwerfen - aber nachvollziehbar ablegen."""
+        gate = self.state.gate
+        if not gate:
+            return
+        try:
+            write_text_atomic(Path(self.cfg.sub("logs")) / f"verworfen-{gate.get('id')}.json",
+                              json.dumps({"reason": reason, "gate": gate}, ensure_ascii=False,
+                                         indent=1) + "\n")
+        except OSError:
+            pass
+        self.state.clear_gate()
+        self.approved_gate = None
+        self.log.info("Auftrag verworfen", grund=reason, id=gate.get("id"),
+                      batch=(gate.get("tools") or {}).get("batch"))
 
     # ------------------------------------------- Harness-Messdaten fuer den Review
     def harness_facts(self, batch: int) -> str:
@@ -513,6 +777,8 @@ class Orchestrator:
         if batch <= 0:
             return "\n".join([
                 "- Bootstrap: es ist noch KEIN Worker-Batch gelaufen.",
+                "- " + self.batch_number_line(),
+                "- Ghidra gespeichert: nicht noetig (kein Batch gelaufen)",
                 f"- Kosten heute: ${spent:.4f} von ${budget:.2f}",
                 f"- {pricing.status_line(self.cfg)}",
             ])
@@ -520,6 +786,10 @@ class Orchestrator:
         res = read_json(rd / "result.json", {}) or {}
         st = res.get("stats") or {}
         lines = [
+            "- " + self.batch_number_line(),
+            (f"- Reviewer: Modell {self.reviewer_model_seen() or '-'} "
+             f"(Soll {self.model_reviewer()}), Effort {self.cfg.get('claude', 'reviewer_effort', 'high')}"),
+            f"- Ghidra gespeichert: {self.ghidra_save_line(res)}",
             f"- Profil: {res.get('profile')} | Programm: {res.get('program')}",
             f"- Exit-Code: {res.get('rc')} | Laufzeit: {secs_human(float(res.get('duration_s') or 0))} "
             f"| Abbruchgrund: {res.get('killed_reason') or 'kein Abbruch'}",
@@ -568,7 +838,8 @@ class Orchestrator:
             pass
         return text
 
-    def review_context(self, snapshot_text: str, reviewer_note: str = "") -> dict:
+    def review_context(self, snapshot_text: str, reviewer_note: str = "",
+                       handover: str = "") -> dict:
         """Alles, was der Reviewer je Review bekommt (Abschnitt F/G)."""
         batch = self.state.batch
         rd = Path(self.cfg.sub("runs")) / f"b{batch:03d}"
@@ -584,12 +855,16 @@ class Orchestrator:
             anchor = "(nicht lesbar)"
         return {
             "batch": batch,
+            "next_batch": self.expected_batch(),
+            "anchor_batch": self.anchor_batch(),
+            "anchor_hint": self.anchor_next_hint(),
             "facts": self.harness_facts(batch),
             "worker_report": report,
             "markers": "\n".join(marker_lines),
             "queue_block": reviewer_note,
             "anchor": anchor,
             "snapshot": snapshot_text,
+            "handover": handover,
             "extra": self.pause_work_note(),
         }
 
@@ -643,9 +918,18 @@ class Orchestrator:
     def run(self, paused: bool = False):
         control.write_pid(self.cfg)
         self.recover()
+        if self.state.data.get("stopped"):
+            # Ein Stopp gilt fuer den Prozess, nicht fuer die Ewigkeit: nach einem
+            # Neustart wird er aufgehoben - aber nur bis PAUSIERT, damit nichts
+            # von selbst loslaeuft.
+            self.log.info("Voriger Stopp wird beim Start aufgehoben")
+            self.state.data["stopped"] = False
+            self.state.data["paused"] = True
+            self.state.save()
         try:
             self._loop(paused)
         finally:
+            self.save_ghidra_if_pending("Harness-Ende")
             control.clear_pid(self.cfg)
 
     def _loop(self, paused: bool = False):
@@ -659,10 +943,36 @@ class Orchestrator:
         while not self.quit:
             self.poll()
             s = self.state
+            if self.review_now:
+                # /review: offenen Auftrag verwerfen und sofort neu bewerten lassen.
+                self.review_now = False
+                if s.gate:
+                    self.discard_gate("Review angefordert")
+                s.data["paused"] = False
+                s.data["stopped"] = False
+                self.stop_requested = False
+                s.set(st.IDLE, "Review angefordert")
             if s.data.get("stopped"):
-                time.sleep(IDLE_SLEEP)
+                # Sauberer Stopp: WIP sichern (falls noch nicht geschehen) und den
+                # Prozess wirklich beenden - das ist genau, was angesagt wurde.
+                if not self._wip_done:
+                    self._wip_done = True
+                    try:
+                        info = self.git.wip_rescue(self.state.batch, Path(self.cfg.sub("logs")))
+                        if info.get("dirty"):
+                            self.say(f"STOP: WIP gesichert ({len(info['status'])} Aenderungen"
+                                     + (f", Patch {Path(info['patch']).name}" if info.get("patch") else "")
+                                     + (f", {info['stash']}" if info.get("stash") else "") + ")")
+                        else:
+                            self.say("STOP: Arbeitsbaum war sauber.")
+                    except Exception as exc:
+                        self.log.warn("WIP-Sicherung fehlgeschlagen", fehler=str(exc)[:150])
+                self.say("Harness beendet sich (Stopp). Neustart: start.ps1 -Paused")
+                self.log.info("Harness beendet sich nach Stopp")
+                self.quit = True
                 continue
             if s.data.get("paused"):
+                self.phase(None)
                 time.sleep(IDLE_SLEEP)
                 continue
 
@@ -681,6 +991,7 @@ class Orchestrator:
                 kind = "batch_end" if s.batch > 0 else "bootstrap"
                 snap = self.build_snapshot_text()
                 note_block, _ids = self.read_queue_block("claude")
+                self.phase("review", kind)
                 res = self.do_review(kind, snap, reviewer_note=note_block)
                 if res.limit_reached:
                     continue
@@ -693,25 +1004,16 @@ class Orchestrator:
                 if p.issues:
                     self.say("Review unvollstaendig: " + "; ".join(p.issues) +
                              "\nBitte pruefen; ich starte NICHT automatisch.")
-                instr = p.instruction or ""
-                profile = p.profile or "none"
-                batch_no = p.batch
-                expected = self.expected_batch()
-                if batch_no is None:
-                    batch_no = expected
-                    self.say(f"Hinweis: die Instruktion nennt keine Batch-Nummer - ich rechne mit {batch_no} "
-                             f"(Anker {self.anchor_batch()} + 1).")
-                elif expected and batch_no != expected:
-                    self.say(f"ACHTUNG: Instruktion nennt Batch {batch_no}, erwartet war {expected} "
-                             f"(Anker {self.anchor_batch()} + 1). Ich blockiere nicht und arbeite mit {batch_no}.")
-                s.set_gate(st.new_review_id(), p.summary, instr,
-                           {"profile": profile, "program": p.program, "batch": batch_no,
-                            "source": "reviewer"},
-                           str(res.raw_path))
-                self.say("Zusammenfassung:\n" + (p.summary or "(keine)") +
-                         f"\n\nNaechster Batch: Profil {profile}, Programm {p.program or '-'}")
+                status = self.gate_from_review(p, str(res.raw_path))
+                tools = (self.state.gate or {}).get("tools") or {}
+                profile = tools.get("profile") or "none"
+                kopf = "FREIGABE NOETIG" if status == "ok" else "AUFTRAG ANGEHALTEN"
+                self.phase("gate" if status == "ok" else None, f"Batch {tools.get('batch')}")
+                self.say(f"{kopf} - Batch {tools.get('batch')}, Profil {profile}, Programm "
+                         f"{tools.get('program') or '-'}")
+                self.say("Zusammenfassung:\n" + (p.summary or "(keine)"))
                 if p.instruction:
-                    self.say("Instruktion (Auszug):\n" + p.instruction[:3500])
+                    self.say("Instruktion (vollstaendig):\n" + p.instruction)
                 continue
 
             approved = ((self.approved_gate == gate.get("id"))
@@ -719,21 +1021,29 @@ class Orchestrator:
                         or (gate.get("tools") or {}).get("source") == "user")
             if not approved:
                 s.set(st.GATE_APPROVAL, "wartet auf /approve")
+                self.phase("gate", f"Batch {(gate.get('tools') or {}).get('batch')}")
                 time.sleep(IDLE_SLEEP)
                 continue
 
             tools = gate.get("tools") or {}
             profile = tools.get("profile") or "none"
             program = tools.get("program")
-            instruction = gate.get("instruction") or ""
+            if profile == "none" and program:
+                # Profil none = kein Ghidra-Zugriff: kein Programmwechsel, keine Sicherung.
+                self.log.info("Profil none - Programm wird nicht gestellt", program=program)
+                self.say(f"Profil none: Ghidra-Programm {program} wird NICHT gestellt "
+                         "(kein Wechsel, keine Sicherung).")
+                program = None
             batch_no = int(tools.get("batch") or self.expected_batch() or 0)
             self.approved_gate = None
             s.clear_gate()
+            instruction = gate.get("instruction") or ""
 
             ok, why = self.git_preflight()
             if not ok:
                 s.data["paused"] = True
                 s.set(st.PAUSED, why)
+                self.phase(None)
                 self.say("PAUSE: " + why)
                 continue
             try:
@@ -758,8 +1068,25 @@ class Orchestrator:
                 s.data["paused"] = True
                 s.save()
                 continue
-            self.say(self.git_push())
+            if self.ghidra_failed:
+                # Nicht pushen und nicht bewerten: erst muss die Ghidra-DB stimmen.
+                self.ghidra_failed = False
+                self.phase(None)
+                continue
             self.state.set(st.REVIEW_DUE, "Batch beendet")
+            self.phase("push", f"Batch {batch_no}")
+            push_ok, push_text = self.git_push()
+            if push_ok:
+                self.say("Push ok: " + (push_text or "up-to-date"))
+            else:
+                # R11-1: ein Push-Fehler ist ein Haltegrund - nicht stillschweigend
+                # weiterarbeiten, waehrend der Remote zurueckliegt.
+                s.data["paused"] = True
+                s.set(st.PAUSED, "Push fehlgeschlagen")
+                self.phase(None)
+                self.say("PUSH FEHLGESCHLAGEN: " + str(push_text)[:400] +
+                         "\nIch pausiere; der Remote ist nicht auf dem Stand von HEAD "
+                         f"({self.git.head_short()}).")
 
     def build_snapshot_text(self) -> str:
         """Wie der Reviewer die Lage sieht (Abschnitt G3)."""

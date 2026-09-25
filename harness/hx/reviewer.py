@@ -24,6 +24,7 @@ class ReviewResult:
         self.text = ""
         self.session_id: str | None = None
         self.model_seen: str | None = None
+        self.model_expected: str | None = None
         self.model_ok: bool | None = None
         self.limit_reached = False
         self.raw_path: str | None = None
@@ -46,7 +47,9 @@ def build_command(cfg, session_id: str | None, new_session: bool) -> list[str]:
     exe = str(cfg.get("claude", "exe"))
     _tools_value, allowed = builtin_args("reviewer")
     cmd = [exe, "-p",
-           "--output-format", "json",
+           "--output-format", "stream-json",
+           "--verbose",
+           "--model", str(cfg.get("claude", "model_reviewer", "claude-opus-5-5")),
            "--strict-mcp-config",
            "--permission-prompts", "none",
            "--max-turns", "40",
@@ -64,20 +67,59 @@ def build_command(cfg, session_id: str | None, new_session: bool) -> list[str]:
     return cmd
 
 
+def _stream_result(body: str) -> tuple[str, str | None, str | None]:
+    """Ergebnis, Session und Modell aus der Ausgabe lesen.
+
+    Unterstuetzt stream-json (viele Ereigniszeilen, Ergebnis am Ende) UND die
+    alte Form (eine JSON-Zeile). Grundsatz: lieber beide Formate lesen als eines
+    annehmen - ein Formatwechsel darf den Review nicht kosten.
+    """
+    text, session, model = "", None, None
+    for ln in (body or "").splitlines():
+        if not ln.strip():
+            continue
+        try:
+            obj = json.loads(ln)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        typ = obj.get("type")
+        if typ == "assistant":
+            m = (obj.get("message") or {}).get("model") or obj.get("model")
+            if m and not model:
+                model = str(m)
+            continue
+        if typ == "result" or (typ is None and obj.get("result")):
+            text = str(obj.get("result") or text or "")
+            session = str(obj.get("session_id") or session or "") or session
+            mu = obj.get("modelUsage") or {}
+            if isinstance(mu, dict) and mu:
+                model = ",".join(list(mu.keys())[:3])
+    return text, session, model
+
+
 def run_review(cfg, log, prompt: str, session_id: str | None = None, new_session: bool = False,
-               mock: bool = False, mock_mode: str = "ok") -> ReviewResult:
+               mock: bool = False, mock_mode: str = "ok", stream_path=None,
+               mock_batch: int | None = None) -> ReviewResult:
     res = ReviewResult()
     rd = ensure_dir(Path(cfg.root) / "logs")
 
     if mock:
-        from .mock import mock_reviewer_text
-        res.text = mock_reviewer_text(mock_mode)
+        from .mock import mock_reviewer_stream, mock_reviewer_text
+        res.text = mock_reviewer_text(mock_mode, batch=mock_batch)
         res.rc = 0
         res.duration_s = 0.5
-        res.session_id = session_id or "mock-session"
-        res.model_seen = "claude-sonnet-5 (mock)"
-        res.raw_path = str(write_text_atomic(rd / "reviewer-mock.json",
-                                             json.dumps({"result": res.text}, indent=1)))
+        # Wie im echten Lauf: eine NEUE Session bekommt eine neue Kennung.
+        res.session_id = str(uuid.uuid4()) if new_session else (session_id or "mock-session")
+        # Im Attrappenbetrieb muss die Modell-Nachpruefung (R11-5c) ebenfalls greifen -
+        # deshalb traegt die Attrappe das Konfigurationsmodell.
+        res.model_seen = str(cfg.get("claude", "model_reviewer", "claude-opus-5-5")) + " (mock)"
+        if stream_path:
+            res.raw_path = str(mock_reviewer_stream(Path(stream_path).parent, mock_batch))
+        else:
+            res.raw_path = str(write_text_atomic(rd / "reviewer-mock.json",
+                                                json.dumps({"result": res.text}, indent=1)))
     else:
         oauth = secrets.load(cfg.secrets_dir, secrets.CLAUDE_OAUTH)
         env = envs.reviewer_env(cfg, os.environ, oauth)
@@ -88,7 +130,7 @@ def run_review(cfg, log, prompt: str, session_id: str | None = None, new_session
             return res
         log.info("Reviewer-Umgebung geprueft", env=envs.describe(env))
         cmd = build_command(cfg, session_id, new_session)
-        raw = rd / f"reviewer-{now_iso().replace(':', '')}.json"
+        raw = Path(stream_path) if stream_path else rd / f"reviewer-{now_iso().replace(':', '')}.json"
         # Prompt mitschneiden: belegt, was der Reviewer wirklich bekommen hat.
         write_text_atomic(rd / f"review-prompt-{now_iso().replace(':', '')}.md", prompt)
         run = run_stream(cmd, env, cwd=str(cfg.decomp), out_path=raw, log=log,
@@ -98,15 +140,10 @@ def run_review(cfg, log, prompt: str, session_id: str | None = None, new_session
         res.raw_path = str(raw)
         body = read_text(raw)
         err = read_text(str(raw) + ".err")
-        try:
-            data = json.loads(body.strip().splitlines()[-1]) if body.strip() else {}
-        except (json.JSONDecodeError, IndexError):
-            data = {}
-        res.text = str(data.get("result") or "")
-        res.session_id = data.get("session_id") or session_id
-        usage_models = data.get("modelUsage") or {}
-        if isinstance(usage_models, dict) and usage_models:
-            res.model_seen = ",".join(list(usage_models.keys())[:3])
+        res.text, sid, model = _stream_result(body)
+        res.session_id = sid or session_id
+        if model:
+            res.model_seen = model
         if not res.text:
             res.text = body.strip()[:4000]
         if protocol.looks_like_limit(body + "\n" + err) or protocol.looks_like_limit(res.text):
@@ -115,11 +152,58 @@ def run_review(cfg, log, prompt: str, session_id: str | None = None, new_session
             res.error = f"Reviewer ohne Ergebnis (rc={res.rc}): {err.strip()[:300]}"
 
     res.parsed = protocol.parse_review(res.text)
+    # --- Nachher-Pruefung (E3, R11-5c): Modell muss das konfigurierte sein ------------
+    res.model_expected = str(cfg.get("claude", "model_reviewer", "claude-opus-5-5"))
+    res.model_ok = bool(res.model_seen) and res.model_expected.lower() in str(res.model_seen).lower()
+    if not res.model_ok:
+        res.error = (f"Reviewer-Modell weicht ab: laut Ausgabe {res.model_seen!r}, "
+                     f"erwartet {res.model_expected!r}")
+        if log:
+            log.error("REVIEWER-MODELL-ABWEICHUNG", erwartet=res.model_expected,
+                      gesehen=str(res.model_seen))
     write_text_atomic(rd / f"review-{now_iso().replace(':', '')}.md",
                       res.text or "(leer)")
     if log:
         log.info("Review fertig", info=res.describe())
     return res
+
+
+HANDOVER_PROMPT = """UEBERGABE. Diese Session wird jetzt beendet, eine neue uebernimmt den Dienst.
+
+Fasse in hoechstens 1500 Zeichen zusammen, was die neue Session wissen muss:
+- was zuletzt passiert ist (Batch, Stand laut Anker),
+- getroffene Entscheidungen und ihre Gruende,
+- offene Punkte, Fallstricke und Regeln, die du in dieser Session gelernt hast,
+- was die neue Session zuerst lesen soll.
+
+Keine Werkzeuge, keine Dateien, keine Einleitung, keine Entschuldigung - nur dieser Text.
+"""
+
+
+def run_handover(cfg, log, session_id: str, mock: bool = False, stream_path=None,
+                 max_turns: int = 4) -> str:
+    """Die alte Session um eine Uebergabe bitten, BEVOR die neue startet (R13-2)."""
+    if mock:
+        return ("(Attrappe) Uebergabe der vorigen Session: Stand laut Anker, Entscheidungen "
+                "und offene Punkte stehen im Messdatenblock.")
+    oauth = secrets.load(cfg.secrets_dir, secrets.CLAUDE_OAUTH)
+    env = envs.reviewer_env(cfg, os.environ, oauth)
+    cmd = build_command(cfg, session_id, new_session=False)
+    if "--max-turns" in cmd:
+        cmd[cmd.index("--max-turns") + 1] = str(max_turns)
+    if stream_path:
+        raw = ensure_dir(Path(stream_path).parent) / Path(stream_path).name
+    else:
+        raw = Path(cfg.sub("logs")) / f"handover-{now_iso().replace(':', '')}.json"
+    run = run_stream(cmd, env, cwd=str(cfg.decomp), out_path=raw, log=log,
+                     stdin_text=HANDOVER_PROMPT, hard_wall_s=600)
+    body = read_text(raw)
+    text, _sid, _model = _stream_result(body)
+    if not text:
+        text = body.strip()[:2000]
+    if log:
+        log.info("Uebergabe angefordert", rc=run.rc, zeichen=len(text))
+    return text.strip()
 
 
 def build_prompt(cfg, kind: str, ctx: dict) -> str:
@@ -138,9 +222,26 @@ def build_prompt(cfg, kind: str, ctx: dict) -> str:
     }[kind]
 
     batch = ctx.get("batch") or 0
+    nxt = ctx.get("next_batch") or 0
+    anker = ctx.get("anchor_batch")
+    hint = ctx.get("anchor_hint")
+    if nxt:
+        nummer = ("Naechster Batch laut Anker: " + str(nxt)
+                  + (f" (Anker-Kopf nennt BATCH {anker})" if anker else "")
+                  + (f"; Querverweis im Anker: B{hint}" if hint else ""))
+        regel = (f"Verbindlich: die DS_INSTRUCTION MUSS mit \"Batch {nxt} - ...\" beginnen. "
+                 "Nenne KEINE andere Nummer. Es gibt keinen internen Zaehler: die Nummer kommt "
+                 "ausschliesslich aus dem Anker. Nennt die Instruktion eine andere Nummer, startet "
+                 "der Harness den Batch NICHT und haelt mit Meldung an.")
+    else:
+        nummer = ("Naechster Batch laut Anker: UNBEKANNT (der Anker nennt keine Nummer)")
+        regel = ("Verbindlich: die DS_INSTRUCTION muss eine Nummer im Format \"Batch <N> - ...\" "
+                 "nennen (naechste freie Nummer nach dem Anker).")
     parts = [
         kind_text,
-        f"Batch-Nummer: {batch} (der naechste Batch ist {batch + 1})",
+        nummer,
+        regel,
+        (f"Zuletzt gelaufener Batch: {batch}" if batch else "Bisher gelaufene Batches: keine"),
         "Arbeitsverzeichnis: das Decomp-Repo; Projektwissen holst du dir bei Bedarf gezielt "
         "per Read/Grep (AGENTS.md, Anker, Statusdokumente) - nicht alles auf einmal.",
         "",
@@ -158,6 +259,10 @@ def build_prompt(cfg, kind: str, ctx: dict) -> str:
         "",
         "=== ANKERDATEI analysis/r1b-workstream.md (Kopf) ===",
         (ctx.get("anchor") or "(nicht lesbar)").strip(),
+        "",
+        "=== UEBERGABE AUS DER VORIGEN SESSION ===",
+        (ctx.get("handover") or "(keine Uebergabe - du liest den Stand selbst aus Anker "
+                                "und Messdaten)").strip(),
         "",
         "=== SNAPSHOT / LAGE ===",
         (ctx.get("snapshot") or "(kein Snapshot)").strip(),

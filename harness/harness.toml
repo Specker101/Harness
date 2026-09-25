@@ -13,6 +13,9 @@ sandbox     = "g:/Harness/sandbox/workspace"
 [claude]
 exe                 = "C:/Users/Benji/.local/bin/claude.exe"
 model_worker        = "deepseek-flash[1m]"
+# R11-5: der Reviewer laeuft mit Opus 5.5 und Reasoning-Stufe high (kein max).
+model_reviewer      = "claude-opus-5-5"
+reviewer_effort     = "high"
 base_url            = "https://api.deepseek.com/anthropic"
 config_dir_worker   = "g:/Harness/harness/cc-worker"
 config_dir_reviewer = "g:/Harness/harness/cc-reviewer"
@@ -44,6 +47,18 @@ rotation_after = 10
 push_after_batch = true
 remote           = "origin"
 branch           = "main"
+# R11-1: JEDER git-Aufruf hat ein Zeitlimit und laeuft nicht interaktiv
+# (GIT_TERMINAL_PROMPT=0, GCM_INTERACTIVE=never) - kein Warten auf Zugangsdaten.
+timeout_s       = 120
+fetch_timeout_s = 180
+push_timeout_s  = 180
+
+[env]
+# R11-3: PATH der Kindprozesse = geerbte Nutzerumgebung + diese Zusaetze VORN.
+# "$MSYS_UCRT64" wird gesucht wie in scripts/port_build.ps1 (R310), damit
+# `g++ --version` 16.2.0 zeigt (Stand B158) und nicht MinGW.org 6.3.0.
+path_prepend = ["$MSYS_UCRT64"]
+path_append  = []
 
 [ghidra]
 port            = 8089

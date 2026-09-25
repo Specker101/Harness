@@ -7,10 +7,26 @@ Niemals `git add -A`: das Projekt hat untracked Belegordner.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
+from . import envs
 from .proc import run_capture
 from .util import ensure_dir, write_text_atomic
+
+# Git NIE interaktiv: ohne das wartete ein Push auf Zugangsdaten und der Harness
+# stand still (R11-1, gemessen an B159). Der Credential Manager darf dabei ruhig
+# weiterhelfen - nur eben ohne Fenster und ohne Konsoleneingabe.
+GIT_ENV = {
+    "GIT_TERMINAL_PROMPT": "0",
+    "GCM_INTERACTIVE": "never",
+    "GIT_ASKPASS": "",
+    "SSH_ASKPASS": "",
+    "GIT_SSH_COMMAND": "ssh -o BatchMode=yes",
+    "GIT_PAGER": "cat",
+    "GIT_OPTIONAL_LOCKS": "0",
+    "LC_ALL": "C",
+}
 
 
 class GitError(RuntimeError):
@@ -24,12 +40,18 @@ class Git:
         self.branch = str(cfg.get("git", "branch", "main"))
         self.remote = str(cfg.get("git", "remote", "origin"))
         self.log = log
+        self.timeout = float(cfg.get("git", "timeout_s", 120))
+        self.push_timeout = float(cfg.get("git", "push_timeout_s", 180))
+        self.fetch_timeout = float(cfg.get("git", "fetch_timeout_s", 180))
 
     # ----------------------------------------------------------------- Basis
-    def run(self, *args: str, timeout: float = 120.0) -> tuple[int, str, str]:
-        return run_capture(["git", *args], cwd=self.repo, timeout=timeout)
+    def run(self, *args: str, timeout: float | None = None) -> tuple[int, str, str]:
+        env = envs.base_env(os.environ)
+        env.update(GIT_ENV)
+        return run_capture(["git", *args], cwd=self.repo,
+                           timeout=self.timeout if timeout is None else timeout, env=env)
 
-    def out(self, *args: str, timeout: float = 120.0) -> str:
+    def out(self, *args: str, timeout: float | None = None) -> str:
         rc, so, se = self.run(*args, timeout=timeout)
         if rc != 0:
             raise GitError(f"git {' '.join(args)} -> rc={rc}: {se.strip()[:300]}")
@@ -56,9 +78,9 @@ class Git:
 
     # -------------------------------------------------------------- Fetch/Sync
     def fetch(self) -> tuple[bool, str]:
-        rc, so, se = self.run("fetch", self.remote, self.branch, timeout=180)
+        rc, so, se = self.run("fetch", self.remote, self.branch, timeout=self.fetch_timeout)
         if rc != 0:
-            return False, se.strip()[:300] or so.strip()[:300]
+            return False, (se.strip() or so.strip())[:400]
         return True, ""
 
     def divergence(self) -> dict:
@@ -75,10 +97,13 @@ class Git:
                 "same": local == remote, "behind": behind, "ahead": ahead}
 
     def push(self) -> tuple[bool, str]:
-        rc, so, se = self.run("push", self.remote, self.branch, timeout=300)
+        """Push mit Zeitlimit - nie interaktiv, nie haengend (R11-1)."""
+        rc, so, se = self.run("push", "--porcelain", self.remote, self.branch,
+                              timeout=self.push_timeout)
+        text = (se or so).strip()[:600]
         if rc != 0:
-            return False, (se or so).strip()[:400]
-        return True, (se or so).strip()[:400]
+            return False, text
+        return True, text
 
     # -------------------------------------------------------------- Checkpoint
     def checkpoint(self, batch: int) -> str:

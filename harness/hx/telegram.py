@@ -21,11 +21,12 @@ HELP = (
     "/resume - weiter\n"
     "/stop - laufenden Batch abbrechen (WIP wird gesichert)\n"
     "/approve [Text] - wartenden Batch freigeben\n"
+    "/number <N> - Batch-Nummer des offenen Auftrags setzen\n"
     "/autonom - Dauerbetrieb an/aus (ohne Rueckfrage starten)\n"
     "/ds <Text> - Nachricht an den Worker (Queue)\n"
     "/claude <Text> - Nachricht an den Reviewer (Queue)\n"
-    "/review - Review jetzt anstossen\n"
-    "/last [ds|claude] [n] - letzten Text zeigen\n"
+    "/review - neuer Review jetzt (verwirft einen offenen Auftrag, hebt die Pause auf)\n"
+    "/last [ds|claude] [n] - letzten Text zeigen (claude = vollstaendige Instruktion)\n"
     "/budget - Kosten und Grenzen\n"
     "/queue - offene Nachrichten\n"
     "/why - letzte Reviewer-Entscheidung\n"
@@ -117,7 +118,12 @@ class Telegram:
 
 
 def split_message(text: str, limit: int = 4000) -> list[str]:
-    """Telegram-Grenze: Nachrichten ueber 4000 Zeichen werden automatisch geteilt."""
+    """Telegram-Grenze: Nachrichten ueber 4000 Zeichen werden automatisch geteilt.
+
+    Geteilt wird an Zeilenenden; eine EINZELNE Zeile ueber der Grenze wird hart
+    geteilt, sonst wuerde Telegram die Nachricht ablehnen (Instruktionen sind
+    lang und enthalten auch lange Zeilen).
+    """
     text = text or ""
     if len(text) <= limit:
         return [text]
@@ -129,4 +135,11 @@ def split_message(text: str, limit: int = 4000) -> list[str]:
         cur += line
     if cur:
         chunks.append(cur)
-    return chunks
+    out: list[str] = []
+    for c in chunks:
+        while len(c) > limit:
+            out.append(c[:limit])
+            c = c[limit:]
+        if c:
+            out.append(c)
+    return out
