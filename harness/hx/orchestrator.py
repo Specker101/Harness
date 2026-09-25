@@ -407,7 +407,8 @@ class Orchestrator:
             f"{s.data.get('last_batch_number') or 'keiner'} | {self.batch_number_line()}",
             f"Dauerbetrieb: {'AN' if s.data.get('autonomous') else 'AUS'}",
             f"Worker: {'PID ' + str(s.live_worker_pid()) if s.live_worker_pid() else 'laeuft nicht'}",
-            f"Reviewer-Session: {rev.get('session_id')} ({rev.get('reviews')}/{self.cfg.get('reviewer','rotation_after',10)} Reviews)",
+            f"Reviewer-Session: {rev.get('session_id')} ({rev.get('reviews')}/{self.cfg.get('reviewer','rotation_after',10)} Reviews)"
+            + (" - Wechsel beim naechsten Review erzwungen" if rev.get("force_rotate") else ""),
             (f"Reviewer-Modell: {self.reviewer_model_seen() or '-'} (Soll {self.model_reviewer()}, "
              f"Effort {self.reviewer_effort()})"),
             f"Phase: {self.phase_text()}",
