@@ -1,0 +1,14 @@
+A) nackte Umgebung: 26.7 s (rc=0) - Regression: OK (32 Faelle + 270 Anker, 0 Fehler) -> analysis\_m62_regression.csv
+B) Harness-Umgebung (PATH wie worker_env): 26.8 s (rc=0) - Regression: OK (32 Faelle + 270 Anker, 0 Fehler) -> analysis\_m62_regression.csv
+
+Unterschied: +0.1 s (+0.4 %)
+PATH-Zusatz des Harness: anders als geerbt
+
+Vergleich zum Harness-Betrieb (Belege der Nacht):
+- Der Worker fuehrt dieselbe Datei ueber die PowerShell-Werkzeugschale aus.
+  Geprueft im Code: der Harness setzt KEINE CPU-Grenze und KEINE Prioritaet
+  (der einzige creationflags-Aufruf, ghidra.py:136, ist CREATE_NO_WINDOW
+  fuer den Headless-Server - ein Fensterflag, keine Leistungsgrenze).
+- Laufzeiten der Batches der Nacht: B161-B173 13-117 min, B174 79 min.
+  Die Regression ist darin ein Schritt von rund einer halben Minute (0,2-2 %).
+- Der Preflight (AGENTS.md) fuehrt sie ohnehin genau EINMAL je Batch aus.

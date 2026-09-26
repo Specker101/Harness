@@ -76,7 +76,12 @@ class Watcher:
         self.color = bool(color) and not os.environ.get("NO_COLOR") and sys.stdout.isatty()
         if self.color and not enable_vt():
             self.color = False
-        self.stats = streamjson.StreamStats()
+        self.stats = streamjson.StreamStats()      # nur der LAUFENDE Batch
+        self.rstats = streamjson.StreamStats()     # nur der laufende Review
+        self.ges_requests = 0                      # Summe ueber alle gezeigten Batches
+        self.ges_cost = 0.0
+        self.ges_batches = 0
+        self.batch_nr = 0
         self.seen = 0                # beim Nachspielen
         self.seen_worker = 0         # live
         self.seen_reviewer = 0       # live
@@ -108,6 +113,32 @@ class Watcher:
         if self.batch:
             return Path(self.cfg.sub("runs")) / f"b{int(self.batch):03d}"
         return Path(self.cfg.sub("runs")) / f"b{self._target_batch(self._state()):03d}"
+
+    def _review_dir(self, state: dict) -> Path:
+        """Ordner des LAUFENDEN Reviews.
+
+        R13e: Das Review von Batch N liegt in `runs/b<N+1>` (Nummer nach dem
+        Anker) - dort steht, was den naechsten Batch betrifft. Vorher las watch
+        `runs/b<N>/reviewer.jsonl`; das ist der Mitschnitt des VORIGEN Reviews,
+        deshalb zeigte watch nach B161 die B160-Bewertung samt B161-Instruktion
+        unter der Ueberschrift "REVIEW LAEUFT". Der Harness schreibt den
+        Zielordner jetzt in den Zustand (`review.dir`); fehlt er (alter Zustand),
+        wird gerechnet.
+        """
+        eintrag = state.get("review") or {}
+        d = eintrag.get("dir")
+        if d:
+            return Path(d)
+        b = int(state.get("last_batch_number") or state.get("batch") or 0)
+        return Path(self.cfg.sub("runs")) / f"b{b + 1:03d}"
+
+    def _bewerteter_batch(self, rd: Path) -> str:
+        """Welcher Batch im Ordner `rd` bewertet wurde (aus harness-facts.md)."""
+        text = read_text(rd / "harness-facts.md")
+        for l in text.splitlines():
+            if l.startswith("- Review: bewertet wird Batch "):
+                return l[len("- Review: bewertet wird Batch "):].split(";")[0].strip()
+        return "?"
 
     # ---------------------------------------------------------------- Ausgabe
     def _p(self, text: str = "", style: str = ""):
@@ -148,7 +179,10 @@ class Watcher:
             self._p(THINK_PREFIX + kurz, "dim")
 
     def _render_line(self, line: str, who: str = "WORKER"):
-        obj = self.stats.feed(line)
+        # R13e: Worker- und Reviewer-Mitschnitt haben eigene Zaehler. Vorher lief
+        # alles in einen Topf - die "laufend"-Zeile zeigte dadurch Werte seit
+        # Harness-Start statt die des laufenden Batches.
+        obj = (self.rstats if who == "REVIEWER" else self.stats).feed(line)
         if not obj:
             return
         t = obj.get("type")
@@ -170,13 +204,36 @@ class Watcher:
                     body = block.get("content")
                     text = body if isinstance(body, str) else json.dumps(body, ensure_ascii=False)
                     low = text.lower()
-                    if "no such tool available" in low or "disabled for this session" in low:
-                        self._p("  x ABGELEHNT: " + _clip(text, 160), "red")
+                    # R13e: nur ECHTE Fehlerergebnisse markieren. Die alte Regel
+                    # suchte den Satz irgendwo im Ergebnis; ein Read eines
+                    # Dokuments, das ihn zitiert, wurde als "ABGELEHNT" gezeigt.
+                    if text.lstrip().startswith("<tool_use_error>"):
+                        if "no such tool available" in low or "disabled for this session" in low:
+                            self._p("  x ABGELEHNT: " + _clip(text, 160), "red")
+                        else:
+                            self._p("  x Werkzeugfehler: " + _clip(text, 160), "red")
                     elif block.get("is_error"):
                         self._p("  ! Fehler: " + _clip(text, 160), "yellow")
         elif t == "result":
             self._p("")
             self._p(f"--- {who} beendet ---", "dim")
+
+    def _limits_text(self) -> str:
+        """Die Grenzen aus [limits] - sie gelten JE BATCH (worker.run_batch)."""
+        g = lambda k, d: self.cfg.get("limits", k, d)              # noqa: E731
+        return (f"  Grenzen je Batch (aus [limits]): ALARM {int(g('alarm_requests', 250))} "
+                f"Anfragen / ${float(g('alarm_cost_usd', 1.0)):.2f} / "
+                f"{float(g('alarm_wall_s', 5400)) / 60:.0f} min - HART "
+                f"{int(g('hard_requests', 400))} / ${float(g('hard_cost_usd', 2.0)):.2f} / "
+                f"{float(g('hard_wall_s', 10800)) / 60:.0f} min")
+
+    def _stats_umlegen(self):
+        """Den abgeschlossenen Batch in die Gesamtsumme uebernehmen (R13e)."""
+        if self.stats.requests:
+            self.ges_requests += len(self.stats.requests)
+            self.ges_cost += self.stats.cost_usd(
+                list(self.cfg.get("peak", "extra_offpeak_dates", []) or []))
+            self.ges_batches += 1
 
     def _print_stats(self, force: bool = False):
         t = self.stats.totals()
@@ -189,9 +246,15 @@ class Watcher:
             return
         self._stats_key = key
         up = time.time() - self.started
-        self._p(f"[{time.strftime('%H:%M:%S')}] laufend: {t['requests']} Anfragen · "
+        gesamt = ""
+        if self.ges_batches:
+            gesamt = (f"  |  seit watch-Start: {self.ges_batches} Batch(es), "
+                      f"{self.ges_requests + t['requests']} Anfragen, "
+                      f"${self.ges_cost + cost:.4f}")
+        self._p(f"[{time.strftime('%H:%M:%S')}] Batch {self.batch_nr} laufend: "
+                f"{t['requests']} Anfragen · "
                 f"{t['input_miss']} ein / {t['cache_read']} cache / {t['output']} aus · "
-                f"${cost:.4f} · {up / 60:.1f} min", "dim")
+                f"${cost:.4f} · {up / 60:.1f} min" + gesamt, "dim")
 
     def _prompt_info(self):
         files = sorted(Path(self.cfg.sub("logs")).glob("review-prompt-*.md"))
@@ -287,6 +350,11 @@ class Watcher:
         if stream.is_file():
             self._tail(stream, "WORKER", "seen")
         if rev_stream.is_file():
+            # R13e: der Reviewer-Mitschnitt in diesem Ordner gehoert zum VORIGEN
+            # Batch (das Review von N liegt in b<N+1>). Deshalb hier benennen,
+            # statt es unter dem Ordnernamen laufen zu lassen.
+            self._p(f"(Reviewer-Mitschnitt = Review von Batch "
+                    f"{self._bewerteter_batch(rd)})", "dim")
             self._tail(rev_stream, "REVIEWER", "seen_reviewer")
         self._print_stats(force=True)
         self._summary(res)
@@ -310,9 +378,11 @@ class Watcher:
                     "bold")
         gate = stt.get("gate")
         if zust == "CLAUDE_REVIEWING":
-            self._p(f"REVIEW LAEUFT seit {stt.get('updated_at')} ({stt.get('note') or '-'})", "bold")
+            rdir = self._review_dir(stt)
+            self._p(f"REVIEW LAEUFT seit {stt.get('updated_at')} ({stt.get('note') or '-'}) "
+                    f"- gezeigt wird {rdir.name}/reviewer.jsonl", "bold")
             self._prompt_info()
-            self._tail(rd / "reviewer.jsonl", "REVIEWER", "seen_reviewer")
+            self._tail(rdir / "reviewer.jsonl", "REVIEWER", "seen_reviewer")
             return 0
         if gate:
             self._show_gate(gate)
@@ -335,6 +405,7 @@ class Watcher:
         last: tuple | None = None
         last_phase: str | None = None
         last_worker_dir: Path | None = None
+        last_review_dir: Path | None = None
         gate_id = None
         review_marker = None
         while True:
@@ -359,42 +430,78 @@ class Watcher:
                 gate = stt.get("gate")
                 if zust == "CLAUDE_REVIEWING":
                     gate_id = None
+                    # R13e: den Ordner des LAUFENDEN Reviews nehmen und beim Wechsel
+                    # den Zaehler zuruecksetzen - sonst haengt watch am Mitschnitt
+                    # des vorigen Reviews (B160 unter "REVIEW LAEUFT").
+                    rdir = self._review_dir(stt)
+                    if rdir != last_review_dir:
+                        last_review_dir = rdir
+                        self.seen_reviewer = 0
                     if review_marker != stt.get("updated_at"):
                         review_marker = stt.get("updated_at")
                         self._p("")
                         self._p(f"REVIEW LAEUFT seit {stt.get('updated_at')} "
                                 f"({stt.get('note') or '-'})", "bold")
+                        self._p(f"  Mitschnitt: {rdir.name}/reviewer.jsonl", "dim")
                         self._prompt_info()
-                    self._tail(rd / "reviewer.jsonl", "REVIEWER", "seen_reviewer")
+                    self._tail(rdir / "reviewer.jsonl", "REVIEWER", "seen_reviewer")
                 elif gate:
                     review_marker = None
+                    last_review_dir = None
                     if gate_id != gate.get("id"):
                         gate_id = gate.get("id")
                         self._show_gate(gate)
                 else:
                     review_marker = None
                     gate_id = None
-                    if zust == "DS_WORKING":
+                    # R13e: ein laufender Worker wird AUCH im Pausenzustand gezeigt.
+                    # /pause setzt den Zustand auf PAUSED, der Worker laeuft aber bis
+                    # zum Ende weiter - vorher verschwand er damit aus watch.
+                    if zust == "DS_WORKING" or pname == "worker":
                         # Nur der LAUFENDE Lauf wird gezeigt. Betritt der Zustand den
                         # Batch neu, faengt der Mitschnitt von vorn an (die Datei kann
                         # von einem frueheren Lauf derselben Nummer stammen).
                         if last_worker_dir != rd:
                             last_worker_dir = rd
+                            self._stats_umlegen()
+                            self.stats = streamjson.StreamStats()
+                            self._stats_key = None
                             self.seen_worker = 0
+                            # R13e: neuer Batch -> Batch-Ende wieder anzeigen. Vorher
+                            # blieb `review_shown` gesetzt, deshalb erschien das Ende
+                            # jedes weiteren Batches nie mehr im Fenster.
+                            self.review_shown = False
+                            self.batch_nr = b
                             self._p("")
-                            self._p(f"Worker laeuft: {rd.name}", "bold")
+                            self._p(f"Worker laeuft: {rd.name}"
+                                    + (" (pausiert - laeuft zu Ende)" if stt.get("paused") else ""),
+                                    "bold")
+                            self._p(self._limits_text(), "dim")
                         if self._tail(rd / "stream.jsonl", "WORKER", "seen_worker"):
                             self._print_stats()
                     else:
                         last_worker_dir = None
                     if (rd / "result.json").is_file() and not self.review_shown:
-                        self._print_stats(force=True)
-                        self._summary(read_json(rd / "result.json", {}) or {})
-                        self._p("(Review folgt - er laeuft als eigener Zustand)", "dim")
-                        self.review_shown = True
+                        self._batch_ende_melden(stt, rd, b)
             except KeyboardInterrupt:
                 self._p("(watch beendet - der Harness laeuft unberuehrt weiter)", "dim")
                 return 0
+
+    def _batch_ende_melden(self, stt: dict, rd: Path, b: int) -> None:
+        """Batch-Ende zeigen - auch im Pausenzustand (R13e).
+
+        Vorher erschien nach /pause nur noch die Telegram-Meldung; im watch-Fenster
+        fehlte das Ende des laufenden Batches. Ausserdem blieb `review_shown` ueber
+        Batches hinweg gesetzt, sodass ab dem zweiten Batch gar kein Ende mehr kam.
+        """
+        self._print_stats(force=True)
+        self._summary(read_json(rd / "result.json", {}) or {})
+        if stt.get("paused"):
+            self._p(f"PAUSIERT - Batch {b} ist beendet, der Review zu Batch {b} "
+                    "steht aus (startet erst nach /resume).", "yellow")
+        else:
+            self._p("(Review folgt - er laeuft als eigener Zustand)", "dim")
+        self.review_shown = True
 
     def _summary(self, res: dict):
         if not res:

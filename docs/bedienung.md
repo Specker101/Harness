@@ -27,6 +27,49 @@ Der Harness läuft **unabhängig von VS Code** in einem eigenen Fenster; das Sch
 Fensters beendet ihn. Nach einem Neustart nimmt er Zustand und Queue aus `state\` und
 `inbox\` wieder auf.
 
+### 1a. NICHT aus dem VS-Code-Terminal starten (gemessen 2026-09-26, R13e)
+
+**Befund.** Prozesse, die aus einem VS-Code-Terminal gestartet werden, liegen in einem
+**Job-Objekt von VS Code** (`Code.exe`). Wird dieses Terminal bzw. die Sitzung
+aufgeräumt, beendet VS Code den ganzen Job — der Harness stirbt **ohne Spur**: kein
+Traceback, keine stderr-Zeile, kein `crash-*.txt`, nur die Logdatei bricht mitten ab.
+
+Beleg (`docs\_start_aus_terminal_beleg.txt`, mit `IsProcessInJob` gemessen):
+
+| Prozess | im Job-Objekt |
+|---|---|
+| `python` (Skript) → `powershell.exe` → `Code.exe` (utility) → `Code.exe` (Haupt) | **ja** |
+| `explorer.exe` (Grenze des Jobs) | nein |
+| Harness `python -m hx.cli run --paused`, **in eigenem Fenster** gestartet (PID 1236) | **nein** |
+
+Die zwei stillen Abstürze der Nacht (`logs\harness-2026-09-25T223007+0000.log` und
+`…T001234+0000.log`, je **373 Bytes**, Ende in derselben Sekunde wie der Start) tragen
+genau dieses Muster: drei INFO-Zeilen, dann nichts — keine Ausnahme, kein Bericht. Die
+zwei *anderen* Abstürze derselben Nacht (PermissionError) haben dagegen Berichte
+hinterlassen. Damit ist die Ursache eingegrenzt: **getötet, nicht abgestürzt.**
+
+**Regel.** Der Harness wird in einem **eigenen PowerShell-Fenster** gestartet (Startmenü /
+Explorer / `Win+R`), **niemals** in einem Terminal innerhalb von VS Code.
+
+**Vorschlag für einen Start ohne jedes Terminal** (nur Vorschlag, noch nicht gebaut):
+
+1. **Am einfachsten:** eine Verknüpfung `Harness starten.lnk` auf dem Desktop, Ziel
+   `powershell.exe -NoProfile -ExecutionPolicy Bypass -File g:\Harness\harness\start.ps1 -Paused`,
+   Ausführen in `g:\Harness\harness`. Eine Verknüpfung hängt an `explorer.exe`, also
+   außerhalb jedes VS-Code-Jobs — genau wie der stabile Lauf der Nacht.
+2. **Unabhängig von jedem angemeldeten Fenster:** eine Aufgabe in der
+   **Windows-Aufgabenplanung** (`schtasks /create /tn SilentScopeHarness /tr …`,
+   Auslöser „Bei Anmeldung“). Sie startet in einer eigenen Sitzung; `start.ps1` läuft
+   dann ohne sichtbares Fenster (`-WindowStyle Hidden` wäre zu ergänzen), und `/status`
+   bzw. `watch` sind die einzigen Bedienwege. Das ist der robusteste Weg für den
+   Dauerbetrieb über Nacht.
+3. **Für einen Rechner ohne angemeldeten Nutzer:** ein Dienst-Wrapper (z. B. NSSM) um
+   `python -m hx.cli run`. Erst sinnvoll, wenn der Harness ohne interaktives Fenster
+   betrieben wird (heute schreibt `start.ps1` bei Fehlern noch ins Fenster und wartet
+   auf Enter — das müsste dann entfallen).
+
+Empfehlung: **1.** heute, **2.** vor dem nächsten Nachtlauf.
+
 ---
 
 ## 2. Lokale Befehle (ohne Telegram)

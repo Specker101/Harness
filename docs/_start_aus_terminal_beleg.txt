@@ -1,0 +1,42 @@
+# Punkt 3: Start aus dem VS-Code-Terminal - Beleg
+
+## 1. Job-Mitgliedschaft (IsProcessInJob) dieser Prozesskette
+- PID 9688: in einem Job-Objekt = True
+- PID 2968: in einem Job-Objekt = True
+- PID 20272: in einem Job-Objekt = True
+- PID 640: in einem Job-Objekt = True
+- PID 21336: in einem Job-Objekt = False
+- PID 12744: in einem Job-Objekt = False
+
+Vergleich: der Harness, den der Nutzer im EIGENEN Fenster gestartet hat.
+- PID 1236: in einem Job-Objekt = False
+- PID 19652: in einem Job-Objekt = True
+
+## 2. Nachstellung des Sterbemusters eines Job-Kills
+- Job ohne/mit KILL_ON_JOB_CLOSE = True
+    exit vor dem Schliessen: None
+    exit nach dem Schliessen: None
+    stdout-Zeilen insgesamt: 11
+    stderr: (leer)
+- Job ohne/mit KILL_ON_JOB_CLOSE = False
+    exit vor dem Schliessen: None
+    exit nach dem Schliessen: None
+    stdout-Zeilen insgesamt: 11
+    stderr: (leer)
+
+## 3. Muster der zwei stillen Harness-Abstaende (aus logs/)
+- harness-2026-09-26T001234+0000.log: 373 Bytes, letzte Zeile '{"ts": "2026-09-26T00:12:34+00:00", "level": "INFO", "msg": "Voriger Stopp wird beim Start aufgehoben"}'
+- start-stderr.log: fuer beide Starts KEINE ABSTURZ-Zeile, KEIN Traceback.
+- logs/crash-*.txt: fuer beide Starts KEIN Bericht (die zwei anderen Abstuerze
+  derselben Nacht, PermissionError, haben Berichte hinterlassen).
+
+## 4. Wer sind die Prozesse dieser Kette?
+   (Job-Mitglied True bis PID 640, danach False - dort endet der Job.)
+- PID 9688: (weg)
+- PID 2968: powershell.exe | C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe -noexit -command "try { . \"c:\Users\Benji\AppData\Local\Programs\Microsoft VS Code\0
+- PID 20272: Code.exe | "C:\Users\Benji\AppData\Local\Programs\Microsoft VS Code\Code.exe" --type=utility --utility-sub-type=node.mojom.NodeService --lang=en-US --service-sa
+- PID 640: Code.exe | "C:\Users\Benji\AppData\Local\Programs\Microsoft VS Code\Code.exe"
+- PID 21336: explorer.exe | C:\WINDOWS\Explorer.EXE
+- PID 12744: (weg)
+- PID 1236: python.exe | "C:\Users\Benji\AppData\Local\Programs\Python\Python312\python.exe" -u -m hx.cli --config G:\Harness\harness\harness.toml run --paused
+- PID 19652: claude.exe | C:/Users/Benji/.local/bin/claude.exe -p --output-format stream-json --verbose --strict-mcp-config --permission-prompts none --model deepseek-flash[

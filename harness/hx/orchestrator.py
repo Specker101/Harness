@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import time
 import traceback
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from . import control, envs, pricing, protocol, queue, reviewer as rv, secrets, state as st, worker as wk
@@ -95,15 +96,28 @@ class Orchestrator:
         return (self.state.data.get("reviewer") or {}).get("model_seen")
 
     def ghidra_save_line(self, res: dict) -> str:
-        """Eine Zeile fuer den Review: wurde die Ghidra-DB gespeichert? (R13-1)"""
+        """Eine Zeile fuer den Review: wurde die Ghidra-DB gespeichert? (R13-1/R13e)"""
         gs = (res or {}).get("ghidra_save") or {}
         if not gs:
             return "nicht noetig (keine Angabe im Lauf - altes Ergebnis)"
+        grund = gs.get("grund") or ""
         if gs.get("needed") and gs.get("ok"):
-            return "ja - " + str(gs.get("hinweis") or "")
+            return "ja - " + str(gs.get("hinweis") or "") + (f" [{grund}]" if grund else "")
         if gs.get("needed"):
-            return "NEIN - " + str(gs.get("hinweis") or "")
+            art = "HALTEGRUND" if gs.get("blocking", True) else "nur Vermerk (nicht blockierend)"
+            return "NEIN - " + str(gs.get("hinweis") or "") + f" [{art}]"
         return "nicht noetig - " + str(gs.get("hinweis") or "")
+
+    def http_state_line(self, res: dict) -> str:
+        """Punkt 2c: hat der Worker per HTTP den gemeinsamen Ghidra-Zustand beruehrt?
+
+        Nur ein Vermerk - der HTTP-Weg ist erlaubt, und ein Leseprofil heisst nicht,
+        dass nichts geschrieben wurde.
+        """
+        treffer = ((res or {}).get("stats") or {}).get("http_state") or []
+        if not treffer:
+            return "keine (kein HTTP-Aufruf mit Zustandswirkung im Mitschnitt)"
+        return "; ".join(f"{t.get('endpoint')}" for t in treffer)
 
     def dauer_line(self, res: dict) -> str:
         """Laufzeit mit Herkunft (R13c): Wanduhr des Worker-Prozesses, nie eine nackte Zahl."""
@@ -159,9 +173,14 @@ class Orchestrator:
     # Von Telegram UND von der lokalen Steuerung (state/ctl/) benutzt.
     def _do_pause(self, note: str = "pausiert"):
         self.state.data["paused"] = True
+        # R13e: eine ausdrueckliche Pause des Nutzers schlaegt den Limit-Wartezustand -
+        # sonst wuerde der Harness eigenmaechtig weiterlaufen.
+        self.state.data.pop("limit_wait_until", None)
+        self.state.data.pop("limit_wait_quelle", None)
         try:
             pause = {"ts": now_iso(), "head": self.git.head(),
                      "head_short": self.git.head_short(),
+                     "batch": int(self.state.batch or 0),
                      "dirty": self.git.status_porcelain()[:50]}
         except Exception as exc:
             pause = {"ts": now_iso(), "error": str(exc)[:200]}
@@ -169,6 +188,32 @@ class Orchestrator:
         self.state.set(st.PAUSED, note)
         self.log.info("PAUSIERT", grund=note)
         self.say("PAUSIERT (" + note + "). Ein laufender Batch laeuft zu Ende; nichts Neues startet.")
+
+    def mark_harness_head(self, batch: int) -> None:
+        """Merken, bis wohin der HARNESS selbst gearbeitet hat (R13e).
+
+        Die Pausen-Erkennung vergleicht HEAD vor und nach der Pause. Laeuft beim
+        Pausieren noch ein Batch, committet der WORKER waehrend der Pause - und
+        der Review meldete das als "Arbeit in der Pause" des Nutzers (gemeldet
+        fuer B161: die eigenen Batches 160/161). Nach jedem Batch-Ende wird der
+        Stand hier festgehalten; `_do_resume` setzt den Ausgangspunkt darauf neu.
+        """
+        try:
+            self.state.data["harness_head"] = {"head": self.git.head(),
+                                               "head_short": self.git.head_short(),
+                                               "batch": int(batch or 0),
+                                               "ts": now_iso()}
+        except Exception as exc:
+            self.log.warn("harness_head nicht ermittelbar", fehler=str(exc)[:150])
+
+    # Commit-Betreff der Projektkonvention: "B173: Vorhersage", "Batch 172: ..."
+    _BATCH_COMMIT = re.compile(r"^(?:B\d+\b|Batch\s+\d+\b)", re.IGNORECASE)
+
+    def _ist_harness_commit(self, zeile: str) -> bool:
+        """'12d1198 2026-09-26 Batch 172: ...' gehoert zu einem Harness-Batch."""
+        teile = str(zeile).split(" ", 2)
+        subj = (teile[2] if len(teile) > 2 else str(zeile)).strip()
+        return bool(self._BATCH_COMMIT.match(subj))
 
     def _do_resume(self, accept_dirty: bool = False, note: str = "fortgesetzt"):
         pause = self.state.data.get("pause_since") or {}
@@ -178,23 +223,52 @@ class Orchestrator:
         except Exception as exc:
             head_now, dirty_now = "?", []
             self.say("Git nicht lesbar: " + str(exc)[:200])
-        moved = bool(pause.get("head_short")) and head_now != pause.get("head_short")
+        # R13e: hat der HARNESS waehrend der Pause noch einen Batch zu Ende
+        # gebracht, ist dessen Commit keine Handarbeit - der Ausgangspunkt wird
+        # dann auf den Harness-Stand neu gesetzt. Gefragt wird GIT (ist der
+        # Pausen-HEAD ein Vorfahr des Harness-Stands?), nicht die Uhr: zwei
+        # Zeitstempel in Sekundengenauigkeit sind dafuer zu grob.
+        base = pause.get("head_short")
+        hh = self.state.data.get("harness_head") or {}
+        neu_gesetzt = ""
+        hh_head = hh.get("head_short")
+        if hh_head and ((base and self.git.is_ancestor(base, hh_head)) or not base):
+            if hh_head != base:
+                neu_gesetzt = (f" Ausgangspunkt neu gesetzt auf {hh_head} "
+                               f"(Harness-Batch {hh.get('batch')} endete in der Pause).")
+            base = hh_head
+        moved = bool(base) and head_now != base
         if moved or dirty_now:
-            self.state.data["pause_work"] = {
-                "since": pause.get("ts"), "head_before": pause.get("head_short"),
-                "head_now": head_now, "moved": moved, "dirty": dirty_now[:50],
-            }
-            self.state.save()
-            if dirty_now and not accept_dirty:
-                self.state.set(st.PAUSED, "Arbeitsbaum nicht sauber")
-                self.say("In der Pause wurde gearbeitet UND der Arbeitsbaum ist nicht sauber:\n  "
-                         + "\n  ".join(dirty_now[:10])
-                         + "\n\nIch starte nichts. Bitte committen - oder ausdruecklich bestaetigen "
-                           "(`hx.cli resume --accept-dirty`, Telegram `/resume ok`).")
-                return
-            self.say(f"In der Pause wurde gearbeitet (HEAD {pause.get('head_short')} -> {head_now}, "
-                     f"{len(dirty_now)} Aenderungen). Der naechste Review bekommt einen Hinweis samt "
-                     "git log/Diffstat.")
+            commits: list[str] = []
+            try:
+                commits = self.git.log_since(base, 50) if base else []
+            except Exception:
+                commits = []
+            hand = [c for c in commits if not self._ist_harness_commit(c)]
+            har = [c for c in commits if self._ist_harness_commit(c)]
+            if not hand and not dirty_now and har:
+                # Nur Harness-Batches in der Pause: kein Hinweis an den Review.
+                self.say(f"HEAD hat sich in der Pause bewegt ({base} -> {head_now}), aber nur "
+                         f"durch Harness-Batches ({len(har)}) - das ist keine Handarbeit."
+                         + neu_gesetzt)
+            else:
+                self.state.data["pause_work"] = {
+                    "since": pause.get("ts"), "head_before": base,
+                    "head_now": head_now, "moved": moved, "dirty": dirty_now[:50],
+                    "commits_hand": hand, "commits_harness": har,
+                }
+                self.state.save()
+                if dirty_now and not accept_dirty:
+                    self.state.set(st.PAUSED, "Arbeitsbaum nicht sauber")
+                    self.say("In der Pause wurde gearbeitet UND der Arbeitsbaum ist nicht sauber:\n  "
+                             + "\n  ".join(dirty_now[:10])
+                             + "\n\nIch starte nichts. Bitte committen - oder ausdruecklich bestaetigen "
+                               "(`hx.cli resume --accept-dirty`, Telegram `/resume ok`).")
+                    return
+                self.say(f"In der Pause wurde gearbeitet (HEAD {base} -> {head_now}, "
+                         f"{len(hand)} Handarbeit-Commit(s), {len(har)} Harness-Batch-Commit(s), "
+                         f"{len(dirty_now)} Aenderungen). Der naechste Review bekommt einen "
+                         "Hinweis samt git log/Diffstat." + neu_gesetzt)
         self.state.data["paused"] = False
         self.state.data["stopped"] = False
         self.stop_requested = False
@@ -474,6 +548,10 @@ class Orchestrator:
         if s.data.get("pause_since"):
             lines.append(f"Pause seit: {s.data['pause_since'].get('ts')} "
                          f"(HEAD {s.data['pause_since'].get('head_short')})")
+        if s.data.get("limit_wait_until"):
+            # R13e: der Limit-Wartezustand endet von selbst - das muss sichtbar sein.
+            lines.append(f"Limit-Wartezustand bis: {s.data['limit_wait_until']} "
+                         f"({s.data.get('limit_wait_quelle') or '-'}) - setzt von selbst fort")
         if s.data.get("pause_work"):
             lines.append("In der Pause wurde gearbeitet - der naechste Review bekommt den Hinweis.")
         lokal = control.pending(self.cfg)
@@ -545,6 +623,55 @@ class Orchestrator:
         today = datetime.now(timezone.utc).date().isoformat()
         return float(self.cfg.get("limits", "daily_budget_usd", 10)) - self.state.spent_today(today)
 
+    # ------------------------------------------------------- Limit-Wartezustand
+    def limit_wait_ziel(self, meldung: str) -> tuple[datetime, str]:
+        """Bis wann im Limit-Wartezustand gewartet wird (R13e).
+
+        Zeitpunkt aus der Meldung (protocol.parse_limit_reset), sonst eine Stunde
+        - und dann stuendlich neu pruefen. Das Ziel steht im Zustand, damit es
+        einen Harness-Neustart ueberlebt.
+        """
+        wann = protocol.parse_limit_reset(meldung or "")
+        jetzt = datetime.now(timezone.utc)
+        if wann is not None and wann > jetzt:
+            return wann, "Zeitpunkt aus der Meldung"
+        return jetzt + timedelta(hours=1), "kein Zeitpunkt in der Meldung - stuendliche Pruefung"
+
+    def limit_wait_tick(self) -> bool:
+        """Limit-Wartezustand abgelaufen? Dann von selbst fortsetzen (R13e).
+
+        Vorher wartete der Harness nach "Pro-Limit erreicht" auf /resume; im
+        Dauerbetrieb stand er damit bis zum Morgen. Jetzt setzt er sich selbst
+        fort und sagt es per Telegram. Greift nur im Zustand LIMIT_WAIT - eine
+        Pause des Nutzers wird nicht eigenmaechtig aufgehoben.
+        """
+        if self.state.state != st.LIMIT_WAIT:
+            return False
+        ziel = self.state.data.get("limit_wait_until")
+        if not ziel:
+            return False
+        try:
+            faellig = datetime.fromisoformat(str(ziel))
+        except ValueError:
+            return False
+        if faellig.tzinfo is None:
+            faellig = faellig.replace(tzinfo=timezone.utc)
+        jetzt = datetime.now(timezone.utc)
+        if jetzt < faellig:
+            rest = int((faellig - jetzt).total_seconds() // 60) + 1
+            self.notify_once("limit_wait",
+                             f"Pro-Limit: ich warte noch etwa {rest} min "
+                             f"(bis {faellig.isoformat(timespec='minutes')}, "
+                             f"{self.state.data.get('limit_wait_quelle') or '-'}).", 1800)
+            return False
+        self.state.data.pop("limit_wait_until", None)
+        self.state.data.pop("limit_wait_quelle", None)
+        self.state.data["paused"] = False
+        self.state.set(st.IDLE, "Limit abgelaufen - setzt von selbst fort")
+        self.log.info("Limit-Wartezustand abgelaufen - Fortsetzung")
+        self.say("Das Reviewer-Limit ist abgelaufen - ich setze von selbst fort.")
+        return True
+
     def peak_gate(self) -> tuple[bool, str]:
         if not self.cfg.get("peak", "block_new_batches", True):
             return True, ""
@@ -586,6 +713,12 @@ class Orchestrator:
             self.log.info("Ghidra gespeichert", grund=reason, hinweis=res.get("hinweis"))
             return True
         self.log.error("Ghidra NICHT gespeichert", grund=reason, hinweis=res.get("hinweis"))
+        if not res.get("blocking", True):
+            self.say(f"Hinweis: Ghidra-Speichern fehlgeschlagen ({reason}): "
+                     f"{res.get('hinweis')}\n"
+                     "Kein Haltegrund - das Profil liest nur und es wurde nichts per HTTP "
+                     "mit Zustandswirkung bemerkt.")
+            return True
         self.say(f"GHIDRA NICHT GESPEICHERT ({reason}): {res.get('hinweis')}")
         return False
 
@@ -599,11 +732,18 @@ class Orchestrator:
         self.state.worker_finished()
         self.state.data["last_profile"] = profile
         gs = res.ghidra_save or {}
-        if gs.get("needed") and not gs.get("ok"):
+        if gs.get("needed") and not gs.get("ok") and gs.get("blocking", True):
             # R13-1: ohne Speichern waere der Git-Commit weiter als die Ghidra-DB.
             self.ghidra_failed = True
             self.state.data["paused"] = True
             self.state.set(st.PAUSED, "Ghidra-Speichern fehlgeschlagen")
+        elif gs.get("needed") and not gs.get("ok"):
+            # R13e: Leseprofil ohne bemerkte HTTP-Schreibzugriffe - melden, nicht anhalten.
+            self.log.warn("Ghidra-Speichern fehlgeschlagen (nicht blockierend)",
+                          hinweis=str(gs.get("hinweis"))[:200])
+            self.say("Hinweis: Ghidra-Speichern nach dem Batch fehlgeschlagen ("
+                     f"{gs.get('grund') or '-'}): {str(gs.get('hinweis'))[:200]}\n"
+                     "Der Lauf geht weiter - es ist belegt nichts geschrieben worden.")
         today = datetime.now(timezone.utc).date().isoformat()
         total = self.state.add_spend(today, res.cost_usd)
         head = (f"Batch {self.state.batch} fertig: rc={res.rc}, {secs_human(res.duration_s)}, "
@@ -722,6 +862,13 @@ class Orchestrator:
         if self.state.data.get("pause_work"):
             self.state.data.pop("pause_work", None)   # einmal zugestellt
             self.state.save()
+        # R13e: der Ordner des laufenden Reviews gehoert in den Zustand. `watch`
+        # liest nur und wusste sonst nicht, wo der Reviewer gerade schreibt - es
+        # las `runs/b<batch>/reviewer.jsonl` und zeigte damit den VORIGEN Review
+        # (nach B161 stand dort die B160-Bewertung samt B161-Instruktion).
+        self.state.data["review"] = {"dir": str(rdir), "kind": kind,
+                                     "evidence": evidence, "target": target,
+                                     "started_at": now_iso()}
         self.state.set(st.CLAUDE_REVIEWING, kind)
         res = rv.run_review(self.cfg, self.log, prompt, session_id=session_id,
                             new_session=bool(self._review_rotation), mock=self.mock,
@@ -750,11 +897,16 @@ class Orchestrator:
             session_id = res.session_id
             self.state.save()
         if res.limit_reached:
+            # R13e: Zeitpunkt aus der Meldung uebernehmen und von selbst fortsetzen.
+            wann, quelle = self.limit_wait_ziel(res.text or res.error or "")
+            self.state.data["limit_wait_until"] = wann.isoformat(timespec="seconds")
+            self.state.data["limit_wait_quelle"] = quelle
             self.state.set(st.LIMIT_WAIT, "Pro-Limit erreicht")
             self.state.data["paused"] = True
             self.state.save()
             self.say("Claude-Limit erreicht - das ist ein regulärer Wartezustand. "
-                     "Ich pausiere; mit /resume geht es weiter.")
+                     f"Ich warte bis {wann.isoformat(timespec='minutes')} "
+                     f"({quelle}) und mache dann VON SELBST weiter - kein /resume noetig.")
             return res
         if not self.review_ok(res):
             # Modellabweichung oder leerer/kaputter Lauf: der Aufrufer entscheidet ueber
@@ -1024,6 +1176,7 @@ class Orchestrator:
             (f"- Reviewer: Modell {self.reviewer_model_seen() or '-'} "
              f"(Soll {self.model_reviewer()}), Effort {self.cfg.get('claude', 'reviewer_effort', 'high')}"),
             f"- Ghidra gespeichert: {self.ghidra_save_line(res)}",
+            f"- Ghidra-Zustand per HTTP beruehrt: {self.http_state_line(res)} (nur Vermerk)",
             f"- Profil: {res.get('profile')} | Programm: {res.get('program')}",
             f"- Exit-Code: {res.get('rc')} | Laufzeit: {self.dauer_line(res)} "
             f"| Abbruchgrund: {res.get('killed_reason') or 'kein Abbruch'}",
@@ -1036,6 +1189,7 @@ class Orchestrator:
             f"- num_turns: {st.get('num_turns')} (nur die Harness-Grenzen sind maßgeblich)",
             f"- Modell laut Ausgabe: {res.get('model_seen')} (Soll erfüllt: {res.get('model_ok')})",
             f"- Abgelehnte Werkzeugaufrufe: {st.get('denials') or 'keine'}",
+            f"- Werkzeugfehler: {wk.fehler_text(st.get('tool_errors'))}",
             f"- Kosten heute: ${spent:.4f} von ${budget:.2f} | {pricing.status_line(self.cfg)}",
         ]
         tools = st.get("tool_counts") or {}
@@ -1110,19 +1264,34 @@ class Orchestrator:
         }
 
     def pause_work_note(self) -> str:
-        """Hinweis fuer den Review, wenn der Nutzer in der Pause gearbeitet hat."""
+        """Hinweis fuer den Review, wenn der Nutzer in der Pause gearbeitet hat.
+
+        R13e: Harness-Batch-Commits werden ausdruecklich getrennt ausgewiesen.
+        Sie sind keine Handarbeit - ohne diese Trennung meldete der Review die
+        eigenen Batches als "Arbeit in der Pause".
+        """
         pause = self.state.data.get("pause_work") or {}
         if not pause:
             return ""
         zeilen = ["HINWEIS: Der Nutzer hat in der Pause selbst gearbeitet.",
-                  f"- Pause seit {pause.get('since')}, HEAD {pause.get('head_before')} -> {pause.get('head_now')}"]
+                  f"- Pause seit {pause.get('since')}, "
+                  f"HEAD {pause.get('head_before')} -> {pause.get('head_now')}"]
         if pause.get("dirty"):
             zeilen.append(f"- Arbeitsbaum: {len(pause['dirty'])} Aenderungen: "
                           + "; ".join(str(x) for x in pause["dirty"][:10]))
+        hand = list(pause.get("commits_hand") or [])
+        har = list(pause.get("commits_harness") or [])
+        if hand or har:
+            zeilen.append(f"- Commits in der Pause: {len(hand)} Handarbeit, "
+                          f"{len(har)} Harness-Batch (keine Handarbeit)")
+        for c in hand[:10]:
+            zeilen.append(f"  * Handarbeit: {c}")
+        for c in har[:10]:
+            zeilen.append(f"  * Harness-Batch: {c}")
         ref = pause.get("head_before")
         if ref:
             try:
-                zeilen.append("- git log seit Pausenbeginn: "
+                zeilen.append("- git log seit Pausenbeginn (Rohform): "
                               + (" | ".join(self.git.log_since(ref, 10)) or "(keine Commits)"))
                 zeilen.append("- Diffstat seit Pausenbeginn:\n```\n"
                               + self.git.diffstat_since(ref) + "\n```")
@@ -1261,6 +1430,9 @@ class Orchestrator:
                 self.quit = True
                 continue
             if s.data.get("paused"):
+                # R13e: der Limit-Wartezustand endet von selbst.
+                if self.limit_wait_tick():
+                    continue
                 self.phase(None)
                 time.sleep(IDLE_SLEEP)
                 continue
@@ -1311,12 +1483,23 @@ class Orchestrator:
                 tools = (self.state.gate or {}).get("tools") or {}
                 profile = tools.get("profile") or "none"
                 warten = self.gate_wait_decision()
-                kopf = "FREIGABE NOETIG" if status == "ok" else "AUFTRAG ANGEHALTEN"
-                if warten:
+                # R13e: Der Kopf sagt, was WIRKLICH passiert. Im Dauerbetrieb wird
+                # ohne Nutzer automatisch freigegeben - dann stand hier trotzdem
+                # "FREIGABE NOETIG" und der Nutzer wartete auf etwas, das schon lief.
+                autonom = bool(s.data.get("autonomous")) and not warten
+                if status != "ok":
+                    kopf = "AUFTRAG ANGEHALTEN"
+                elif warten:
                     kopf = "WARTET AUF DEINE ENTSCHEIDUNG"
+                elif autonom or (tools.get("source") == "user"):
+                    kopf = "AUTOMATISCH FREIGEGEBEN (Dauerbetrieb)"
+                else:
+                    kopf = "FREIGABE NOETIG"
                 self.phase("gate" if status == "ok" else None, f"Batch {tools.get('batch')}")
                 self.say(f"{kopf} - Batch {tools.get('batch')}, Profil {profile}, Programm "
-                         f"{tools.get('program') or '-'}")
+                         f"{tools.get('program') or '-'}"
+                         + (f"\n(kein /approve noetig - Batch {tools.get('batch')} startet von selbst.)"
+                            if kopf.startswith("AUTOMATISCH") else ""))
                 self.say("Zusammenfassung:\n" + (p.summary or "(keine)"))
                 if p.instruction:
                     self.say("Instruktion (vollstaendig):\n" + p.instruction)
@@ -1395,6 +1578,11 @@ class Orchestrator:
             self.state.set(st.REVIEW_DUE, "Batch beendet")
             self.phase("push", f"Batch {batch_no}")
             push_ok, push_text = self.git_push()
+            # R13e: Stand merken, bis zu dem der HARNESS selbst gearbeitet hat.
+            # Die Pausen-Erkennung setzt ihren Ausgangspunkt darauf neu, damit
+            # eigene Batch-Commits nie als Handarbeit gelten.
+            self.mark_harness_head(batch_no)
+            self.state.save()
             if push_ok:
                 self.say("Push ok: " + (push_text or "up-to-date"))
             else:

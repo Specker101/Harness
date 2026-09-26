@@ -64,9 +64,19 @@ path_append  = []
 port            = 8089
 program_default = "/830d01.27p.main.bin"
 server_script   = "g:/Silent Scope Decomp/scripts/start-ghidra-headless.ps1"
+# R13e (gemessen 2026-09-26): KEIN --lazy mehr. Mit --lazy laedt die Bridge nur die
+# Gruppen aus dem Profil (bzw. bridge_groups): 97 von 215 Werkzeugen. Vom erlaubten
+# Satz des Profils ghidra-standard (148) waren damit 76 unsichtbar - u. a.
+# get_xrefs_to, get_function_callers/-callees, search_instructions (R224),
+# get_function_pcode, list_data_types, get_struct_layout. Nachladen ginge nur mit
+# search_tools/load_tool_group - und die sind absichtlich gesperrt, also fiel der
+# Worker auf HTTP aus (B162: 18 HTTP-Zeilen). Die Bridge nennt --lazy selbst
+# "not recommended for Claude Code" (bridge_mcp_ghidra/cli.py:128).
+# Ohne --lazy laedt sie ALLE Gruppen; es entscheiden allein allowed/denied.
 bridge_exe      = "g:/Silent Scope Decomp/tools/bridge-venv/Scripts/bridge-mcp-ghidra.exe"
-bridge_args     = ["--lazy"]
-bridge_groups   = "listing,function,program"
+bridge_args     = []
+# Nur im Lazy-Modus wirksam (dann aus dem Profil: profile.groups).
+bridge_groups   = "listing,function,program,comment"
 backup_dir      = "g:/Harness/backups/ghidra"
 backup_keep     = 5
 start_timeout_s = 300

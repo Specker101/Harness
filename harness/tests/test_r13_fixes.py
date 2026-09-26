@@ -99,8 +99,9 @@ class TestGhidraSpeichern(Base):
         self.assertFalse(res.ghidra_save.get("needed"))
 
     def test_fehler_pausiert_und_haelt_push_und_review_zurueck(self):
-        def kaputt(cfg, log, state, profile_name, mock=False):
-            return {"needed": True, "ok": False, "hinweis": "Fehler: Server weg"}
+        def kaputt(cfg, log, state, profile_name, mock=False, http_state=None):
+            return {"needed": True, "ok": False, "blocking": True,
+                    "hinweis": "Fehler: Server weg"}
         with mock.patch.object(worker, "save_ghidra_after_batch", kaputt):
             self.orch.run_worker("Batch 159 - Test", "ghidra-standard", None, "")
         self.assertTrue(self.orch.ghidra_failed, "die Schleife muss Push/Review ueberspringen")

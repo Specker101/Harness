@@ -1,0 +1,12 @@
+﻿python : ..................................
+In Zeile:1 Zeichen:1
++ python -m unittest tests.test_r13e_fixes 2>&1 | Out-File -Encoding ut ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (................................. 
+   .:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+----------------------------------------------------------------------
+Ran 34 tests in 13.129s
+
+OK

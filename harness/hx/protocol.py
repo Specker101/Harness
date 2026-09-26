@@ -16,6 +16,7 @@ Grundsatz: NIE raten. Was fehlt, wird gemeldet und der Batch startet nicht.
 from __future__ import annotations
 
 import re
+from datetime import datetime, timedelta, timezone
 
 TAG_RE = re.compile(r"<([A-Z_]{3,})>(.*?)</\1>", re.DOTALL | re.IGNORECASE)
 
@@ -23,6 +24,46 @@ LIMIT_PATTERNS = [
     r"usage limit", r"limit reached", r"you'?ve hit your", r"rate limit",
     r"out of extra usage", r"resets at", r"quota",
 ]
+
+
+def parse_limit_reset(text: str, now: datetime | None = None) -> datetime | None:
+    """Den Rucksetzzeitpunkt aus einer Limit-Meldung lesen (R13d).
+
+    Erkannt werden zwei Formen:
+      * Datum + Uhrzeit: "will reset at 2026-09-25 22:00 UTC"
+      * nur Uhrzeit:     "resets at 3pm" / "reset at 15:30"
+    Ohne Zeitzonenangabe gilt bei Datum+Uhrzeit UTC, bei reiner Uhrzeit die
+    LOKALE Zeit (so zeigt es die Claude-CLI an) - der naechste Termin dieser
+    Uhrzeit. Nicht erkennbar -> None; der Aufrufer prueft dann stuendlich.
+    """
+    t = text or ""
+    m = re.search(r"(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})", t)
+    if m:
+        try:
+            dt = datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)),
+                          int(m.group(4)), int(m.group(5)))
+        except ValueError:
+            dt = None
+        if dt is not None:
+            umfeld = t[max(0, m.start() - 12):m.end() + 12]
+            if re.search(r"utc|\bZ\b|gmt", umfeld, re.IGNORECASE):
+                return dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone(timezone.utc)          # lokale Angabe -> UTC
+    m = re.search(r"resets?\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?", t, re.IGNORECASE)
+    if m:
+        h, mi = int(m.group(1)), int(m.group(2) or 0)
+        ap = (m.group(3) or "").lower()
+        if ap == "pm" and h < 12:
+            h += 12
+        if ap == "am" and h == 12:
+            h = 0
+        if 0 <= h <= 23 and 0 <= mi <= 59:
+            jetzt = (now or datetime.now()).astimezone()
+            kandidat = jetzt.replace(hour=h, minute=mi, second=0, microsecond=0)
+            if kandidat <= jetzt:
+                kandidat += timedelta(days=1)
+            return kandidat.astimezone(timezone.utc)
+    return None
 
 PROFILE_ALIASES = {
     "none": "none",

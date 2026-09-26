@@ -9,9 +9,29 @@ dedupliziert, Werkzeugaufrufe nach tool_use.id.
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 
 from . import pricing
+
+# Punkt 2c (R13e): Der HTTP-Weg auf 127.0.0.1:8089 ist ausdruecklich erlaubt. Er
+# kann aber den GEMEINSAMEN Ghidra-Zustand beruehren (Programm wechseln/oeffnen/
+# schliessen, Projekt zuruecksetzen, Skript ausfuehren). Das wird nur VERMERKT -
+# kein Alarm, keine Sperre.
+HTTP_RE = re.compile(r"(?:127\.0\.0\.1|localhost):8089")
+HTTP_STATE_ENDPOINTS = (
+    "/load_program_from_project", "/load_program", "/switch_program", "/open_program",
+    "/close_program", "/open_project", "/close_project", "/create_project",
+    "/restore_project", "/archive_project", "/checkin_program",
+    "/save_all_programs", "/save_program", "/create_program",
+    "/run_script", "/run_ghidra_script", "/script",
+    "/import_program", "/import_file", "/export_program",
+)
+# Nur diese Werkzeuge KOENNEN einen HTTP-Aufruf ausloesen. Ein Read-Ergebnis mit
+# einem Dokument, das die Endpunkte zitiert, ist kein Aufruf (gleiche Falle wie
+# bei den Ablehnungen - B172/B173).
+HTTP_TOOLS = {"PowerShell", "Bash", "Shell", "Write", "Edit", "MultiEdit",
+              "NotebookEdit", "Terminal"}
 
 
 class StreamStats:
@@ -27,6 +47,7 @@ class StreamStats:
         self._by_msg: dict[str, dict] = {}       # message.id -> Eintrag (in place aktualisiert)
         self.requests: list[dict] = []          # je Anfrage: {ts, id, miss, hit, creation, output}
         self._tool_ids: set[str] = set()
+        self._tool_names: dict[str, str] = {}   # tool_use.id -> Werkzeugname
         self.tools: list[dict] = []             # je Aufruf: {ts, id, name, input}
         self.tool_counts: dict[str, int] = {}
 
@@ -35,6 +56,8 @@ class StreamStats:
         self.reasoning_blocks: int = 0
         self.thinking_tokens: int = 0
         self.denials: list[str] = []
+        self.tool_errors: list[dict] = []       # echte Werkzeugfehler: {id, name, text}
+        self.http_state: list[dict] = []        # HTTP-Beruehrungen des Ghidra-Zustands
         self.api_errors: list[str] = []
         self.result: dict | None = None
         self.raw_events: int = 0
@@ -117,9 +140,14 @@ class StreamStats:
                     if tid:
                         self._tool_ids.add(tid)
                     name = block.get("name") or "?"
+                    if tid:
+                        self._tool_names[tid] = name
                     self.tools.append({"ts": ev.get("timestamp") or "", "id": tid,
                                        "name": name, "input": block.get("input") or {}})
                     self.tool_counts[name] = self.tool_counts.get(name, 0) + 1
+                    if name in HTTP_TOOLS:
+                        self._scan_http(json.dumps(block.get("input") or {},
+                                                   ensure_ascii=False))
 
         elif etype == "user":
             # Kann Werkzeugergebnisse oder Verweigerungen tragen.
@@ -130,8 +158,14 @@ class StreamStats:
                     text = body if isinstance(body, str) else json.dumps(body, ensure_ascii=False)
                     if text:
                         self.tool_results.append(text[:20000])
-                    if "no such tool available" in text.lower() or "disabled for this session" in text.lower():
-                        self.denials.append(text[:300])
+                    art = self._fehlerart(block, text)
+                    if art:
+                        tid = block.get("tool_use_id")
+                        self.tool_errors.append({"id": tid,
+                                                 "name": self._tool_name(tid),
+                                                 "art": art, "text": text[:300]})
+                        if art == "gesperrt":
+                            self.denials.append(text[:300])
 
         elif etype == "result":
             self.result = ev
@@ -139,6 +173,51 @@ class StreamStats:
                 self.denials.append(str(d)[:300])
 
         return ev
+
+    # ------------------------------------------------------- Fehler erkennen
+    def _scan_http(self, text: str) -> None:
+        """Vorbeigehende HTTP-Aufrufe auf den Ghidra-Port bemerken (Punkt 2c).
+
+        Kein Alarm und keine Wertung: das ist der dokumentierte Ausweichweg.
+        Vermerkt werden nur die Endpunkte, die den gemeinsamen Zustand beruehren.
+        """
+        if not text or "8089" not in text or not HTTP_RE.search(text):
+            return
+        for ep in HTTP_STATE_ENDPOINTS:
+            if ep in text:
+                self.http_state.append({"endpoint": ep, "text": text[:200]})
+                return
+
+    def _tool_name(self, tool_use_id) -> str:
+        return self._tool_names.get(str(tool_use_id), "?")
+
+    @staticmethod
+    def _fehlerart(block: dict, text: str) -> str | None:
+        """Art des Werkzeugergebnisses: None = Erfolg, sonst 'gesperrt' oder 'fehler'.
+
+        R13e (gemessen an B172/B173): Die alte Regel suchte den Satz
+        "no such tool available" IRGENDWO im Ergebnis. Liest der Worker ein
+        Dokument, das diesen Satz zitiert (Batch-Dokument, ghidra-mcp-notes.md),
+        landete der DATEIINHALT als "abgelehnter Werkzeugaufruf" in der Bilanz -
+        B173 meldete so vier Ablehnungen, von denen genau eine echt war. Ein
+        echtes Fehlerergebnis traegt den Wrapper <tool_use_error> oder is_error.
+        """
+        if not text and not block.get("is_error"):
+            return None
+        low = text.lower()
+        # R13e: drei Formulierungen bedeuten "gesperrt": das Werkzeug ist gar nicht
+        # vorhanden, im Client abgeschaltet, oder es braucht eine Freigabe, die es
+        # hier nicht gibt (headless ohne Rueckfrage). Die dritte Form war die
+        # haeufigste der Nacht (search_tools/check_tools/load_tool_group).
+        gesperrt = ("no such tool available" in low
+                    or "disabled for this session" in low
+                    or "requires approval" in low
+                    or "permission for this tool use was denied" in low)
+        if text.lstrip().startswith("<tool_use_error>"):
+            return "gesperrt" if gesperrt else "fehler"
+        if block.get("is_error"):
+            return "gesperrt" if gesperrt else "fehler"
+        return None
 
     # --------------------------------------------------------------- Auswertung
     def output_total(self) -> int:

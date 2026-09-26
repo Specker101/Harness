@@ -1,0 +1,144 @@
+﻿[15:12:50] INFO  Telegram-Bot bereit  bot=Ghidra_studio_bot allowlist=1
+== 0: Prompt-├£bergabe ├╝ber stdin (keine Kommandozeile) ==
+  [OK ] argv bleibt kurz - laengstes Argument 36 Zeichen
+  [OK ] kein Argument traegt den Prompt
+  [OK ] Auftrag ueber 40.000 Zeichen baubar - 48016 Zeichen fuer stdin
+  [OK ] Vorspann mit echten Umlauten
+== P0: Vorbedingungen ==
+  [OK ] Ankerdatei lesbar
+  [OK ] Secrets (3)
+  [OK ] Werkzeugprofile vorhanden
+== 1: Bootstrap-Review (Attrappe) ==
+[15:12:50] INFO  Review-Verzeichnis  verzeichnis=g:\Harness\harness\state\_demo_ok\runs\b175 bewerteter_batch=0 freigabe_fuer=175
+[15:12:50] INFO  Neue Reviewer-Session  alt=None neu=07c715bd-6ffb-47b4-ac5f-144b9d8005f6 uebergabe_zeichen=0
+[15:12:50] INFO  Review fertig  info=rc=0 dauer=0s modell=claude-opus-5-5 (mock) limit=False status=ok profil=ghidra-read programm=/830d01.27p.main.bin
+  [OK ] Review geparst - status=ok profil=ghidra-read programm=/830d01.27p.main.bin
+  [OK ] DS_TOOLS erkannt - profil=ghidra-read programm=/830d01.27p.main.bin
+  [OK ] DS_INSTRUCTION vorhanden
+== 1b: Batch-Nummer kommt aus dem Anker ==
+  [OK ] Anker-Nummer gefunden - Naechster Batch laut Anker: 175 (Anker-Kopf: BATCH 174)
+  [OK ] Review-Prompt nennt die Anker-Nummer
+  [OK ] kein interner Zaehler im Prompt
+  [OK ] Review liegt nach echter Nummer - b175
+  [OK ] Reviewer-Mitschnitt liegt daneben
+  [OK ] Parser liest die Nummer aus der Instruktion
+  [OK ] Abweichung haelt an (kein Start) - number_mismatch
+  [OK ] Harness ist dabei pausiert
+[15:12:51] INFO  Batch-Nummer gesetzt  alt=1 neu=175
+  [OK ] Nummer per /number korrigiert
+[15:12:51] INFO  Auftrag verworfen  grund=Demo: Nummernpruefung beendet id=8D8FE1E5B4B9 batch=175
+== 2: Parser-Fehlerfall (Attrappe ohne DS_TOOLS) ==
+  [OK ] Fehler wird erkannt - ['DS_TOOLS fehlt']
+  [OK ] keine automatische Freigabe moeglich
+== 3: Gate + Freigabe per Befehl ==
+  [OK ] Queue-Datei angelegt
+  [OK ] Gate freigegeben
+== 4: Worker-Batch (Attrappe) ==
+[15:12:51] INFO  Worker-Umgebung geprueft  env=CLAUDE_CONFIG_DIR=g:/Harness/harness/cc-worker; ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic; ANTHROPIC_MODEL=<nicht gesetzt>; CLAUDE_CODE_OAUTH_TOKEN=<nicht gesetzt>; ANTHROPIC_AUTH_TOKEN=<gesetzt,len=35>; ANTHROPIC_API_KEY=<nicht gesetzt>; CLAUDE_CODE_EFFORT_LEVEL=high; CLAUDE_CODE_ALWAYS_ENABLE_EFFORT=1; CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1; CLAUDE_CODE_USE_POWERSHELL_TOOL=1
+[15:12:52] INFO  Mock-Worker: Mitschnitt geschrieben  datei=g:\Harness\harness\state\_demo_ok\runs\b175\stream.jsonl
+[15:12:52] INFO  Snapshot geschrieben  datei=g:\Harness\harness\state\_demo_ok\snapshots\b175\snapshot.md zeichen=6361
+[15:12:52] INFO  Batch beendet  info=rc=0 dauer=195s grenze=- anfragen=5 kosten=$0.0043 modell=deepseek-flash[1m] (ok=True)
+  [OK ] Worker-Ergebnis - rc=0, rc=0 dauer=195s grenze=- anfragen=5 kosten=$0.0043 modell=deepseek-flash[1m] (ok=True)
+  [OK ] Snapshot geschrieben
+  [OK ] Antwortdatei geschrieben
+  [OK ] Kosten gerechnet - $0.0043 (Gegenprobe $0.0043)
+  [OK ] Abschlussbericht enthaelt Marker
+== 5: Batch-Ende-Review (Attrappe) ==
+[15:12:52] INFO  Review fertig  info=rc=0 dauer=0s modell=claude-opus-5-5 (mock) limit=False status=ok profil=ghidra-read programm=/830d01.27p.main.bin
+  [OK ] Review 2 geparst
+  [OK ] Review-Zaehler - 2
+== 6: Absturz + Wiederaufnahme ==
+[15:12:53] WARN  Abbruch erkannt: Worker-Eintrag ohne lebenden Prozess
+  [OK ] Recovery ohne lebenden Prozess
+  [OK ] Zustand nach Recovery - IDLE
+== 7: Weitere Befehle ==
+  [OK ] Befehl /budget
+  [OK ] Befehl /queue
+  [OK ] Befehl /why
+  [OK ] Befehl /last
+[15:12:53] INFO  PAUSIERT  grund=per Telegram pausiert
+  [OK ] Befehl /pause
+[15:12:53] INFO  FORTSETZUNG  grund=per Telegram fortgesetzt
+  [OK ] Befehl /resume
+  [OK ] Befehl /autonom on
+  [OK ] Befehl /autonom off
+  [OK ] Befehl /review
+  [OK ] Befehl /help
+  [OK ] Freitext ist kein Befehl
+  [OK ] Tagesbudget-Abfrage - $10.00 frei
+== 8: Profil none ohne Ghidra ==
+  [OK ] Profil none ohne MCP
+  [OK ] Profil none schreibt Ghidra nicht
+[15:12:53] INFO  Profil none - Programm aus dem Review verworfen  program=/830d01.27p.main.bin
+  [OK ] Programm bei Profil none verworfen
+[15:12:53] INFO  Auftrag verworfen  grund=Demo beendet id=07434E8DAE9B batch=175
+== 9: Rotation mit Uebergabe (Attrappe) ==
+[15:12:53] INFO  Reviewer-Session-Wechsel  grund=Rotation nach 10 Reviews alte_session=alte-demo-session
+[15:12:53] INFO  Uebergabe erhalten  zeichen=118
+[15:12:53] INFO  Neue Reviewer-Session  alt=alte-demo-session neu=2a878b93-d126-48dc-bea2-d4335e95c831 uebergabe_zeichen=118
+[15:12:54] INFO  Review fertig  info=rc=0 dauer=0s modell=claude-opus-5-5 (mock) limit=False status=ok profil=ghidra-read programm=/830d01.27p.main.bin
+  [OK ] Review nach Rotation
+  [OK ] Rotation startet eine neue Session - 2a878b93-d126-48dc-bea2-d4335e95c831
+  [OK ] Uebergabedatei geschrieben
+  [OK ] Uebergabe steht in der Datei
+== 10: Ghidra nach dem Batch speichern (Attrappe) ==
+  [OK ] Profil none: kein Speichern noetig - nicht noetig (Profil none ohne Ghidra-Zugriff)
+  [OK ] Schreibprofil: Speichern ausgefuehrt - Attrappe: Speichern nur simuliert
+  [OK ] Messdatenzeile ja
+  [OK ] Messdatenzeile NEIN
+[15:12:54] INFO  Ghidra gespeichert  grund=Demo-Stopp hinweis=Attrappe: Speichern nur simuliert
+  [OK ] Merker wird bei Stopp/Ende abgearbeitet
+== 11: Rotation + Uebergabe + gescheiterter Review (echter Schleifendurchlauf) ==
+[15:12:54] INFO  Review-Verzeichnis  verzeichnis=g:\Harness\harness\state\_demo_ok\runs\b175 bewerteter_batch=159 freigabe_fuer=175
+[15:12:54] INFO  Uebergabe wiederverwendet  alte_session=alte-demo-session zeichen=22
+[15:12:54] INFO  Neue Reviewer-Session  alt=alte-demo-session neu=414d84dd-24ee-4a91-b901-731babf5f12e uebergabe_zeichen=22
+[15:12:55] INFO  Review fertig  info=rc=0 dauer=0s modell=claude-opus-5-5 (mock) limit=False status=warning probleme=DS_TOOLS fehlt
+[15:12:55] ERROR Review ohne gueltigen Protokollblock  versuch=1 grund=Protokollblock unvollstaendig: DS_TOOLS mit Profil rohtext=g:\Harness\harness\state\_demo_ok\runs\b175\reviewer.jsonl modell=claude-opus-5-5 (mock)
+[15:12:55] WARN  Review ohne gueltigen Protokollblock - Wiederholung  grund=Protokollblock unvollstaendig: DS_TOOLS mit Profil ziel=175
+[15:12:55] INFO  Review-Verzeichnis  verzeichnis=g:\Harness\harness\state\_demo_ok\runs\b175 bewerteter_batch=159 freigabe_fuer=175
+[15:12:56] INFO  Review fertig  info=rc=0 dauer=0s modell=claude-opus-5-5 (mock) limit=False status=ok profil=ghidra-read programm=/830d01.27p.main.bin
+[15:12:56] INFO  Queue zugestellt  ziel=claude anzahl=1 archiviert=1
+  [OK ] Review landete im Anker-Verzeichnis (nicht b159) - b175
+  [OK ] 1. Versuch als Beleg verworfen
+  [OK ] 2. Versuch ist das Review
+  [OK ] Gate traegt den Anker-Nachfolger - {'profile': 'ghidra-read', 'program': '/830d01.27p.main.bin', 'batch': 175, 'expected': 175, 'source': 'reviewer'}
+  [OK ] Belege bleiben in runs/b159
+  [OK ] Queue nach gueltigem Review zugestellt
+  [OK ] Wiederholung wurde angekuendigt
+  [OK ] Review laeuft in NEUER Session - 414d84dd-24ee-4a91-b901-731babf5f12e
+  [OK ] Uebergabe wurde wiederverwendet (kein zweiter Aufruf)
+[15:12:56] INFO  Auftrag verworfen  grund=Demo: Gate verwerfen id=19259A674BD8 batch=175
+[15:12:57] INFO  Review-Verzeichnis  verzeichnis=g:\Harness\harness\state\_demo_ok\runs\b175 bewerteter_batch=159 freigabe_fuer=175
+[15:12:58] INFO  Review fertig  info=rc=0 dauer=0s modell=claude-opus-5-5 (mock) limit=False status=warning probleme=DS_TOOLS fehlt
+[15:12:58] ERROR Review ohne gueltigen Protokollblock  versuch=1 grund=Protokollblock unvollstaendig: DS_TOOLS mit Profil rohtext=g:\Harness\harness\state\_demo_ok\runs\b175\reviewer.jsonl modell=claude-opus-5-5 (mock)
+[15:12:58] WARN  Review ohne gueltigen Protokollblock - Wiederholung  grund=Protokollblock unvollstaendig: DS_TOOLS mit Profil ziel=175
+[15:12:58] INFO  Review-Verzeichnis  verzeichnis=g:\Harness\harness\state\_demo_ok\runs\b175 bewerteter_batch=159 freigabe_fuer=175
+[15:12:59] INFO  Review fertig  info=rc=0 dauer=0s modell=claude-opus-5-5 (mock) limit=False status=warning probleme=DS_TOOLS fehlt
+[15:12:59] ERROR Review ohne gueltigen Protokollblock  versuch=2 grund=Protokollblock unvollstaendig: DS_TOOLS mit Profil rohtext=g:\Harness\harness\state\_demo_ok\runs\b175\reviewer.jsonl modell=claude-opus-5-5 (mock)
+[15:12:59] ERROR Review zweimal gescheitert - nichts freigegeben  gruende=['Protokollblock unvollstaendig: DS_TOOLS mit Profil', 'Protokollblock unvollstaendig: DS_TOOLS mit Profil'] protokoll=g:\Harness\harness\state\_demo_ok\logs\review-verworfen-2026-09-26T131259+0000.json
+  [OK ] kein Gate nach zwei Fehlversuchen
+  [OK ] Zustand PAUSED - PAUSED
+  [OK ] Nachricht B bleibt in inbox/claude
+  [OK ] Nachricht B nicht als zugestellt verbucht
+  [OK ] Rohtexte als Belege (v1 und v2)
+  [OK ] Protokoll in logs/
+  [OK ] Meldung nennt den Grund
+== 12: Entscheidungs-Bremse im Dauerbetrieb (A) ==
+[15:12:59] INFO  Review-Verzeichnis  verzeichnis=g:\Harness\harness\state\_demo_ok\runs\b175 bewerteter_batch=159 freigabe_fuer=175
+[15:13:00] INFO  Review fertig  info=rc=0 dauer=0s modell=claude-opus-5-5 (mock) limit=False status=ok profil=ghidra-read programm=/830d01.27p.main.bin
+[15:13:00] INFO  Gate braucht eine Entscheidung  batch=175 entscheidung=['Audio-Verfahren waehlen (A PCM oder B Chip)?']
+  [OK ] autonom + ENTSCHEIDUNG: kein Workerstart
+  [OK ] Gate bleibt offen - GATE_APPROVAL / wartet auf deine Entscheidung
+  [OK ] Meldung 'Wartet auf deine Entscheidung'
+  [OK ] Kopfzeile 'WARTET AUF DEINE ENTSCHEIDUNG'
+  [OK ] Status zeigt die offene Entscheidung
+[15:13:09] INFO  Auftrag verworfen  grund=Demo: Gate verwerfen id=77E737ECDAF0 batch=175
+[15:13:10] INFO  Review-Verzeichnis  verzeichnis=g:\Harness\harness\state\_demo_ok\runs\b175 bewerteter_batch=159 freigabe_fuer=175
+[15:13:10] INFO  Review fertig  info=rc=0 dauer=0s modell=claude-opus-5-5 (mock) limit=False status=ok profil=ghidra-read programm=/830d01.27p.main.bin
+[15:13:11] INFO  Git-Checkpoint  tag=harness/b175-start head=21fd25b
+[15:13:11] INFO  Queue zugestellt  ziel=ds anzahl=1 archiviert=1
+  [OK ] autonom + OFFENE FRAGE: Worker startet
+  [OK ] offene Frage bremst nicht (Gate wird verbraucht)
+  [OK ] Status nennt die offene Frage nicht als Bremse
+
+DEMO: alle Pruefungen OK

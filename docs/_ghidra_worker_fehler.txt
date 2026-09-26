@@ -1,0 +1,60 @@
+# Fehlgeschlagene/abgelehnte mcp__ghidra__-Aufrufe B161-B174
+
+## Batch 161
+- Ausweichweg: 5 Zeile(n) mit HTTP-Verweis auf 127.0.0.1:8089
+
+## Batch 162
+- mcp__ghidra__search_tools [fehler]: Permission for this tool use was denied. It requires approval, and this session has no approval surface — nobody can answer a permission prompt here — so it was denied automatically. The action was NOT performed; do not 
+- Ausweichweg: 18 Zeile(n) mit HTTP-Verweis auf 127.0.0.1:8089
+
+## Batch 163
+- Ausweichweg: 3 Zeile(n) mit HTTP-Verweis auf 127.0.0.1:8089
+
+## Batch 164
+- Ausweichweg: 2 Zeile(n) mit HTTP-Verweis auf 127.0.0.1:8089
+
+## Batch 165
+- Ausweichweg: 4 Zeile(n) mit HTTP-Verweis auf 127.0.0.1:8089
+
+## Batch 166
+- Ausweichweg: 1 Zeile(n) mit HTTP-Verweis auf 127.0.0.1:8089
+
+## Batch 167
+- mcp__ghidra__list_tool_groups [fehler]: Permission for this tool use was denied. It requires approval, and this session has no approval surface — nobody can answer a permission prompt here — so it was denied automatically. The action was NOT performed; do not 
+- mcp__ghidra__check_tools [fehler]: Permission for this tool use was denied. It requires approval, and this session has no approval surface — nobody can answer a permission prompt here — so it was denied automatically. The action was NOT performed; do not 
+- mcp__ghidra__search_tools [fehler]: Permission for this tool use was denied. It requires approval, and this session has no approval surface — nobody can answer a permission prompt here — so it was denied automatically. The action was NOT performed; do not 
+- Ausweichweg: 17 Zeile(n) mit HTTP-Verweis auf 127.0.0.1:8089
+
+## Batch 168
+- Ausweichweg: 2 Zeile(n) mit HTTP-Verweis auf 127.0.0.1:8089
+
+## Batch 169
+- Ausweichweg: 1 Zeile(n) mit HTTP-Verweis auf 127.0.0.1:8089
+
+## Batch 170
+- mcp__ghidra__check_tools [fehler]: Permission for this tool use was denied. It requires approval, and this session has no approval surface — nobody can answer a permission prompt here — so it was denied automatically. The action was NOT performed; do not 
+- mcp__ghidra__load_program [gesperrt]: <tool_use_error>Error: No such tool available: mcp__ghidra__load_program</tool_use_error>
+- mcp__ghidra__list_tool_groups [fehler]: Permission for this tool use was denied. It requires approval, and this session has no approval surface — nobody can answer a permission prompt here — so it was denied automatically. The action was NOT performed; do not 
+- mcp__ghidra__search_tools [fehler]: Permission for this tool use was denied. It requires approval, and this session has no approval surface — nobody can answer a permission prompt here — so it was denied automatically. The action was NOT performed; do not 
+- Ausweichweg: 3 Zeile(n) mit HTTP-Verweis auf 127.0.0.1:8089
+
+## Batch 171
+- Ausweichweg: 1 Zeile(n) mit HTTP-Verweis auf 127.0.0.1:8089
+
+## Batch 172
+- mcp__ghidra__search_tools [fehler]: Permission for this tool use was denied. It requires approval, and this session has no approval surface — nobody can answer a permission prompt here — so it was denied automatically. The action was NOT performed; do not 
+- mcp__ghidra__load_tool_group [fehler]: Permission for this tool use was denied. It requires approval, and this session has no approval surface — nobody can answer a permission prompt here — so it was denied automatically. The action was NOT performed; do not 
+- mcp__ghidra__connect_instance [fehler]: Permission for this tool use was denied. It requires approval, and this session has no approval surface — nobody can answer a permission prompt here — so it was denied automatically. The action was NOT performed; do not 
+- mcp__ghidra__load_program [gesperrt]: <tool_use_error>Error: No such tool available: mcp__ghidra__load_program</tool_use_error>
+- Ausweichweg: 4 Zeile(n) mit HTTP-Verweis auf 127.0.0.1:8089
+
+## Batch 173
+- Ausweichweg: 1 Zeile(n) mit HTTP-Verweis auf 127.0.0.1:8089
+
+## Summe je Werkzeug
+- mcp__ghidra__search_tools [fehler]: 4
+- mcp__ghidra__list_tool_groups [fehler]: 2
+- mcp__ghidra__check_tools [fehler]: 2
+- mcp__ghidra__load_program [gesperrt]: 2
+- mcp__ghidra__load_tool_group [fehler]: 1
+- mcp__ghidra__connect_instance [fehler]: 1

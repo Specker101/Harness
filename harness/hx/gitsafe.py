@@ -147,6 +147,13 @@ class Git:
         except GitError:
             return []
 
+    def is_ancestor(self, alt: str, neu: str) -> bool:
+        """Ist `alt` ein Vorfahr von `neu` (oder gleich)? R13e, fuer die Pausen-Erkennung."""
+        if not (alt and neu) or not (self.has_ref(alt) and self.has_ref(neu)):
+            return False
+        rc, _so, _se = self.run("merge-base", "--is-ancestor", alt, neu)
+        return rc == 0
+
     def commits_since(self, ref: str) -> int:
         if not self.has_ref(ref):
             return 0

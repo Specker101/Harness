@@ -1,0 +1,315 @@
+﻿Fehlermodus fuer Kindprozesse: 0x8003 (vorher 0x8001)
+
+Fall                 Status   Diffs  Hinweis
+scope_0000           OK       1      
+scope_0000/ram       OK       1      
+scope_0228           OK       1      
+scope_0228/ram       OK       1      
+scope_0237           OK       1      
+scope_0237/ram       OK       1      
+scope_0267           OK       1      
+scope_0267/ram       OK       1      
+scope_0301           OK       1      
+scope_0301/ram       OK       1      
+scope_0548           OK       1      
+scope_0548/ram       OK       1      
+scope_0850           OK       1      
+scope_0850/ram       OK       1      
+scope_1298           OK       1      
+scope_1298/ram       OK       1      
+scope_1300           OK       1      
+scope_1300/ram       OK       1      
+scope_1749           OK       1      
+scope_1749/ram       OK       1      
+scope_1772           OK       1      
+scope_1772/ram       OK       1      
+scope_1892           OK       1      
+scope_1892/ram       OK       1      
+scope_1934           OK       1      
+scope_1934/ram       OK       1      
+boot0_q1injektion    OK       1      
+boot0_q1injektion/ram OK       1      
+boot0_clean          OK       1      
+boot0_clean/ram      OK       1      
+boot0_q3injektion    OK       1      
+boot0_q3injektion/ram OK       1      
+ppc_poc_input_1      -        -      kein Referenzstrom (MAME-Lauf noetig)
+ppc_poc_input_2      -        -      kein Referenzstrom (MAME-Lauf noetig)
+ppc_poc_input_3      -        -      kein Referenzstrom (MAME-Lauf noetig)
+GL-Vorpruefung: Renderer llvmpipe (LLVM 22.1.8, 128 bits) | Umgebung GALLIUM_DRIVER=llvmpipe GALLIUM_OVERRIDE_CPU_CAPS=sse2 LP_NATIVE_VECTOR_WIDTH=128 | 0.760 s, 0.312 s CPU
+GL-Referenzvergleich: 9/9 gleich (analysis\_gl_ref_hashes.txt)
+GL-Mitschnittabgleich: 9/9 wie die B155-Mitschnitte
+GL-Anker: 9/9 OK, 0 GL-TIMEOUT, 0 GL-UMGEBUNG, 0 sonst. FEHLER
+
+audio68k-anker       OK       -      audio68k
+audio68k-smf-anker   OK       -      audio68k-smf
+audio68k-track-anker OK       -      audio68k-track
+abi-anker            OK       -      abi
+cfg-anker            OK       -      cfg
+render-anker         OK       -      render
+windows-anker        OK       -      windows
+windows-rom-anker    OK       -      windows
+windows-verhalten-anker OK       -      windows
+windows-wire-anker   OK       -      windows
+gunwire-anker        OK       -      gun-check
+stateketten-anker    OK       -      render
+core2-anker          OK       -      core2
+core2-verteiler-anker OK       -      core2
+core2-tafel-anker    OK       -      core2
+core2-r217-anker     OK       -      core2
+core2-nachbarn-anker OK       -      core2
+core2-wire-anker     OK       -      core2
+records-anker        OK       -      records
+records-ring-anker   OK       -      records
+records-kette-anker  OK       -      records
+matrix-anker         OK       -      matrix
+select-anker         OK       -      select
+scr-anker            OK       -      screens
+t4-anker             OK       -      t4
+t4-wire-anker        OK       -      t4
+t4-grenzen-anker     OK       -      t4
+vmsg-anker           OK       -      vmsg
+vmsg-wire-anker      OK       -      vmsg
+vmsg-grenzen-anker   OK       -      vmsg
+matrix-struktur-anker OK       -      matrix
+matrix-faelle-anker  OK       -      matrix
+hit-anker            OK       -      hit
+textfmt-anker        OK       -      textfmt
+textfmt-ziffern-anker OK       -      textfmt
+textfmt-grenzen-anker OK       -      textfmt
+textfmt-wire-anker   OK       -      textfmt
+fcom-anker           OK       -      fcom
+fcom-status-anker    OK       -      fcom
+fcom-grenzen-anker   OK       -      fcom
+fcom-wire-anker      OK       -      fcom
+vbi-anker            OK       -      vbi
+vbi-status-anker     OK       -      vbi
+vbi-lampe-anker      OK       -      vbi
+vbi-wire-anker       OK       -      vbi
+vbi-grenzen-anker    OK       -      vbi
+tick-anker           OK       -      tick
+tick-motor-anker     OK       -      tick
+tick-lampe-anker     OK       -      tick
+tick-slot-anker      OK       -      tick
+tick-grenzen-anker   OK       -      tick
+tick-wire-anker      OK       -      tick
+slotshow-anker       OK       -      slotshow
+slotshow-grenzen-anker OK       -      slotshow
+slotshow-wire-anker  OK       -      slotshow
+core2a-anker         OK       -      core2a
+core2a-grenzen-anker OK       -      core2a
+core2a-wire-anker    OK       -      core2a
+mlist-anker          OK       -      mlist
+mlist-woerter-anker  OK       -      mlist
+mlist-grenzen-anker  OK       -      mlist
+mlist-wire-anker     OK       -      mlist
+mlist-strangB-anker  OK       -      mlist
+vleaf-anker          OK       -      vleaf
+vleaf-woerter-anker  OK       -      vleaf
+vleaf-b145-anker     OK       -      vleaf
+vleaf-b146-anker     OK       -      vleaf
+vleaf-b143-anker     OK       -      vleaf
+vleaf-b147-anker     OK       -      vleaf
+vleaf-b148-anker     OK       -      vleaf
+vleaf-b150-anker     OK       -      vleaf
+vleaf-b152-anker     OK       -      vleaf
+vleaf-b149-anker     OK       -      lzssh
+vleaf-b135-anker     OK       -      vleaf
+vleaf-b138-anker     OK       -      vleaf
+vleaf-b140-anker     OK       -      vleaf
+vleaf-b136-anker     OK       -      vleaf
+vleaf-b134-anker     OK       -      vleaf
+vleaf-b133-anker     OK       -      vleaf
+vleaf-b132-anker     OK       -      vleaf
+vleaf-b131-anker     OK       -      vleaf
+vleaf-m0t1-anker     OK       -      vleaf
+vleaf-zufall-anker   OK       -      vleaf
+vleaf-steueranker    OK       -      vleaf
+hitramp-anker        OK       -      hitramp
+hitramp-faelle-anker OK       -      hitramp
+vertex-anker         OK       -      vertex
+setup-anker          OK       -      vertex
+feld-anker           OK       -      vertex
+zrow-anker           OK       -      vertex
+ctx-anker            OK       -      vertex
+upload-anker         OK       -      vertex
+tex-anker            OK       -      vertex
+farbstufe-anker      OK       -      vertex
+audio-rom-anker      OK       -      audio
+audio-id-anker       OK       -      audio
+audio-gate-anker     OK       -      audio
+audio-queue-anker    OK       -      audio
+audio-vol-anker      OK       -      audio
+audio-backend-anker  OK       -      audio
+service-menu-anker   OK       -      service
+service-rom-anker    OK       -      service
+service-verhalten-anker OK       -      service
+service-dispatcher-anker OK       -      service
+service-nav-anker    OK       -      service
+service-dialog-rom-anker OK       -      service
+service-dialog-text-anker OK       -      service
+service-dialog-verhalten-anker OK       -      service
+service-text-anker   OK       -      service
+service-ui-anker     OK       -      service-ui
+screens-bind-anker   OK       -      service
+screens-zell-anker   OK       -      service
+screens-verhalten-anker OK       -      service
+gameflow-rom-anker   OK       -      game-flow
+gameflow-state-anker OK       -      game-flow
+statetail-anker      OK       -      game-flow
+gameflow-spur-anker  OK       -      game-flow-ui
+gameloop-rom-anker   OK       -      game-flow
+gameloop-state-anker OK       -      game-flow
+gameloop-spur-anker  OK       -      game-flow-ui
+gameresult-rom-anker OK       -      game-result
+gameresult-verhalten-anker OK       -      game-result
+gameresult-spur-anker OK       -      game-result-ui
+mission-rom-anker    OK       -      mission
+mission-verhalten-anker OK       -      mission
+mission-spur-anker   OK       -      mission-ui
+mission-step-rom-anker OK       -      mission
+mission-step-verhalten-anker OK       -      mission
+voter-timer-rom-anker OK       -      mission
+voter-timer-verhalten-anker OK       -      mission
+voter-fam-rom-anker  OK       -      voter
+voter-fam-verhalten-anker OK       -      voter
+voter-fam-grenzen-anker OK       -      voter
+voter-fam-wire-anker OK       -      voter
+voterblock-rom-anker OK       -      voter-block
+voterblock-verhalten-anker OK       -      voter-block
+voterblock-grenzen-anker OK       -      voter-block
+voterblock-wire-anker OK       -      voter-block
+voterring-rom-anker  OK       -      voter-ring
+voterring-verhalten-anker OK       -      voter-ring
+voterring-grenzen-anker OK       -      voter-ring
+voterring-wire-anker OK       -      voter-ring
+leaves-rom-anker     OK       -      leaves
+leaves-verhalten-anker OK       -      leaves
+leaves-grenzen-anker OK       -      leaves
+leaves-wire-anker    OK       -      leaves
+content-rom-anker    OK       -      content
+content-verhalten-anker OK       -      content
+helpers-rom-anker    OK       -      helpers
+helpers-textmass-anker OK       -      helpers
+helpers-verhalten-anker OK       -      helpers
+helpers-live-anker   OK       -      helpers
+helpers-ui-anker     OK       -      helpers-ui
+family-rom-anker     OK       -      family
+family-inner-anker   OK       -      family
+family-rahmen-anker  OK       -      family
+family-kette-anker   OK       -      family
+wire106-family-anker OK       -      family
+family-ui-anker      OK       -      family-ui
+m34-rom-anker        OK       -      m34
+m34-ziele-anker      OK       -      m34
+m34-koepfe-anker     OK       -      m34
+wire106-m34-anker    OK       -      m34
+m34-kette-anker      OK       -      m34
+m34-live-anker       OK       -      m34
+m34-ui-anker         OK       -      m34-ui
+helpers101-rom-anker OK       -      helpers101
+helpers101-grenze-anker OK       -      helpers101
+helpers101-wirkung-anker OK       -      helpers101
+helpers101-kette-anker OK       -      helpers101
+helpers101-ui-anker  OK       -      helpers101-ui
+flow-rom-anker       OK       -      flow
+flow-ui-anker        OK       -      flow-ui
+tail-rom-anker       OK       -      tail
+tail-verhalten-anker OK       -      tail
+tail-rang-anker      OK       -      tail
+tail-ressourcen-anker OK       -      tail
+tail-ui-anker        OK       -      tail-ui
+content-ui-anker     OK       -      content-ui
+screens-ui-anker     OK       -      service
+screens-raster-anker OK       -      service-ui
+paketd-trig-anker    OK       -      paketd
+paketd-kern-anker    OK       -      paketd
+paketd-record-anker  OK       -      paketd
+paketd-kernverhalten-anker OK       -      paketd
+paketd-verhalten-anker OK       -      paketd
+paketd-schnitt-anker OK       -      paketd
+paketd-ui-anker      OK       -      paketd-ui
+slot-anker           OK       -      paketd
+panel-anker          OK       -      paketd
+inhalt-anker         OK       -      paketd
+anzeige-anker        OK       -      paketd
+input-anker          OK       -      input
+testmode-anker       OK       -      testmode
+ranking-rom-anker    OK       -      ranking
+ranking-block-anker  OK       -      ranking
+ranking-verhalten-anker OK       -      ranking
+ranking-ui-anker     OK       -      service-ui
+ranking-erzeuger-anker OK       -      ranking
+ranking-aufbau-anker OK       -      ranking
+ranking-erzeugung-anker OK       -      ranking
+ranking-liste-anker  OK       -      service-ui
+datascreens-rom-anker OK       -      datascreens
+datascreens-geometrie-anker OK       -      datascreens
+datascreens-verhalten-anker OK       -      datascreens
+datascreens-ui-anker OK       -      datascreens
+datascreens-page-anker OK       -      service-ui
+input2-rom-anker     OK       -      input2
+input2-verdrahtung-anker OK       -      input2
+input2-historie-anker OK       -      input2
+input2-status-anker  OK       -      input2
+input2-mapping-anker OK       -      input2
+input2-ui-anker      OK       -      input-map
+analog-rom-anker     OK       -      analog
+analog-wandler-anker OK       -      analog
+analog-auswertung-anker OK       -      analog
+analog-kette-anker   OK       -      analog
+analog-ui-anker      OK       -      analog-ui
+opmode-rom-anker     OK       -      opmode
+opmode-zustand-anker OK       -      opmode
+opmode-menue-anker   OK       -      opmode
+opmode-ui-anker      OK       -      opmode-ui
+opmode-nutzlast-rom-anker OK       -      opmode
+opmode-nutzlast-verhalten-anker OK       -      opmode
+opmode-nutzlast-tabellen-anker OK       -      opmode
+opmode-nutzlast-ui-anker OK       -      opmode
+opmode-zeichner-rom-anker OK       -      opmode
+opmode-zeichner-verhalten-anker OK       -      opmode
+opmode-zeichner-tabellen-anker OK       -      opmode
+opmode-zeichner-ui-anker OK       -      opmode
+opmode-tagesbuch-rom-anker OK       -      opmode
+opmode-tagesbuch-verhalten-anker OK       -      opmode
+opmode-tagesbuch-rechen-anker OK       -      opmode
+opmode-tagesbuch-ui-anker OK       -      opmode
+opmode-texteingabe-rom-anker OK       -      opmode
+opmode-texteingabe-tabelle-anker OK       -      opmode
+opmode-texteingabe-ui-anker OK       -      opmode
+opmode-ladeteil-rom-anker OK       -      opmode
+opmode-ladeteil-fall-anker OK       -      opmode
+opmode-ladeteil-ui-anker OK       -      opmode
+opmode-fdc-rom-anker OK       -      opmode
+opmode-fdc-container-anker OK       -      opmode
+opmode-fdc-pfad-anker OK       -      opmode
+opmode-rest-rom-anker OK       -      opmode
+opmode-rest-kasten-anker OK       -      opmode
+opmode-rest-freigabe-anker OK       -      opmode
+opmode-rest-ausgabe-anker OK       -      opmode
+opmode-rest-nachladen-anker OK       -      opmode
+game-rom-anker       OK       -      game-input
+game-iocheck-anker   OK       -      game-input
+game-q16-anker       OK       -      game-input
+game-gate-anker      OK       -      game-input
+game-input-ui-anker  OK       -      game-input-ui
+gun-rom-anker        OK       -      gun-check
+gun-state-anker      OK       -      gun-check
+gun-axis-anker       OK       -      gun-check
+gun-sub-anker        OK       -      gun-check
+gun-writer-anker     OK       -      gun-check
+gun-ui-anker         OK       -      gun-check-ui
+gun-reset-anker      OK       -      gun-check
+gun-adjust-anker     OK       -      gun-check
+glstream-anker       OK       -      glstream (0.506 s, 0.266 s CPU)
+glown-anker          OK       -      glown (0.506 s, 0.250 s CPU)
+glmatrix-anker       OK       -      glmatrix (0.506 s, 0.250 s CPU)
+glsetup-anker        OK       -      glsetup (0.760 s, 0.312 s CPU)
+gltex-anker          OK       -      gltex (0.506 s, 0.250 s CPU)
+gltexsetup-anker     OK       -      gltexsetup (0.507 s, 0.266 s CPU)
+glcolor-anker        OK       -      glcolor (1.008 s, 0.703 s CPU)
+glcolorsetup-anker   OK       -      glcolorsetup (0.757 s, 0.500 s CPU)
+glcolorsample-anker  OK       -      glcolorsample (0.757 s, 0.516 s CPU)
+
+Regression: OK (32 Faelle + 270 Anker, 0 Fehler) -> analysis\_m62_regression.csv

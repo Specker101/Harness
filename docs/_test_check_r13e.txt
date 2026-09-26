@@ -1,0 +1,99 @@
+﻿python : .Kein Text: --file <pfad.md> oder --text "..."
+In Zeile:1 Zeichen:1
++ python -m unittest discover -s tests 2>&1 | Out-File -Encoding utf8 . ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (.Kein Text: --f...er --text "..." 
+   :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+Datei nicht gefunden: G:\Harness\harness\tests\_tmp_cli\y
+....Kein Text: 'send ds "..."' oder 'send ds --file <pfad.md>'
+Datei nicht gefunden: G:\Harness\harness\tests\_tmp_cli\x
+Datei ist leer: G:\Harness\harness\tests\_tmp_cli\leer.md
+pause: abgelegt (pause.ctl)
+KEIN Harness-Prozess erreichbar. Der Befehl bleibt als Datei liegen und wird beim naechsten Start ausgefuehrt.
+resume: abgelegt (resume.ctl)
+KEIN Harness-Prozess erreichbar. Der Befehl bleibt als Datei liegen und wird beim naechsten Start ausgefuehrt.
+approve: abgelegt (approve.ctl)
+KEIN Harness-Prozess erreichbar. Der Befehl bleibt als Datei liegen und wird beim naechsten Start ausgefuehrt.
+stop: abgelegt (stop.ctl)
+KEIN Harness-Prozess erreichbar. Der Befehl bleibt als Datei liegen und wird beim naechsten Start ausgefuehrt.
+Instruktion abgelegt (instruction.json, 39 Zeichen).
+Profil none, Programm - - Quelle: vom Nutzer (ohne Review).
+KEIN Harness-Prozess erreichbar. Der Befehl bleibt als Datei liegen und wird beim naechsten Start ausgefuehrt.
+claude: 20260926_130340_0000_55A74374E1C4.md (20 Zeichen)
+Zustellung: ds beim naechsten Batch-Uebergang, claude beim naechsten Review.
+KEIN Harness-Prozess erreichbar. Der Befehl bleibt als Datei liegen und wird beim naechsten Start ausgefuehrt.
+ds: 20260926_130340_0000_9E02D8210A4C.md (18 Zeichen)
+Zustellung: ds beim naechsten Batch-Uebergang, claude beim naechsten Review.
+KEIN Harness-Prozess erreichbar. Der Befehl bleibt als Datei liegen und wird beim naechsten Start ausgefuehrt.
+ds: 20260926_130340_0000_417ABE05C031.md (48 Zeichen)
+Zustellung: ds beim naechsten Batch-Uebergang, claude beim naechsten Review.
+KEIN Harness-Prozess erreichbar. Der Befehl bleibt als Datei liegen und wird beim naechsten Start ausgefuehrt.
+claude: 20260926_130340_0000_24AC90F5E54D.md (48 Zeichen)
+Zustellung: ds beim naechsten Batch-Uebergang, claude beim naechsten Review.
+KEIN Harness-Prozess erreichbar. Der Befehl bleibt als Datei liegen und wird beim naechsten Start ausgefuehrt.
+watch: gibtsnicht  (nachspielen)
+(noch kein Mitschnitt unter G:\Harness\harness\tests\_tmp_watch\runs\gibtsnicht)
+watch: b001  (nachspielen)
+  ~ (mock)
+  > Read(file_path=analysis/r1b-workstream.md)
+  ~ (mock)
+  > Grep(pattern=80054AE4, path=port/src)
+  ~ (mock)
+  > mcp__ghidra__decompile_function(address=0x80054AE4)
+  ~ (mock)
+  > PowerShell(command=python -u scripts/preflight.py before)
+
+WORKER:
+## 1) Uebernommener Stand
+(mock) Der Anker wurde gelesen; keine echten Messungen in diesem Testlauf.
+
+## 2) Befunde
+- (F1) MOCK-Befund mit Datei:Zeile-Beleg: `port/src/mission_script.cpp:1402` [CONFIRMED]
+- (F2) MOCK-Vermutung ohne Beleg [HYPOTHESIS]
+
+## 3) Naechster Schritt
+(mock) Verdrahtung im Sandkasten vorbereiten.
+
+<TOOL_REQUEST>mcp__ghidra__read_memory</TOOL_REQUEST>
+
+--- WORKER beendet ---
+[15:03:47] Batch 0 laufend: 5 Anfragen ┬À 22650 ein / 86500 cache / 1030 aus ┬À $0.0043 ┬À 0.0 min
+
+----------------------------------------------------------------------
+Batch 1: rc=0 ┬À 1s ┬À 5 Anfragen ┬À $0.0042 ┬À Modell deepseek-flash[1m] (ok=True)
+----------------------------------------------------------------------
+
+======================================================================
+REVIEWER (b001/review.md)
+======================================================================
+Zusammenfassung (TELEGRAM_SUMMARY):
+Alles gut.
+Werkzeuge: Profil none, Programm -
+
+Instruktion (DS_INSTRUCTION):
+Batch 2 - weiter
+watch: env-proof  (nachspielen)
+
+WORKER:
+hallo
+(fuer diesen Lauf gibt es keine Kennzahlen-Datei - gezeigt wurde der Mitschnitt selbst)
+watch: b999  (nachspielen)
+(noch kein Mitschnitt unter G:\Harness\harness\tests\_tmp_r10\root\runs\b999)
+
+WORKER:
+hallo
+
+WORKER:
+weiter
+[15:04:04] INFO  Harness startet  config=g:\Harness\harness\harness.toml mock=False
+[15:04:04] WARN  Kein Telegram-Token gefunden - Bot ist aus
+...............................................................................
+...........ABSTURZ: RuntimeError: platt
+...............................................................................
+......................
+----------------------------------------------------------------------
+Ran 196 tests in 47.251s
+
+OK

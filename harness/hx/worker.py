@@ -70,36 +70,55 @@ class WorkerResult:
         return txt
 
 
-def save_ghidra_after_batch(cfg, log, state, profile_name: str, mock: bool = False) -> dict:
-    """Nach einem Batch mit SCHREIBENDEM Profil sofort speichern (R13-1).
+def save_ghidra_after_batch(cfg, log, state, profile_name: str, mock: bool = False,
+                            http_state: list | None = None) -> dict:
+    """Nach JEDEM Batch mit Ghidra-Zugriff speichern (R13-1, erweitert R13e).
 
-    Ohne das bleiben die Aenderungen nur im Speicher des Servers: bei Absturz oder
+    Ohne das bleiben Aenderungen nur im Speicher des Servers: bei Absturz oder
     Neustart sind sie weg, und der Git-Commit waere weiter als die Ghidra-DB.
-    Rueckgabe: {"needed":bool, "ok":bool|None, "hinweis":str, "steps":[...]}
+
+    R13e: Das gilt jetzt fuer JEDES Profil mit Ghidra-Zugriff - auch `ghidra-read`.
+    Grund (Punkt 2 des Sammelauftrags): der HTTP-Weg auf 127.0.0.1:8089 ist
+    ausdruecklich erlaubt, auch schreibend; ein Leseprofil kann den gemeinsamen
+    Zustand also sehr wohl veraendern. Speichern kostet Sekunden.
+
+    Rueckgabe: {"needed":bool, "ok":bool|None, "blocking":bool, "hinweis":str, "steps":[...]}
+    `blocking` = ein Fehlschlag muss Push/Review anhalten (bei schreibendem Profil
+    oder bemerkter HTTP-Beruehrung des gemeinsamen Zustands).
     """
     try:
         profile = load_profile(cfg.root, profile_name)
     except Exception as exc:
-        return {"needed": False, "ok": None, "hinweis": f"Profil unbekannt: {str(exc)[:80]}"}
-    if not profile.writes_ghidra:
-        return {"needed": False, "ok": None,
-                "hinweis": f"nicht noetig (Profil {profile_name} schreibt nicht)"}
+        return {"needed": False, "ok": None, "blocking": False,
+                "hinweis": f"Profil unbekannt: {str(exc)[:80]}"}
+    if not profile.mcp:
+        return {"needed": False, "ok": None, "blocking": False,
+                "hinweis": f"nicht noetig (Profil {profile_name} ohne Ghidra-Zugriff)"}
+    # Ein Fehlschlag ist ein Haltegrund, wenn das Profil schreiben darf ODER der
+    # Mitschnitt eine schreibende HTTP-Beruehrung zeigt.
+    blocking = bool(profile.writes_ghidra or (http_state or []))
+    grund = ("Profil schreibt" if profile.writes_ghidra
+             else "HTTP-Beruehrung im Mitschnitt" if http_state
+             else f"Profil {profile_name} liest nur")
     if mock:
-        return {"needed": True, "ok": True, "hinweis": "Attrappe: Speichern nur simuliert",
+        return {"needed": True, "ok": True, "blocking": blocking, "grund": grund,
+                "hinweis": "Attrappe: Speichern nur simuliert",
                 "steps": ["mock: save_all_programs simuliert"]}
     try:
         res = Ghidra(cfg, log).save_all_programs()
     except Exception as exc:
         if log:
             log.error("Ghidra-Speichern nach dem Batch fehlgeschlagen", fehler=str(exc)[:200])
-        return {"needed": True, "ok": False, "hinweis": f"Fehler: {str(exc)[:200]}", "steps": []}
+        return {"needed": True, "ok": False, "blocking": blocking,
+                "hinweis": f"Fehler: {str(exc)[:200]}", "steps": []}
     ok = bool(res.get("success", True)) if isinstance(res, dict) else True
     hinweis = (f"save_all_programs ok ({res.get('saved_count')} Programme)"
                if ok else f"save_all_programs meldet Fehler: {json.dumps(res)[:200]}")
     if log:
         (log.info if ok else log.error)("Ghidra nach dem Batch gespeichert" if ok
                                         else "Ghidra NICHT gespeichert", hinweis=hinweis)
-    return {"needed": True, "ok": ok, "hinweis": hinweis,
+    return {"needed": True, "ok": ok, "blocking": blocking, "grund": grund,
+            "hinweis": hinweis,
             "steps": [f"save_all_programs -> {json.dumps(res, ensure_ascii=False)[:300]}"]}
 
 
@@ -112,14 +131,28 @@ def write_mcp_config(cfg, run_path: Path, profile) -> str | None:
     """Schreibt die MCP-Konfiguration fuer genau diesen Lauf (Profil-abhaengig)."""
     if not profile.mcp:
         return None
-    groups = profile.groups or str(cfg.get("ghidra", "bridge_groups", "listing,function,program"))
+    lazy = "--lazy" in [str(a) for a in (cfg.get("ghidra", "bridge_args", []) or [])]
+    args = ["--transport", "stdio", *list(cfg.get("ghidra", "bridge_args", []) or [])]
+    if lazy:
+        # R13e: im Lazy-Modus ist die sichtbare Werkzeugmenge kleiner als die
+        # erlaubte - gemessen 97/215 (Befund 2026-09-26). Nur dann ist
+        # --default-groups ueberhaupt wirksam; im Normalbetrieb (eager) laedt die
+        # Bridge alle Gruppen und allowed/denied entscheiden allein.
+        groups = profile.groups or str(cfg.get("ghidra", "bridge_groups", "listing,function,program"))
+        args += ["--default-groups", groups]
+        if run_path is not None:
+            (run_path / "mcp-lazy-warnung.txt").write_text(
+                "ACHTUNG: --lazy ist aktiv. Die Bridge zeigt dann nur die Gruppen "
+                f"'{groups}' - Werkzeuge ausserhalb sind unsichtbar, auch wenn das Profil "
+                "sie erlaubt. Nachladen ginge nur ueber search_tools/load_tool_group "
+                "(absichtlich gesperrt). Empfehlung: --lazy entfernen.",
+                encoding="utf-8")
     data = {
         "mcpServers": {
             "ghidra": {
                 "type": "stdio",
                 "command": str(cfg.get("ghidra", "bridge_exe")),
-                "args": ["--transport", "stdio", *list(cfg.get("ghidra", "bridge_args", ["--lazy"])),
-                         "--default-groups", groups],
+                "args": args,
                 "env": {},
             }
         }
@@ -169,9 +202,10 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
     batch = state.batch
     rd = run_dir(cfg, batch)
     res.run_dir = str(rd)
-    if profile.writes_ghidra:
-        # R13-1: ab jetzt koennen Aenderungen im Server-Speicher stehen, die noch
-        # nicht in der Projektdatei sind. Der Merker wird erst nach dem Speichern
+    if profile.mcp:
+        # R13-1/R13e: ab jetzt koennen Aenderungen im Server-Speicher stehen, die noch
+        # nicht in der Projektdatei sind - auch bei Nur-Lese-Profilen, weil der
+        # HTTP-Weg schreibend erlaubt ist. Der Merker wird erst nach dem Speichern
         # wieder geloescht (auch bei Stopp und Harness-Ende geprueft).
         state.data["ghidra_pending"] = True
         state.save()
@@ -196,12 +230,17 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
         if not chk.get("ok"):
             raise RuntimeError(f"Programmwechsel fehlgeschlagen (gewuenscht {wanted})")
         res.program = "/" + str(chk.get("current"))
-        # --- 3. Sicherung, wenn das Profil schreiben darf -----------------------------
-        if profile.writes_ghidra:
-            bk = gh.backup_project(log, reason=f"vor Batch {batch} (Profil {profile_name})")
-            if not bk.get("ok"):
-                raise RuntimeError("Ghidra-Sicherung fehlgeschlagen - Batch mit Schreibprofil startet NICHT")
-            res.limits["ghidra_backup"] = bk.get("path")
+        # --- 3. Sicherung - jetzt fuer JEDES Profil mit Ghidra-Zugriff (R13e) ---------
+        # Punkt 2b: Auch ein "Leseprofil" kann den gemeinsamen Zustand veraendern,
+        # weil der HTTP-Weg auf 8089 schreibend erlaubt ist. Gemessen 2026-09-26:
+        # eine Sicherung kostet 12,1 MB und rund 2 s (Aufbewahrung 5 Staende = ~60 MB),
+        # das ist neben Batches von 20-120 min vernachlaessigbar - also immer sichern,
+        # statt die Ausnahme zu erraten.
+        bk = gh.backup_project(log, reason=f"vor Batch {batch} (Profil {profile_name})")
+        if not bk.get("ok"):
+            raise RuntimeError("Ghidra-Sicherung fehlgeschlagen - Batch mit Ghidra-Profil "
+                               "startet NICHT")
+        res.limits["ghidra_backup"] = bk.get("path")
 
     # --- Auftrag schreiben -------------------------------------------------------------
     prompt = build_prompt(cfg, instruction, queue_block, res.program, profile_name)
@@ -325,6 +364,30 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
     return _finish_run(cfg, state, res, stats, batch, profile_name, log, mock=mock)
 
 
+def _fehler_kurz(fehler: list[dict], grenze: int = 5) -> list[dict]:
+    """Werkzeugfehler je Werkzeug zusammenfassen (Name, Anzahl, Arten).
+
+    R13e: Grundlage der Bilanzzeile "Werkzeugfehler". Die alte Zeile
+    "Abgelehnte Werkzeugaufrufe" zaehlte auch Dateiinhalte mit, die den Fehlersatz
+    nur zitieren (gemessen an B173: vier gemeldet, eine echt).
+    """
+    zaehler: dict[str, dict] = {}
+    for f in (fehler or []):
+        name = str(f.get("name") or "?")
+        e = zaehler.setdefault(name, {"name": name, "n": 0, "arten": []})
+        e["n"] += 1
+        art = str(f.get("art") or "fehler")
+        if art not in e["arten"]:
+            e["arten"].append(art)
+    return sorted(zaehler.values(), key=lambda x: -x["n"])[:grenze]
+
+
+def fehler_text(kurz: list[dict]) -> str:
+    """Kurzform fuer Snapshot und Bilanz: 'mcp__ghidra__load_program×4 (gesperrt)'."""
+    return "; ".join(f"{e['name']}×{e['n']} ({'/'.join(e['arten'])})"
+                     for e in (kurz or [])) or "keine"
+
+
 def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebuilt: bool = False,
                 mock: bool = False, ghidra_save: bool = True):
     """Messdaten, result.json, antwort.md und Snapshot schreiben (R11-2).
@@ -346,6 +409,9 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
         log.error("MODELL-ABWEICHUNG im Worker", erwartet=expected, gesehen=res.model_seen)
     res.stats["tool_counts"] = dict(stats.tool_counts)
     res.stats["denials"] = list(stats.denials)[:5]
+    res.stats["tool_errors"] = _fehler_kurz(stats.tool_errors)
+    # Punkt 2c: HTTP-Beruehrungen des gemeinsamen Ghidra-Zustands - nur Vermerk.
+    res.stats["http_state"] = list(stats.http_state)[:5]
     res.stats["api_errors"] = list(stats.api_errors)[:5]
     res.stats["num_turns"] = stats.num_turns()
     res.stats["total_cost_usd_field"] = stats.total_cost_usd_field()
@@ -357,7 +423,8 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
                           "harness_s": res.duration_harness_s, "claude_s": res.duration_cli_s,
                           "api_s": res.duration_api_s}
     if ghidra_save:
-        res.ghidra_save = save_ghidra_after_batch(cfg, log, state, profile_name, mock=mock)
+        res.ghidra_save = save_ghidra_after_batch(cfg, log, state, profile_name, mock=mock,
+                                                  http_state=list(stats.http_state))
         if res.ghidra_save.get("needed") and res.ghidra_save.get("ok"):
             state.data["ghidra_pending"] = False
             state.save()
@@ -434,7 +501,21 @@ ARBEITSUMFELD
 - Immer verfügbar: Dateien lesen, schreiben, bearbeiten, Suchen (Glob/Grep), PowerShell.
 - Ghidra liegt am MCP-Server `ghidra` (Profil und Programm unten). Adressbasierte Aufrufe
   immer mit `program="<name>"` versehen.
-- Ein Programmwechsel ist NICHT erlaubt; Ghidra-Skripte und der Debugger sind gesperrt.
+  * Das aktuelle Programm stellt das HARNESS. Es ist normalerweise `main.bin` -
+    das ist das PPC-Hauptprogramm (Base 0x80000000) und das Arbeitsprogramm.
+  * `be.bin` ist das Boot-/Loader-Image; es ist NUR richtig, wenn der Auftrag
+    ausdruecklich den Boot-/Ladepfad betrifft.
+  * Brauchst du ein anderes Programm: NICHT selbst wechseln (kein
+    `switch_program`, kein `load_program`, kein HTTP-Aufruf dafuer), sondern am
+    Ende `<PROGRAM_REQUEST>/830d01.27p.<name>.bin</PROGRAM_REQUEST>` melden.
+    Der naechste Batch bekommt es dann gestellt.
+- Ein Programmwechsel, Ghidra-Skripte und der Debugger sind gesperrt (Sperrliste).
+- Der HTTP-Weg auf 127.0.0.1:8089 ist ERLAUBT - auch schreibend. Er ist der
+  dokumentierte Ausweichweg, wenn ein MCP-Werkzeug fehlt. Beachte: schreibende
+  HTTP-Aufrufe auf den gemeinsamen Zustand (Programm oeffnen/wechseln/schliessen,
+  restore_project, Skripte) werden im Review VERMERKT. Erlaubt ist er trotzdem.
+  Fehlt dir ein MCP-Werkzeug, melde es zusaetzlich als
+  `<TOOL_REQUEST>mcp__ghidra__<name></TOOL_REQUEST>` - statt zu raten.
 
 ABLAUF
 1. Auftrag lesen, dann Anker/Regeln lesen, dann arbeiten.
@@ -455,7 +536,6 @@ MARKER (genau so schreiben, einer pro Zeile, am Ende des Berichts)
 <TOOL_REQUEST>mcp__ghidra__read_memory</TOOL_REQUEST>
 <PROGRAM_REQUEST>/830d01.27p.be.bin</PROGRAM_REQUEST>
 """
-
 # Harte Grenze der stdin-Übergabe (Doku: "Piped stdin is capped at 10MB").
 MAX_STDIN_BYTES = 9_000_000
 
@@ -471,6 +551,11 @@ def build_prompt(cfg, instruction: str, queue_block: str, program: str | None, p
     umfeld = [f"Ghidra-Profil dieses Laufs: {profile}"]
     if program:
         umfeld.append(f"Aktuelles Ghidra-Programm (vom Harness gestellt): {program}")
+        # Punkt 10d: der Worker hat mehrfach be.bin angefordert, obwohl PPC-Arbeit
+        # auf main.bin laeuft. Die Bedeutung steht deshalb direkt daneben.
+        umfeld.append("  - main.bin = PPC-Hauptprogramm (Base 0x80000000) - das Arbeitsprogramm.")
+        umfeld.append("  - be.bin = Boot-/Loader-Image - nur bei Aufträgen zum Ladepfad.")
+        umfeld.append("  - Ein anderes Programm NICHT selbst stellen: PROGRAM_REQUEST melden.")
     else:
         umfeld.append("Kein Ghidra-Programm gestellt (Profil ohne Ghidra-Zugriff).")
     parts += ["", "UMFELD DIESES LAUFS", *umfeld, "", "=== AUFTRAG (vom Reviewer) ===",
@@ -515,6 +600,7 @@ def write_snapshot(cfg, state, res: WorkerResult, stats: streamjson.StreamStats,
 - Modell laut Ausgabe: {res.model_seen} (Soll erfuellt: {res.model_ok})
 - num_turns: {t.get('num_turns')} | total_cost_usd-Feld (nicht massgeblich): {t.get('total_cost_usd_field')}
 - Abgelehnte Werkzeugaufrufe: {t.get('denials') or 'keine'}
+- Werkzeugfehler: {fehler_text(t.get('tool_errors'))}
 
 ## Ankerkopf (Projektkonvention)
 ```
