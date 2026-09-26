@@ -24,7 +24,12 @@ API = "https://api.telegram.org/bot{token}/{method}"
 # eigenen Faedchen mit `join(grenze)`: der Aufrufer kommt in JEDEM Fall zurueck.
 # Bleibt ein Aufruf haengen, wird sein Faedchen als Daemon aufgegeben - aber nur
 # bis zu `MAX_HAENGER` mal, danach wird sofort abgelehnt (kein Aufstau).
-MAX_HAENGER = 2
+#
+# MESSUNG 2026-09-27 (laufender Betrieb, Log): ZWEI Haenger binnen 90 s am
+# Langpoll (`getUpdates`, Grenze 45 s); der erste Faden war beim zweiten Hänger
+# schon von selbst fertig (Log "offen=1"). Die Grenze steht deshalb auf 4 -
+# Luft fuer mehrere gleichzeitige Haenger, aber weiterhin klar begrenzt.
+MAX_HAENGER = 4
 _HAENGER_LOCK = threading.Lock()
 _HAENGER: set[threading.Thread] = set()
 
