@@ -432,3 +432,47 @@ Ausgabe: Datei, Name, Anzahl). `--redact` ersetzt Fundstellen durch
 **Fallstrick:** `sandbox\decomp-link` ist eine **Junction** ins Decomp-Repo. Ein `rglob`
 folgt ihr und meldet 69 GB statt 30 MB — das Werkzeug nimmt deshalb `os.walk`
 (`followlinks=False`) und überspringt Verknüpfungen sowie Binärartefakte.
+
+---
+
+## 12. Laufzeit: wo die Zeit hingeht (R13h, 2026-09-26)
+
+Frage: manche Batches dauern Stunden und verbrauchen dabei wenige Tokens. Antwort aus
+den Mitschnitten (`tools\analyse_laufzeit.py`, Beleg `docs\_laufzeit_analyse.txt`):
+
+| Batch | Wanduhr | Werkzeuge | Modell | davon reines Warten |
+|---|---|---|---|---|
+| 172 | 7065 s | **5702 s (81 %)** | 1356 s | 481 s |
+| 174 | 4767 s | 3315 s (70 %) | 1449 s | **1993 s (42 %)** |
+| 175 | 4726 s | 2705 s | 2010 s | **1581 s** |
+| 176 | 5218 s | 3657 s (70 %) | 1553 s | 540 s |
+| 177 | 3181 s | 1331 s (42 %) | 1844 s | 46 s |
+
+**Der Harness ist nicht die Ursache:** die von ihm selbst gemessene Wanduhr weicht nur um
+2–21 s von der Selbstauskunft des Claude-Prozesses ab. Die Zeit steckt in langen
+Werkzeugläufen (68K-Emulation: 400–600 s je Lauf; Port-Bau: ~420 s bei echten
+Quelländerungen, **6,7 s**, wenn nichts zu bauen ist) — und in reinen Wartebefehlen.
+
+### 12a. Was daran geändert wurde
+
+* **Kosten nicht mehr je Zeile rechnen** (`hx/streamjson.py:TaktGeber`). `cost_usd()`
+  kostet ~1 ms; bei jedem der 156.493 Zeilen von b177 waren das ~156 s Rechenzeit im
+  Thread, der eigentlich nur die Ausgabe des Kindprozesses abnehmen soll. Jetzt nur noch
+  im Takt (2 s): **1,6 s statt 156 s** (b172: 3,5 s statt 115 s), Ergebnis identisch —
+  Beleg `docs\_kosten_takt_messung.txt`.
+* **Laufzeit-Profil im Review und in der Batch-Meldung.** Werkzeugzeit, Modellzeit und
+  Wartezeit stehen ab jetzt in `harness-facts.md` (Zeile `- Laufzeit-Profil: …`) und in
+  der Telegram-Meldung am Batch-Ende (`Zeit: …`), samt der drei langsamsten Aufrufe.
+* **Worker-Vorspann, Abschnitt „RECHENZEIT"**: unabhängige Rechenläufe **parallel**
+  (4 Kerne) statt nacheinander, und kein `Start-Sleep -Seconds 300` als Wartemuster —
+  Abbruchbedingung mit kurzem Schritt (10–20 s) oder `Wait-Process -Timeout`.
+
+### 12b. Was der Nutzer selbst entscheiden muss
+
+Der grösste Hebel liegt ausserhalb des Harness: die 68K-Emulationsläufe im Decomp-Repo
+laufen **nacheinander** (b177: vier `m177_hull`-Läufe à 77–81 s; b172: zwei
+`m172_cc3a.py dyn --only-…` à 488 s/483 s). Auf **4 Kernen** bringt paralleles Fahren
+(oder ein `--all`-Modus in einem Prozess statt vieler Einzelaufrufe) grob den Faktor
+2–4 auf genau diesen Anteil. Das sind Skripte und Batch-Entscheidungen des Workers —
+die Harness-Seite kann sie nur sichtbar machen und anordnen (12a), nicht selbst
+umschreiben.

@@ -1,0 +1,6 @@
+Mitschnitt: stream.jsonl (115051 Zeilen, 272 Anfragen)
+  ALT  Summen+Kosten je Zeile :  53.73 s  (115051 Rechnungen im Nachspiel, im echten Lauf genauso viele)
+  NEU  im Takt (2 s)          :   0.92 s  (1 Rechnung im Nachspiel)
+  gespart im Nachspiel        :  52.82 s (98 % der Leserechenzeit)
+  echter Lauf                : 7065 s Wanduhr -> ~3532 Rechnungen * 1 ms = 3.5 s statt 115 s
+  Ergebnis identisch          : ja

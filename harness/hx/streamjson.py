@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import re
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -36,9 +38,126 @@ HTTP_TOOLS = {"PowerShell", "Bash", "Shell", "Write", "Edit", "MultiEdit",
               "NotebookEdit", "Terminal"}
 
 
+def _zeit(wert) -> float | None:
+    """ISO-Zeitstempel eines Ereignisses in Sekunden (None, wenn unbrauchbar)."""
+    if not wert:
+        return None
+    try:
+        return datetime.fromisoformat(str(wert).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def kurz_input(eingabe, grenze: int = 90) -> str:
+    """Kurzbeschreibung eines Werkzeugaufrufs fuer die Messdaten (ohne Werte)."""
+    if isinstance(eingabe, str):
+        text = eingabe
+    elif isinstance(eingabe, dict):
+        for feld in ("command", "file_path", "path", "pattern", "query", "prompt"):
+            if eingabe.get(feld):
+                text = str(eingabe[feld])
+                break
+        else:
+            text = json.dumps(eingabe, ensure_ascii=False)
+    else:
+        text = str(eingabe)
+    return " ".join(text.split())[:grenze]
+
+
 def _norm(text: str) -> str:
     """Vergleichsform fuer Pfade: klein, nur `/`, keine Doppel-Schraegstriche."""
     return re.sub(r"/+", "/", str(text).lower().replace("\\", "/"))
+
+
+class TaktThread:
+    """Ruft `takt()` auch dann weiter, wenn KEINE Zeile im Mitschnitt ankommt (R13h).
+
+    Befund 2026-09-26: ein Werkzeugaufruf kann 600 s dauern (68K-Emulation, Port-Bau).
+    In dieser Zeit schreibt der Kindprozess nichts, `on_event` wird nicht gerufen - und
+    damit auch kein `poll()`. Folge: `/stop`, `/pause` oder eine Nachricht des Nutzers
+    wirken bis zu 10 Minuten nicht. Der Takt-Thread schliesst genau diese Luecke.
+    Er ist ein Daemon und wird nach dem Lauf sauber beendet.
+    """
+
+    def __init__(self, takt, intervall_s: float = 2.0, log=None):
+        self.takt = takt
+        self.intervall = max(0.2, float(intervall_s or 2.0))
+        self.log = log
+        self.aufrufe = 0
+        self._ende = threading.Event()
+        self._faden = threading.Thread(target=self._lauf, name="hx-takt", daemon=True)
+
+    def _lauf(self) -> None:
+        while not self._ende.wait(self.intervall):
+            try:
+                self.takt()
+                self.aufrufe += 1
+            except Exception as exc:                             # noqa: BLE001
+                if self.log:
+                    self.log.warn("Takt-Thread fehlgeschlagen", fehler=str(exc)[:120])
+
+    def start(self) -> "TaktThread":
+        self._faden.start()
+        return self
+
+    def stop(self, timeout: float = 5.0) -> None:
+        self._ende.set()
+        if self._faden.is_alive():
+            self._faden.join(timeout=timeout)
+
+
+class TaktGeber:
+    """Darf jetzt gerechnet werden? (R13h)
+
+    Der Mitschnitt wird ZEILENWEISE verarbeitet. Summen und Kosten duerfen dabei
+    nicht je Zeile neu gerechnet werden: `cost_usd()` kostet ~1 ms (gemessen
+    2026-09-26, 272 Anfragen) - bei 156.493 Zeilen sind das ~179 s Rechenzeit im
+    Leser-Thread, der eigentlich nur die Ausgabe des Kindprozesses abnehmen soll.
+    """
+
+    def __init__(self, intervall_s: float):
+        self.intervall = float(intervall_s or 0)
+        self.letzter = 0.0
+
+    def faellig(self, jetzt: float | None = None) -> bool:
+        jetzt = time.monotonic() if jetzt is None else jetzt
+        if jetzt - self.letzter >= self.intervall:
+            self.letzter = jetzt
+            return True
+        return False
+
+
+_SLEEP_RE = re.compile(r"start-sleep\s+(?:-seconds\s+)?(\d+(?:\.\d+)?)"
+                       r"|start-sleep\s+-milliseconds\s+(\d+)"
+                       r"|\bsleep\s+(\d+)\b", re.IGNORECASE)
+_SCHLEIFE_RE = re.compile(r"for\s*\(\s*\$[a-z]+\s*=\s*0;", re.IGNORECASE)
+
+
+def warte_sekunden(befehl) -> float:
+    """Reine Wartezeit in einem Befehl schaetzen (R13h).
+
+    `Start-Sleep -Seconds 300` garantiert Wanduhr - auch wenn die Arbeit laengst
+    fertig ist. Bei einer Poll-Schleife (`for ($i=0; ...)`) wird der Schritt mit der
+    Schleifenzahl multipliziert, weil das die Obergrenze des Wartens ist.
+    (Gemessen 2026-09-26: b174 hatte 19 solcher Befehle, zusammen 1993 s.)
+    """
+    text = str(befehl or "")
+    if not text or ("sleep" not in text.lower()):
+        return 0.0
+    summe = 0.0
+    for t in _SLEEP_RE.findall(text):
+        if t[0]:
+            wert = float(t[0])
+        elif t[1]:
+            wert = float(t[1]) / 1000.0
+        else:
+            wert = float(t[2])
+        summe += wert
+    m = _SCHLEIFE_RE.search(text)
+    if m and summe:
+        zahlen = re.findall(r"-lt\s+(\d+)", text)
+        summe *= max(1, int(zahlen[0]) if zahlen else 1)
+    return summe
 
 
 class SecretWatch:
@@ -211,6 +330,13 @@ class StreamStats:
         self.api_errors: list[str] = []
         self.result: dict | None = None
         self.raw_events: int = 0
+        # R13h: Laufzeit-Profil (aus den Zeitstempeln des Mitschnitts, nichts geraten).
+        self.t_erste: float | None = None
+        self.t_letzte: float | None = None
+        self._offen: dict[str, tuple[float, str, str]] = {}
+        self.tool_seconds: float = 0.0
+        self.wait_seconds: float = 0.0
+        self.slow_tools: list[dict] = []     # die laengsten Werkzeugaufrufe (max 5)
 
     # ------------------------------------------------------------------ Feed
     def feed(self, line: str) -> dict | None:
@@ -225,6 +351,10 @@ class StreamStats:
             return None
         self.raw_events += 1
         etype = ev.get("type")
+        t_ev = _zeit(ev.get("timestamp"))
+        if t_ev is not None:
+            self.t_erste = t_ev if self.t_erste is None else min(self.t_erste, t_ev)
+            self.t_letzte = t_ev if self.t_letzte is None else max(self.t_letzte, t_ev)
 
         # R13g: Werte in JEDER Zeile suchen (ein Schluesselwert gehoert nirgends hin).
         if self.secret_watch is not None:
@@ -302,6 +432,12 @@ class StreamStats:
                     self.tool_counts[name] = self.tool_counts.get(name, 0) + 1
                     if self.secret_watch is not None:
                         self._secret_pfad(name, block.get("input") or {}, tid)
+                    # R13h: Werkzeugzeit und Wartezeit laufend mitschreiben.
+                    if t_ev is not None:
+                        self._offen[str(tid)] = (t_ev, name, kurz_input(block.get("input")))
+                    self.wait_seconds += warte_sekunden(
+                        (block.get("input") or {}).get("command")
+                        if isinstance(block.get("input"), dict) else "")
                     if name in HTTP_TOOLS:
                         self._scan_http(json.dumps(block.get("input") or {},
                                                    ensure_ascii=False))
@@ -313,6 +449,8 @@ class StreamStats:
                 if isinstance(block, dict) and block.get("type") == "tool_result":
                     body = block.get("content")
                     text = body if isinstance(body, str) else json.dumps(body, ensure_ascii=False)
+                    # R13h: Ende eines Werkzeugaufrufs - Dauer festhalten.
+                    self._tool_ende(str(block.get("tool_use_id")), t_ev)
                     if text:
                         self.tool_results.append(text[:20000])
                     art = self._fehlerart(block, text)
@@ -366,6 +504,32 @@ class StreamStats:
 
     def _tool_name(self, tool_use_id) -> str:
         return self._tool_names.get(str(tool_use_id), "?")
+
+    def _tool_ende(self, tid: str, t_ende: float | None) -> None:
+        """Dauer eines Werkzeugaufrufs festhalten (R13h)."""
+        e = self._offen.pop(str(tid), None)
+        if not e or t_ende is None:
+            return
+        dauer = max(0.0, t_ende - e[0])
+        self.tool_seconds += dauer
+        self.slow_tools.append({"name": e[1], "kurz": e[2], "dauer_s": round(dauer, 1)})
+        self.slow_tools.sort(key=lambda w: -w["dauer_s"])
+        del self.slow_tools[5:]
+
+    def laufzeit_profil(self) -> dict:
+        """Wo ging die Zeit hin? (R13h) - Werkzeuge, Modell, Warten, Harness-Rest.
+
+        Alles aus den Zeitstempeln des Mitschnitts; nichts geschaetzt. `modell_s`
+        ist die Spanne minus Werkzeugzeit (Denken + API), `rest_s` vergibt der
+        Aufrufer gegen die Wanduhr, die er selbst gemessen hat.
+        """
+        spanne = ((self.t_letzte - self.t_erste)
+                  if (self.t_erste is not None and self.t_letzte is not None) else 0.0)
+        return {"spanne_s": round(spanne, 1),
+                "werkzeug_s": round(self.tool_seconds, 1),
+                "modell_s": round(max(0.0, spanne - self.tool_seconds), 1),
+                "warte_s": round(self.wait_seconds, 1),
+                "langsamste": list(self.slow_tools)}
 
     @staticmethod
     def _fehlerart(block: dict, text: str) -> str | None:

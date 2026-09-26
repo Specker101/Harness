@@ -789,6 +789,11 @@ class Orchestrator:
                 f"Kosten ${res.cost_usd:.4f} (heute ${total:.4f}), Modell-ok={res.model_ok}")
         if res.alarms:
             head += "\n" + "\n".join(res.alarms)
+        # R13h: die Laufzeit-Aufteilung gehoert an die Batch-Meldung - die Frage
+        # "warum hat das so lange gedauert?" soll man nicht aus dem Log beantworten.
+        profil = (res.stats or {}).get("laufzeit") or {}
+        if profil.get("spanne_s"):
+            head += "\nZeit: " + self.laufzeit_zeile({"stats": {"laufzeit": profil}})
         if res.killed_reason:
             head += f"\nGRENZE AUSGELOEST: {res.killed_reason}"
         if res.model_ok is False:
@@ -1191,6 +1196,32 @@ class Orchestrator:
                       batch=(gate.get("tools") or {}).get("batch"))
 
     # ------------------------------------------- Harness-Messdaten fuer den Review
+    def laufzeit_zeile(self, res: dict, st: dict | None = None) -> str:
+        """Wo ging die Zeit hin? (R13h) Werkzeuge / Modell / Warten + langsamste Aufrufe.
+
+        Grund (Nutzerbefund 2026-09-26): manche Batches dauerten Stunden bei wenigen
+        Tokens. Gemessen war der Harness nicht die Ursache (2-21 s Rest), sondern lange
+        Werkzeuglaeufe - und reine Wartezeit in `Start-Sleep`-Befehlen (in einem Batch
+        1993 s = 42 %). Diese Zeile macht das im Review sichtbar, damit der Reviewer
+        den naechsten Auftrag darauf zuschneiden kann.
+        """
+        p = ((st or res.get("stats") or {}).get("laufzeit") or res.get("laufzeit") or {})
+        if not p or not p.get("spanne_s"):
+            return "nicht gemessen (alter Lauf)"
+        W = float(p.get("werkzeug_s") or 0)
+        M = float(p.get("modell_s") or 0)
+        S = float(p.get("spanne_s") or 0)
+        warte = float(p.get("warte_s") or 0)
+        teile = [f"Werkzeuge {W:.0f} s ({100 * W / S:.0f} %)", f"Modell {M:.0f} s"]
+        if warte:
+            teile.append(f"davon reines Warten {warte:.0f} s")
+        lang = p.get("langsamste") or []
+        if lang:
+            top = "; ".join(f"{w.get('kurz') or w.get('name')} {float(w.get('dauer_s') or 0):.0f} s"
+                            for w in lang[:3])
+            teile.append("langsamste: " + top)
+        return " | ".join(teile)
+
     def secret_zeile(self, batch: int) -> str:
         """Vermerk fuer den Messdatenblock: gab es Schluessel-Zugriffe in diesem Batch?
 
@@ -1244,6 +1275,7 @@ class Orchestrator:
             f"| Abbruchgrund: {res.get('killed_reason') or 'kein Abbruch'}",
             f"- Alarmmeldungen: {'; '.join(res.get('alarms') or []) or 'keine'}",
             f"- SECRET-ZUGRIFF (Ueberwachung): {self.secret_zeile(batch)}",
+            f"- Laufzeit-Profil: {self.laufzeit_zeile(res, st)}",
             f"- Kosten (gerechnet, Tarif je Aufruf): ${float(res.get('cost_usd') or 0):.4f} "
             f"| Gegenprobe alles zum Jetzt-Tarif: ${float(res.get('cost_naive_usd') or 0):.4f}",
             f"- Anfragen: {st.get('requests')} | Eingabe ohne Cache: {st.get('input_miss')} "

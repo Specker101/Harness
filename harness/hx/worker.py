@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -297,18 +298,21 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
         fired: set[str] = set()
         gemeldet = [0]                      # R13g: bis hierher schon alarmierte Secret-Treffer
         extra_dates = list(cfg.get("peak", "extra_offpeak_dates", []) or [])
-        letzter_takt = [0.0]
+        takt = streamjson.TaktGeber(TICK_MIN_INTERVAL_S)
+        takt_lock = threading.Lock()        # R13h: Takt-Thread und Leser duerfen nicht doppelt takten
 
-        def on_event(line: str):
-            if tick is not None and (time.time() - letzter_takt[0]) >= TICK_MIN_INTERVAL_S:
-                letzter_takt[0] = time.time()
+        def takt_jetzt():
+            """Einen Taktschlag ausfuehren - hoechstens einer gleichzeitig."""
+            if tick is None:
+                return
+            with takt_lock:
                 try:
                     tick()
                 except Exception:
                     pass
+
+        def on_event(line: str):
             stats.feed(line)
-            t = stats.totals()
-            cost = stats.cost_usd(extra_dates)
             # R13g: Schluessel-Zugriff sofort melden (Werkzeug nennen, nie den Wert).
             neu = stats.secret_hits[gemeldet[0]:]
             if neu:
@@ -321,6 +325,16 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
                 res.alarms.append(text)
                 if notify:
                     notify(text)
+            # R13h: Takt, Summen und Kosten NUR im Takt rechnen, nicht je Zeile.
+            # Gemessen am 2026-09-26: `cost_usd()` kostet ~1 ms (272 Anfragen) und lief
+            # fuer JEDE Zeile - in b177 (156.493 Zeilen) sind das ~179 s Rechenzeit im
+            # Leser-Thread, der eigentlich die Ausgabe des Kindprozesses abnehmen soll.
+            # `feed()` selbst kostet nur 0,01 ms/Zeile.
+            if not takt.faellig():
+                return None
+            takt_jetzt()
+            t = stats.totals()
+            cost = stats.cost_usd(extra_dates)
             for key, cond, text in (
                 ("alarm_requests", t["requests"] >= lim["alarm_requests"],
                  f"ALARM: {t['requests']} Anfragen erreicht (Alarmgrenze {lim['alarm_requests']})"),
@@ -340,11 +354,22 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
                 return "kill"
             return None
 
-        run = run_stream(cmd, env, cwd=str(cfg.decomp), out_path=stream_path,
-                         on_event=on_event, hard_wall_s=lim["hard_wall"], log=log,
-                         cancel=cancel, stdin_text=prompt, stderr_path=rd / "stream.err.txt",
-                         on_start=lambda pid: state.worker_started(pid, str(stream_path),
-                                                                   session_id))
+        # R13h: waehrend eines langen Werkzeugaufrufs (68K-Emulation 400-600 s, Port-Bau
+        # 420 s) kommt KEINE Zeile im Mitschnitt an - dann wird `on_event` nicht gerufen,
+        # der Harness beantwortet also weder /stop noch /pause (Befund 2026-09-26).
+        # Der Takt-Thread schliesst diese Luecke und endet mit dem Lauf.
+        ticker = (streamjson.TaktThread(takt_jetzt, TICK_MIN_INTERVAL_S, log=log).start()
+                  if tick is not None else None)
+        try:
+            run = run_stream(cmd, env, cwd=str(cfg.decomp), out_path=stream_path,
+                             on_event=on_event, hard_wall_s=lim["hard_wall"], log=log,
+                             cancel=cancel, stdin_text=prompt, stderr_path=rd / "stream.err.txt",
+                             on_start=lambda pid: state.worker_started(pid, str(stream_path),
+                                                                       session_id))
+        finally:
+            if ticker is not None:
+                ticker.stop()
+                log.info("Takt-Thread beendet", aufrufe=ticker.aufrufe)
         res.rc = run.rc
         res.duration_harness_s = run.duration_s
         d_cli, d_feld = stats.duration_field()
@@ -428,6 +453,9 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
     res.stats["http_state"] = list(stats.http_state)[:5]
     res.stats["api_errors"] = list(stats.api_errors)[:5]
     res.stats["secret_hits"] = list(stats.secret_hits)[:10]
+    # R13h: Laufzeit-Profil (Werkzeuge / Modell / Warten) - damit der Reviewer und der
+    # Nutzer sehen, WOHIN die Zeit ging, statt nur wie lange es dauerte.
+    res.stats["laufzeit"] = stats.laufzeit_profil()
     res.stats["num_turns"] = stats.num_turns()
     res.stats["total_cost_usd_field"] = stats.total_cost_usd_field()
     res.stats["tariff_now"] = pricing.tariff(None, extra_dates)
@@ -450,6 +478,7 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
         "rc": res.rc, "duration_s": res.duration_s, "killed_reason": res.killed_reason,
         "alarms": res.alarms, "stats": res.stats, "cost_usd": res.cost_usd,
         "secret_hits": list(stats.secret_hits)[:10],
+        "laufzeit": res.stats.get("laufzeit") or {},
         "cost_naive_usd": res.cost_naive_usd, "model_seen": res.model_seen,
         "model_ok": res.model_ok, "finished_at": now_iso(),
         "rebuilt": bool(rebuilt), "ghidra_save": res.ghidra_save,
@@ -544,6 +573,18 @@ ABLAUF
 3. Stopp-Bedingungen des Auftrags beachten: ist etwas nicht belegbar, dokumentieren und
    mit dem nächsten Teil weitermachen statt abzubrechen.
 4. Keine Rücknahme von Belegen: Analyse- und Belegdateien werden nicht gelöscht.
+
+RECHENZEIT (R13h, gemessen 2026-09-26 - bitte einhalten)
+- **Unabhängige Rechenläufe parallel starten, nicht nacheinander.** Die Maschine hat
+  4 Kerne; ein Lauf über alle IDs in EINEM Prozess ist fast immer schneller als viele
+  Einzelaufrufe hintereinander (jeder zahlt das Laden erneut). Ein 68K-Emulationslauf
+  kostet hier oft 400-600 s - nacheinander ist das die Summe, parallel nur das Maximum.
+- **Nie in großen Schritten schlafen.** Kein `Start-Sleep -Seconds 300`, wenn du auf
+  eine Datei wartest: nimm eine Abbruchbedingung mit kurzem Schritt (10-20 s).
+  Gemessen: in einem Batch steckten **1993 s (42 % der Laufzeit)** in solchen
+  Wartebefehlen - die Zeit fehlt am Ende für die Arbeit.
+- Fortschritt prüfen statt warten: Dateigröße/mtime, Prozess-CPU-Delta
+  (`(Get-Process -Id N).CPU`) oder `Wait-Process -Timeout` - das ist erlaubt und billig.
 
 ABSCHLUSSBERICHT (letzte Nachricht, Pflicht in dieser Gliederung)
 ## 1) Übernommener Stand (5 Sätze)
