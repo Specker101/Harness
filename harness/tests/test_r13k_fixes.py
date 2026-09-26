@@ -84,8 +84,9 @@ class TestTelegramZeitlimits(unittest.TestCase):
         tg = self._tg()
         gesehen: dict = {}
 
-        def fake_call(method, params=None, timeout=40.0):
+        def fake_call(method, params=None, timeout=40.0, grenze=None):
             gesehen["timeout"] = timeout
+            gesehen["grenze"] = grenze
             gesehen["poll"] = (params or {}).get("timeout")
             return {"result": []}
 
@@ -93,31 +94,36 @@ class TestTelegramZeitlimits(unittest.TestCase):
         tg.get_updates(offset=0, timeout=0)
         self.assertEqual(gesehen["poll"], 0)
         self.assertLessEqual(gesehen["timeout"], 8.0)
+        self.assertLessEqual(gesehen["grenze"], 8.0, "kurze Abfrage: harte Grenze knapp")
 
     def test_langpoll_bleibt_bounded(self):
         tg = self._tg()
         gesehen: dict = {}
 
-        def fake_call(method, params=None, timeout=40.0):
+        def fake_call(method, params=None, timeout=40.0, grenze=None):
             gesehen["timeout"] = timeout
+            gesehen["grenze"] = grenze
             return {"result": []}
 
         tg.call = fake_call                     # type: ignore[assignment]
         tg.get_updates(offset=1)
         self.assertLessEqual(gesehen["timeout"], 45.0)
         self.assertGreaterEqual(gesehen["timeout"], 25.0)
+        self.assertLessEqual(gesehen["grenze"], 50.0, "auch der Langpoll ist endlich")
 
     def test_senden_ist_knapp_begrenzt(self):
         tg = self._tg()
         gesehen: dict = {}
 
-        def fake_call(method, params=None, timeout=40.0):
+        def fake_call(method, params=None, timeout=40.0, grenze=None):
             gesehen["timeout"] = timeout
+            gesehen["grenze"] = grenze
             return {"ok": True, "result": {"message_id": 1}}
 
         tg.call = fake_call                     # type: ignore[assignment]
         tg.send("hallo")
         self.assertEqual(gesehen["timeout"], 15)
+        self.assertLessEqual(gesehen["grenze"], 20.0)
 
     def test_haengender_aufruf_wirft_telegramerror(self):
         """Ein Zeitlimit muss als TelegramError ankommen (urllib-Timeouts ebenso)."""

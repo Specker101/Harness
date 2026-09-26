@@ -9,10 +9,33 @@ Sicherheit (Original 17 / E9):
 from __future__ import annotations
 
 import json
+import threading
 import urllib.parse
 import urllib.request
 
 API = "https://api.telegram.org/bot{token}/{method}"
+
+# R13l: harte Zeitgrenze statt Vertrauen auf den Socket-Zeitgeber.
+#
+# MESSUNG 2026-09-27: `urlopen(..., timeout=15)` blieb ueber 17 Minuten in
+# `ssl.read` stehen (py-spy-Stack, Prozess-CPU eingefroren) - der Socket-Zeitgeber
+# hat den Aufruf NICHT befreit. Ein Aufruf, der einen Harness-Thread festhaelt,
+# macht auch `/stop` unwirksam. Deshalb laeuft jeder Telegram-Aufruf in einem
+# eigenen Faedchen mit `join(grenze)`: der Aufrufer kommt in JEDEM Fall zurueck.
+# Bleibt ein Aufruf haengen, wird sein Faedchen als Daemon aufgegeben - aber nur
+# bis zu `MAX_HAENGER` mal, danach wird sofort abgelehnt (kein Aufstau).
+MAX_HAENGER = 2
+_HAENGER_LOCK = threading.Lock()
+_HAENGER: set[threading.Thread] = set()
+
+
+def haengende_aufrufe() -> int:
+    """Wie viele Telegram-Aufrufe gerade ihre harte Zeitgrenze gerissen haben."""
+    with _HAENGER_LOCK:
+        for faden in [f for f in _HAENGER if not f.is_alive()]:
+            _HAENGER.discard(faden)
+        return len(_HAENGER)
+
 
 HELP = (
     "Befehle:\n"
@@ -52,14 +75,49 @@ class Telegram:
         self.last_chat_id: str | None = self.allowlist[0] if len(self.allowlist) == 1 else None
 
     # ------------------------------------------------------------------- API
-    def call(self, method: str, params: dict | None = None, timeout: float = 40.0) -> dict:
+    def call(self, method: str, params: dict | None = None, timeout: float = 40.0,
+             grenze: float | None = None) -> dict:
+        """Ein Telegram-Aufruf, der den Aufrufer NIE laenger als `grenze` aufhaelt.
+
+        `timeout` ist das Socket-Zeitlimit (Best-Effort, s. Modulkommentar),
+        `grenze` die harte Wanduhr-Grenze (Vorgabe: `timeout` + 5 s).
+        """
+        if haengende_aufrufe() >= MAX_HAENGER:
+            raise TelegramError(
+                f"Netz haengt ({MAX_HAENGER} offene Aufrufe) - Aufruf {method} nicht gestartet")
+        return self._call_mit_grenze(method, params, timeout,
+                                     timeout + 5.0 if grenze is None else grenze)
+
+    def _call_mit_grenze(self, method: str, params: dict | None, timeout: float,
+                         grenze: float) -> dict:
         url = API.format(token=self.token, method=method)
         data = urllib.parse.urlencode(params or {}).encode("utf-8")
-        try:
-            with urllib.request.urlopen(url, data=data, timeout=timeout) as r:
-                return json.loads(r.read().decode("utf-8", errors="replace"))
-        except Exception as exc:
-            raise TelegramError(str(exc)) from exc
+        box: dict = {}
+
+        def arbeit() -> None:
+            try:
+                with urllib.request.urlopen(url, data=data, timeout=timeout) as r:
+                    box["res"] = json.loads(r.read().decode("utf-8", errors="replace"))
+            except BaseException as exc:                    # noqa: BLE001
+                box["err"] = exc
+
+        faden = threading.Thread(target=arbeit, name=f"hx-tg-{method}", daemon=True)
+        faden.start()
+        faden.join(grenze)
+        if faden.is_alive():
+            # Der Faden laeuft als Daemon weiter und raeumt sich selbst ab; bis dahin
+            # zaehlt er gegen das Kontingent, damit sich haengende Aufrufe nicht aufstauen.
+            with _HAENGER_LOCK:
+                _HAENGER.add(faden)
+            offen = haengende_aufrufe()
+            if self.log:
+                self.log.warn("Telegram haengt", methode=method,
+                              grenze=f"{grenze:.0f}s", offen=offen)
+            raise TelegramError(
+                f"Zeitgrenze hart gerissen ({grenze:.0f} s) - Aufruf {method} laeuft weiter")
+        if "err" in box:
+            raise TelegramError(str(box["err"])) from box["err"]
+        return box.get("res") or {}
 
     def get_me(self) -> dict:
         return self.call("getMe", {}, timeout=20).get("result", {})
@@ -71,11 +129,18 @@ class Telegram:
         ueber 17 Minuten, weil ein `get_updates` (aus dem Mitschnitt-Leser heraus)
         in `urlopen` haengen blieb. Der Netz-Aufruf ist jetzt aus dem Leser verbannt;
         zusaetzlich soll ein haengender Aufruf den Takt-Thread nur kurz kosten.
+
+        R13l: Das Socket-Zeitlimit hat den Aufruf damals NICHT befreit - deshalb gibt
+        es zusaetzlich die harte Wanduhr-Grenze in `call`.
         """
         to = timeout if timeout is not None else self.poll_timeout
+        # Kurze Abfrage: knapp (der Betrieb wartet darauf). Langpoll: der Server haelt
+        # bis `to` Sekunden - die harte Grenze liegt darueber, aber endlich.
+        kur = to == 0
         res = self.call("getUpdates", {"offset": offset, "timeout": to,
                                        "allowed_updates": json.dumps(["message"])},
-                        timeout=(8.0 if to == 0 else to + 15))
+                        timeout=(8.0 if kur else to + 15),
+                        grenze=(8.0 if kur else to + 20))
         return res.get("result", [])
 
     def send(self, text: str, chat_id: str | None = None) -> bool:
@@ -88,7 +153,8 @@ class Telegram:
                 # R13k: knapp begrenzt - ein Sendeversuch darf keinen Lauf aufhalten
                 # (Alarme werden auch aus dem Mitschnitt-Leser heraus gemeldet).
                 self.call("sendMessage", {"chat_id": cid, "text": chunk,
-                                          "disable_web_page_preview": "true"}, timeout=15)
+                                          "disable_web_page_preview": "true"},
+                          timeout=15, grenze=20)
             except TelegramError as exc:
                 ok = False
                 if self.log:
