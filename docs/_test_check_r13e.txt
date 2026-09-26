@@ -21,16 +21,16 @@ KEIN Harness-Prozess erreichbar. Der Befehl bleibt als Datei liegen und wird bei
 Instruktion abgelegt (instruction.json, 39 Zeichen).
 Profil none, Programm - - Quelle: vom Nutzer (ohne Review).
 KEIN Harness-Prozess erreichbar. Der Befehl bleibt als Datei liegen und wird beim naechsten Start ausgefuehrt.
-claude: 20260926_130340_0000_55A74374E1C4.md (20 Zeichen)
+claude: 20260926_133241_0000_0EA5B766A07E.md (20 Zeichen)
 Zustellung: ds beim naechsten Batch-Uebergang, claude beim naechsten Review.
 KEIN Harness-Prozess erreichbar. Der Befehl bleibt als Datei liegen und wird beim naechsten Start ausgefuehrt.
-ds: 20260926_130340_0000_9E02D8210A4C.md (18 Zeichen)
+ds: 20260926_133241_0000_72327E39E513.md (18 Zeichen)
 Zustellung: ds beim naechsten Batch-Uebergang, claude beim naechsten Review.
 KEIN Harness-Prozess erreichbar. Der Befehl bleibt als Datei liegen und wird beim naechsten Start ausgefuehrt.
-ds: 20260926_130340_0000_417ABE05C031.md (48 Zeichen)
+ds: 20260926_133241_0000_4CA687CD8946.md (48 Zeichen)
 Zustellung: ds beim naechsten Batch-Uebergang, claude beim naechsten Review.
 KEIN Harness-Prozess erreichbar. Der Befehl bleibt als Datei liegen und wird beim naechsten Start ausgefuehrt.
-claude: 20260926_130340_0000_24AC90F5E54D.md (48 Zeichen)
+claude: 20260926_133241_0000_8570914DC178.md (48 Zeichen)
 Zustellung: ds beim naechsten Batch-Uebergang, claude beim naechsten Review.
 KEIN Harness-Prozess erreichbar. Der Befehl bleibt als Datei liegen und wird beim naechsten Start ausgefuehrt.
 watch: gibtsnicht  (nachspielen)
@@ -59,7 +59,7 @@ WORKER:
 <TOOL_REQUEST>mcp__ghidra__read_memory</TOOL_REQUEST>
 
 --- WORKER beendet ---
-[15:03:47] Batch 0 laufend: 5 Anfragen ┬À 22650 ein / 86500 cache / 1030 aus ┬À $0.0043 ┬À 0.0 min
+[15:32:48] Batch 0 laufend: 5 Anfragen ┬À 22650 ein / 86500 cache / 1030 aus ┬À $0.0043 ┬À 0.0 min
 
 ----------------------------------------------------------------------
 Batch 1: rc=0 ┬À 1s ┬À 5 Anfragen ┬À $0.0042 ┬À Modell deepseek-flash[1m] (ok=True)
@@ -87,13 +87,13 @@ hallo
 
 WORKER:
 weiter
-[15:04:04] INFO  Harness startet  config=g:\Harness\harness\harness.toml mock=False
-[15:04:04] WARN  Kein Telegram-Token gefunden - Bot ist aus
+[15:33:04] INFO  Harness startet  config=g:\Harness\harness\harness.toml mock=False
+[15:33:04] WARN  Kein Telegram-Token gefunden - Bot ist aus
 ...............................................................................
 ...........ABSTURZ: RuntimeError: platt
 ...............................................................................
-......................
+..........................
 ----------------------------------------------------------------------
-Ran 196 tests in 47.251s
+Ran 200 tests in 47.496s
 
 OK

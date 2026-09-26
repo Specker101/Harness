@@ -455,5 +455,38 @@ class TestVorspann(Base):
         self.assertIn("VERMERKT", text)
 
 
+# ------------------------------------ Punkt 4/5: 68K-Programm am Batch-Rand
+class TestProgramm68k(Base):
+    def test_alias_68k_loest_auf(self):
+        """Der neue Programmname ist ein gueltiger DS_TOOLS-Wert."""
+        for alias in ("68k", "sound", "830a08.7s", "830a08.7s.68k", "SOUND.68K"):
+            self.assertEqual(protocol.PROGRAM_ALIASES.get(alias.lower()), "/830a08.7s.68k",
+                             f"Alias {alias!r} fehlt")
+        profil, programm = protocol.parse_tools("profile: ghidra-read\nprogram: 68k")
+        self.assertEqual(profil, "ghidra-read")
+        self.assertEqual(programm, "/830a08.7s.68k")
+
+    def test_main_und_be_bleiben_unveraendert(self):
+        self.assertEqual(protocol.PROGRAM_ALIASES["main"], "/830d01.27p.main.bin")
+        self.assertEqual(protocol.PROGRAM_ALIASES["be"], "/830d01.27p.be.bin")
+
+    def test_load_program_bleibt_fuer_den_worker_gesperrt(self):
+        """Punkt 5: der Worker bekommt den Import NIE selbst in die Hand."""
+        for name in ("ghidra-read", "ghidra-standard", "ghidra-full"):
+            d = json.loads((ROOT / "profiles" / f"{name}.json").read_text(encoding="utf-8"))
+            hart = set(d.get("hard_denied") or [])
+            erlaubt = set(d.get("allowed") or [])
+            for gesperrt in ("load_program", "load_program_from_project", "switch_program",
+                             "open_program", "close_program", "restore_project",
+                             "run_ghidra_script", "save_all_programs"):
+                self.assertIn(gesperrt, hart, f"{name}: {gesperrt} muss gesperrt bleiben")
+                self.assertNotIn(gesperrt, erlaubt, f"{name}: {gesperrt} darf nicht erlaubt sein")
+
+    def test_reviewer_kennt_das_68k_programm(self):
+        text = (ROOT / "prompts" / "reviewer.md").read_text(encoding="utf-8")
+        self.assertIn("/830a08.7s.68k", text)
+        self.assertIn("68K-Soundprogramm", text)
+
+
 if __name__ == "__main__":
     unittest.main()

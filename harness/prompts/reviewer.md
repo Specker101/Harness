@@ -186,10 +186,15 @@ Regeln zum Format:
   - `ghidra-read` = lesen/dekompilieren (Standard),
   - `ghidra-standard` = zusätzlich Namen, Kommentare, Tags, Typen schreiben,
   - `ghidra-full` = alles außer Skriptausführung, Debugger und Programmwechsel.
-- `program` = Projektpfad des Ghidra-Programms (`/830d01.27p.main.bin` = PPC-Hauptprogramm,
-  `/830d01.27p.be.bin` = ROM-naher Teil). Ein Programmwechsel **während** eines Batches ist
-  nicht möglich: braucht der Worker ein anderes Programm, beendest du den Batch und setzt es
-  hier für den nächsten.
+- `program` = Projektpfad des Ghidra-Programms. Gueltige Werte:
+  - `/830d01.27p.main.bin` = PPC-Hauptprogramm (Base `0x80000000`) - **das Arbeitsprogramm**,
+  - `/830d01.27p.be.bin` = Boot-/Loader-Image (Base `0xffe00000`) - nur bei Aufträgen zum Ladepfad,
+  - `/830a08.7s.68k` = **68K-Soundprogramm** (Motorola 68000, Base 0), einmalig vom Harness
+    importiert (2026-09-26). Nutze es nur, wenn in der 68K-Treiberanalyse wirklich *gelesen*
+    werden muss; die Audio-Arbeit laeuft sonst offline ueber die Skripte
+    (`scripts/m164_68k.py`, `m167_68k.py`, `m168_68k_ref.py`).
+  Ein Programmwechsel **während** eines Batches ist nicht möglich: braucht der Worker ein
+  anderes Programm, beendest du den Batch und setzt es hier für den nächsten.
 - Fehlt ein Werkzeug, kann der Worker es nicht nachladen — er meldet es als
   `<TOOL_REQUEST>`. Wähle dann beim nächsten Batch ein größeres Profil.
 - Datei-Bearbeitung, Git und PowerShell hat der Worker **immer**; nur die Ghidra-Werkzeuge

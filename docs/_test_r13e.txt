@@ -1,12 +1,12 @@
-﻿python : ..................................
-In Zeile:1 Zeichen:1
-+ python -m unittest tests.test_r13e_fixes 2>&1 | Out-File -Encoding ut ...
-+ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+﻿python : ......................................
+In Zeile:1 Zeichen:24
++ ... arness\harness; python -m unittest tests.test_r13e_fixes 2>&1 | Out-F ...
++                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     + CategoryInfo          : NotSpecified: (................................. 
-   .:String) [], RemoteException
+   .....:String) [], RemoteException
     + FullyQualifiedErrorId : NativeCommandError
  
 ----------------------------------------------------------------------
-Ran 34 tests in 13.129s
+Ran 38 tests in 15.275s
 
 OK

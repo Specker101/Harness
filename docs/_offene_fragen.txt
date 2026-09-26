@@ -1,0 +1,81 @@
+# Offene Punkte aus den Review-Berichten des Harness
+
+Aus 19 Review-Dateien unter runs/ und 56 unter logs/; daraus 22 verschiedene Punkte.
+
+## A) ENTSCHEIDUNG NOETIG - hier wartet der Harness auf dich
+
+- (der Reviewer nennt ausdruecklich KEINE akute Entscheidung) keine akute - der Auftrag stammt direkt vom Nutzer aus der Queue, nur die Audio-Gegenprobe kann in eine Rückfrage münden (bereits vom Nutzer erlaubt).
+  _(Review von Batch _verworfen_b000, _verworfen_b000/review.md)_
+- Noch offen aus B162: Soll der Harness die Vorhersage-Pflicht technisch erzwingen (Phase 1 ohne Schreibrecht auf port/)? Unter strenger Instruktion hat B163 die Regel eingehalten. Ohne Antwort bleibt es bei der Instruktion.
+  _(Review von Batch ?, logs/review-2026-09-26T020407+0000.md)_
+- (der Reviewer nennt ausdruecklich KEINE akute Entscheidung) keine akute - Auftrag stammt direkt vom Nutzer; Audio-Gegenprobe kann in eine Rueckfrage muenden (vom Nutzer bereits erlaubt).
+  _(Review von Batch b159, b159/review-pre.md)_
+- Audio. Deine Vorgabe war „PCM statt Chip-Emulation“. Belegt ist: Die Samples sind lineares PCM, der Chip spielt sie aber registergesteuert ab (Tonhöhe, Schleife, Hüllkurve, Pan). Die Zuordnung Sound-ID → Sample liegt im 68K-Soundprogramm, der Halleffekt ist nicht dokumentiert. Meine Empfehlung ist A': PCM extrahieren plus ein kleiner eigener Stimmen-Player (Tonhöhe/Schleife/Hüllkurve, ohne Hall). Die ID-Tabellen werden statisch aus dem 68K-ROM gewonnen, kein 68K läuft mit. Ist A' ok, oder soll es doch B (RF5C400/K056800 einbetten) sein?
+  _(Review von Batch 159, b160/review.md)_
+- (1) Derselbe Fehler zum zweiten Mal (Eskalationsregel). Wie soll die Vorhersage-Pflicht durchgesetzt werden? - (a) Der Harness teilt den Batch: Phase 1 ohne Schreibrecht auf `port/`, bis der Vorhersage-Commit steht. - (b) Die Pflicht wird zur Soll-Regel abgeschwächt. Ich empfehle (a). Bis dahin verbietet die Instruktion das Parken ausdrücklich. (2) Nach B164 lege ich dir den Übergang zum systematischen Durchgang vor, mit einem Vorschlag zum Vorgehen.
+  _(Review von Batch 162, b163/review.md)_
+
+## B) OFFENE FRAGEN (bremsen den Betrieb nicht)
+
+- Nach B165 lege ich dir den Übergang zum systematischen Durchgang vor, mit einem Vorschlag (FUN_8005471C als EIN Kopf, Umfang des Audio-Asts).
+  _(Review von Batch 163, b164/review.md)_
+- Den Übergangsvorschlag (systematischer Durchgang, FUN_8005471C, Umfang des Audio-Asts) lege ich dir nach B165 vor.
+  _(Review von Batch 164, b165/review.md)_
+- - Das 68K-ROM ins Ghidra-Projekt importieren, damit der Treiber dekompiliert werden kann? Empfehlung: ja. - Regel „genau ein Preflight“ ändern in „genau ein gültiger, Fehlläufe archivieren“? Ein Lauf dauert nur 33 s.
+  _(Review von Batch 165, b166/review.md)_
+- Import-Werkzeug `load_program` im Harness freischalten, oder den Import selbst am Batch-Rand fahren? Die Parameter stehen in ghidra-mcp-notes.md. Ohne Import arbeiten wir offline weiter.
+  _(Review von Batch 167, b168/review.md)_
+- Ein Git-Hook hätte B168 nicht erkannt, weil die Commit-Reihenfolge stimmte und nur die Dateizeiten falsch lagen. Mein Vorschlag stattdessen: eine Prüfung in m149_bilanz, die die CreationTime neuer port/-Dateien mit dem Zeitpunkt des Vorhersage-Commits vergleicht. Soll ich sie bauen lassen?
+  _(Review von Batch 168, b169/review.md)_
+- Der 68K-Ghidra-Import bleibt blockiert, weil kein Profil load_program erlaubt.
+  _(Review von Batch 168, b169/review.md)_
+- Soll ein Hook oder eine Bilanz-Prüfung für R391 gebaut werden? Nach dem sauberen B169 ist das nicht dringend.
+  _(Review von Batch 169, b170/review.md)_
+- Deine Freigabe für load_program greift noch nicht. Das Werkzeug fehlt im Werkzeugsatz des Harness-Profils, der Endpunkt POST /load_program existiert im Server aber. Bitte im Harness-Profil (z. B. ghidra-full) freischalten, dann importiert ein späterer Batch den 68K. Die Audio-Arbeit hängt nicht daran, sie läuft offline weiter.
+  _(Review von Batch 170, b171/review.md)_
+- Fehlt load_program auch in B172, liegt es an der Werkzeugliste des Harness-Profils, nicht am Ghidra-Server. Der Worker meldet es dann nur und macht offline weiter.
+  _(Review von Batch 171, b172/review.md)_
+- load_program ist zum 3. Mal blockiert, obwohl du es freigegeben hast. Der Worker bekommt „No such tool available“: Das Werkzeug fehlt in der Werkzeugliste, die der Harness dem Worker gibt, eine Rechtefrage ist es also nicht. Bitte die Allowlist des Profils bzw. der Bridge prüfen. Bis du eine Korrektur meldest, fordere ich den Import nicht mehr an. Der 68K läuft offline vollständig weiter.
+  _(Review von Batch 172, b173/review.md)_
+- load_program ist 4× blockiert. Bitte die Werkzeugliste des Harness-Profils prüfen.
+  _(Review von Batch 173, b174/review.md)_
+
+## C) WARTET AUF LIVE-AUFNAHME (nur du kannst das liefern)
+
+- Mitschnitt der Mailbox zwischen PPC und 68K (welche Wege das Spiel im Betrieb nutzt).
+  _(Review von Batch 165, b166/review.md)_
+- Mitschnitt der Mailbox zwischen PPC und 68K (nicht blockierend).
+  _(Review von Batch 166, b167/review.md)_
+- Die 6 Hörproben unter build/audio_extract/listen/ anhören. Das ist der letzte Nachweis für TYPE_16.
+  _(Review von Batch 168, b169/review.md)_
+- (1) Die 6 Hörproben unter build/audio_extract/listen/ anhören. (2) Ein Mailbox-Mitschnitt zeigt, ob der PPC einen der 34 nicht startbaren Sätze je sendet.
+  _(Review von Batch 169, b170/review.md)_
+- (1) Die 6 Hörproben anhören. (2) Ein Mailbox-Mitschnitt zu den 34 nicht startbaren Sätzen.
+  _(Review von Batch 170, b171/review.md)_
+- 6 Hörproben; Mailbox-Mitschnitt.
+  _(Review von Batch 173, b174/review.md)_
+
+## D) Vom Reviewer als BEREITS ENTSCHIEDEN gefuehrt (Uebergabe-Text)
+
+Stand: Zuletzt bewertet habe ich Batch 167 (HEAD c695d13, portcode-frei). Die Instruktion für Batch 168 ist ausgegeben, noch nicht gelaufen. Inhalt: Extraktion auf TYPE_16 umstellen, Offline-68K-Referenzprüfstand für die Register-Schreibfolge (nur als Testorakel, nie im Port, keine Chip-Emulation), Scheibe 1 (Tafeln) im Port mit Vorhersage-Commit.
+
+Nutzerentscheidungen:
+- Audio A': Der 68K-Treiber wird nativ portiert (er spielt MIDI mit Tempo), ohne Hall, ohne RF5C400/K056800-Emulation.
+- Vorhersage-Pflicht: keine technische Erzwingung. Der Reviewer prüft die Zeitstempel (.git/logs/HEAD gegen die mtimes unter port/). Beim nächsten Verstoß einen Git-Hook vorschlagen.
+- Preflight: genau ein gültiger Lauf, Fehlläufe archivieren (R416).
+- 68K-ROM darf ins Ghidra-Projekt. Blockiert, weil `load_program` im Profil fehlt; als OFFENE FRAGE an den Nutzer gestellt.
+- Fragen, von denen die nächste Instruktion nicht abhängt, als OFFENE FRAGE markieren, nicht als ENTSCHEIDUNG NOETIG (die hält den Dauerbetrieb an).
+- Profil ghidra-standard/-full nur, wenn in Ghidra geschrieben wird.
+
+Offen: Übergangsentscheidung des Nutzers zu FUN_8005471C als EIN Kopf und zum systematischen Durchgang. Vorlage erst mit einem eigenen Vorschlag.
+
+Fallstricke:
+- Der Worker fordert gern be.bin an: falsch, PPC-Arbeit läuft auf main.bin.
+- B160/B162: Vorhersage nachträglich bzw. mit „Parken“ umgangen.
+- Volle Regression nur über den Preflight, im Arbeitslauf `--only`.
+- ROM-Nutzdaten nie ins Repo.
+- Worker-Befunde gegenlesen (z. B. „Sequenzer“ in B164 war überzogen).
+- Jede Summary enthält die Kernzeilen der Pflicht-Bilanz. Stand: Wähler-Ast B 316/17 (465 Insn offen), Pool 105/327, Inventar 1664/2072, Köpfe 607.
+
+Zuerst lesen: Ankerkopf analysis/r1b-workstream.md, dann das Batch-Dokument B168 und .git/logs/HEAD.
+

@@ -1,0 +1,63 @@
+﻿# 68K-Import ins Ghidra-Projekt (Bericht)
+
+Server erreichbar: True
+
+## 1. Projekt sichern (archive_project)
+  ok=True Pfad=G:\Harness\backups\ghidra\sscope-uad_20260926-153045.gar Groesse=12659762 B
+  - save_all_programs ok
+  - archive_project -> {"success": true, "project": "sscope-uad", "path": "G:\\Harness\\backups\\ghidra\\sscope-uad_20260926-153045.gar", "size_bytes": 12659762, "content_type": "GAR"}
+
+## 2. Bild pruefen und unter dem Programmnamen bereitstellen
+  Groesse 524288 B | wortgetauscht (Bild[i]=Datei[i^1]): True
+  SSP = 0x110000 (erwartet 0x00110000: True) | PC = 0x80 (erwartet 0x00000080: True)
+  kopiert: 830a08.7s.img -> 830a08.7s.68k
+  /load_program kennt keinen Programmnamen - er folgt dem Dateinamen, deshalb heisst die Datei 830a08.7s.68k
+
+## 3. Import (POST /load_program)
+  offene Programme vorher: 2
+  Antwort: {"success": true, "program": "830a08.7s.68k", "language": "68000:BE:32:default"}
+  offen: 830d01.27p.be.bin (image_base=ffe00000)
+  offen: 830a08.7s.68k (image_base=00000000)
+  offen: 830d01.27p.main.bin (image_base=80000000)
+  offene Programme nachher: 3
+
+## 4. Analyse starten und speichern
+  Programm wird gestellt: 830a08.7s.68k (war 830d01.27p.main.bin)
+  analysis_status: {"name": "830a08.7s.68k", "analyzing": false, "analyzed": false, "should_ask_to_analyze": true, "function_count": 0}
+  Funktionszahl direkt nach dem Import: {"function_count": 0, "program": "830a08.7s.68k"}
+  keine Funktionen -> reanalyze (kann dauern)
+  reanalyze: {"success": true, "name": "830a08.7s.68k", "analyzing": false, "message": "Auto-analysis completed for 830a08.7s.68k"}
+  save_all_programs: {"success": true, "saved_count": 3, "open_program_count": 3, "programs": [{"program": "830d01.27p.be.bin", "path": "/830d01.27p.be.bin"}, {"program": "830a08.7s.68k", "path": "/830a08.7s.68k"}, {"program": "830d01.27p.main.bin", "path": "/830d01.27p.main.bin"}], "errors": []}
+
+## 5. Pruefen (Metadaten, Funktionszahl, Stichproben)
+  get_current_program_info: {"name": "830a08.7s.68k", "path": "/830a08.7s.68k", "executable_path": "/G:/Silent Scope Decomp/build/m68k/830a08.7s.68k", "executable_format": "Raw Binary", "language": "68000:BE:32:default", "compiler": "default", "address_size": 32, "image_base": "00000000", "min_address": "00000000", "max_address": "0007ffff", "memory_size": 524288, "function_count": 177, "symbol_count": 853, "data_type_count"
+  get_function_count: {"function_count": 177, "program": "830a08.7s.68k"}
+  Stichprobe 0x5ED8: 14 Instruktionen
+    00005ed8  link.w A6, -0x34   [4e56ffcc]
+    00005edc  movem.l {  A5 A4 A3 A2 A1 D4 D3 D2 D1 D0}, -(SP)   [48e7f87c]
+    00005ee0  movea.l (0x00103756).l, A1   [227900103756]
+    00005ee6  move.b (0x100c,A1), D0b   [1029100c]
+    00005eea  andi.b #0xf, D0b   [0200000f]
+    00005eee  move.b D0b, (-0x28,A6)   [1d40ffd8]
+  Stichprobe 0x442C: 14 Instruktionen
+    0000442c  link.w A6, 0x0   [4e560000]
+    00004430  movem.l {  A4 A3 A2 A1 D2 D1 D0}, -(SP)   [48e7e078]
+    00004434  lea (0x10eb5e).l, A3   [47f90010eb5e]
+    0000443a  lea (0x10eb66).l, A1   [43f90010eb66]
+    00004440  move.l (0x8,A6), D0   [202e0008]
+    00004444  moveq 0x20, D1   [7220]
+  Funktionszahl vor den Stichproben: {"function_count": 177, "program": "830a08.7s.68k"}
+  Funktionszahl nach den Stichproben: {"function_count": 177, "program": "830a08.7s.68k"}
+
+## 6. Server wieder auf main.bin stellen
+  - offen: ['830a08.7s.68k', '830d01.27p.be.bin', '830d01.27p.main.bin']
+  - switch_program(830d01.27p.main.bin) -> {"success": true, "switched_to": "830d01.27p.main.bin", "path": "/830d01.27p.main.bin"}
+  - current jetzt: 830d01.27p.main.bin
+  ok=True current=830d01.27p.main.bin
+
+## Ergebnis
+- Programmname im Projekt: /830a08.7s.68k
+- Sprache: 68000:BE:32:default | Basisadresse: 0 (Rohimport ohne Image-Base-Angabe)
+- Sicherung: G:\Harness\backups\ghidra\sscope-uad_20260926-153045.gar (12659762 B)
+
+geschrieben: g:\Harness\docs\_68k_import_bericht.txt

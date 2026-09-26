@@ -79,6 +79,14 @@ PROGRAM_ALIASES = {
     "be": "/830d01.27p.be.bin",
     "be.bin": "/830d01.27p.be.bin",
     "830d01.27p.be.bin": "/830d01.27p.be.bin",
+    # 68K-Soundprogramm: einmalig vom Harness importiert (tools/import_68k_sound.py,
+    # 2026-09-26), Quelle der Parameter analysis/_memory/audio-subsystem.md
+    # ("Import-Rezept"): Sprache 68000:BE:32:default, Basisadresse 0.
+    "68k": "/830a08.7s.68k",
+    "sound": "/830a08.7s.68k",
+    "sound.68k": "/830a08.7s.68k",
+    "830a08.7s": "/830a08.7s.68k",
+    "830a08.7s.68k": "/830a08.7s.68k",
 }
 
 
