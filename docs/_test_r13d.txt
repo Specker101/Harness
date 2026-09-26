@@ -1,0 +1,47 @@
+﻿python : test_leser_gibt_delete_frei 
+(tests.test_r13d_fixes.TestLesen.test_leser_gibt_delete_frei)
+In Zeile:1 Zeichen:24
++ ... ess\harness; python -m unittest tests.test_r13d_fixes -v 2>&1 | Out-F ...
++                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (test_leser_gibt...bt_delete_frei) 
+   :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+Kontrollkanal/Rotation: Loeschen muss gehen, waehrend wir lesen. ... ok
+test_leser_liest_wie_bisher 
+(tests.test_r13d_fixes.TestLesen.test_leser_liest_wie_bisher) ... ok
+test_read_json_default_bei_fehlender_datei 
+(tests.test_r13d_fixes.TestLesen.test_read_json_default_bei_fehlender_datei) 
+... ok
+test_read_json_tolerant_bei_halber_datei 
+(tests.test_r13d_fixes.TestLesen.test_read_json_tolerant_bei_halber_datei) ... 
+ok
+test_read_text_ersetzt_ungueltige_bytes 
+(tests.test_r13d_fixes.TestLesen.test_read_text_ersetzt_ungueltige_bytes) ... 
+ok
+test_read_text_umlaut_und_fehltoleranz 
+(tests.test_r13d_fixes.TestLesen.test_read_text_umlaut_und_fehltoleranz) ... ok
+test_dauerhafter_leser_bleibt_ein_klarer_fehler (tests.test_r13d_fixes.TestTeil
+ungsfehler.test_dauerhafter_leser_bleibt_ein_klarer_fehler)
+Ehrlich gemessen: ein *dauerhaft* offener Leser ist nicht ueberwindbar. ... ok
+test_echter_fehler_wird_nicht_wiederholt (tests.test_r13d_fixes.TestTeilungsfeh
+ler.test_echter_fehler_wird_nicht_wiederholt)
+Kein Teilungsproblem -> sofort weitergeben (keine Nachsicht). ... ok
+test_ersetzung_wartet_auf_den_leser 
+(tests.test_r13d_fixes.TestTeilungsfehler.test_ersetzung_wartet_auf_den_leser)
+Steht die Sperre nur kurz, wird nachgesetzt statt abgebrochen. ... ok
+test_kurzlebiger_leser_blockiert_nicht (tests.test_r13d_fixes.TestTeilungsfehle
+r.test_kurzlebiger_leser_blockiert_nicht)
+Der Absturzfall: Leser offen, Harness schreibt - es muss durchgehen. ... ok
+test_nach_erschoepfter_nachsicht_bleibt_der_fehler_sichtbar (tests.test_r13d_fi
+xes.TestTeilungsfehler.test_nach_erschoepfter_nachsicht_bleibt_der_fehler_sicht
+bar)
+Kein stilles Schreiben in die Zieldatei: der Fehler kommt weiterhin. ... ok
+test_state_set_bei_kurzlebigem_leser 
+(tests.test_r13d_fixes.TestTeilungsfehler.test_state_set_bei_kurzlebigem_leser)
+Dieselbe Stelle wie im Bericht: `state.set` -> `save` -> `os.replace`. ... ok
+
+----------------------------------------------------------------------
+Ran 12 tests in 0.569s
+
+OK

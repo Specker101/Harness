@@ -59,6 +59,8 @@ harness/sessions/
 # CLAUDE_CONFIG_DIR von Worker und Reviewer: enthaelt Sitzungsverlauf.
 harness/cc-worker/
 harness/cc-reviewer/
+# Tempoerder der Testlaeufe (tests/_tmp_r13b, _tmp_r13c, _tmp_r13d, ...)
+harness/tests/_tmp_*/
 
 # --- Ghidra-Projektsicherungen (gross, jederzeit neu erzeugbar) -----------
 backups/

@@ -37,6 +37,104 @@ def ensure_dir(path: str | Path) -> Path:
     return p
 
 
+# ------------------------------------------------- Teilungsfehler (D/R13d)
+#
+# Am 2026-09-26 starb der Harness ZWEIMAL an derselben Zeile:
+#   PermissionError: [WinError 5] Zugriff verweigert: '...run.json.tmp' -> '...run.json'
+# Ursache war kein Fehler im Zustand, sondern ein LESER: `hx.cli watch` liest
+# `run.json` alle 1,5 s. Solange diese Datei offen ist, verweigert Windows das
+# Ersetzen - der ganze Prozess stirbt. Der belastbare Teil der Abhilfe ist die
+# Nachsicht beim Schreiben (`replace_with_retry`); zusaetzlich oeffnen unsere
+# eigenen Leser die Datei so, dass spaetere Loeschungen nicht blockiert werden
+# (`open_shared_read`).
+
+# Win32: FILE_SHARE_READ / _WRITE / _DELETE (winnt.h); `_winapi` stellt sie nicht bereit.
+_FILE_SHARE_READ = 0x00000001
+_FILE_SHARE_WRITE = 0x00000002
+_FILE_SHARE_DELETE = 0x00000004
+
+# Win32-Fehler, die "ein anderer Prozess haelt die Datei offen" bedeuten:
+# ERROR_ACCESS_DENIED (5) und ERROR_SHARING_VIOLATION (32).
+_SHARING_WINERRORS = (5, 32)
+
+_REPLACE_TRIES = 40
+_REPLACE_PAUSE_S = 0.005     # erste Wartezeit
+_REPLACE_PAUSE_MAX_S = 0.05  # Deckel -> insgesamt rund 1,8 s Nachsicht
+
+
+def _ist_teilungsfehler(exc: OSError) -> bool:
+    """Nur unter Windows: Zugriff verweigert bzw. Teilungsverletzung."""
+    if os.name != "nt":
+        return False
+    return int(getattr(exc, "winerror", 0) or 0) in _SHARING_WINERRORS
+
+
+def replace_with_retry(tmp: str | Path, ziel: str | Path,
+                       versuche: int = _REPLACE_TRIES,
+                       pause_s: float = _REPLACE_PAUSE_S) -> None:
+    """`os.replace` mit wachsender Nachsicht bei Windows-Teilungsfehlern.
+
+    GEMESSEN (2026-09-26, C: und G:, siehe tests/test_r13d_fixes.py):
+    solange ein anderer Prozess die Zieldatei offen haelt, scheitert das
+    Ersetzen mit WinError 5 - auch dann, wenn dieser Leser FILE_SHARE_DELETE
+    vergibt (dann geht `DeleteFile`, aber kein Rename-Ersetzen). Der einzige
+    verlaesslicher Ausweg ist also: warten, bis der Leser fertig ist. Genau der
+    Fall aus dem Absturzbericht - `hx.cli watch` liest `run.json` alle 1,5 s und
+    haelt sie nur Millisekunden - ist damit erledigt; die Wartezeit waechst
+    (5 ms, 8 ms, 13 ms, ... gedeckelt bei 50 ms), damit der Normalfall billig
+    bleibt. Fehler, die KEIN Teilungsproblem sind (fehlender Pfad,
+    schreibgeschuetzt), werden sofort weitergegeben; die Atomaritaet ("nie halbe
+    Zustandsdateien") bleibt erhalten - statt still in die Zieldatei zu schreiben
+    wird nach erschoepfter Nachsicht weiterhin ein Fehler gemeldet.
+    """
+    versuche = max(1, int(versuche))
+    pause = max(0.0, float(pause_s))
+    letzter: OSError | None = None
+    for versuch in range(versuche):
+        try:
+            os.replace(tmp, ziel)
+            return
+        except OSError as exc:
+            if not _ist_teilungsfehler(exc):
+                raise
+            letzter = exc
+            if versuch < versuche - 1:
+                time.sleep(pause)
+                pause = min(pause * 1.6, _REPLACE_PAUSE_MAX_S)
+    raise letzter if letzter is not None else OSError("os.replace fehlgeschlagen")
+
+
+def open_shared_read(path: str | Path):
+    """Datei zum Lesen oeffnen, ohne spaetere Loeschungen zu blockieren (R13d).
+
+    Auf Windows vergibt `open()` (CRT) nur FILE_SHARE_READ|WRITE. Ein Leser
+    blockiert damit jedes `unlink()` auf dieselbe Datei (WinError 32/5) -
+    betroffen sind `control.take()` (.ctl), Log-Rotation und Git-Laeufe, die
+    waehrend `watch` mitliest. Hier wird deshalb mit
+    FILE_SHARE_READ|WRITE|DELETE geoeffnet; alle anderen Systeme bleiben beim
+    normalen `open()`.
+
+    GEMESSEN (2026-09-26): das Loeschen geht damit durch, das *Rename-Ersetzen*
+    einer offenen Datei aber nicht (siehe `replace_with_retry`) - diese Funktion
+    ersetzt also nicht die Nachsicht beim Schreiben.
+    """
+    p = str(path)
+    if os.name != "nt":
+        return open(p, "r", encoding="utf-8", errors="replace")
+    import _winapi
+    import msvcrt
+    share = _FILE_SHARE_READ | _FILE_SHARE_WRITE | _FILE_SHARE_DELETE
+    # 0 = NULL fuer SECURITY_ATTRIBUTES und Vorlage-Handle (keine Angabe).
+    handle = _winapi.CreateFile(p, _winapi.GENERIC_READ, share, 0,
+                                _winapi.OPEN_EXISTING, 0, 0)
+    try:
+        fd = msvcrt.open_osfhandle(handle, os.O_RDONLY | os.O_BINARY)
+    except OSError:
+        _winapi.CloseHandle(handle)
+        raise
+    return open(fd, "r", encoding="utf-8", errors="replace")
+
+
 def write_text_atomic(path: str | Path, text: str) -> Path:
     """Schreibt ueber eine .tmp-Datei und os.replace -> nie halbe Zustandsdateien."""
     p = Path(path)
@@ -46,7 +144,7 @@ def write_text_atomic(path: str | Path, text: str) -> Path:
         fh.write(text)
         fh.flush()
         os.fsync(fh.fileno())
-    os.replace(tmp, p)
+    replace_with_retry(tmp, p)
     return p
 
 
@@ -59,7 +157,8 @@ def read_json(path: str | Path, default=None):
     if not p.is_file():
         return default
     try:
-        return json.loads(p.read_text(encoding="utf-8"))
+        with open_shared_read(p) as fh:
+            return json.loads(fh.read())
     except (json.JSONDecodeError, OSError):
         return default
 
@@ -68,7 +167,8 @@ def read_text(path: str | Path, default: str = "") -> str:
     p = Path(path)
     if not p.is_file():
         return default
-    return p.read_text(encoding="utf-8", errors="replace")
+    with open_shared_read(p) as fh:
+        return fh.read()
 
 
 def append_text(path: str | Path, text: str) -> Path:
@@ -80,7 +180,11 @@ def append_text(path: str | Path, text: str) -> Path:
 
 
 def append_jsonl(path: str | Path, obj) -> Path:
-    return append_text(path, json.dumps(obj, ensure_ascii=False) + "\n")
+    # R13e: `default=str` - ein Logwert, der sich nicht serialisieren laesst (z. B.
+    # ein Objekt aus einem Test oder ein Mock), darf den Harness nicht umbringen.
+    # GEMESSEN: ein solcher Wert liess json.dumps mit TypeError abbrechen und riss
+    # den ganzen Prozess mit.
+    return append_text(path, json.dumps(obj, ensure_ascii=False, default=str) + "\n")
 
 
 def read_jsonl_tolerant(path: str | Path) -> list:
