@@ -1,0 +1,18 @@
+== b171: 1 Abbau-Befehle, davon 0 GEFAEHRLICH
+   gezielt  2026-09-26T08:39:33.198Z cd "G:\Silent Scope Decomp"; Stop-Process -Id 13744 -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 1; Get-Process python -ErrorAction SilentlyContinue | Select-Object I
+== b172: 1 Abbau-Befehle, davon 0 GEFAEHRLICH
+   gezielt  2026-09-26T09:36:40.103Z Stop-Process -Id 14508 -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 1; Get-Process -Id 14508 -ErrorAction SilentlyContinue; Write-Output "beendet"
+== b174: 2 Abbau-Befehle, davon 0 GEFAEHRLICH
+   gezielt  2026-09-26T12:07:05.387Z Stop-Process -Id 21108 -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2; & tools\m68k-venv\Scripts\python.exe -u scripts\m174_hull.py hull --marks-file analysis\_m174\_
+   gezielt  2026-09-26T12:47:38.998Z Get-Process python | Where-Object { $_.Id -eq 7856 } | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 1; "gestoppt"
+== b175: 4 Abbau-Befehle, davon 0 GEFAEHRLICH
+   mustergebunden 2026-09-26T14:04:02.968Z Stop-Process -Id 13740 -Force -ErrorAction SilentlyContinue; Stop-Process -Id 1644 -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 1; Get-CimInstance Win32_Process -Filt
+   mustergebunden 2026-09-26T14:07:46.568Z Get-CimInstance Win32_Processor | Select-Object NumberOfCores,NumberOfLogicalProcessors; Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object { $_.CommandLine -
+   mustergebunden 2026-09-26T14:24:20.522Z cd "G:\Silent Scope Decomp"; Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object { $_.CommandLine -like "*port4c2*" } | ForEach-Object { Stop-Process -Id $_.Pr
+   mustergebunden 2026-09-26T14:30:36.903Z cd "G:\Silent Scope Decomp"; Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object { $_.CommandLine -like "*port4c2*" } | ForEach-Object { Stop-Process -Id $_.Pr
+== b177: 1 Abbau-Befehle, davon 0 GEFAEHRLICH
+   gezielt  2026-09-26T18:03:24.884Z Stop-Process -Id 18172 -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500; Get-Process -Id 18172 -ErrorAction SilentlyContinue | Select-Object Id; "gestoppt"
+== b178: 1 Abbau-Befehle, davon 1 GEFAEHRLICH
+   GEFAEHRLICH 2026-09-26T19:37:57.352Z Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.CPU -gt 50 } | ForEach-Object { "kill $($_.Id) cpu=$($_.CPU)"; Stop-Process -Id $_.Id -Force }; Start-Sleep -Se
+
+Summe GEFAEHRLICH-Befehle in allen Batches: 1

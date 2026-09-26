@@ -1,0 +1,29 @@
+Beleg: Erkennung von Muster-Prozessabbau (R13i)
+  Anlass: Batch 178 raeumte `Get-Process python | Where-Object {$_.CPU -gt 50}`
+  ab und toetete damit den Harness (python.exe, ~370 s CPU).
+
+  [OK ] erwartet=GEFAHR  (Prozesse nach CPU-Zeit abgeraeumt - das trifft den Harness (python.exe mit viel CPU-Zeit))
+        Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.CPU -gt 50 } | ForEach-Object { Stop-Proc
+  [OK ] erwartet=GEFAHR  (Prozesse nach NAME abgeraeumt - das trifft jeden python.exe)
+        Stop-Process -Name python -Force
+  [OK ] erwartet=GEFAHR  (Prozesse nach NAME abgeraeumt - das trifft jeden python.exe)
+        taskkill /IM python.exe /F
+  [OK ] erwartet=GEFAHR  (Prozessliste pauschal abgeraeumt (ohne feste Nummer und ohne CommandLine-Filter) - kann den Harness treffen)
+        Get-Process python | Stop-Process -Force
+  [OK ] erwartet=GEFAHR  (Prozessliste pauschal abgeraeumt (ohne feste Nummer und ohne CommandLine-Filter) - kann den Harness treffen)
+        Get-CimInstance Win32_Process -Filter "Name='python.exe'" | ForEach-Object { Stop-Process -Id $_.ProcessId -Fo
+  [OK ] erwartet=harmlos (-)
+        Stop-Process -Id 13744 -Force -ErrorAction SilentlyContinue; Get-Process python | Select-Object Id
+  [OK ] erwartet=harmlos (-)
+        Get-Process python | Where-Object { $_.Id -eq 7856 } | Stop-Process -Force
+  [OK ] erwartet=harmlos (-)
+        Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object { $_.CommandLine -like "*port4c2*" } 
+  [OK ] erwartet=harmlos (-)
+        git status --porcelain; python -u scripts/m177_hull6a.py pre --ids 0x1200
+  [OK ] erwartet=harmlos (-)
+        (leer)
+
+  Fehlbewertungen: 0
+
+  Gegenprobe an echten Mitschnitten (gemeldete Befehle):
+    b178: Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.CPU -gt 50 } | ForEach-Object { "kill $($_.Id) cpu=
