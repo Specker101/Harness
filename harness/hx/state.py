@@ -97,8 +97,9 @@ class State:
         return None
 
     # ---------------------------------------------------------------- Gate
-    def set_gate(self, review_id: str, summary: str, instruction: str, tools: dict, raw_path: str) -> None:
-        self.data["gate"] = {
+    def set_gate(self, review_id: str, summary: str, instruction: str, tools: dict,
+                 raw_path: str, extra: dict | None = None) -> None:
+        gate = {
             "id": review_id,
             "created_at": now_iso(),
             "summary": summary,
@@ -106,6 +107,12 @@ class State:
             "tools": tools,
             "raw": raw_path,
         }
+        if extra:
+            # Zusatzangaben (z. B. offene Entscheidungen aus der Zusammenfassung).
+            # Altbestand ohne diese Felder bleibt gueltig - die Anzeige leitet sie
+            # dann aus der gespeicherten Zusammenfassung ab.
+            gate.update(extra)
+        self.data["gate"] = gate
         self.save()
 
     def clear_gate(self) -> None:

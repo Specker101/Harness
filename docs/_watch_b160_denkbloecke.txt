@@ -1,0 +1,16 @@
+watch --batch 160: Denkbloecke (B, R13c)
+
+Befehl mit Denkbloecken : python -m hx.cli watch --batch 160 --no-color
+Befehl ohne             : python -m hx.cli watch --batch 160 --no-color --no-thinking
+
+Mitschnitt b160         : runs/b160/stream.jsonl (19280049 B, 81125 Zeilen, 183 thinking-Bloecke, davon 140 mit Text)
+Ausgabe mit Denkbloecken: 211936 B, 628 Zeilen, 140 Denkblock-Zeilen (Praefix '  ~ '), davon 92 gekuerzt
+Ausgabe ohne            : 106754 B, 488 Zeilen, 0 Denkblock-Zeilen
+
+--- Beispiele (erste 3, je auf 200 Zeichen gekuerzt) ---
+  ~ Let me read the anchor file in parts. The file is large (48035 tokens). Let me read the top portion for the Stand block.
+  ~ The Read tool has a token limit. Let me use PowerShell Get-Content with TotalCount to peek at the top. Actually the instructions say prefer Read, but it exceeds limits. Let me read with a smaller 
+  ~ Now let me read the key documents: batch158 doc, batch159 doc. Also I need to understand the sandbox pattern, B150, B155 ┬º5, B156 for the 19 B-naehte list. Let me look at the analysis directory l
+
+--- Beispiel einer gekuerzten Zeile (Ende der Zeile) ---
+...y, or use PowerShell to get first lines. Actually the file is 48035 tokens total; reading 80 line ... [gekuerzt - Denkblock hat 492 Zeichen]

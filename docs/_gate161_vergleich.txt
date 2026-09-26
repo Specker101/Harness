@@ -1,0 +1,14 @@
+Harnes-Zustand nach dem Neustart: PAUSED / paused=True / Start im Freigabemodus (pausiert)
+OK   Gate-ID                    vor=0A108262FB05
+OK   Instruktion (SHA-256)      vor=341091f266f02209f41714b6b9058561d2bee07ca568755bfec5
+OK   Zusammenfassung (SHA-256)  vor=a1587b6bb82971192e396ff0adef1111b182e1ee41f9b1892e39
+OK   Profil                     vor=ghidra-read
+OK   Programm                   vor=/830d01.27p.main.bin
+OK   Batch                      vor=161
+OK   Quelle                     vor=reviewer
+OK   erstellt am                vor=2026-09-25T23:17:08+00:00
+OK   Rohbeleg                   vor=g:\Harness\harness\runs\b161\reviewer.jsonl
+Gate-Felder vor: ['created_at', 'id', 'instruction', 'raw', 'summary', 'tools']
+Gate-Felder nach: ['created_at', 'id', 'instruction', 'raw', 'summary', 'tools']
+
+ERGEBNIS: Gate UNVERAENDERT uebernommen

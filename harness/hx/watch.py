@@ -24,6 +24,11 @@ STYLES = {
     "cyan": "\x1b[36m", "yellow": "\x1b[33m", "red": "\x1b[31m", "green": "\x1b[32m",
 }
 
+# B (R13c): Denkbloecke live, abgesetzt und gekuerzt. Reine Anzeige - fasst weder
+# Harness noch Kosten an (gelesen wird nur der Mitschnitt).
+THINK_PREFIX = "  ~ "
+THINK_MAX = 400
+
 
 def enable_vt() -> bool:
     """ANSI-Ausgabe in der klassischen Windows-Konsole einschalten.
@@ -61,12 +66,13 @@ def _fmt_tool(name: str, inp: dict) -> str:
 
 class Watcher:
     def __init__(self, cfg, log, batch: int | None = None, run: str | None = None,
-                 color: bool = True, once: bool = False):
+                 color: bool = True, once: bool = False, thinking: bool = True):
         self.cfg = cfg
         self.log = log
         self.batch = batch
         self.run_name = run          # NICHT self.run: das ist die Methode run()
         self.once = once
+        self.thinking = bool(thinking)
         self.color = bool(color) and not os.environ.get("NO_COLOR") and sys.stdout.isatty()
         if self.color and not enable_vt():
             self.color = False
@@ -127,6 +133,20 @@ class Watcher:
             setattr(self, counter, len(alle))
         return len(alle)
 
+    def _render_thinking(self, text: str):
+        """Denkblock abgesetzt/gedimmt; leere Bloecke (display: omitted) ueberspringen."""
+        if not self.thinking:
+            return
+        roh = text or ""
+        kurz = " ".join(roh.split())
+        if not kurz:
+            return
+        if len(kurz) > THINK_MAX:
+            self._p(f"{THINK_PREFIX}{kurz[:THINK_MAX]} ... "
+                    f"[gekuerzt - Denkblock hat {len(roh)} Zeichen]", "dim")
+        else:
+            self._p(THINK_PREFIX + kurz, "dim")
+
     def _render_line(self, line: str, who: str = "WORKER"):
         obj = self.stats.feed(line)
         if not obj:
@@ -140,6 +160,8 @@ class Watcher:
                     self._p("")
                     self._p(who + ":", "bold")
                     self._p(block["text"].strip())
+                elif block.get("type") == "thinking":
+                    self._render_thinking(str(block.get("thinking") or ""))
                 elif block.get("type") == "tool_use":
                     self._p("  > " + _fmt_tool(str(block.get("name")), block.get("input") or {}), "cyan")
         elif t == "user":
@@ -191,6 +213,12 @@ class Watcher:
         if (tools.get("source") or "") == "user":
             self._p("(eigene Instruktion des Nutzers - startet ohne Review)", "yellow")
         self._p("=" * 70, "dim")
+        punkte = protocol.parse_offene_punkte(gate.get("summary") or "")
+        for zeile in protocol.offene_punkte_kurz(punkte):
+            self._p(zeile, "yellow")
+        if punkte.get("entscheidung"):
+            self._p("Achtung: dieses Gate wird im Dauerbetrieb NICHT automatisch freigegeben.",
+                    "yellow")
         if gate.get("summary"):
             self._p("Zusammenfassung (TELEGRAM_SUMMARY):", "bold")
             self._p(gate["summary"])
@@ -232,6 +260,8 @@ class Watcher:
             self._p(parsed.instruction)
         if parsed.issues:
             self._p("Hinweise: " + "; ".join(parsed.issues), "yellow")
+        for zeile in protocol.offene_punkte_kurz(parsed.offene):
+            self._p(zeile, "yellow")
         self.review_shown = True
 
     # ------------------------------------------------------------------- Lauf

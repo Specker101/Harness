@@ -52,6 +52,7 @@ class Review:
         self.program: str | None = None
         self.batch: int | None = None
         self.issues: list[str] = []
+        self.offene: dict[str, list[str]] = {"entscheidung": [], "frage": [], "live": []}
 
     @property
     def status(self) -> str:
@@ -84,6 +85,59 @@ def _blocks(text: str) -> dict[str, list[str]]:
         tag = m.group(1).upper()
         out.setdefault(tag, []).append(m.group(2).strip())
     return out
+
+
+# --------------------------------------------------------------- Markerzeilen
+# Konvention im Reviewer-Prompt (prompts/reviewer.md): solche Zeilen stehen in
+# <TELEGRAM_SUMMARY>. Der Harness wertet sie aus (A, R13c):
+#   ENTSCHEIDUNG NOETIG: …   -> echte Bremse (Gate wird nicht automatisch freigegeben)
+#   OFFENE FRAGE: …          -> nur Information, die Arbeit geht weiter
+#   WARTET AUF LIVE-AUFNAHME: … -> nur Information, die Arbeit geht weiter
+MARKER_ENTSCHEIDUNG = "ENTSCHEIDUNG NOETIG:"
+MARKER_OFFENE_FRAGE = "OFFENE FRAGE:"
+MARKER_LIVE = "WARTET AUF LIVE-AUFNAHME:"
+_ZEILENMARKER = (
+    ("entscheidung", MARKER_ENTSCHEIDUNG),
+    ("frage", MARKER_OFFENE_FRAGE),
+    ("live", MARKER_LIVE),
+)
+
+
+def parse_offene_punkte(text: str) -> dict[str, list[str]]:
+    """Zeilen, die mit einem Marker beginnen (ein optionales Aufzaehlungszeichen davor ist ok).
+
+    Rueckgabe: {"entscheidung": [...], "frage": [...], "live": [...]} - jeweils der Text
+    nach dem Doppelpunkt. Gross-/Kleinschreibung und Umlaute sind tolerant (NOETIG/NÖTIG).
+    """
+    out: dict[str, list[str]] = {"entscheidung": [], "frage": [], "live": []}
+    for raw in (text or "").splitlines():
+        ln = raw.strip().lstrip("-*•># ").strip()
+        if not ln:
+            continue
+        kopf = ln.upper().replace("Ö", "OE").replace("Ä", "AE").replace("Ü", "UE")
+        for key, marker in _ZEILENMARKER:
+            if kopf.startswith(marker):
+                # Wert ab dem ersten Doppelpunkt lesen - das ist tolerant gegenueber
+                # Schreibweisen wie "NOETIG"/"NÖTIG" (Laengenunterschied durch Umlaut).
+                wert = ln.split(":", 1)[1].strip() if ":" in ln else ""
+                if wert:
+                    out[key].append(wert)
+                break
+    return out
+
+
+def offene_punkte_kurz(punkte: dict[str, list[str]], breite: int = 150) -> list[str]:
+    """Kurze Zeilen fuer /status und watch (je Punkt eine Zeile)."""
+    zeilen: list[str] = []
+    for key, kopf in (("entscheidung", "Offene Entscheidung"),
+                      ("frage", "Offene Frage"),
+                      ("live", "Wartet auf Live-Aufnahme")):
+        for v in (punkte or {}).get(key) or []:
+            txt = " ".join(str(v).split())
+            if len(txt) > breite:
+                txt = txt[: breite - 3] + "..."
+            zeilen.append(f"{kopf}: {txt}")
+    return zeilen
 
 
 def parse_review(text: str) -> Review:
@@ -128,6 +182,7 @@ def parse_review(text: str) -> Review:
         r.issues.append("INTERVENE ohne DS_INSTRUCTION")
     if text and not r.blocks:
         r.issues.append("kein einziger Protokollblock gefunden")
+    r.offene = parse_offene_punkte(r.summary)
     return r
 
 

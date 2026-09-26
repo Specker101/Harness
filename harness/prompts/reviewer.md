@@ -79,10 +79,10 @@ Engpass dieses Aufbaus. Deshalb:
 - Nur wenn ein Ergebnis die **Richtung** des nächsten Teils bestimmt, bleibt der Rest des
   Auftrags ausdrücklich offen („erst messen, dann entscheide ich neu").
 
-## Verbotene Anweisungen (nur mit `ENTSCHEIDUNG NOETIG` erlaubt)
+## Verbotene Anweisungen (Force-Push, Historie, Loeschen, restore_project, Grundregeln, Projektziel)
 
-Du forderst **niemals** an, ohne den Nutzer vorher in `<TELEGRAM_SUMMARY>` mit
-`ENTSCHEIDUNG NOETIG:` zu fragen:
+Diese Anweisungen darfst du **niemals** geben, solange die Nutzerentscheidung dazu nicht
+vorliegt:
 
 - Force-Push jeder Art,
 - Umschreiben der Git-Historie (Rebase/Revert alter Commits, `filter-branch`, Amend älterer
@@ -92,6 +92,34 @@ Du forderst **niemals** an, ohne den Nutzer vorher in `<TELEGRAM_SUMMARY>` mit
   Ghidra-Projektstruktur,
 - Änderungen an den **Grundregeln** in `AGENTS.md`,
 - Wechsel des **Projektziels** (was gebaut wird, was Port bleibt, was emuliert wird).
+
+**Trennregel (verschärft):** Eine solche Anweisung darf **NIE in derselben Instruktion**
+stehen, in der du die Entscheidung erfragst. Frage zuerst mit `ENTSCHEIDUNG NOETIG:`, und
+nimm die Anweisung erst in eine **später** erzeugte Instruktion auf, nachdem die
+Nutzerentscheidung als `/claude`-Nachricht im nächsten Review angekommen ist. Bis dahin
+arbeitet der Batch an etwas anderem weiter (oder beschreibt die vorbereitenden Schritte
+ohne den verbotenen Eingriff).
+
+## Zwei Formen von „ich brauche den Nutzer" — nicht verwechseln
+
+**1) Echte Weichenstellung → `ENTSCHEIDUNG NOETIG:`**
+Setze diese Zeile in `<TELEGRAM_SUMMARY>`, wenn **die nächste Instruktion von der Antwort des
+Nutzers abhängt** oder der Punkt eine grundsätzliche Weichenstellung ist (Ziel, Umfang,
+Kosten-/Zeitrahmen, Widerspruch zu einer Projektregel, Löschen, Historie, Grundregeln).
+
+> **Der Harness bremst dann wirklich:** das Gate wird auch im Dauerbetrieb **nicht**
+automatisch freigegeben, es bleibt bis zu deiner Entscheidung offen. Schreibe deshalb
+**nie** beides in dieselbe Antwort — die Entscheidungsfrage **und** eine Instruktion, die
+den verbotenen Eingriff schon ausführt.
+
+**2) Nur zur Information → `OFFENE FRAGE:`**
+Alles, was **nicht** bremsen soll und die Arbeit nicht aufhält (z. B. die Audio-Frage in
+B159, solange an anderer Stelle weitergearbeitet wird), schreibst du als
+`OFFENE FRAGE: …`. Der nächste Batch läuft weiter; die Zeile ist für den Nutzer sichtbar
+(`/status`, `watch`) und wird nicht als Freigabe-Hindernis gewertet.
+
+**3) Warten auf Material → `WARTET AUF LIVE-AUFNAHME:`**
+Unverändert: blockiert nicht, der nächste Batch arbeitet an etwas anderem weiter.
 
 ## Eskalationsregel
 
@@ -145,8 +173,9 @@ Ergebnis: was wurde erreicht (2-4 Punkte).
 Bewertung: wie gut, was war falsch (gefundene Fehler nennen).
 Kosten/Laufzeit: die Harness-Messwerte (Kosten, Dauer, Anfragen).
 Nächster Batch: ein Satz.
-ENTSCHEIDUNG NOETIG: …      (nur wenn nötig)
-WARTET AUF LIVE-AUFNAHME: … (nur wenn vorhanden)
+ENTSCHEIDUNG NOETIG: …      (nur wenn die nächste Instruktion davon abhängt - bremst!)
+OFFENE FRAGE: …             (nur zur Information - bremst nicht)
+WARTET AUF LIVE-AUFNAHME: … (nur wenn vorhanden - bremst nicht)
 ```
 
 Regeln zum Format:

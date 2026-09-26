@@ -44,6 +44,14 @@ def cmd_run(args) -> int:
     except KeyboardInterrupt:
         log.info("Abbruch per Strg+C")
         orch.state.set("PAUSED", "Strg+C")
+    except Exception as exc:
+        # Der Traceback steht bereits im Log und in logs/crash-*.txt (Orchestrator.run).
+        # Hier nur eine kurze Meldung auf stderr + Exit-Code, damit start.ps1 es merkt.
+        bericht = orch.letzter_crash_bericht()
+        print(f"ABSTURZ: {type(exc).__name__}: {exc}", file=sys.stderr)
+        if bericht:
+            print(f"Bericht: {bericht}", file=sys.stderr)
+        return 3
     return 0
 
 
@@ -336,34 +344,75 @@ def cmd_demo(args) -> int:
                                              ' "duration_cli_s": 377.257,\n'
                                              ' "stats": {"requests": 72}, "cost_usd": 0.068\n}\n')
 
-    def ein_durchlauf(mode: str) -> tuple[list[str], Path]:
-        """Einen Schleifendurchlauf fahren und danach anhalten (Demo-Hilfe)."""
+    def ein_durchlauf(mode: str, bis_workerstart: bool = False) -> tuple[list[str], Path, bool]:
+        """Einen Schleifendurchlauf fahren und danach anhalten (Demo-Hilfe).
+
+        `bis_workerstart=True` laeuft ueber die Freigabe hinaus: der Worker wird nur
+        GEMERKT, nicht gestartet (Attrappe, keine Kosten). Telegram wird fuer die Dauer
+        der Attrappe abgeschaltet, damit der laufende Harness seine Nachrichten behaelt.
+        """
         gesagt: list[str] = []
+        gestartet = {"worker": False}
         orch.say = lambda t: gesagt.append(str(t))
         orch.mock_reviewer_mode = mode
         orch.state.data["paused"] = False
         orch.state.save()
         echt_review = orch.do_review
         echt_peak = orch.peak_gate
+        echt_worker = orch.run_worker
+        echt_tg = orch.tg
+        echt_poll = orch.poll
+        echt_pre = orch.git_preflight
+        echt_chk = orch.git.checkpoint
+        echt_push = orch.git_push
+        zaehler = {"poll": 0}
 
         def einmal(*a, **k):
             res = echt_review(*a, **k)
-            orch.quit = True
+            if not bis_workerstart:
+                orch.quit = True
             return res
+
+        def worker_merker(*a, **k):
+            gestartet["worker"] = True
+            orch.quit = True
+            return None
+
+        def poll_ende(*a, **k):
+            zaehler["poll"] += 1
+            if zaehler["poll"] > 3:
+                orch.quit = True
+
+        def push_merker(*a, **k):
+            return True, "Attrappe: kein Push"
 
         orch.do_review = einmal
         orch.peak_gate = lambda: (True, "")
+        orch.tg = None
+        orch.poll = poll_ende
+        if bis_workerstart:
+            orch.run_worker = worker_merker
+            orch.git_preflight = lambda: (True, "")
+            orch.git.checkpoint = lambda n: f"harness/b{int(n)}-start"
+            orch.git_push = push_merker
         try:
             orch._loop()
         finally:
             orch.do_review = echt_review
             orch.peak_gate = echt_peak
+            orch.run_worker = echt_worker
+            orch.tg = echt_tg
+            orch.poll = echt_poll
+            orch.git_preflight = echt_pre
+            orch.git.checkpoint = echt_chk
+            orch.git_push = echt_push
             orch.quit = False
-        return gesagt, Path(cfg.sub("runs")) / f"b{orch.expected_batch():03d}"
+        return gesagt, Path(cfg.sub("runs")) / f"b{orch.expected_batch():03d}", gestartet["worker"]
 
     p_a = queue.enqueue(cfg.root, "claude", "Demo-Nachricht A: Audio-Frage klaeren.", "demo")
-    gesagt, ziel = ein_durchlauf("ok_zweiter_versuch")
-    check("Review landete im Anker-Verzeichnis (nicht b159)", ziel.name == "b160", ziel.name)
+    gesagt, ziel, _ = ein_durchlauf("ok_zweiter_versuch")
+    check("Review landete im Anker-Verzeichnis (nicht b159)",
+          ziel.name == f"b{orch.expected_batch():03d}", ziel.name)
     check("1. Versuch als Beleg verworfen",
           len(list(ziel.glob("review-verworfen-*-v1.md"))) == 1)
     check("2. Versuch ist das Review", (ziel / "review.md").is_file())
@@ -384,7 +433,7 @@ def cmd_demo(args) -> int:
     # Zweiter Durchlauf: Review scheitert zweimal -> Pause, kein Gate, Queue bleibt liegen.
     orch.discard_gate("Demo: Gate verwerfen")
     p_b = queue.enqueue(cfg.root, "claude", "Demo-Nachricht B: bleibt liegen.", "demo")
-    gesagt2, _ = ein_durchlauf("parser_error")
+    gesagt2, _, _ = ein_durchlauf("parser_error")
     check("kein Gate nach zwei Fehlversuchen", orch.state.gate is None)
     check("Zustand PAUSED", orch.state.state == "PAUSED", orch.state.state)
     check("Nachricht B bleibt in inbox/claude", p_b.is_file())
@@ -397,6 +446,32 @@ def cmd_demo(args) -> int:
           bool(list((Path(cfg.sub("logs"))).glob("review-verworfen-*.json"))))
     check("Meldung nennt den Grund", any("PROTOKOLLBLOCK" in s.upper() for s in gesagt2))
     queue.archive(cfg.root, [queue.pending(cfg.root, "claude")[0].id], "claude")
+
+    print("== 12: Entscheidungs-Bremse im Dauerbetrieb (A) ==")
+    orch.discard_gate("Demo: Gate verwerfen")
+    orch.state.data["autonomous"] = True
+    orch.state.save()
+    gesagt3, _, start3 = ein_durchlauf("entscheidung", bis_workerstart=True)
+    check("autonom + ENTSCHEIDUNG: kein Workerstart", start3 is False)
+    check("Gate bleibt offen",
+          orch.state.gate is not None and orch.state.state == "GATE_APPROVAL",
+          f"{orch.state.state} / {orch.state.data.get('note')}")
+    check("Meldung 'Wartet auf deine Entscheidung'",
+          any("Wartet auf deine Entscheidung" in s for s in gesagt3))
+    check("Kopfzeile 'WARTET AUF DEINE ENTSCHEIDUNG'",
+          any("WARTET AUF DEINE ENTSCHEIDUNG" in s for s in gesagt3))
+    check("Status zeigt die offene Entscheidung",
+          "Offene Entscheidung:" in orch.status_text())
+    orch.discard_gate("Demo: Gate verwerfen")
+    gesagt4, _, start4 = ein_durchlauf("offene_frage", bis_workerstart=True)
+    check("autonom + OFFENE FRAGE: Worker startet", start4 is True)
+    check("offene Frage bremst nicht (Gate wird verbraucht)", orch.state.gate is None)
+    check("Status nennt die offene Frage nicht als Bremse",
+          "Offene Frage:" not in orch.status_text()
+          or "braucht eine ENTSCHEIDUNG" not in orch.status_text())
+    orch.discard_gate("Demo: Gate verwerfen")
+    orch.state.data["autonomous"] = False
+    orch.state.save()
 
     print()
     if fails:
@@ -1009,7 +1084,8 @@ def cmd_watch(args) -> int:
     cfg = load_config(args.config)
     log = Log(Path(cfg.sub("logs")) / "watch.log", echo=False)
     return Watcher(cfg, log, batch=args.batch, run=(args.run or None),
-                   color=not args.no_color, once=args.once).run()
+                   color=not args.no_color, once=args.once,
+                   thinking=not getattr(args, "no_thinking", False)).run()
 
 
 def cmd_show_prompts(args) -> int:
@@ -1086,6 +1162,8 @@ def build_parser() -> argparse.ArgumentParser:
     wv.add_argument("--batch", type=int, default=0, help="abgeschlossenen Batch nachspielen")
     wv.add_argument("--run", default="", help="benannten Lauf nachspielen (z. B. env-proof)")
     wv.add_argument("--no-color", action="store_true", help="ohne Farben (fuer klassisches Konsolenfenster)")
+    wv.add_argument("--no-thinking", action="store_true",
+                    help="Denkbloecke nicht anzeigen (nur Anzeige, kein Einfluss auf den Lauf)")
     wv.add_argument("--once", action="store_true", help="nur ein Bild der jetzigen Lage, dann Ende")
     return p
 

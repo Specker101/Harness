@@ -8,7 +8,10 @@ Batch-Uebergaengen (E9).
 from __future__ import annotations
 
 import json
+import os
+import sys
 import time
+import traceback
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -461,8 +464,13 @@ class Orchestrator:
             quelle = (gate.get("tools") or {}).get("source") or "reviewer"
             lines.append(f"Gate offen seit {gate.get('created_at')} - Instruktion: "
                          f"{'VOM NUTZER' if quelle == 'user' else 'vom Reviewer'}")
+            if self.gate_wait_decision(gate):
+                lines.append("Dieses Gate braucht eine ENTSCHEIDUNG - im Dauerbetrieb wird "
+                             "es NICHT automatisch freigegeben.")
         else:
             lines.append("Gate: keins")
+        for zeile in self.offene_punkte_zeilen():
+            lines.append(zeile)
         if s.data.get("pause_since"):
             lines.append(f"Pause seit: {s.data['pause_since'].get('ts')} "
                          f"(HEAD {s.data['pause_since'].get('head_short')})")
@@ -472,8 +480,18 @@ class Orchestrator:
         if lokal:
             lines.append("Lokale Befehle warten: " + ", ".join(lokal))
         pid = control.read_pid(self.cfg)
-        lines.append(f"Harness-Prozess: {pid if pid else 'keiner'} "
-                     f"({'laeuft' if control.runner_alive(self.cfg) else 'nicht erreichbar'})")
+        laeuft = control.runner_alive(self.cfg)
+        if laeuft:
+            lines.append(f"Harness-Prozess: {pid} (laeuft)")
+        else:
+            lines.append(f"Harness-Prozess: {pid or 'keiner'} - HARNESS LAEUFT NICHT")
+        crash = self.letzter_crash_bericht()
+        if crash:
+            try:
+                ts = datetime.fromtimestamp(crash.stat().st_mtime, timezone.utc).isoformat()
+            except OSError:
+                ts = "?"
+            lines.append(f"Letzter Crash-Bericht: {crash.name} ({ts})")
         lines.append(f"Kosten heute: ${s.spent_today(today):.4f} von "
                      f"${float(self.cfg.get('limits', 'daily_budget_usd', 10)):.2f}")
         lines.append(pricing.status_line(self.cfg))
@@ -900,7 +918,7 @@ class Orchestrator:
         self.state.set_gate(st.new_review_id(), p.summary, instr,
                             {"profile": profile, "program": program, "batch": batch_no,
                              "expected": expected, "source": "reviewer"},
-                            raw_path)
+                            raw_path, extra={"offene_punkte": dict(getattr(p, "offene", {}) or {})})
         if status == "ok":
             return "ok"
         self.say("\n".join(hinweise) + "\n\nIch starte diesen Auftrag NICHT.")
@@ -914,6 +932,51 @@ class Orchestrator:
         self.state.data["paused"] = True
         self.state.set(st.PAUSED, "Batch-Nummer passt nicht zum Anker")
         return status
+
+    # --------------------------------------------- Offene Punkte (A, R13c)
+    def gate_offene_punkte(self, gate: dict | None = None) -> dict[str, list[str]]:
+        """Offene Entscheidungen/Fragen/Live-Wuensche eines Gates.
+
+        Neue Gates tragen sie als Feld; bei Altbestand (Gate ohne dieses Feld) werden
+        sie aus der gespeicherten Zusammenfassung abgeleitet - der Zustand bleibt
+        dabei unangetastet.
+        """
+        gate = gate if gate is not None else self.state.gate
+        if not gate:
+            return {"entscheidung": [], "frage": [], "live": []}
+        p = gate.get("offene_punkte")
+        if isinstance(p, dict) and any(p.get(k) for k in ("entscheidung", "frage", "live")):
+            return {"entscheidung": list(p.get("entscheidung") or []),
+                    "frage": list(p.get("frage") or []),
+                    "live": list(p.get("live") or [])}
+        return protocol.parse_offene_punkte(gate.get("summary") or "")
+
+    def gate_wait_decision(self, gate: dict | None = None) -> bool:
+        """Braucht dieses Gate eine Nutzerentscheidung? Dann NIE automatisch freigeben."""
+        return bool(self.gate_offene_punkte(gate).get("entscheidung"))
+
+    def letzte_review_datei(self) -> Path | None:
+        """Die jüngste Review-Datei (falls kein Gate mehr offen ist)."""
+        try:
+            files = sorted(Path(self.cfg.sub("runs")).glob("b*/review*.md"),
+                           key=lambda p: p.stat().st_mtime)
+        except OSError:
+            return None
+        return files[-1] if files else None
+
+    def offene_punkte_zeilen(self, punkte: dict | None = None) -> list[str]:
+        """Zeilen fuer /status und watch: aus dem Gate, sonst aus dem letzten Review."""
+        if punkte is None:
+            punkte = self.gate_offene_punkte()
+            if not any(punkte.values()):
+                datei = self.letzte_review_datei()
+                if datei is not None:
+                    try:
+                        punkte = protocol.parse_offene_punkte(
+                            protocol.parse_review(read_text(datei)).summary)
+                    except OSError:
+                        punkte = None
+        return protocol.offene_punkte_kurz(punkte or {})
 
     def discard_gate(self, reason: str) -> None:
         """Offenen Auftrag verwerfen - aber nachvollziehbar ablegen."""
@@ -1092,6 +1155,50 @@ class Orchestrator:
             head += ["", note]
         return "\n".join(head)
 
+    def letzter_crash_bericht(self) -> Path | None:
+        """Der jüngste Absturzbericht in logs/crash-*.txt (oder None)."""
+        try:
+            files = sorted(Path(self.cfg.sub("logs")).glob("crash-*.txt"),
+                           key=lambda p: p.stat().st_mtime)
+        except OSError:
+            return None
+        return files[-1] if files else None
+
+    def report_crash(self, exc: BaseException) -> Path | None:
+        """Unbehandelte Ausnahme: Traceback ins Log, in eine Datei und per Telegram.
+
+        Ohne das starb der Harness am 2026-09-26 um 00:30 still und ohne jede Spur
+        (kein Logeintrag, kein Ereignis in der Ereignisanzeige).
+        """
+        tb = traceback.format_exc()
+        p = Path(self.cfg.sub("logs")) / f"crash-{now_iso().replace(':', '')}.txt"
+        text = "\n".join([
+            f"Harness-Absturz {now_iso()}",
+            f"Ausnahme: {type(exc).__name__}: {exc}",
+            f"Zustand: {self.state.state} | Batch {self.state.batch} | "
+            f"Phase {self.phase_text()} | Gate {bool(self.state.gate)}",
+            f"Arbeitsverzeichnis: {os.getcwd()}",
+            f"Aufruf: {' '.join(sys.argv)}",
+            "",
+            tb,
+        ])
+        try:
+            write_text_atomic(p, text + "\n")
+        except OSError:
+            p = None
+        self.log.error("ABSTURZ - unbehandelte Ausnahme",
+                       fehler=f"{type(exc).__name__}: {exc}"[:400],
+                       bericht=str(p) if p else "-")
+        self.log.error("TRACEBACK\n" + tb)
+        try:
+            self.say("HARNESS ABGESTÜRZT\n"
+                     + f"{type(exc).__name__}: {str(exc)[:200]}\n"
+                     + f"Crash-Bericht: {p if p else '(nicht schreibbar)'}\n"
+                     + f"Zustand: {self.state.state}, Batch {self.state.batch}")
+        except Exception as exc2:
+            self.log.warn("Absturzmeldung per Telegram fehlgeschlagen", fehler=str(exc2)[:150])
+        return p
+
     # ---------------------------------------------------------------- Schleife
     def run(self, paused: bool = False):
         control.write_pid(self.cfg)
@@ -1106,6 +1213,10 @@ class Orchestrator:
             self.state.save()
         try:
             self._loop(paused)
+        except Exception as exc:
+            # C (R13c): Jede unbehandelte Ausnahme hinterlaesst eine Spur.
+            self.report_crash(exc)
+            raise
         finally:
             self.save_ghidra_if_pending("Harness-Ende")
             control.clear_pid(self.cfg)
@@ -1199,20 +1310,36 @@ class Orchestrator:
                 status = self.gate_from_review(p, str(res.raw_path))
                 tools = (self.state.gate or {}).get("tools") or {}
                 profile = tools.get("profile") or "none"
+                warten = self.gate_wait_decision()
                 kopf = "FREIGABE NOETIG" if status == "ok" else "AUFTRAG ANGEHALTEN"
+                if warten:
+                    kopf = "WARTET AUF DEINE ENTSCHEIDUNG"
                 self.phase("gate" if status == "ok" else None, f"Batch {tools.get('batch')}")
                 self.say(f"{kopf} - Batch {tools.get('batch')}, Profil {profile}, Programm "
                          f"{tools.get('program') or '-'}")
                 self.say("Zusammenfassung:\n" + (p.summary or "(keine)"))
                 if p.instruction:
                     self.say("Instruktion (vollstaendig):\n" + p.instruction)
+                if warten:
+                    # A (R13c): echte Bremse - auch im Dauerbetrieb wird hier nicht gestartet.
+                    self.log.info("Gate braucht eine Entscheidung",
+                                  batch=tools.get("batch"),
+                                  entscheidung=self.gate_offene_punkte().get("entscheidung"))
+                    self.say("Wartet auf deine Entscheidung:\n"
+                             + "\n".join("- " + v for v in
+                                         self.gate_offene_punkte().get("entscheidung") or [])
+                             + "\nAntworte per /claude (kommt beim naechsten Review an) "
+                               "oder /review; freigeben mit /approve.")
+                    s.set(st.GATE_APPROVAL, "wartet auf deine Entscheidung")
                 continue
 
+            warten_gate = self.gate_wait_decision(gate)
             approved = ((self.approved_gate == gate.get("id"))
-                        or bool(s.data.get("autonomous"))
+                        or (bool(s.data.get("autonomous")) and not warten_gate)
                         or (gate.get("tools") or {}).get("source") == "user")
             if not approved:
-                s.set(st.GATE_APPROVAL, "wartet auf /approve")
+                s.set(st.GATE_APPROVAL,
+                      "wartet auf deine Entscheidung" if warten_gate else "wartet auf /approve")
                 self.phase("gate", f"Batch {(gate.get('tools') or {}).get('batch')}")
                 time.sleep(IDLE_SLEEP)
                 continue

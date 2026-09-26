@@ -135,6 +135,12 @@ REVIEWER_LIMIT = """Usage limit reached. Your limit will reset at 2026-09-25 22:
 """
 
 
+def _mit_marker(text: str, zeile: str) -> str:
+    """Zusaetzliche Markerzeile in die TELEGRAM_SUMMARY der Attrappe setzen (A, R13c)."""
+    ende = "</TELEGRAM_SUMMARY>"
+    return text.replace(ende, zeile.strip() + "\n" + ende, 1)
+
+
 def mock_reviewer_text(mode: str = "ok", batch: int | None = None, attempt: int = 1) -> str:
     if mode == "parser_error":
         return REVIEWER_BROKEN
@@ -147,6 +153,20 @@ def mock_reviewer_text(mode: str = "ok", batch: int | None = None, attempt: int 
     if mode == "ok_zweiter_versuch":
         # R13b: erster Versuch absichtlich ohne Protokollblock, Wiederholung sauber.
         return REVIEWER_BROKEN if attempt <= 1 else mock_reviewer_text("ok", batch)
+    if mode == "entscheidung":
+        # A (R13c): echte Weichenstellung -> darf im Dauerbetrieb NICHT durchlaufen.
+        return _mit_marker(mock_reviewer_text("ok", batch),
+                           "ENTSCHEIDUNG NOETIG: Audio-Verfahren waehlen (A PCM oder B Chip)?")
+    if mode == "entscheidung_umlaut":
+        return _mit_marker(mock_reviewer_text("ok", batch),
+                           "ENTSCHEIDUNG NÖTIG: Audio-Verfahren waehlen (A oder B).")
+    if mode == "offene_frage":
+        # Nur Information -> die Arbeit geht an anderer Stelle weiter.
+        return _mit_marker(mock_reviewer_text("ok", batch),
+                           "OFFENE FRAGE: Texturnamen noch nicht zugeordnet.")
+    if mode == "live_aufnahme":
+        return _mit_marker(mock_reviewer_text("ok", batch),
+                           "WARTET AUF LIVE-AUFNAHME: ein Lauf mit Name-Breakpoint fehlt.")
     if batch:
         # Die Nummer muss stimmen: der Harness haelt bei Abweichung an (R10-1).
         return REVIEWER_OK.replace("Batch 160", f"Batch {batch}")

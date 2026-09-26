@@ -260,6 +260,57 @@ Format-Erinnerung (`=== FORMAT-ERINNERUNG (ZWEITER VERSUCH) ===` plus die vorige
 Scheitert auch der, **pausiert** der Harness und meldet per Telegram mit Verweis auf beide
 Rohtexte; Protokoll in `logs/review-verworfen-<ts>.json`. Kein Gate, keine Freigabe.
 
+---
+
+## 10. Entscheidungen, Denkblöcke, Absturzschutz (R13c)
+
+### 10a. `ENTSCHEIDUNG NOETIG` ist eine echte Bremse
+
+Der Reviewer nutzt drei Markerzeilen in seiner `<TELEGRAM_SUMMARY>`
+(`prompts/reviewer.md`); der Harness wertet sie aus (`hx/protocol.py`,
+`parse_offene_punkte`):
+
+| Zeile | Bedeutung | Wirkung |
+|---|---|---|
+| `ENTSCHEIDUNG NOETIG: …` | die nächste Instruktion hängt von deiner Antwort ab, oder es ist eine grundsätzliche Weichenstellung | **bremst**: das Gate wird auch im Dauerbetrieb **nicht** automatisch freigegeben. Telegram meldet „Wartet auf deine Entscheidung“, `/status` und `watch` zeigen den Punkt |
+| `OFFENE FRAGE: …` | nur zur Information (z. B. die Audio-Frage in B159), die Arbeit geht an anderem weiter | bremst **nicht** |
+| `WARTET AUF LIVE-AUFNAHME: …` | es fehlt Material, das nur du liefern kannst | bremst **nicht** |
+
+Freigeben kannst weiterhin **du** (`/approve`); nur der Automat hält an. Die Punkte stehen in
+`/status` (Zeilen „Offene Entscheidung/…“) und in `watch` über dem Gate. Bei älteren Gates
+ohne das Feld `offene_punkte` werden sie aus der gespeicherten Zusammenfassung abgeleitet —
+der Zustand wird dabei **nicht** verändert.
+
+**Verbotsregel im Reviewer-Prompt:** Force-Push, Umschreiben der Historie, Löschen unter
+`analysis/`, `restore_project`, Änderungen an den `AGENTS.md`-Grundregeln und am Projektziel
+darf der Reviewer **nie** in derselben Instruktion verlangen, in der er die Entscheidung
+erfragt — erst in einer späteren Instruktion, nachdem deine Antwort als `/claude`-Nachricht
+angekommen ist.
+
+### 10b. Denkblöcke in `watch`
+
+`watch` zeigt `thinking`-Blöcke des Mitschnitts live an: abgesetzt mit Präfix `  ~ `,
+gedimmt, Leerraum zusammengezogen, lange Blöcke bei 400 Zeichen gekürzt mit
+`[gekuerzt - Denkblock hat <N> Zeichen]`. **Leere** Blöcke (die API liefert bei
+`display: "omitted"` Blöcke ohne Text, nur mit `signature`) werden übersprungen.
+
+    python -m hx.cli watch --batch 160              # mit Denkbloecken
+    python -m hx.cli watch --batch 160 --no-thinking # ohne
+    python -m hx.cli watch --no-thinking             # live, ohne
+
+Reine Anzeige: `watch` liest nur Dateien — kein Einfluss auf Harness, Kosten oder Mitschnitte.
+
+### 10c. Absturzschutz
+
+* **Jede unbehandelte Ausnahme** wird von `Orchestrator.report_crash` festgehalten: vollständiger
+  Traceback ins Harness-Log **und** in `logs/crash-<zeit>.txt`, dazu (wenn möglich) Telegram
+  „HARNESS ABGESTÜRZT“ mit dem Pfad des Berichts. Der Prozess endet mit Exit-Code 3.
+* `start.ps1` schreibt stderr zusätzlich nach `logs/start-stderr.log` und lässt bei einem
+  Fehler-Exit das Fenster stehen: Exit-Code, Pfad des Crash-Berichts und dessen letzte
+  20 Zeilen, dann „Enter zum Schliessen“.
+* `/status` sagt bei totem Prozess ausdrücklich `Harness-Prozess: … - HARNESS LAEUFT NICHT`
+  und nennt den letzten Crash-Bericht (`Letzter Crash-Bericht: crash-….txt (<ts>)`).
+
 **Queue erst nach gültigem Review.** `/claude`-Nachrichten gelten erst als zugestellt, wenn
 der Review einen gültigen Protokollblock geliefert hat — sonst bleiben sie unverändert in
 `inbox/claude` (und werden beim nächsten Review wieder mitgeschickt).
