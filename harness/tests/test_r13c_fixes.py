@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -34,8 +35,16 @@ class Base(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
         ensure_dir(self.tmp)
         self.repo = ensure_dir(self.tmp / "decomp")
+        # R13i: ein ECHTES (Wegwerf-)Repo. Der Tempordner liegt im Harness-Repo, und
+        # `git` sucht seine Wurzel selbst - ohne eigenes Repo arbeitet es still am
+        # aeusseren Repo (Unfall vom 2026-09-26: `wip_rescue` stashte den Harness).
+        # `gitsafe.Git` verweigert solche Aufrufe jetzt zusaetzlich.
+        subprocess.run(["git", "init", "-q"], cwd=self.repo, capture_output=True)
         ensure_dir(self.repo / "analysis")
         (self.repo / "analysis" / "r1b-workstream.md").write_text(ANKER, encoding="utf-8")
+        subprocess.run(["git", "add", "-A"], cwd=self.repo, capture_output=True)
+        subprocess.run(["git", "-c", "user.name=T", "-c", "user.email=t@example.invalid",
+                        "commit", "-q", "-m", "start"], cwd=self.repo, capture_output=True)
         self.root = ensure_dir(self.tmp / "root")
         sec = ensure_dir(self.root / "secrets")
         (sec / "deepseek.key").write_text("sk-test-000\n", encoding="utf-8")
