@@ -47,17 +47,27 @@ class StreamRun:
         self.pid: int | None = None
         self.started_at: str | None = None
         self.finished_at: str | None = None
+        # R13j: Wie lange wurde nach dem Kind-Ende auf das Ausgabeende gewartet?
+        self.eof_offen_s: float | None = None
 
 
 def run_stream(cmd: list[str], env: dict, cwd: str, out_path: str | Path,
                on_event=None, hard_wall_s: float | None = None,
                cancel=None, log=None, stdin_text: str | None = None,
-               stderr_path: str | Path | None = None, on_start=None) -> StreamRun:
+               stderr_path: str | Path | None = None, on_start=None,
+               eof_gnade_s: float = 60.0) -> StreamRun:
     """Startet den Prozess, liest stdout zeilenweise (UTF-8) und ruft on_event(line).
 
     on_event(line) darf "kill" zurueckgeben -> Prozessbaum wird beendet und
     killed_reason auf "event" gesetzt. cancel() wird im Sekundentakt gefragt.
     on_start(pid) wird sofort nach dem Start gerufen (fuer den Zustand).
+
+    `eof_gnade_s` (R13j): Ist der Kindprozess beendet, aber die Ausgabe-Pipe meldet
+    kein Ende (EOF), obwohl schon so viele Sekunden keine Zeile mehr kam, wird der
+    Lauf abgeschlossen. Grund (gemessen 2026-09-26): ein vom Worker gestarteter
+    Enkelprozess erbt das Schreibende der Pipe und haelt sie offen, auch wenn der
+    Worker fertig ist. Ohne diese Bremse wartet der Harness unbegrenzt - der Batch
+    wurde nie abgeschlossen, kein `result.json`, kein Push, kein Review.
     """
     res = StreamRun()
     out_path = Path(out_path)
@@ -125,6 +135,7 @@ def run_stream(cmd: list[str], env: dict, cwd: str, out_path: str | Path,
             threading.Thread(target=feed_stdin, daemon=True).start()
 
         start = time.time()
+        letzte_zeile = start
         last_cancel_check = 0.0
         drain_deadline = None
         while True:
@@ -136,6 +147,7 @@ def run_stream(cmd: list[str], env: dict, cwd: str, out_path: str | Path,
                 break
             if raw:
                 res.lines += 1
+                letzte_zeile = time.time()
                 line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
                 if on_event is not None and not res.killed_reason:
                     try:
@@ -161,6 +173,14 @@ def run_stream(cmd: list[str], env: dict, cwd: str, out_path: str | Path,
                 except Exception:
                     pass
             if drain_deadline and time.time() > drain_deadline:
+                break
+            if (not res.killed_reason and eof_gnade_s and proc.poll() is not None
+                    and (now - letzte_zeile) > eof_gnade_s):
+                # R13j: Kind fertig, Pipe ohne EOF (Enkelprozess haelt das Handle).
+                res.eof_offen_s = round(now - letzte_zeile, 1)
+                if log:
+                    log.warn("Kind beendet, Ausgabe-Pipe ohne EOF - Lauf wird abgeschlossen",
+                             gewartet_s=res.eof_offen_s)
                 break
 
         res.duration_s = round(time.time() - start, 3)

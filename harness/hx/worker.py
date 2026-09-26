@@ -389,6 +389,14 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
             if ticker is not None:
                 ticker.stop()
                 log.info("Takt-Thread beendet", aufrufe=ticker.aufrufe)
+        # R13j: Das Kind war fertig, die Pipe blieb offen (Enkelprozess). Das ist kein
+        # Abbruch, aber es gehoert in die Batch-Meldung - sonst sieht es aus, als haette
+        # der Worker gehaengt.
+        if getattr(run, "eof_offen_s", None):
+            res.alarms.append(
+                f"HINWEIS: Der Worker-Prozess war fertig, aber ein weiterlaufender "
+                f"Kindprozess hielt die Ausgabe-Pipe ({run.eof_offen_s:.0f} s kein Ende). "
+                f"Der Lauf wurde abgeschlossen (R13j).")
         res.rc = run.rc
         res.duration_harness_s = run.duration_s
         d_cli, d_feld = stats.duration_field()

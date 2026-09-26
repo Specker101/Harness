@@ -219,6 +219,18 @@ class Orchestrator:
         return bool(self._BATCH_COMMIT.match(subj))
 
     def _do_resume(self, accept_dirty: bool = False, note: str = "fortgesetzt"):
+        # R13j: NICHT fortsetzen, wenn schon ein Lauf in Arbeit ist. Am 2026-09-26 hat
+        # ein `/resume` waehrend eines laufenden Batches den Zustand auf IDLE gesetzt -
+        # der Batch lief weiter, aber `/status` zeigte "idle". Das ist keine Kleinigkeit:
+        # der Zustand ist die einzige Auskunft, die der Nutzer hat.
+        if self.state.data.get("worker") or self.state.state in (st.DS_WORKING, st.CLAUDE_REVIEWING):
+            laeuft = "ein Worker" if self.state.state == st.DS_WORKING else "ein Review"
+            self.say(f"Es laeuft bereits {laeuft} - /resume ist unnoetig und wuerde den Zustand "
+                     "verfaelschen.\nWenn du danach anhalten willst: /pause (der Batch laeuft zu "
+                     "Ende). Sofort abbrechen: /stop.")
+            self.log.info("Resume ignoriert - ein Lauf ist bereits in Arbeit",
+                          zustand=self.state.state)
+            return
         pause = self.state.data.get("pause_since") or {}
         try:
             head_now = self.git.head_short()
