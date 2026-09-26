@@ -11,7 +11,7 @@ import os
 import uuid
 from pathlib import Path
 
-from . import envs, protocol, secrets
+from . import envs, protocol, secrets, streamjson
 from .proc import run_stream
 from .profiles import builtin_args, pfad_regeln, secrets_verbote
 from .util import ensure_dir, now_iso, read_text, write_json_atomic, write_text_atomic

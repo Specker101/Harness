@@ -8,6 +8,7 @@ Niemals `git add -A`: das Projekt hat untracked Belegordner.
 from __future__ import annotations
 
 import os
+import subprocess
 from pathlib import Path
 
 from . import envs
@@ -43,9 +44,55 @@ class Git:
         self.timeout = float(cfg.get("git", "timeout_s", 120))
         self.push_timeout = float(cfg.get("git", "push_timeout_s", 180))
         self.fetch_timeout = float(cfg.get("git", "fetch_timeout_s", 180))
+        self._top: str | None = None
+        self._top_geprueft = False
+
+    # ------------------------------------------------------- Repo-Wache (R13i)
+    def _top_level(self) -> str:
+        """Wurzel des Repos, das git von `self.repo` aus FINDET (einmal je Objekt)."""
+        if not self._top_geprueft:
+            self._top_geprueft = True
+            try:
+                r = subprocess.run(["git", "rev-parse", "--show-toplevel"],
+                                   cwd=self.repo, capture_output=True, text=True,
+                                   timeout=60, env={**envs.base_env(os.environ), **GIT_ENV})
+                self._top = (r.stdout or "").strip() if r.returncode == 0 else ""
+            except Exception:                                     # noqa: BLE001
+                self._top = ""
+        return self._top or ""
+
+    def repo_fehler(self) -> str:
+        """Leerer Text = in Ordnung, sonst die Begruendung (R13i).
+
+        Warum diese Wache: `git` sucht sich seine Wurzel selbst. Zeigt `cfg.decomp`
+        auf ein Verzeichnis INNERHALB eines anderen Repos (z. B. ein Test-Tempordner
+        im Harness-Repo), dann arbeitet JEDER Aufruf still am AEUSSEREN Repo - ein
+        `wip_rescue` hat so am 2026-09-26 den Arbeitsbaum des Harness gestasht und
+        unversionierte Arbeit weggeraeumt (Stash `harness-wip-b178`).
+        """
+        if not os.path.isdir(self.repo):
+            return f"Verzeichnis fehlt: {self.repo}"
+        top = self._top_level()
+        if not top:
+            return f"kein Git-Repo gefunden ab {self.repo}"
+        try:
+            gleich = (os.path.normcase(os.path.realpath(top))
+                      == os.path.normcase(os.path.realpath(self.repo)))
+        except OSError:
+            gleich = False
+        if not gleich:
+            return (f"{self.repo} liegt INNERHALB des Repos {top} - git wuerde am "
+                    f"falschen Repo arbeiten")
+        return ""
 
     # ----------------------------------------------------------------- Basis
     def run(self, *args: str, timeout: float | None = None) -> tuple[int, str, str]:
+        fehler = self.repo_fehler()
+        if fehler:
+            if self.log:
+                self.log.error("Git-Repo-Wache: Aufruf verweigert", grund=fehler,
+                               aufruf="git " + " ".join(args))
+            return 128, "", f"Git-Repo-Wache: {fehler}"
         env = envs.base_env(os.environ)
         env.update(GIT_ENV)
         return run_capture(["git", *args], cwd=self.repo,

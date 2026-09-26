@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -29,6 +30,7 @@ sys.path.insert(0, str(ROOT))
 
 from hx import reviewer, streamjson                                   # noqa: E402
 from hx.config import load_config                                     # noqa: E402
+from hx.gitsafe import Git                                            # noqa: E402
 from hx.orchestrator import Orchestrator                              # noqa: E402
 from hx.util import Log, ensure_dir                                   # noqa: E402
 
@@ -91,9 +93,20 @@ class Base(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(__file__).resolve().parent / "_tmp_r13i"
         shutil.rmtree(self.tmp, ignore_errors=True)
+        # WICHTIG (R13i): der Tempordner liegt INNERHALB des Harness-Repos. `git` sucht
+        # seine Wurzel selbst und arbeitet sonst still am AEUSSEREN Repo - genau so hat
+        # ein `wip_rescue` am 2026-09-26 den Arbeitsbaum des Harness gestasht. Deshalb
+        # wird hier ein EIGENES Repo angelegt, und `gitsafe.Git` verweigert zusaetzlich
+        # jeden Aufruf, wenn die gefundene Wurzel nicht die konfigurierte ist.
+        self.repo = ensure_dir(self.tmp / "decomp")
+        subprocess.run(["git", "init", "-q"], cwd=self.repo, capture_output=True)
+        (self.repo / "a.txt").write_text("eins\n", encoding="utf-8")
+        subprocess.run(["git", "add", "a.txt"], cwd=self.repo, capture_output=True)
+        subprocess.run(["git", "-c", "user.name=T", "-c", "user.email=t@example.invalid",
+                        "commit", "-q", "-m", "start"], cwd=self.repo, capture_output=True)
         cfg = load_config()
         cfg.data["paths"]["root"] = str(ensure_dir(self.tmp / "harness"))
-        cfg.data["paths"]["decomp"] = str(ensure_dir(self.tmp / "decomp"))
+        cfg.data["paths"]["decomp"] = str(self.repo)
         cfg.data["paths"]["secrets"] = str(ensure_dir(self.tmp / "secrets"))
         cfg.data["paths"]["prompts"] = str(ROOT / "prompts")
         cfg.data["telegram"]["allowlist_user_ids"] = []
@@ -179,6 +192,32 @@ class TestModulnamen(unittest.TestCase):
 
     def test_reviewer_hat_den_streamjson_import(self):
         self.assertTrue(reviewer.streamjson is streamjson)
+
+
+class TestRepoWache(Base):
+    """`git` darf NIE am aeusseren Repo arbeiten (Unfall vom 2026-09-26)."""
+
+    def test_ordentliches_repo_ist_ok(self):
+        self.assertEqual(Git(self.cfg, self.log).repo_fehler(), "")
+
+    def test_unterordner_im_fremden_repo_wird_verweigert(self):
+        """Ein Tempordner IM Harness-Repo ist genau der Unfall - er muss auffallen.
+
+        Geprueft wird mit einem LESENDEN Befehl: waere die Wache kaputt, duerfte dieser
+        Test nicht das echte Repo veraendern.
+        """
+        self.cfg.data["paths"]["decomp"] = str(ensure_dir(Path(ROOT) / "tests" / "_tmp_r13i_wache"))
+        g = Git(self.cfg, self.log)
+        fehler = g.repo_fehler()
+        self.assertIn("INNERHALB", fehler)
+        rc, _so, se = g.run("rev-parse", "HEAD")
+        self.assertEqual(rc, 128)
+        self.assertIn("Repo-Wache", se)
+        shutil.rmtree(Path(ROOT) / "tests" / "_tmp_r13i_wache", ignore_errors=True)
+
+    def test_fehlendes_verzeichnis_wird_verweigert(self):
+        self.cfg.data["paths"]["decomp"] = str(self.tmp / "gibtsnicht")
+        self.assertIn("fehlt", Git(self.cfg, self.log).repo_fehler())
 
 
 if __name__ == "__main__":

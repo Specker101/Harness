@@ -127,6 +127,42 @@ class TaktGeber:
         return False
 
 
+_ABBau = re.compile(r"stop-process|taskkill", re.IGNORECASE)
+_ABBau_CPU = re.compile(r"\$_\.\s*cpu", re.IGNORECASE)
+_ABBau_NAME = re.compile(r"stop-process[^;|]*-name\b|taskkill\s+/im", re.IGNORECASE)
+_ABBau_LISTE = re.compile(r"get-process\s+\w|get-ciminstance", re.IGNORECASE)
+_ABBau_ID = re.compile(r"stop-process\s+-id\s+\d|\$_\.id\s+-eq\s*\d", re.IGNORECASE)
+_ABBau_FILTER = re.compile(r"commandline\s+-like", re.IGNORECASE)
+
+
+def abbau_gefahr(befehl) -> str | None:
+    """Erkennt Prozessabbau, der den HARNESS SELBST treffen kann (R13i, 2026-09-26).
+
+    Anlass: der Worker raeumte in Batch 178 mit
+    `Get-Process python | Where-Object { $_.CPU -gt 50 } | Stop-Process`
+    **jeden** Python-Prozess mit ueber 50 s CPU-Zeit ab - darunter den Harness
+    (`python.exe -m hx.cli run`, ~370 s CPU). Der Harness starb ohne Crash-Bericht,
+    ohne stderr und ohne Ereigniseintrag: ein hartes `TerminateProcess`.
+
+    Erlaubt und NICHT gemeldet: ein gezielter Abbau mit fester Nummer
+    (`Stop-Process -Id 1234`) oder die Auswahl ueber die Kommandozeile
+    (`Where-Object { $_.CommandLine -like "*port4c2*" }`) - beides trifft den
+    Harness nicht.
+    """
+    t = " ".join(str(befehl or "").split())
+    if not t or not _ABBau.search(t):
+        return None
+    if _ABBau_CPU.search(t):
+        return ("Prozesse nach CPU-Zeit abgeraeumt - das trifft den Harness "
+                "(python.exe mit viel CPU-Zeit)")
+    if _ABBau_NAME.search(t):
+        return "Prozesse nach NAME abgeraeumt - das trifft jeden python.exe"
+    if _ABBau_LISTE.search(t) and not _ABBau_ID.search(t) and not _ABBau_FILTER.search(t):
+        return ("Prozessliste pauschal abgeraeumt (ohne feste Nummer und ohne "
+                "CommandLine-Filter) - kann den Harness treffen")
+    return None
+
+
 _SLEEP_RE = re.compile(r"start-sleep\s+(?:-seconds\s+)?(\d+(?:\.\d+)?)"
                        r"|start-sleep\s+-milliseconds\s+(\d+)"
                        r"|\bsleep\s+(\d+)\b", re.IGNORECASE)
@@ -337,6 +373,8 @@ class StreamStats:
         self.tool_seconds: float = 0.0
         self.wait_seconds: float = 0.0
         self.slow_tools: list[dict] = []     # die laengsten Werkzeugaufrufe (max 5)
+        # R13i: Muster-Prozessabbau (kann den Harness selbst toeten)
+        self.abbau: list[dict] = []
 
     # ------------------------------------------------------------------ Feed
     def feed(self, line: str) -> dict | None:
@@ -432,6 +470,14 @@ class StreamStats:
                     self.tool_counts[name] = self.tool_counts.get(name, 0) + 1
                     if self.secret_watch is not None:
                         self._secret_pfad(name, block.get("input") or {}, tid)
+                    # R13i: Prozessabbau nach Muster erkennen (vor der Ausfuehrung:
+                    # der Harness kann den Lauf noch abbrechen).
+                    if name in ("PowerShell", "Bash", "Shell", "Terminal"):
+                        eingabe = block.get("input") or {}
+                        grund = abbau_gefahr(eingabe.get("command") if isinstance(eingabe, dict) else "")
+                        if grund:
+                            self.abbau.append({"werkzeug": name, "grund": grund,
+                                               "kurz": kurz_input(eingabe)})
                     # R13h: Werkzeugzeit und Wartezeit laufend mitschreiben.
                     if t_ev is not None:
                         self._offen[str(tid)] = (t_ev, name, kurz_input(block.get("input")))

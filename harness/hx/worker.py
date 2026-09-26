@@ -15,7 +15,6 @@ from __future__ import annotations
 import json
 import os
 import threading
-import time
 import uuid
 from pathlib import Path
 
@@ -50,6 +49,7 @@ class WorkerResult:
         self.program: str | None = None
         self.ghidra_save: dict = {}          # R13-1: nach dem Batch gespeichert?
         self.secret_hits: list[dict] = []    # R13g: Schluessel-Zugriffe/Werte im Mitschnitt
+        self.abbau: list[dict] = []          # R13i: Muster-Prozessabbau (Harness-Gefahr)
 
     def describe(self) -> str:
         return (f"rc={self.rc} dauer={self.duration_s:.0f}s grenze={self.killed_reason or '-'} "
@@ -297,6 +297,7 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
         }
         fired: set[str] = set()
         gemeldet = [0]                      # R13g: bis hierher schon alarmierte Secret-Treffer
+        gemeldet_abbau = [0]                # R13i: bis hierher gemeldeter Prozessabbau
         extra_dates = list(cfg.get("peak", "extra_offpeak_dates", []) or [])
         takt = streamjson.TaktGeber(TICK_MIN_INTERVAL_S)
         takt_lock = threading.Lock()        # R13h: Takt-Thread und Leser duerfen nicht doppelt takten
@@ -313,6 +314,24 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
 
         def on_event(line: str):
             stats.feed(line)
+            # R13i: Muster-Prozessabbau SOFORT abbrechen. Der Worker hat in Batch 178 mit
+            # `Get-Process python | Where-Object {$_.CPU -gt 50} | Stop-Process` den
+            # Harness selbst getoetet (python.exe, ~370 s CPU) - still, ohne
+            # Crash-Bericht, ohne stderr. Der Abbruch hier ist eine Notbremse; die Regel
+            # im Vorspann soll es verhindern (der Befehl laeuft sonst schon los).
+            neu_abbau = stats.abbau[gemeldet_abbau[0]:]
+            if neu_abbau:
+                gemeldet_abbau[0] = len(stats.abbau)
+                res.abbau = list(stats.abbau)
+                text = ("ABBRUCH - GEFAHR FUER DEN HARNESS: " + neu_abbau[0]["grund"]
+                        + f" (Aufruf: {neu_abbau[0].get('kurz')})")
+                log.error("Prozessabbau nach Muster", werkzeug=neu_abbau[0]["werkzeug"],
+                          grund=neu_abbau[0]["grund"], befehl=neu_abbau[0].get("kurz"))
+                res.alarms.append(text)
+                if notify:
+                    notify(text)
+                res.killed_reason = "prozess_abbau"
+                return "kill"
             # R13g: Schluessel-Zugriff sofort melden (Werkzeug nennen, nie den Wert).
             neu = stats.secret_hits[gemeldet[0]:]
             if neu:
@@ -453,6 +472,7 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
     res.stats["http_state"] = list(stats.http_state)[:5]
     res.stats["api_errors"] = list(stats.api_errors)[:5]
     res.stats["secret_hits"] = list(stats.secret_hits)[:10]
+    res.stats["abbau"] = list(stats.abbau)[:5]
     # R13h: Laufzeit-Profil (Werkzeuge / Modell / Warten) - damit der Reviewer und der
     # Nutzer sehen, WOHIN die Zeit ging, statt nur wie lange es dauerte.
     res.stats["laufzeit"] = stats.laufzeit_profil()
@@ -544,6 +564,12 @@ ARBEITSUMFELD
   (Batch-Reihenfolge: git status, Memory-Sync, Mesa-Check, genau EIN preflight-Lauf,
   Bilanz, Memory-Export, Commit; Ankerblock am Ende aktualisieren).
 - Immer verfügbar: Dateien lesen, schreiben, bearbeiten, Suchen (Glob/Grep), PowerShell.
+- **Nie Prozesse nach Muster abräumen (R13i).** `Get-Process python | Where-Object { $_.CPU -gt 50 }
+  | Stop-Process`, `Stop-Process -Name python`, `taskkill /IM python.exe` sind **verboten** — der
+  Harness ist selbst ein `python.exe` und stirbt daran (in Batch 178 passiert, ohne jede Spur).
+  Erlaubt ist nur ein **gezielter** Abbau: `Stop-Process -Id 1234` mit einer Nummer, die du selbst
+  gestartet hast (`Start-Process … -PassThru` liefert sie), oder die Auswahl über die Kommandozeile
+  (`Where-Object { $_.CommandLine -like "*deinmarker*" }`). Ein verbotener Befehl bricht den Batch ab.
 - **Zugangsdaten sind tabu (R13g).** Die Schlüsseldateien des Aufbaus liegen AUSSERHALB
   dieses Repos. Sie zu lesen, aufzulisten, zu durchsuchen, zu kopieren, zu verändern oder
   in eine Ausgabe/Datei zu schreiben ist VERBOTEN — auch „nur zum Prüfen". Alles, was du

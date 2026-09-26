@@ -1702,6 +1702,38 @@ class Orchestrator:
         return "\n".join(parts)
 
     # --------------------------------------------------------------- Recovery
+    def abbau_ursache(self, batch: int) -> str:
+        """Steht im Mitschnitt des Batches ein verbotener Prozessabbau? (R13i)
+
+        Der Harness kann seinen eigenen harten Tod nicht melden - er ist dann weg. Diese
+        Suche laeuft beim NAECHSTEN Start und nennt den Befund: am 2026-09-26 hatte der
+        Worker mit `Get-Process python | Where-Object {$_.CPU -gt 50} | Stop-Process`
+        jeden python.exe mit ueber 50 s CPU-Zeit abgeraeumt, darunter den Harness.
+        """
+        p = Path(self.cfg.sub("runs")) / f"b{int(batch or 0):03d}" / "stream.jsonl"
+        if not p.is_file():
+            return ""
+        try:
+            with open(p, "r", encoding="utf-8", errors="replace") as fh:
+                for zeile in fh:
+                    if "stop-process" not in zeile.lower() and "taskkill" not in zeile.lower():
+                        continue
+                    try:
+                        ev = json.loads(zeile)
+                    except json.JSONDecodeError:
+                        continue
+                    for b in (((ev or {}).get("message") or {}).get("content") or []):
+                        if not (isinstance(b, dict) and b.get("type") == "tool_use"):
+                            continue
+                        eingabe = b.get("input") or {}
+                        cmd = eingabe.get("command") if isinstance(eingabe, dict) else ""
+                        grund = streamjson.abbau_gefahr(cmd)
+                        if grund:
+                            return f"{grund} -> {' '.join(str(cmd).split())[:160]}"
+        except OSError:
+            return ""
+        return ""
+
     def recover(self):
         self.state.set(st.RECOVERING, "Start/Neustart")
         pid = self.state.live_worker_pid()
@@ -1712,6 +1744,17 @@ class Orchestrator:
             self.log.warn("Abbruch erkannt: Worker-Eintrag ohne lebenden Prozess")
             info = self.git.wip_rescue(self.state.batch, Path(self.cfg.sub("logs")))
             self.say("Nach einem Absturz: WIP gesichert" if info.get("dirty") else "Nach einem Absturz: Arbeitsbaum war sauber.")
+            # R13i: Einen HARTEN Tod benennen, nicht nur "Absturz". Ein TerminateProcess
+            # hinterlaesst keinen Crash-Bericht - ohne diese Zeile bleibt nur die Frage,
+            # warum der Lauf weg ist.
+            ursache = self.abbau_ursache(self.state.batch)
+            if ursache:
+                self.log.error("HARTTOD: verbotener Prozessabbau im Mitschnitt", befehl=ursache)
+                self.say("Der vorige Lauf wurde HART abgeraeumt (kein Crash-Bericht). "
+                         f"Im Mitschnitt steht ein verbotener Prozessabbau: {ursache}\n"
+                         "Regel dazu steht jetzt im Worker-Vorspann (R13i).")
+            else:
+                self.log.warn("HARTTOD ohne erkennbare Ursache im Mitschnitt")
             self.state.worker_finished()
         gate = self.state.gate
         self.state.set(st.GATE_APPROVAL if gate else st.IDLE,
