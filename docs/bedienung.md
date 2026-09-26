@@ -374,3 +374,61 @@ Reine Anzeige: `watch` liest nur Dateien — kein Einfluss auf Harness, Kosten o
 **Queue erst nach gültigem Review.** `/claude`-Nachrichten gelten erst als zugestellt, wenn
 der Review einen gültigen Protokollblock geliefert hat — sonst bleiben sie unverändert in
 `inbox/claude` (und werden beim nächsten Review wieder mitgeschickt).
+
+---
+
+## 11. Schlüssel, Überwachung, Bereinigung (R13g, 2026-09-26)
+
+### 11a. Wo die Zugangsdaten liegen (und warum nicht mehr im Harness)
+
+Die drei Schlüsseldateien (`deepseek.key`, `telegram.key`, `claude-oauth.token`) liegen
+**außerhalb** des Harness-Ordners:
+
+    %USERPROFILE%\.hx-secrets\        (ACL: nur dieser Windows-Benutzer)
+
+Grund (gemessen): ein ungebundenes `--allowedTools Read` erlaubt **jeden** Pfad — mit dem
+alten Ort im Harness konnten Reviewer **und** Worker die Schlüssel lesen
+(`docs/_ask_zugriff_regeln.txt`). Seit R13f sind die Leseregeln der Rollen pfadgebunden;
+seit R13g liegt der Schlüssel zusätzlich dort, wo kein Modell aus seiner Vorgeschichte
+danach sucht. Der **alte** Ordner `g:\Harness\secrets` bleibt leer und bleibt in den
+Werkzeugverboten — dort soll niemand mehr suchen.
+
+    python -u tools\setup_secrets.py            # Umzug + Rechte (idempotent)
+    python -u tools\setup_secrets.py --check    # nur prüfen
+    # Beleg: docs\_secrets_umzug.txt
+
+`[paths] secrets` in `harness.toml` steht auf `$USERPROFILE/.hx-secrets`; die Auflösung
+macht `hx/config.py` (der Workspace bleibt damit auf andere Rechner kopierbar). Nach einem
+Rechnerwechsel: `python -u tools\setup_secrets.py` einmal laufen lassen.
+
+**Grenze, die man kennen muss:** der Worker läuft als derselbe Windows-Benutzer und hat
+PowerShell. Das Verschieben ist eine **Hürde, keine Mauer**. Dicht wird es erst mit einer
+eigenen Identität (Option 4 im Bericht vom 2026-09-26).
+
+### 11b. Überwachung: `SECRET-ZUGRIFF`
+
+Worker-, Reviewer- und `/ask`-Mitschnitte werden auf zwei Dinge geprüft (hx/streamjson.py):
+
+| Suche | Wo | Wirkung |
+|---|---|---|
+| **Schlüsselwert** im Mitschnitt | jede Zeile | Treffer = Leck → Telegram `SECRET-ZUGRIFF`, Zeile in `logs/secret-zugriff.jsonl` |
+| **Zugriffspfad** (alt/neu) | nur Werkzeugaufrufe | Treffer → derselbe Alarm. Bei schreibenden Werkzeugen zählt nur das **Ziel**, nicht der Textinhalt; ein Dokument, das den Pfad zitiert, ist **kein** Zugriff |
+
+Der Alarm nennt Art, Werkzeug und Dateinamen — **nie** einen Wert oder ein Pfadfragment
+des Inhalts (der Belegtext wird entschärft). Der Review-Messdatenblock enthält zusätzlich
+die Zeile `- SECRET-ZUGRIFF (Überwachung): keine | N Treffer …`, damit ein Blick in die
+Messdaten genügt.
+
+### 11c. Bereinigung alter Mitschnitte
+
+    python -u tools\scan_secrets.py [--redact] [--kontext]
+    # Belege: docs\_secret_scan*.txt
+
+Sucht in `runs/`, `logs/`, `state/`, `cc-worker/`, `cc-reviewer/`, `snapshots/`,
+`sessions/`, `sandbox/`, `docs/` nach den Schlüsselwerten (Vergleich **nur im Speicher**;
+Ausgabe: Datei, Name, Anzahl). `--redact` ersetzt Fundstellen durch
+`<SCHLUESSEL-ENTFERNT>`; `--kontext` zeigt die Herkunft (entschärft).
+
+**Fallstrick:** `sandbox\decomp-link` ist eine **Junction** ins Decomp-Repo. Ein `rglob`
+folgt ihr und meldet 69 GB statt 30 MB — das Werkzeug nimmt deshalb `os.walk`
+(`followlinks=False`) und überspringt Verknüpfungen sowie Binärartefakte.

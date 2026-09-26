@@ -48,6 +48,7 @@ class WorkerResult:
         self.profile: str | None = None
         self.program: str | None = None
         self.ghidra_save: dict = {}          # R13-1: nach dem Batch gespeichert?
+        self.secret_hits: list[dict] = []    # R13g: Schluessel-Zugriffe/Werte im Mitschnitt
 
     def describe(self) -> str:
         return (f"rc={self.rc} dauer={self.duration_s:.0f}s grenze={self.killed_reason or '-'} "
@@ -284,7 +285,7 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
         if len(prompt.encode("utf-8")) > MAX_STDIN_BYTES:
             raise RuntimeError(f"Prompt zu groß für stdin ({len(prompt)} Zeichen)")
         stream_path = rd / "stream.jsonl"
-        stats = streamjson.StreamStats()
+        stats = streamjson.StreamStats(streamjson.secret_watch(cfg))
         lim = {
             "alarm_wall": float(cfg.get("limits", "alarm_wall_s", 5400)),
             "alarm_requests": int(cfg.get("limits", "alarm_requests", 250)),
@@ -294,6 +295,7 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
             "hard_cost": float(cfg.get("limits", "hard_cost_usd", 2.0)),
         }
         fired: set[str] = set()
+        gemeldet = [0]                      # R13g: bis hierher schon alarmierte Secret-Treffer
         extra_dates = list(cfg.get("peak", "extra_offpeak_dates", []) or [])
         letzter_takt = [0.0]
 
@@ -307,6 +309,18 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
             stats.feed(line)
             t = stats.totals()
             cost = stats.cost_usd(extra_dates)
+            # R13g: Schluessel-Zugriff sofort melden (Werkzeug nennen, nie den Wert).
+            neu = stats.secret_hits[gemeldet[0]:]
+            if neu:
+                gemeldet[0] = len(stats.secret_hits)
+                res.secret_hits = list(stats.secret_hits)
+                text = streamjson.secret_alarm_text(neu, "Worker", batch)
+                streamjson.schreibe_secret_beleg(cfg, neu, "Worker", batch)
+                log.error("SECRET-ZUGRIFF", rolle="Worker", batch=batch,
+                          treffer=[f"{h['werkzeug']}:{h['art']}:{h['name']}" for h in neu])
+                res.alarms.append(text)
+                if notify:
+                    notify(text)
             for key, cond, text in (
                 ("alarm_requests", t["requests"] >= lim["alarm_requests"],
                  f"ALARM: {t['requests']} Anfragen erreicht (Alarmgrenze {lim['alarm_requests']})"),
@@ -413,6 +427,7 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
     # Punkt 2c: HTTP-Beruehrungen des gemeinsamen Ghidra-Zustands - nur Vermerk.
     res.stats["http_state"] = list(stats.http_state)[:5]
     res.stats["api_errors"] = list(stats.api_errors)[:5]
+    res.stats["secret_hits"] = list(stats.secret_hits)[:10]
     res.stats["num_turns"] = stats.num_turns()
     res.stats["total_cost_usd_field"] = stats.total_cost_usd_field()
     res.stats["tariff_now"] = pricing.tariff(None, extra_dates)
@@ -434,6 +449,7 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
         "batch": batch, "profile": profile_name, "program": res.program,
         "rc": res.rc, "duration_s": res.duration_s, "killed_reason": res.killed_reason,
         "alarms": res.alarms, "stats": res.stats, "cost_usd": res.cost_usd,
+        "secret_hits": list(stats.secret_hits)[:10],
         "cost_naive_usd": res.cost_naive_usd, "model_seen": res.model_seen,
         "model_ok": res.model_ok, "finished_at": now_iso(),
         "rebuilt": bool(rebuilt), "ghidra_save": res.ghidra_save,
@@ -499,6 +515,11 @@ ARBEITSUMFELD
   (Batch-Reihenfolge: git status, Memory-Sync, Mesa-Check, genau EIN preflight-Lauf,
   Bilanz, Memory-Export, Commit; Ankerblock am Ende aktualisieren).
 - Immer verfügbar: Dateien lesen, schreiben, bearbeiten, Suchen (Glob/Grep), PowerShell.
+- **Zugangsdaten sind tabu (R13g).** Die Schlüsseldateien des Aufbaus liegen AUSSERHALB
+  dieses Repos. Sie zu lesen, aufzulisten, zu durchsuchen, zu kopieren, zu verändern oder
+  in eine Ausgabe/Datei zu schreiben ist VERBOTEN — auch „nur zum Prüfen". Alles, was du
+  brauchst, bekommst du als Umgebungsvariable. Ein Zugriffsversuch wird im Mitschnitt
+  erkannt und als `SECRET-ZUGRIFF` alarmiert; er ist ein Befund im nächsten Review.
 - Ghidra liegt am MCP-Server `ghidra` (Profil und Programm unten). Adressbasierte Aufrufe
   immer mit `program="<name>"` versehen.
   * Das aktuelle Programm stellt das HARNESS. Es ist normalerweise `main.bin` -

@@ -51,7 +51,7 @@ def build_command(cfg) -> list[str]:
            "--max-turns", "25",
            "--tools", "Read,Grep,Glob",
            "--allowedTools", *pfad_regeln((cfg.root, cfg.decomp)),
-           "--disallowedTools", *(VERBOTEN + secrets_verbote(cfg.secrets_dir)),
+           "--disallowedTools", *(VERBOTEN + secrets_verbote(cfg.secrets_dir, *secrets.ALT_ORTE)),
            "--add-dir", str(cfg.root),
            "--add-dir", str(cfg.decomp)]
     sp = Path(cfg.prompts_dir) / "ask.md"
@@ -102,7 +102,7 @@ def ask(cfg, log, frage: str, mock: bool = False, zusatz: str = "") -> dict:
                      stdin_text=prompt, stderr_path=ziel / f"ask-{stempel}.err.txt")
     dauer = time.time() - t0
 
-    stats = streamjson.StreamStats()
+    stats = streamjson.StreamStats(streamjson.secret_watch(cfg))
     text = stream.read_text(encoding="utf-8", errors="replace") if stream.is_file() else ""
     for line in text.splitlines():
         stats.feed(line)
@@ -122,6 +122,14 @@ def ask(cfg, log, frage: str, mock: bool = False, zusatz: str = "") -> dict:
     if log:
         log.info("Frage beantwortet", rc=run.rc, anfragen=anfragen, kosten=kosten,
                  dauer_s=round(dauer, 1), limit=limit)
+    # R13g: auch der Frage-Lauf wird geprueft (er ist rein lesend, aber nicht blind).
+    if stats.secret_hits:
+        hinweis += " | " + streamjson.secret_alarm_text(stats.secret_hits, "/ask", None)
+        streamjson.schreibe_secret_beleg(cfg, stats.secret_hits, "/ask", None)
+        if log:
+            log.error("SECRET-ZUGRIFF", rolle="/ask",
+                      treffer=[f"{h['werkzeug']}:{h['art']}:{h['name']}" for h in stats.secret_hits])
     return {"ok": bool(antwort) and not limit, "text": antwort, "hinweis": hinweis,
             "modell": stats.model, "anfragen": anfragen, "kosten_usd": kosten,
-            "limit": bool(limit), "dauer_s": dauer, "stream": str(stream), "datei": str(datei)}
+            "limit": bool(limit), "dauer_s": dauer, "stream": str(stream), "datei": str(datei),
+            "secret_hits": list(stats.secret_hits)}

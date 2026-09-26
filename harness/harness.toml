@@ -4,7 +4,13 @@
 [paths]
 root        = "g:/Harness/harness"
 decomp      = "g:/Silent Scope Decomp"
-secrets     = "g:/Harness/secrets"
+# Option 3 (2026-09-26): die Schluesseldateien liegen NICHT mehr im Harness-Ordner,
+# sondern im Benutzerprofil mit einer ACL nur fuer diesen Benutzer. Grund: der Worker
+# hat PowerShell und lief als derselbe Windows-Benutzer - ein Pfadverbot der Werkzeuge
+# schliesst ihn nicht (gemessen, docs/_ask_zugriff_regeln.txt). Umzug und Rechte:
+#   python -u tools/setup_secrets.py      Beleg: docs/_secrets_umzug.txt
+# `$USERPROFILE` wird von hx/config.py aufgeloest, damit der Workspace kopierbar bleibt.
+secrets     = "$USERPROFILE/.hx-secrets"
 prompts     = "g:/Harness/harness/prompts"
 backups     = "g:/Harness/backups"
 # Nur fuer den Umgebungs-Nachweis (R16): der Testlauf darf NICHT ins Decomp-Repo.

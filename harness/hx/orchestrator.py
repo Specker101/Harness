@@ -18,7 +18,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from . import control, envs, pricing, protocol, queue, reviewer as rv, secrets, state as st, worker as wk
+from . import control, envs, pricing, protocol, queue, reviewer as rv, secrets, state as st, streamjson, worker as wk
 from . import ask as askmod
 from .gitsafe import Git
 from .telegram import HELP, Telegram, TelegramError
@@ -915,6 +915,9 @@ class Orchestrator:
                             stream_path=rdir / "reviewer.jsonl", mock_batch=target,
                             attempt=attempt)
         res.review_dir = str(rdir)
+        # R13g: Schluessel-Zugriff im Reviewer-Mitschnitt sofort melden.
+        if getattr(res, "secret_hits", None):
+            self.say(streamjson.secret_alarm_text(res.secret_hits, "Reviewer", target))
         self._review_previous_raw = (res.text or "")[:4000]
         stempel = now_iso().replace(":", "").replace("-", "").replace("T", "-")[:15]
         name = "review.md" if kind == "batch_end" else "review-pre.md"
@@ -1188,6 +1191,24 @@ class Orchestrator:
                       batch=(gate.get("tools") or {}).get("batch"))
 
     # ------------------------------------------- Harness-Messdaten fuer den Review
+    def secret_zeile(self, batch: int) -> str:
+        """Vermerk fuer den Messdatenblock: gab es Schluessel-Zugriffe in diesem Batch?
+
+        Gelesen wird der Beleg `logs/secret-zugriff.jsonl` (R13g). Ohne Treffer steht
+        dort ausdruecklich "keine" - ein fehlender Vermerk waere von "nicht geprueft"
+        nicht zu unterscheiden.
+        """
+        try:
+            treffer = streamjson.secret_meldungen(self.cfg, batch)
+        except Exception:                                        # noqa: BLE001
+            return "nicht pruefbar (Belegdatei unlesbar)"
+        if not treffer:
+            return "keine"
+        teile = [f"{t.get('rolle')}:{t.get('werkzeug')}:{t.get('art')}:{t.get('name')}"
+                 for t in treffer[:5]]
+        mehr = "" if len(treffer) <= 5 else f" (+{len(treffer) - 5} weitere)"
+        return f"{len(treffer)} Treffer - " + "; ".join(teile) + mehr
+
     def harness_facts(self, batch: int, ziel: Path | None = None) -> str:
         """Gemessene Zahlen, die der Reviewer braucht (Abschnitt G3 des Plans).
 
@@ -1222,6 +1243,7 @@ class Orchestrator:
             f"- Exit-Code: {res.get('rc')} | Laufzeit: {self.dauer_line(res)} "
             f"| Abbruchgrund: {res.get('killed_reason') or 'kein Abbruch'}",
             f"- Alarmmeldungen: {'; '.join(res.get('alarms') or []) or 'keine'}",
+            f"- SECRET-ZUGRIFF (Ueberwachung): {self.secret_zeile(batch)}",
             f"- Kosten (gerechnet, Tarif je Aufruf): ${float(res.get('cost_usd') or 0):.4f} "
             f"| Gegenprobe alles zum Jetzt-Tarif: ${float(res.get('cost_naive_usd') or 0):.4f}",
             f"- Anfragen: {st.get('requests')} | Eingabe ohne Cache: {st.get('input_miss')} "

@@ -10,6 +10,17 @@ DEEPSEEK = "deepseek.key"          # Worker: ANTHROPIC_AUTH_TOKEN
 TELEGRAM = "telegram.key"          # Bot-Token
 CLAUDE_OAUTH = "claude-oauth.token"  # Reviewer: CLAUDE_CODE_OAUTH_TOKEN
 
+# Name der Schluesseldateien (fuer die Ueberwachung).
+NAMEN = (DEEPSEEK, TELEGRAM, CLAUDE_OAUTH)
+
+# Veraltete Ablageorte (Option 3, 2026-09-26): frueher lag der Ordner IM Harness.
+# Er wird weiter ueberwacht und bleibt verboten - ein Modell, das den alten Pfad aus
+# der Vorgeschichte kennt, soll dort nichts finden und nicht einmal suchen.
+ALT_ORTE = ("g:/Harness/secrets",)
+
+# Pfadfragmente, die einen Zugriffsversuch kennzeichnen (klein, mit / verglichen).
+PFAD_MUSTER = ("harness/secrets", ".hx-secrets")
+
 
 class SecretError(RuntimeError):
     pass

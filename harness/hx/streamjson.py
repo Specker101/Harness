@@ -11,8 +11,10 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime, timezone
+from pathlib import Path
 
-from . import pricing
+from . import pricing, secrets
+from .util import append_jsonl, now_iso, read_text
 
 # Punkt 2c (R13e): Der HTTP-Weg auf 127.0.0.1:8089 ist ausdruecklich erlaubt. Er
 # kann aber den GEMEINSAMEN Ghidra-Zustand beruehren (Programm wechseln/oeffnen/
@@ -34,8 +36,156 @@ HTTP_TOOLS = {"PowerShell", "Bash", "Shell", "Write", "Edit", "MultiEdit",
               "NotebookEdit", "Terminal"}
 
 
+def _norm(text: str) -> str:
+    """Vergleichsform fuer Pfade: klein, nur `/`, keine Doppel-Schraegstriche."""
+    return re.sub(r"/+", "/", str(text).lower().replace("\\", "/"))
+
+
+class SecretWatch:
+    """Sucht Schluessel-ZUGRIFFE in Werkzeugaufrufen und Schluessel-WERTE im Mitschnitt.
+
+    Zwei getrennte Suchen, aus gutem Grund (R13g, 2026-09-26):
+
+    * **Werte**: JEDE Zeile wird geprueft. Ein Schluesselwert hat im Mitschnitt
+      nichts zu suchen; ein Treffer ist ein Leck. Verglichen wird nur im Speicher
+      (`str in str`), ausgegeben wird der NAME der Datei - nie der Wert.
+    * **Pfade**: nur **Werkzeugaufrufe** werden geprueft. Der Pfad darf in
+      Dokumenten, Prompts und Modellantworten vorkommen, ohne dass jemand zugreift;
+      wer den ganzen Mitschnitt danach durchsucht, meldet Fehlalarme (dieselbe
+      Falle wie bei den "abgelehnten Werkzeugaufrufen", B172/B173). Bei
+      schreibenden Werkzeugen zaehlt nur das ZIEL, nicht der Textinhalt.
+    """
+
+    SCHREIBER = ("Write", "Edit", "MultiEdit", "NotebookEdit")
+    ZIEL_FELDER = ("file_path", "path", "notebook_path", "target_file")
+
+    def __init__(self, pfade=(), werte: dict | None = None):
+        self.pfade = [_norm(p).rstrip("/") for p in pfade if p]
+        # Kurze Werte waeren als Suchmuster wertlos (und traegt ein Testtoken der
+        # Harness-Suite zufaellig dieselbe Zeichenfolge, waere das ein Fehlalarm).
+        self.werte = {k: v for k, v in (werte or {}).items() if v and len(v) >= 8}
+
+    def werte_in(self, text: str) -> list[str]:
+        """Namen der Schluessel, deren WERT im Text steht (nie der Wert selbst)."""
+        if not text or not self.werte:
+            return []
+        return [name for name, wert in self.werte.items() if wert in text]
+
+    def pfad_in(self, werkzeug: str, eingabe) -> list[str]:
+        """Pfadmuster in einem Werkzeugaufruf (bei Schreibern nur das Ziel).
+
+        Achtung Normierung: `json.dumps` schreibt Windows-Pfade als `g:\\Harness\\...`.
+        Erst backslash->slash und dann mehrfache Schraegstriche zusammenziehen, sonst
+        passt `g:/harness/secrets` nicht auf `g:\\harness\\secrets` (am 2026-09-26
+        genau so gemessen - der Fall "Read auf den alten Ort" blieb unentdeckt).
+        """
+        if not self.pfade or not eingabe:
+            return []
+        if werkzeug in self.SCHREIBER:
+            teile = []
+            if isinstance(eingabe, dict):
+                teile = [str(eingabe.get(f) or "") for f in self.ZIEL_FELDER]
+            pruef = " ".join(teile)
+        else:
+            pruef = eingabe if isinstance(eingabe, str) else json.dumps(eingabe,
+                                                                        ensure_ascii=False)
+        low = _norm(pruef)
+        return [m for m in self.pfade if m and m in low]
+
+    def entschaerfen(self, text: str, grenze: int = 160) -> str:
+        """Kurzfassung eines Werkzeugaufrufs als Beleg - Schluesselwerte ersetzt.
+
+        Ohne diesen Schritt koennte ein Aufruf wie `$k = "sk-..."` den Wert in die
+        Belegdatei tragen; genau das soll die Ueberwachung verhindern.
+        """
+        out = " ".join(str(text or "").split())
+        for wert in self.werte.values():
+            if wert:
+                out = out.replace(wert, "<WERT>")
+        return out[:grenze]
+
+
+def secret_watch(cfg) -> SecretWatch:
+    """Ueberwachung mit den Werten und Pfaden DIESER Konfiguration bauen."""
+    werte: dict[str, str] = {}
+    for name in secrets.NAMEN:
+        try:
+            werte[name] = secrets.load(cfg.secrets_dir, name)
+        except Exception:                                        # noqa: BLE001
+            continue
+    return SecretWatch([str(cfg.secrets_dir), *secrets.ALT_ORTE], werte)
+
+
+def secret_beleg_pfad(cfg):
+    return Path(cfg.sub("logs")) / "secret-zugriff.jsonl"
+
+
+def schreibe_secret_beleg(cfg, treffer: list[dict], rolle: str, batch: int | None) -> str:
+    """Treffer als Beleg ablegen - ohne Werte, ohne Prompt-Text."""
+    if not treffer:
+        return ""
+    ziel = secret_beleg_pfad(cfg)
+    for t in treffer:
+        append_jsonl(ziel, {"ts": now_iso(), "rolle": rolle, "batch": int(batch or 0),
+                            "art": t.get("art"), "werkzeug": t.get("werkzeug"),
+                            "name": t.get("name"), "stelle": t.get("stelle") or ""})
+    return str(ziel)
+
+
+def secret_alarm_text(treffer: list[dict], rolle: str, batch: int | None) -> str:
+    """Telegram-Text fuer einen Treffer. Enthaelt nur Art, Werkzeug und Dateinamen."""
+    if not treffer:
+        return ""
+    teile = []
+    for t in treffer[:5]:
+        if t.get("art") == "wert":
+            teile.append(f"Schluesselwert in der Ausgabe ({t.get('name')})")
+        else:
+            teile.append(f"{t.get('werkzeug')} -> {t.get('name')}")
+    mehr = "" if len(treffer) <= 5 else f" (+{len(treffer) - 5} weitere)"
+    return (f"SECRET-ZUGRIFF: {len(treffer)} Treffer im {rolle}-Lauf"
+            f"{f' (Batch {batch})' if batch else ''}: " + "; ".join(teile) + mehr)
+
+
+def secret_meldungen(cfg, batch: int | None = None) -> list[dict]:
+    """Belegte Treffer zuruecklesen (fuer den Review-Messdatenblock)."""
+    p = secret_beleg_pfad(cfg)
+    if not p.is_file():
+        return []
+    out = []
+    for ln in read_text(p).splitlines():
+        ln = ln.strip()
+        if not ln:
+            continue
+        try:
+            obj = json.loads(ln)
+        except json.JSONDecodeError:
+            continue
+        if batch and int(obj.get("batch") or 0) != int(batch):
+            continue
+        out.append(obj)
+    return out
+
+
+def scanne_mitschnitt(cfg, pfad) -> list[dict]:
+    """Einen fertigen Mitschnitt auf Schluessel-Zugriffe/Werte pruefen."""
+    p = Path(pfad)
+    if not p.is_file():
+        return []
+    w = secret_watch(cfg)
+    stats = StreamStats(secret_watch=w)
+    with open(p, "r", encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            stats.feed(line)
+    return stats.secret_hits
+
+
+
 class StreamStats:
-    def __init__(self):
+    def __init__(self, secret_watch: "SecretWatch | None" = None):
+        # R13g: Ueberwachung der Schluessel. Ohne Watch kostet das nichts.
+        self.secret_watch = secret_watch
+        self.secret_hits: list[dict] = []
         self.session_id: str | None = None
         self.model: str | None = None
         self.models: dict[str, int] = {}
@@ -75,6 +225,11 @@ class StreamStats:
             return None
         self.raw_events += 1
         etype = ev.get("type")
+
+        # R13g: Werte in JEDER Zeile suchen (ein Schluesselwert gehoert nirgends hin).
+        if self.secret_watch is not None:
+            for name in self.secret_watch.werte_in(line):
+                self._secret("wert", "-", name)
 
         if etype == "system" and ev.get("subtype") == "init":
             self.session_id = ev.get("session_id") or self.session_id
@@ -145,6 +300,8 @@ class StreamStats:
                     self.tools.append({"ts": ev.get("timestamp") or "", "id": tid,
                                        "name": name, "input": block.get("input") or {}})
                     self.tool_counts[name] = self.tool_counts.get(name, 0) + 1
+                    if self.secret_watch is not None:
+                        self._secret_pfad(name, block.get("input") or {}, tid)
                     if name in HTTP_TOOLS:
                         self._scan_http(json.dumps(block.get("input") or {},
                                                    ensure_ascii=False))
@@ -175,6 +332,25 @@ class StreamStats:
         return ev
 
     # ------------------------------------------------------- Fehler erkennen
+    def _secret(self, art: str, werkzeug: str, name: str, stelle: str = "") -> None:
+        """Treffer festhalten - nie den Wert, nur Art, Werkzeug und Dateiname."""
+        for t in self.secret_hits:
+            if t["art"] == art and t["werkzeug"] == werkzeug and t["name"] == name:
+                t["anzahl"] = int(t.get("anzahl") or 1) + 1
+                return
+        self.secret_hits.append({"art": art, "werkzeug": werkzeug, "name": name,
+                                 "stelle": stelle, "anzahl": 1})
+
+    def _secret_pfad(self, werkzeug: str, eingabe, tid) -> None:
+        """Zugriffsversuch auf einen Schluesselort in einem Werkzeugaufruf."""
+        muster = self.secret_watch.pfad_in(werkzeug, eingabe)
+        if not muster:
+            return
+        roh = eingabe if isinstance(eingabe, str) else json.dumps(eingabe, ensure_ascii=False)
+        stelle = self.secret_watch.entschaerfen(roh)
+        for m in muster:
+            self._secret("pfad", werkzeug, m, stelle=stelle)
+
     def _scan_http(self, text: str) -> None:
         """Vorbeigehende HTTP-Aufrufe auf den Ghidra-Port bemerken (Punkt 2c).
 

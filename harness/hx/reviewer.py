@@ -30,6 +30,7 @@ class ReviewResult:
         self.raw_path: str | None = None
         self.parsed: protocol.Review | None = None
         self.error: str | None = None
+        self.secret_hits: list[dict] = []    # R13g: Schluessel-Zugriffe/Werte im Mitschnitt
 
     def describe(self) -> str:
         base = f"rc={self.rc} dauer={self.duration_s:.0f}s modell={self.model_seen} limit={self.limit_reached}"
@@ -64,7 +65,7 @@ def build_command(cfg, session_id: str | None, new_session: bool) -> list[str]:
            "--allowedTools", *pfad_regeln((cfg.root, cfg.decomp)),
            "--disallowedTools", "Bash", "WebFetch", "WebSearch", "Task", "NotebookEdit",
            "TodoWrite", "SlashCommand", "Skill", "mcp__ghidra",
-           *secrets_verbote(cfg.secrets_dir),
+           *secrets_verbote(cfg.secrets_dir, *secrets.ALT_ORTE),
            # R13f: Wurzel fuer den Pfadbereich anmelden. Sonst gilt ein absoluter
            # Pfad ausserhalb des Arbeitsverzeichnisses als "draussen" und wird
            # abgelehnt, obwohl die Regel ihn erlaubt (gemessen: harness.toml war
@@ -188,6 +189,20 @@ def run_review(cfg, log, prompt: str, session_id: str | None = None, new_session
             res.limit_reached = True
         if not res.text and res.rc not in (0, None):
             res.error = f"Reviewer ohne Ergebnis (rc={res.rc}): {err.strip()[:300]}"
+
+    # R13g: Schluessel-Zugriffe im Reviewer-Mitschnitt. Nach dem Lauf geprueft (der
+    # Reviewer liest nur; ein Zugriff waere ein Befund, kein Notfall) - der Harness
+    # alarmiert daraufhin.
+    try:
+        res.secret_hits = streamjson.scanne_mitschnitt(cfg, res.raw_path) if not mock else []
+    except Exception as exc:                                     # noqa: BLE001
+        if log:
+            log.warn("Secret-Pruefung des Review-Mitschnitts fehlgeschlagen", err=str(exc)[:150])
+    if res.secret_hits:
+        streamjson.schreibe_secret_beleg(cfg, res.secret_hits, "Reviewer", None)
+        if log:
+            log.error("SECRET-ZUGRIFF", rolle="Reviewer",
+                      treffer=[f"{h['werkzeug']}:{h['art']}:{h['name']}" for h in res.secret_hits])
 
     res.parsed = protocol.parse_review(res.text)
     # --- Nachher-Pruefung (E3, R11-5c): Modell muss das konfigurierte sein ------------

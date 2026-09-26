@@ -104,13 +104,19 @@ def pfad_regeln(wurzeln, rollen: tuple[str, ...] = LESE_ROLLEN) -> list[str]:
     return regeln
 
 
-def secrets_verbote(secrets_dir, rollen: tuple[str, ...] = LESE_ROLLEN) -> list[str]:
-    """Ausdrueckliches Verbot fuer den secrets-Ordner (Guertel und Hosentraeger).
+def secrets_verbote(*dirs, rollen: tuple[str, ...] = LESE_ROLLEN) -> list[str]:
+    """Ausdrueckliches Verbot fuer die secrets-Ordner (Guertel und Hosentraeger).
 
+    Mehrere Ordner sind moeglich: seit dem Umzug (2026-09-26) wird auch der ALTE
+    Ort weiter verboten, damit ein Modell dort gar nicht erst sucht.
     Das Verbot greift auch dann, wenn irgendwo versehentlich ein ungebundenes
     `Read` in der Erlaubnisliste steht.
     """
-    s = str(secrets_dir).replace("\\", "/").rstrip("/")
-    regeln = [f"{rolle}(//{s}/**)" for rolle in rollen]
-    regeln += [f"{rolle}({s}/**)" for rolle in rollen]
+    regeln: list[str] = []
+    for d in dirs:
+        if not d:
+            continue
+        s = str(d).replace("\\", "/").rstrip("/")
+        regeln += [f"{rolle}(//{s}/**)" for rolle in rollen]
+        regeln += [f"{rolle}({s}/**)" for rolle in rollen]
     return regeln
