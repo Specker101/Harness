@@ -370,6 +370,13 @@ Reine Anzeige: `watch` liest nur Dateien — kein Einfluss auf Harness, Kosten o
   20 Zeilen, dann „Enter zum Schliessen“.
 * `/status` sagt bei totem Prozess ausdrücklich `Harness-Prozess: … - HARNESS LAEUFT NICHT`
   und nennt den letzten Crash-Bericht (`Letzter Crash-Bericht: crash-….txt (<ts>)`).
+* **Harte Tode** (TerminateProcess: `taskkill`, Job-Objekt von VS Code, geschlossenes
+  Fenster) kommen hier **nie** an — kein Bericht, keine stderr-Zeile, kein
+  Ereigniseintrag, Zustand bleibt auf `DS_WORKING`. Erkennung, der belegte Fall vom
+  2026-09-26 (ein Worker räumte `Get-Process python | Where-Object { $_.CPU -gt 50 }`
+  ab und tötete damit den Harness) und die Gegenmaßnahmen stehen in
+  **`abstuerze.md`**. Beim nächsten Start nennt `recover()` den harten Tod und zitiert
+  den verbotenen Befehl aus `runs/b<N>/stream.jsonl`.
 
 **Queue erst nach gültigem Review.** `/claude`-Nachrichten gelten erst als zugestellt, wenn
 der Review einen gültigen Protokollblock geliefert hat — sonst bleiben sie unverändert in
