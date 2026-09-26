@@ -85,3 +85,32 @@ def builtin_args(role: str) -> tuple[str, list[str]]:
     """( --tools-Wert, --allowedTools-Grundliste ) fuer Worker oder Reviewer."""
     names = BUILTIN_WORKER if role == "worker" else BUILTIN_REVIEWER
     return ",".join(names), list(names)
+
+
+# --------------------------------------------------- pfadgebundene Leseregeln
+# GEMESSEN 2026-09-26 (docs/_ask_zugriff_regeln.txt): ein blosses
+# `--allowedTools Read` erlaubt das Werkzeug OHNE Pfadbeschraenkung - damit war
+# `g:\Harness\secrets\deepseek.key` fuer Reviewer UND Worker lesbar. Wirksam ist
+# nur die gebundene Form `Read(//<pfad>/**)` (CLI-Hilfe: 'Bash(git *)').
+LESE_ROLLEN = ("Read", "Grep", "Glob")
+
+
+def pfad_regeln(wurzeln, rollen: tuple[str, ...] = LESE_ROLLEN) -> list[str]:
+    """`Read(//g:/Harness/harness/**)` usw. fuer jede Wurzel und jede Rolle."""
+    regeln: list[str] = []
+    for w in wurzeln:
+        p = str(w).replace("\\", "/").rstrip("/")
+        regeln += [f"{rolle}(//{p}/**)" for rolle in rollen]
+    return regeln
+
+
+def secrets_verbote(secrets_dir, rollen: tuple[str, ...] = LESE_ROLLEN) -> list[str]:
+    """Ausdrueckliches Verbot fuer den secrets-Ordner (Guertel und Hosentraeger).
+
+    Das Verbot greift auch dann, wenn irgendwo versehentlich ein ungebundenes
+    `Read` in der Erlaubnisliste steht.
+    """
+    s = str(secrets_dir).replace("\\", "/").rstrip("/")
+    regeln = [f"{rolle}(//{s}/**)" for rolle in rollen]
+    regeln += [f"{rolle}({s}/**)" for rolle in rollen]
+    return regeln

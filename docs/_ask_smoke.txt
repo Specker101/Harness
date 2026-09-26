@@ -1,0 +1,6 @@
+﻿[17:09:31] INFO  Frage gestartet  modell=claude-opus-5-5 zeichen=171
+[17:09:35] INFO  Frage beantwortet  rc=0 anfragen=2 kosten=0.000887 dauer_s=4.3 limit=False
+175
+
+(claude-opus-5-5 | 2 Anfragen | $0.0009 | 4s)
+Beleg: g:\Harness\harness\logs\ask\ask-20260926-150931+0000.md

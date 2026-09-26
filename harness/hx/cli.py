@@ -10,6 +10,7 @@
   python -m hx.cli watch          [--batch N | --run <name>] [--no-color] [--once]
   python -m hx.cli pause|resume|stop|approve|number <N>
   python -m hx.cli send ds|claude "<Text>" [--file <pfad>]
+  python -m hx.cli ask "<Frage>" [--file <pfad>]
   python -m hx.cli run-instruction --file <pfad> [--profile none]
 """
 
@@ -1022,6 +1023,36 @@ def cmd_number(args) -> int:
     return _ctl_put(load_config(args.config), "number", n)
 
 
+def cmd_ask(args) -> int:
+    """Freie Frage an Claude - eigener, nur lesender Lauf (R13f).
+
+    Laeuft im EIGENEN Prozess: der Harness (und ein laufender Batch) bleibt
+    unberuehrt. Antwort kommt auf die Konsole, der Hinweis (Modell, Anfragen,
+    Kosten, Limit) darunter.
+    """
+    from . import ask as askmod
+    cfg = load_config(args.config)
+    frage = args.frage or ""
+    if args.file:
+        p = Path(args.file)
+        if not p.is_file():
+            print(f"Datei nicht gefunden: {p}", file=sys.stderr)
+            return 2
+        frage = read_text(p)
+    if not frage.strip():
+        print('Nutzung: hx.cli ask "<Frage>"   oder   hx.cli ask --file <pfad.md>',
+              file=sys.stderr)
+        return 2
+    log = _log(cfg, "ask")
+    res = askmod.ask(cfg, log, frage)
+    print(res.get("text") or "(keine Antwort)")
+    print()
+    print(res.get("hinweis") or "")
+    if res.get("datei"):
+        print(f"Beleg: {res['datei']}")
+    return 0 if res.get("ok") else 1
+
+
 def cmd_send(args) -> int:
     """Nachricht an Worker (ds) oder Reviewer (claude) in die Queue legen."""
     from . import queue
@@ -1153,6 +1184,9 @@ def build_parser() -> argparse.ArgumentParser:
     sd.add_argument("target", choices=["ds", "claude"])
     sd.add_argument("text", nargs="?", default="")
     sd.add_argument("--file", help="langer Text aus einer Datei")
+    ak = sub.add_parser("ask", help="freie Frage an Claude (eigener Lauf, nur lesend)")
+    ak.add_argument("frage", nargs="?", default="", help="die Frage")
+    ak.add_argument("--file", help="Frage aus einer Datei")
     ri = sub.add_parser("run-instruction", help="eigene Instruktion als naechsten Batch")
     ri.add_argument("--file", help="Datei mit der Instruktion")
     ri.add_argument("--text", default="", help="Instruktion direkt")
@@ -1177,6 +1211,7 @@ def main(argv: list[str] | None = None) -> int:
         "env-proof": cmd_env_proof, "rebuild": cmd_rebuild, "ghidra-smoke": cmd_ghidra_smoke,
         "pause": cmd_pause, "resume": cmd_resume, "stop": cmd_stop,
         "approve": cmd_approve, "send": cmd_send, "number": cmd_number,
+        "ask": cmd_ask,
         "run-instruction": cmd_run_instruction, "watch": cmd_watch,
     }[args.cmd](args)
 

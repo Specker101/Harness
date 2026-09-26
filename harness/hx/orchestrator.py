@@ -11,6 +11,7 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 import traceback
 import uuid
@@ -18,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from . import control, envs, pricing, protocol, queue, reviewer as rv, secrets, state as st, worker as wk
+from . import ask as askmod
 from .gitsafe import Git
 from .telegram import HELP, Telegram, TelegramError
 from .util import ensure_dir, now_iso, read_json, read_text, secs_human, write_text_atomic
@@ -41,6 +43,7 @@ class Orchestrator:
         self.ghidra_failed = False
         self.quit = False
         self._wip_done = False
+        self._ask_running = False
         self._notified: dict[str, float] = {}
         # Attrappen-Modus des Reviewers (Tests/Demo): "ok", "parser_error",
         # "ok_zweiter_versuch", "reviewer_crash", "modell_falsch", "limit".
@@ -359,6 +362,40 @@ class Orchestrator:
         except Exception as exc:
             self.log.warn("lokaler Steuerbefehl fehlgeschlagen", fehler=str(exc)[:200])
 
+    # ------------------------------------------------------------------ /ask
+    def _do_ask(self, frage: str = "") -> None:
+        """Freie Frage an Claude - eigener Lauf im EIGENEN THREAD (R13f).
+
+        Der Thread ist Pflicht, nicht Bequemlichkeit: laeuft ein Batch, wird
+        `poll(fast=True)` aus dem Mitschnitt-Thread des Workers aufgerufen
+        (`proc.run_stream` -> `on_event`). Ein blockierender Unterprozess dort
+        wuerde den Mitschnitt anhalten und damit den Batch beeinflussen.
+        """
+        frage = (frage or "").strip()
+        if not frage:
+            self.say("Nutzung: /ask <Frage>  (nur lesend; eigener Lauf, eigene Session)")
+            return
+        if self._ask_running:
+            self.say("Es laeuft schon eine Frage - ich melde mich, sobald sie beantwortet ist.")
+            return
+        self._ask_running = True
+        self.say("Frage laeuft (eigener Lauf, nur lesend: Decomp-Repo + Harness). "
+                 "Der Betrieb hier laeuft weiter.")
+
+        def lauf():
+            try:
+                res = askmod.ask(self.cfg, self.log, frage, mock=self.mock)
+                self.say(res.get("text") or "(keine Antwort)")
+                if res.get("hinweis"):
+                    self.say(res["hinweis"])
+            except Exception as exc:                            # noqa: BLE001
+                self.log.error("Frage fehlgeschlagen", fehler=str(exc)[:250])
+                self.say("FRAGE FEHLGESCHLAGEN: " + str(exc)[:300])
+            finally:
+                self._ask_running = False
+
+        threading.Thread(target=lauf, daemon=True, name="hx-ask").start()
+
     # ------------------------------------------------------------------ Pollen
     def poll(self, fast: bool = False):
         """Lokale Befehle + Telegram abfragen.
@@ -438,6 +475,8 @@ class Orchestrator:
             else:
                 p = queue.enqueue(self.qroot, "claude", rest, "telegram")
                 self.say(f"In die Queue gelegt ({p.name}). Wird beim naechsten Review zugestellt.")
+        elif cmd == "ask":
+            self._do_ask(rest)
         elif cmd == "approve":
             self._do_approve(rest)
         elif cmd == "autonom":
@@ -1095,10 +1134,12 @@ class Orchestrator:
         """
         gate = gate if gate is not None else self.state.gate
         if not gate:
-            return {"entscheidung": [], "frage": [], "live": []}
+            return {"entschieden": [], "entscheidung": [], "frage": [], "live": []}
         p = gate.get("offene_punkte")
-        if isinstance(p, dict) and any(p.get(k) for k in ("entscheidung", "frage", "live")):
-            return {"entscheidung": list(p.get("entscheidung") or []),
+        if isinstance(p, dict) and any(p.get(k) for k in ("entschieden", "entscheidung",
+                                                          "frage", "live")):
+            return {"entschieden": list(p.get("entschieden") or []),
+                    "entscheidung": list(p.get("entscheidung") or []),
                     "frage": list(p.get("frage") or []),
                     "live": list(p.get("live") or [])}
         return protocol.parse_offene_punkte(gate.get("summary") or "")

@@ -13,7 +13,7 @@ from pathlib import Path
 
 from . import envs, protocol, secrets
 from .proc import run_stream
-from .profiles import builtin_args
+from .profiles import builtin_args, pfad_regeln, secrets_verbote
 from .util import ensure_dir, now_iso, read_text, write_json_atomic, write_text_atomic
 
 
@@ -59,9 +59,19 @@ def build_command(cfg, session_id: str | None, new_session: bool) -> list[str]:
            "--permission-prompts", "none",
            "--max-turns", "40",
            "--tools", ",".join(allowed),
-           "--allowedTools", *allowed,
+           # R13f: Lesen ist pfadgebunden. Gemessen 2026-09-26 konnte der Reviewer mit
+           # einem ungebundenen `Read` auch `g:\Harness\secrets` oeffnen.
+           "--allowedTools", *pfad_regeln((cfg.root, cfg.decomp)),
            "--disallowedTools", "Bash", "WebFetch", "WebSearch", "Task", "NotebookEdit",
-           "TodoWrite", "SlashCommand", "Skill", "mcp__ghidra"]
+           "TodoWrite", "SlashCommand", "Skill", "mcp__ghidra",
+           *secrets_verbote(cfg.secrets_dir),
+           # R13f: Wurzel fuer den Pfadbereich anmelden. Sonst gilt ein absoluter
+           # Pfad ausserhalb des Arbeitsverzeichnisses als "draussen" und wird
+           # abgelehnt, obwohl die Regel ihn erlaubt (gemessen: harness.toml war
+           # ohne --add-dir VERWEIGERT). `secrets` ist ein Geschwisterordner von
+           # `harness` und damit weiterhin ausserhalb.
+           "--add-dir", str(cfg.root),
+           "--add-dir", str(cfg.decomp)]
     sp = Path(cfg.prompts_dir) / "reviewer.md"
     if sp.is_file():
         cmd += ["--append-system-prompt-file", str(sp)]

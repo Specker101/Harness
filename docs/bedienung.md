@@ -87,6 +87,7 @@ Immer aus `g:\Harness\harness` aufrufen (`python -m hx.cli …`).
 | `number <N>` | Batch-Nummer des **offenen** Auftrags setzen (z. B. wenn der Reviewer eine andere nennt) |
 | `send ds "Text"` / `send ds --file auftrag.md` | Nachricht an den **Worker** in die Queue (Zustellung am nächsten Batch-Übergang) |
 | `send claude "Text"` / `send claude --file ziele.md` | Nachricht an den **Reviewer** in die Queue (Zustellung am nächsten Review) |
+| `ask "Frage"` / `ask --file frage.md` | **freie Frage an Claude** (eigener Lauf, eigene Session, Modell des Reviewers, **nur lesend**). Antwort kommt direkt zurück; Belegdatei unter `logs\ask\`. Läuft **auch während eines Batches** und beeinflusst ihn nicht. |
 | `run-instruction --file instruktion.md [--profile ghidra-read] [--program /830d01.27p.main.bin]` | **eigene** Instruktion als nächster Worker-Batch, **am Reviewer vorbei**; im Log/Status als „vom Nutzer" gekennzeichnet; danach normaler Batch-Ende-Review |
 | `watch [--batch N] [--run name] [--no-color] [--once]` | Live-Ansicht bzw. Nachspielen; **rein lesend** |
 | `profiles` | verfügbare Ghidra-Werkzeugprofile mit Zahlen |
@@ -108,8 +109,14 @@ Im Notfall ist `stop.ps1 -Force` sofort.
 ## 3. Telegram-Befehle
 
 `/status` · `/budget` · `/pause` · `/resume [ok]` · `/stop` · `/approve [Text]` ·
-`/number <N>` · `/autonom [on|off]` · `/ds <Text>` · `/claude <Text>` · `/review` ·
-`/last [ds|claude] [n]` · `/queue` · `/why` · `/help`
+`/number <N>` · `/autonom [on|off]` · `/ds <Text>` · `/claude <Text>` · `/ask <Frage>` ·
+`/review` · `/last [ds|claude] [n]` · `/queue` · `/why` · `/help`
+
+`/ask` ist **kein** Eingriff in den Betrieb: es ist ein eigener, rein lesender Lauf
+(Decomp-Repo **und** Harness-Code/Logs/Status) im **eigenen Thread** — der laufende Batch
+merkt nichts davon. Der Ordner `secrets` ist für diesen Lauf gesperrt (nachgewiesen:
+`docs\_ask_zugriff_beleg.txt`). Antworten sind lang und werden automatisch aufgeteilt;
+unter der Antwort steht die Zeile mit Modell, Anfragen, Kosten und Dauer.
 
 `/review` verwirft einen offenen Auftrag und hebt die Pause auf — der Harness bewertet
 sofort neu. `/last claude` liefert die **vollständige** letzte Instruktion.
@@ -316,8 +323,18 @@ Der Reviewer nutzt drei Markerzeilen in seiner `<TELEGRAM_SUMMARY>`
 | Zeile | Bedeutung | Wirkung |
 |---|---|---|
 | `ENTSCHEIDUNG NOETIG: …` | die nächste Instruktion hängt von deiner Antwort ab, oder es ist eine grundsätzliche Weichenstellung | **bremst**: das Gate wird auch im Dauerbetrieb **nicht** automatisch freigegeben. Telegram meldet „Wartet auf deine Entscheidung“, `/status` und `watch` zeigen den Punkt |
+| `ENTSCHIEDEN: …` | der Reviewer hat **selbst** entschieden (Priorisierung, Weg, Umfang, Profil, Umgang mit Sackgassen) | bremst **nicht**. Sichtbar in `/status` und `watch` als „Entschieden (Reviewer, Widerspruch per /claude)“. **Dein Veto** ist `/claude <Text>`; es wiegt wie eine Nutzerentscheidung |
 | `OFFENE FRAGE: …` | nur zur Information (z. B. die Audio-Frage in B159), die Arbeit geht an anderem weiter | bremst **nicht** |
 | `WARTET AUF LIVE-AUFNAHME: …` | es fehlt Material, das nur du liefern kannst | bremst **nicht** |
+
+**Wann der Reviewer noch fragt (Entscheidungsregel, R13f).** `ENTSCHEIDUNG NOETIG` benutzt er
+nur in fünf Fällen: Änderung an **Projektziel/Umfang**, ein Eingriff aus der **Verbotsliste**,
+**Material, das nur du liefern kannst** (nur wenn der nächste Batch ohne dieses Material nicht
+weiterkann — sonst `WARTET AUF LIVE-AUFNAHME`), **Abweichung von einer ausdrücklichen
+Nutzerentscheidung**, und der **Übergang zur systematischen Dekompilierung**. Alles andere —
+auch Wiederholungen und Sackgassen — entscheidet er selbst (`ENTSCHIEDEN: …`) und begründet es
+im Batch-Dokument. Die frühere Regel „zweimal dasselbe Problem → Nutzer fragen“ gilt **nicht
+mehr** (Veto-Prinzip statt Eskalation).
 
 Freigeben kannst weiterhin **du** (`/approve`); nur der Automat hält an. Die Punkte stehen in
 `/status` (Zeilen „Offene Entscheidung/…“) und in `watch` über dem Gate. Bei älteren Gates

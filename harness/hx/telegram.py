@@ -25,6 +25,7 @@ HELP = (
     "/autonom - Dauerbetrieb an/aus (ohne Rueckfrage starten)\n"
     "/ds <Text> - Nachricht an den Worker (Queue)\n"
     "/claude <Text> - Nachricht an den Reviewer (Queue)\n"
+    "/ask <Frage> - freie Frage an Claude (eigener Lauf, nur lesend)\n"
     "/review - neuer Review jetzt (verwirft einen offenen Auftrag, hebt die Pause auf)\n"
     "/last [ds|claude] [n] - letzten Text zeigen (claude = vollstaendige Instruktion)\n"
     "/budget - Kosten und Grenzen\n"

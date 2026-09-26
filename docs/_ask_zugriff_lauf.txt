@@ -1,0 +1,37 @@
+﻿# Wer darf was lesen? (gemessen 2026-09-26)
+
+Alle Proben laufen mit den ECHTEN Rechten des jeweiligen Laufs. Das Modell gibt nur
+GELESEN/VERWEIGERT zurueck - keine Inhalte, damit kein Geheimnis im Beleg landet.
+
+- Harness-Datei:  g:\Harness\harness\state\run.json
+- Repo-Datei:     g:\Silent Scope Decomp\analysis\r1b-workstream.md
+- Secret-Datei:   g:\Harness\secrets\deepseek.key
+
+## A) Reviewer-Rechte (cwd = Decomp-Repo)
+
+### A-reviewer
+  cwd=g:\Silent Scope Decomp
+  rc=0  Antwort: 1=GELESEN | 2=GELESEN
+
+## B) Worker-Rechte (cwd = Decomp-Repo)
+
+### B-worker
+  cwd=g:\Silent Scope Decomp
+  rc=0  Antwort: 1=GELESEN | 2=VERWEIGERT
+
+## C) /ask-Rechte (cwd = Harness, --add-dir Decomp-Repo)
+
+### C-ask
+  cwd=g:\Harness\harness
+  rc=0  Antwort: 1=GELESEN | 2=GELESEN
+
+## D) /ask gegen den secrets-Ordner (Sicherheitsbeleg)
+
+### D-ask-secrets
+  cwd=g:\Harness\harness
+  rc=0  Antwort: 1=GELESEN | 2=GELESEN
+
+Erwartung: A und B VERWEIGERT fuer die Harness-Datei (der Worker laeuft im Repo und
+bekommt keine zweite Wurzel), C GELESEN/GELESEN, D VERWEIGERT fuer das Secret.
+
+geschrieben: g:\Harness\docs\_ask_zugriff_beleg.txt

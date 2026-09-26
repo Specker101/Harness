@@ -20,3 +20,10 @@ __pycache__/
 # tests/__pycache__/*.pyc wieder dabei ("!tests/**" hebt sonst alles auf).
 __pycache__/
 *.pyc
+
+# Ebenso: die Temp-Ordner der Testlaeufe (tests/_tmp_r13b, _tmp_r13d, ...).
+# Auch sie muss die Ausnahme ausdruecklich zuruecknehmen - der Wurzel-Eintrag
+# `harness/tests/_tmp_*/` greift hier NICHT mehr, weil diese Datei tiefer liegt.
+# Aufgefallen am 2026-09-26: ein abgebrochener Testlauf liess
+# tests/_tmp_r13d/repo/ liegen - ein eingebettetes Git-Repo im Arbeitsbaum.
+tests/_tmp_*/

@@ -145,7 +145,11 @@ def _blocks(text: str) -> dict[str, list[str]]:
 MARKER_ENTSCHEIDUNG = "ENTSCHEIDUNG NOETIG:"
 MARKER_OFFENE_FRAGE = "OFFENE FRAGE:"
 MARKER_LIVE = "WARTET AUF LIVE-AUFNAHME:"
+# R13f: Der Reviewer entscheidet den Regelfall SELBST und dokumentiert das.
+# ENTSCHIEDEN bremst NICHT - es ist die Zeile, die dem Nutzer das Veto ermoeglicht.
+MARKER_ENTSCHIEDEN = "ENTSCHIEDEN:"
 _ZEILENMARKER = (
+    ("entschieden", MARKER_ENTSCHIEDEN),
     ("entscheidung", MARKER_ENTSCHEIDUNG),
     ("frage", MARKER_OFFENE_FRAGE),
     ("live", MARKER_LIVE),
@@ -155,10 +159,12 @@ _ZEILENMARKER = (
 def parse_offene_punkte(text: str) -> dict[str, list[str]]:
     """Zeilen, die mit einem Marker beginnen (ein optionales Aufzaehlungszeichen davor ist ok).
 
-    Rueckgabe: {"entscheidung": [...], "frage": [...], "live": [...]} - jeweils der Text
-    nach dem Doppelpunkt. Gross-/Kleinschreibung und Umlaute sind tolerant (NOETIG/NÖTIG).
+    Rueckgabe: {"entschieden": [...], "entscheidung": [...], "frage": [...], "live": [...]}
+    - jeweils der Text nach dem Doppelpunkt. Gross-/Kleinschreibung und Umlaute sind tolerant
+    (NOETIG/NÖTIG).
     """
-    out: dict[str, list[str]] = {"entscheidung": [], "frage": [], "live": []}
+    out: dict[str, list[str]] = {"entschieden": [], "entscheidung": [],
+                                 "frage": [], "live": []}
     for raw in (text or "").splitlines():
         ln = raw.strip().lstrip("-*•># ").strip()
         if not ln:
@@ -176,9 +182,13 @@ def parse_offene_punkte(text: str) -> dict[str, list[str]]:
 
 
 def offene_punkte_kurz(punkte: dict[str, list[str]], breite: int = 150) -> list[str]:
-    """Kurze Zeilen fuer /status und watch (je Punkt eine Zeile)."""
+    """Kurze Zeilen fuer /status und watch (je Punkt eine Zeile).
+
+    `entschieden` steht zuerst: es ist die haeufigste Zeile und bremst nicht.
+    """
     zeilen: list[str] = []
-    for key, kopf in (("entscheidung", "Offene Entscheidung"),
+    for key, kopf in (("entschieden", "Entschieden (Reviewer, Widerspruch per /claude)"),
+                      ("entscheidung", "Offene Entscheidung"),
                       ("frage", "Offene Frage"),
                       ("live", "Wartet auf Live-Aufnahme")):
         for v in (punkte or {}).get(key) or []:
