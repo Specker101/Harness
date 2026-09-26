@@ -65,10 +65,17 @@ class Telegram:
         return self.call("getMe", {}, timeout=20).get("result", {})
 
     def get_updates(self, offset: int = 0, timeout: int | None = None) -> list[dict]:
+        """`timeout=0` = kurze Abfrage (fuer den laufenden Betrieb), None = Langpoll.
+
+        R13k: Das Zeitlimit ist ABSICHTLICH knapp. Am 2026-09-27 stand der Harness
+        ueber 17 Minuten, weil ein `get_updates` (aus dem Mitschnitt-Leser heraus)
+        in `urlopen` haengen blieb. Der Netz-Aufruf ist jetzt aus dem Leser verbannt;
+        zusaetzlich soll ein haengender Aufruf den Takt-Thread nur kurz kosten.
+        """
         to = timeout if timeout is not None else self.poll_timeout
         res = self.call("getUpdates", {"offset": offset, "timeout": to,
                                        "allowed_updates": json.dumps(["message"])},
-                        timeout=to + 15)
+                        timeout=(8.0 if to == 0 else to + 15))
         return res.get("result", [])
 
     def send(self, text: str, chat_id: str | None = None) -> bool:
@@ -78,8 +85,10 @@ class Telegram:
         ok = True
         for chunk in split_message(text or ""):
             try:
+                # R13k: knapp begrenzt - ein Sendeversuch darf keinen Lauf aufhalten
+                # (Alarme werden auch aus dem Mitschnitt-Leser heraus gemeldet).
                 self.call("sendMessage", {"chat_id": cid, "text": chunk,
-                                          "disable_web_page_preview": "true"}, timeout=30)
+                                          "disable_web_page_preview": "true"}, timeout=15)
             except TelegramError as exc:
                 ok = False
                 if self.log:

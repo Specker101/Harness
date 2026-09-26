@@ -349,9 +349,15 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
             # fuer JEDE Zeile - in b177 (156.493 Zeilen) sind das ~179 s Rechenzeit im
             # Leser-Thread, der eigentlich die Ausgabe des Kindprozesses abnehmen soll.
             # `feed()` selbst kostet nur 0,01 ms/Zeile.
+            # R13k: HIER KEIN NETZ. Der Telegram-Takt lief bis 2026-09-27 auch in diesem
+            # Leser (`takt_jetzt()`), und ein haengender HTTPS-Aufruf hat damit den ganzen
+            # Lauf festgehalten: Stack-Dump zeigte den Hauptthread in
+            # `on_event -> poll -> get_updates -> urlopen`. Der Leser konnte weder das
+            # Ausgabe-Ende noch die Gnade aus R13j pruefen - der Batch kam nie zum Ende.
+            # Das Ticken macht jetzt AUSSCHLIESSLICH der Takt-Thread (R13h), der dafuer da
+            # ist. Hier bleiben nur lokale, billige Pruefungen (Alarme, harte Grenzen).
             if not takt.faellig():
                 return None
-            takt_jetzt()
             t = stats.totals()
             cost = stats.cost_usd(extra_dates)
             for key, cond, text in (
