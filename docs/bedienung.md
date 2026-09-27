@@ -81,6 +81,7 @@ Immer aus `g:\Harness\harness` aufrufen (`python -m hx.cli …`).
 | `status` | Zustand, Batch, Gate (mit Quelle „vom Nutzer"/„vom Reviewer"), Pause-Info, Kosten, Tarif, Queue, Git-Lage |
 | `budget` | Kosten, Alarm-/Hartgrenzen, Tarif |
 | `bilanz [--n N]` | **Bilanz** (R13q): Aeste im Vergleich zum Batch N Batches vorher (Vorgabe 1), Projektstand Teil C, Kosten der letzten 24 h, Abo-Auslastung, letzte Batches aus git |
+| `thinking [--n N] [--batch B] [--voll]` | **Denkbloecke des Workers** (R13r): die letzten N Denkbloecke aus dem Mitschnitt, je 200 Zeichen; `--voll` ungekuerzt, `--batch` ein bestimmter Batch (sonst der neueste) |
 | `pause` | pausieren; ein laufender Batch läuft zu Ende, danach startet nichts Neues |
 | `resume` | fortsetzen (`--accept-dirty`, wenn ein unsauberer Arbeitsbaum bewusst akzeptiert wird) |
 | `stop` | laufenden Batch abbrechen: WIP wird gesichert (Status + Patch + Stash); danach **beendet sich der Harness** |
@@ -109,7 +110,8 @@ Im Notfall ist `stop.ps1 -Force` sofort.
 
 ## 3. Telegram-Befehle
 
-`/status` · `/budget` · `/bilanz [N]` · `/pause` · `/resume [ok]` · `/stop` · `/approve [Text]` ·
+`/status` · `/budget` · `/bilanz [N]` · `/thinking [N] [voll]` · `/pause` · `/resume [ok]` ·
+`/stop` · `/approve [Text]` ·
 `/number <N>` · `/autonom [on|off]` · `/ds <Text>` · `/claude <Text>` · `/ask <Frage>` ·
 `/ask-neu <Frage>` ·
 `/review` · `/last [ds|claude] [n]` · `/queue` · `/why` · `/help`
@@ -661,3 +663,42 @@ Versendet wird die Bilanz als **Monospace-Block**. Geteilt wird **vor** dem Umfa
 der Zäune (sonst zerreißt eine Teilung den Block und Telegram lehnt die Nachricht ab),
 und Backticks im Text werden entschärft — ein einzelnes ``` ` ``` würde den Block
 sonst beenden.
+
+---
+
+## 15. Denkblöcke mitlesen (`/thinking`, R13r)
+
+`/thinking` zeigt die **letzten 10 Denkblöcke** des DeepSeek-Workers — je **200 Zeichen**
+(wie in `watch`), mit Uhrzeit und Länge:
+
+```
+DENKEN b196 - letzte 10 Denkbloecke (je 200 Zeichen)
+laeuft seit 12m34s | 184 Anfragen, $0.2747
+ 1. 14:17:13 (607 Z.) The anchor's Stand block still says BATCH 195 ? I must update … [+407 Zeichen]
+ 2. 14:17:27 (3068 Z.) The anchor has 5 lines (Stand/Fertig/Naechster Schritt/…) … [+2868 Zeichen]
+juengster Eintrag: vor 3 min
+Mitschnitt: g:\Harness\harness\runs\b196\stream.jsonl (28 MB, gelesen 3,5 MB)
+Mehr: /thinking 20   Ungekuerzt: /thinking 10 voll
+```
+
+- **`/thinking 20`** — mehr Einträge (höchstens 50). **`/thinking 10 voll`** — dieselben
+  Einträge **ungekürzt** (dann mehrere Telegram-Nachrichten). Ein unbekanntes Wort führt
+  zur Nutzungshilfe, nicht zu einer stillen anderen Bedeutung.
+- **Live:** läuft ein Batch, wird **dessen** Mitschnitt gelesen — der Pfad steht im
+  Zustand (`worker.log`), es wird also mitgelesen, während DeepSeek arbeitet. Ist kein
+  Batch aktiv, kommt der neueste abgeschlossene Batch.
+- **Quelle** ist `runs/b<N>/stream.jsonl`, Zeile `{"type":"assistant", "message":
+  {"content":[{"type":"thinking","thinking":"…"}]}}`. Blöcke **ohne Text** (nur
+  `signature`) und `redacted_thinking` zählen nicht — dann steht dort ausdrücklich
+  „kein Denkblock MIT TEXT gefunden".
+- **Warum nur 200 Zeichen und warum ein Suchdeckel:** der Mitschnitt ist bis zu **28–32 MB**
+  groß, und der Befehl läuft im **TaktThread** des Harness. Deshalb liest ein Tail-Leser
+  **rückwärts** vom Dateiende in 256-KB-Blöcken, bis die N Einträge da sind — gemessen
+  **0,3 s** bei 28 MB (gelesen 1,5–3,5 MB). Findet er innerhalb der letzten **16 MB**
+  nichts, sagt er das ausdrücklich; der Deckel ist fest (kein Konfigurationsschlüssel).
+- **Unterschied zu `watch`:** `watch` zeigt volle Denkblöcke farbig im Fenster und
+  scrollt mit; `/thinking` ist für unterwegs — gekürzt, auf Telegram, jederzeit abrufbar.
+- Auf der Konsole: `python -m hx.cli thinking --n 20 --batch 196 --voll` (dieselbe
+  Ausgabe; ohne `--batch` der neueste Batch, `env-proof` und `ghidra-smoke` zählen nicht
+  als Batch). Zeichen, die die Windows-Konsole nicht kennt (`✓`, `—`), werden dort durch
+  `?` ersetzt — in Telegram kommen sie korrekt an.

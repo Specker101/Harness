@@ -21,6 +21,7 @@ from pathlib import Path
 from . import control, envs, pricing, protocol, queue, retention, reviewer as rv, secrets, state as st, streamjson, worker as wk
 from . import ask as askmod
 from . import bilanz as bilanzmod
+from . import denken as denkenmod
 from .gitsafe import Git
 from .telegram import HELP, Telegram, TelegramError
 from .util import ensure_dir, now_iso, read_json, read_text, secs_human, write_text_atomic
@@ -462,6 +463,73 @@ class Orchestrator:
         # Monospace: die Spalten sollen untereinander stehen (Telegram-Tauglichkeit).
         self.say(text, mono=True)
 
+    def thinking_pfad(self) -> tuple[Path | None, bool]:
+        """Mitschnitt fuer /thinking: der LAUFENDE Batch, sonst der neueste (R13r).
+
+        Rueckgabe (Pfad, laeuft). Der laufende Batch kennt seinen Pfad selbst - er steht
+        als `log` im Worker-Eintrag (`worker.run_batch` -> `state.worker_started(pid,
+        str(stream_path), session_id)`). Genau das will der Nutzer: LIVE mitlesen.
+        Nur wenn kein Worker laeuft, wird der neueste `runs/b<N>` genommen.
+        """
+        w = self.state.data.get("worker") or {}
+        log = str(w.get("log") or "")
+        if log:
+            p = retention.mitschnitt_vorhanden(log)
+            if p:
+                return p, True
+        return denkenmod.neuester_mitschnitt(self.cfg), False
+
+    def _do_thinking(self, rest: str = "") -> None:
+        """`/thinking [N] [voll]` - die letzten Denkbloecke des DeepSeek-Workers (R13r).
+
+        Rein lesend und ohne neuen Konfigurationsschluessel: der Tail-Leser in
+        `denken` liest hoechstens 16 MB vom Dateiende, damit der TaktThread (hier laeuft
+        der Befehl) nicht auf einen 32-MB-Lesvorgang wartet. Netz ist hier nicht im
+        Spiel - R13k verbietet Netz im Mitschnitt-Leser, nicht lokale Lesevorgaenge.
+        """
+        n, voll, fehler = denkenmod.argumente(rest)
+        if fehler:
+            self.say("Nutzung: /thinking [N] [voll] - " + fehler + "\n"
+                     "N = Anzahl der Denkbloecke (Vorgabe 10, hoechstens 50), "
+                     "'voll' zeigt den ganzen Text (sonst je 200 Zeichen).")
+            return
+        pfad, laeuft = self.thinking_pfad()
+        if pfad is None:
+            self.say("Kein Mitschnitt gefunden - kein Batch gelaufen und kein "
+                     "laufender Batch.")
+            return
+        try:
+            erg = denkenmod.denkbloecke(
+                pfad, n=n,
+                grenze_zeichen=None if voll else denkenmod.GRENZE_ZEICHEN)
+        except Exception as exc:                                # noqa: BLE001
+            self.log.error("Denkbloecke fehlgeschlagen", fehler=str(exc)[:250])
+            self.say("DENKEN FEHLGESCHLAGEN: " + str(exc)[:300])
+            return
+        self.say(denkenmod.beschreibe(erg, zusatz=self.thinking_zusatz(laeuft)),
+                 mono=True)
+
+    def thinking_zusatz(self, laeuft: bool) -> str:
+        """Kopfzeilen-Zusatz: laeuft der Batch noch, mit Laufzeit und Anfragen (R13q)."""
+        live = self.state.data.get("live") or {}
+        teile: list[str] = []
+        if laeuft:
+            w = self.state.data.get("worker") or {}
+            try:
+                start = datetime.fromisoformat(str(w.get("started_at")).replace("Z", "+00:00"))
+                if start.tzinfo is None:
+                    start = start.replace(tzinfo=timezone.utc)
+                teile.append("laeuft seit " + secs_human(
+                    (datetime.now(timezone.utc) - start).total_seconds()))
+            except (TypeError, ValueError):
+                teile.append("laeuft")
+        else:
+            teile.append("Batch beendet")
+        if live:
+            teile.append(f"{live.get('requests')} Anfragen, "
+                         f"${float(live.get('cost_usd') or 0):.4f}")
+        return " | ".join(teile)
+
     def _ask_arbeiter(self) -> None:
         """Die Warteschlange der Fragen abarbeiten - eine nach der anderen (R13o)."""
         while True:
@@ -616,6 +684,8 @@ class Orchestrator:
             self._do_ask(rest, neu=True)
         elif cmd == "bilanz":
             self._do_bilanz(rest)
+        elif cmd in ("thinking", "denken"):
+            self._do_thinking(rest)
         elif cmd == "approve":
             self._do_approve(rest)
         elif cmd == "autonom":

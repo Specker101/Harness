@@ -4,6 +4,7 @@
   python -m hx.cli status
   python -m hx.cli budget
   python -m hx.cli bilanz         [--n <Abstand in Batches>]
+  python -m hx.cli thinking       [--n N] [--batch B] [--voll]
   python -m hx.cli profiles
   python -m hx.cli probe-telegram
   python -m hx.cli allowlist-add <USER_ID>
@@ -75,6 +76,19 @@ def cmd_budget(args) -> int:
     return 0
 
 
+def _druck(text: str) -> None:
+    """Ausgabe, die auch in einer cp1252-Konsole nicht abbricht.
+
+    R13r: Denkbloecke enthalten Pfeile/Umlaute (`→`); `print` starb daran mit
+    `UnicodeEncodeError`. Telegram ist davon nicht betroffen (UTF-8), die Konsole schon.
+    """
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        kod = sys.stdout.encoding or "utf-8"
+        print(text.encode(kod, "replace").decode(kod, "replace"))
+
+
 def cmd_bilanz(args) -> int:
     """Bilanz auf der Konsole (R13q) - dieselbe Ausgabe wie Telegram `/bilanz [N]`.
 
@@ -83,8 +97,29 @@ def cmd_bilanz(args) -> int:
     """
     from . import bilanz as bilanzmod
     cfg = load_config(args.config)
-    print(bilanzmod.bericht(cfg, n=max(1, int(getattr(args, "n", 1) or 1))))
+    _druck(bilanzmod.bericht(cfg, n=max(1, int(getattr(args, "n", 1) or 1))))
     return 0
+
+
+def cmd_thinking(args) -> int:
+    """Denkbloecke des Workers auf der Konsole (R13r) - wie Telegram `/thinking [N] [voll]`.
+
+    Ohne `--batch` wird der neueste Batch genommen (`denken.neuester_mitschnitt`, nur
+    echte `b<N>`-Ordner - `runs/` enthaelt auch `env-proof` und `ghidra-smoke`).
+    """
+    from . import denken as denkenmod
+    cfg = load_config(args.config)
+    pfad = (denkenmod.mitschnitt_fuer_batch(cfg, args.batch) if args.batch
+            else denkenmod.neuester_mitschnitt(cfg))
+    if pfad is None:
+        print("Kein Mitschnitt gefunden (kein passender runs/b<N>/stream.jsonl).",
+              file=sys.stderr)
+        return 2
+    erg = denkenmod.denkbloecke(pfad, n=max(1, int(args.n or denkenmod.STANDARD_N)),
+                                grenze_zeichen=None if args.voll
+                                else denkenmod.GRENZE_ZEICHEN)
+    _druck(denkenmod.beschreibe(erg))
+    return 0 if not erg.get("fehler") else 1
 
 
 # ---------------------------------------------------------------- profiles
@@ -1178,6 +1213,12 @@ def build_parser() -> argparse.ArgumentParser:
     bi = sub.add_parser("bilanz", help="Bilanz: Aeste im Vergleich, Projektstand, Kosten")
     bi.add_argument("--n", type=int, default=1,
                     help="Vergleichsabstand in Batches (Vorgabe 1 = direkter Vorgaenger)")
+    th = sub.add_parser("thinking", help="letzte Denkbloecke des Workers (DeepSeek)")
+    th.add_argument("--n", type=int, default=10, help="Anzahl (Vorgabe 10, hoechstens 50)")
+    th.add_argument("--batch", type=int, default=0,
+                    help="bestimmter Batch (sonst der neueste bzw. der laufende)")
+    th.add_argument("--voll", action="store_true",
+                    help="Denkbloecke ungekuerzt (sonst je 200 Zeichen)")
     sub.add_parser("profiles")
     sub.add_parser("probe-telegram")
 
@@ -1233,6 +1274,7 @@ def main(argv: list[str] | None = None) -> int:
     return {
         "run": cmd_run, "status": cmd_status, "budget": cmd_budget, "profiles": cmd_profiles,
         "bilanz": cmd_bilanz,
+        "thinking": cmd_thinking,
         "probe-telegram": cmd_probe, "allowlist-add": cmd_allowlist, "demo": cmd_demo,
         "show-prompts": cmd_show_prompts,
         "env-proof": cmd_env_proof, "rebuild": cmd_rebuild, "ghidra-smoke": cmd_ghidra_smoke,

@@ -57,6 +57,8 @@ HELP = (
     "/ask-neu <Frage> - Frage in einem NEUEN Chat stellen (Themenwechsel)\n"
     "/bilanz [N] - Bilanz: Aeste im Vergleich (N Batches zurueck), Projektstand, "
     "Kosten, Abo\n"
+    "/thinking [N] [voll] - letzte Denkbloecke des Workers (Vorgabe 10, je 200 "
+    "Zeichen; 'voll' = ungekuerzt)\n"
     "/review - neuer Review jetzt (verwirft einen offenen Auftrag, hebt die Pause auf)\n"
     "/last [ds|claude] [n] - letzten Text zeigen (claude = vollstaendige Instruktion)\n"
     "/budget - Kosten und Grenzen\n"
