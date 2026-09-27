@@ -149,7 +149,9 @@ class TestAskRechte(Base):
         for nackt in ("Read", "Grep", "Glob"):
             self.assertNotIn(nackt, erlaubt,
                              f"{nackt} ohne Pfadbindung erlaubt jedes Verzeichnis")
-        for wurzel in (self.cfg.root, self.cfg.decomp):
+        # R13o: die Harness-Wurzel ist der Ordner UEBER `harness` (g:\Harness) -
+        # er enthaelt die Belege in docs/ und deckt `harness/` mit ab.
+        for wurzel in (self.cfg.harness_home, self.cfg.decomp):
             for rolle in ("Read", "Grep", "Glob"):
                 self.assertIn(f"{rolle}(//{_posix(wurzel)}/**)", erlaubt)
 
@@ -169,7 +171,7 @@ class TestAskRechte(Base):
     def test_beide_wurzeln_sind_angemeldet(self):
         cmd = ask.build_command(self.cfg)
         cfgd = _mehrfach(cmd, "--add-dir")
-        self.assertIn(str(self.cfg.root), cfgd)
+        self.assertIn(str(self.cfg.harness_home), cfgd)
         self.assertIn(str(self.cfg.decomp), cfgd)
         self.assertEqual(_opt(cmd, "--tools"), ["Read,Grep,Glob"])
         self.assertNotIn(str(self.cfg.secrets_dir), " ".join(cfgd))
@@ -198,13 +200,15 @@ class TestAskLauf(Base):
         gesehen: dict = {}
         frei = threading.Event()
 
-        def fake(cfg, log, frage, mock=False, zusatz=""):
+        def fake(cfg, log, frage, mock=False, zusatz="", neu=False):
             gesehen["frage"] = frage
             gesehen["mock"] = mock
+            gesehen.setdefault("fragen", []).append(frage)
+            gesehen.setdefault("neu", []).append(neu)
             frei.set()
             if block is not None:
                 block.wait(10)
-            return {"text": "Antwort auf die Frage", "hinweis": "(modell | 1 Anfragen | $0.0001 | 1s)"}
+            return {"text": "Antwort auf die Frage", "hinweis": "(modell | 1 Anfragen | 1s)"}
 
         return fake, gesehen, frei
 
@@ -227,22 +231,24 @@ class TestAskLauf(Base):
         self.assertFalse(self.orch._ask_running)
         self.assertEqual(gesehen["frage"], "Was ist die naechste Batch-Nummer?")
 
-    def test_zweite_frage_wird_abgelehnt(self):
+    def test_zweite_frage_wird_eingereiht(self):
+        """R13o: statt Ablehnung wird die zweite Frage eingereiht und danach gestellt."""
         block = threading.Event()
         fake, gesehen, _frei = self._fake(block)
         gesagt: list[str] = []
         self.orch.say = lambda t, *a, **k: gesagt.append(str(t))
         with mock.patch.object(orch_mod.askmod, "ask", fake):
             self.orch._do_ask("erste Frage")
-            self.assertTrue(any("Frage laeuft" in g for g in gesagt))
+            self.assertTrue(any("Frage laeuft" in g for g in gesagt), gesagt)
             self.orch._do_ask("zweite Frage")
-            self.assertTrue(any("laeuft schon" in g for g in gesagt), gesagt)
+            self.assertTrue(any("Frage eingereiht" in g for g in gesagt), gesagt)
             block.set()
-            for _ in range(100):
+            for _ in range(200):
                 if not self.orch._ask_running:
                     break
                 time.sleep(0.02)
-        self.assertEqual(gesehen["frage"], "erste Frage")
+        self.assertEqual(gesehen["fragen"], ["erste Frage", "zweite Frage"],
+                         "Fragen muessen nacheinander und in Reihenfolge laufen")
 
     def test_leere_frage_erklaert_die_nutzung(self):
         gesagt: list[str] = []
@@ -250,7 +256,6 @@ class TestAskLauf(Base):
         self.orch._do_ask("   ")
         self.assertTrue(any("/ask <Frage>" in g for g in gesagt))
         self.assertFalse(self.orch._ask_running)
-
     def test_befehl_leitet_um(self):
         fake, gesehen, _frei = self._fake()
         with mock.patch.object(orch_mod.askmod, "ask", fake):
@@ -264,7 +269,7 @@ class TestAskLauf(Base):
     def test_fehler_wird_gemeldet_und_gibt_frei(self):
         gesagt: list[str] = []
 
-        def kaputt(cfg, log, frage, mock=False, zusatz=""):
+        def kaputt(cfg, log, frage, mock=False, zusatz="", neu=False):
             raise RuntimeError("kein Token")
 
         self.orch.say = lambda t, *a, **k: gesagt.append(str(t))

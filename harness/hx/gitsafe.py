@@ -152,6 +152,26 @@ class Git:
             return False, text
         return True, text
 
+    def pull_ff_only(self) -> tuple[bool, str]:
+        """Schneller Vorlauf auf den Remote-Stand - NUR das, niemals ein Merge (R13n).
+
+        Umgesetzt als `merge --ff-only <remote>/<branch>` NACH dem `fetch`, nicht als
+        `git pull`: der Fetch ist in der Vorpruefung schon gelaufen, ein zweiter
+        Netzaufruf waere nur zusaetzliche Wartezeit und Fehlerquelle. Die Wirkung ist
+        dieselbe wie `git pull --ff-only` - geht es nicht ohne Merge, bricht git ab.
+        """
+        ziel = f"{self.remote}/{self.branch}"
+        rc, so, se = self.run("merge", "--ff-only", ziel)
+        return (rc == 0), ((se or so).strip()[:600])
+
+    def commits_between(self, von: str, bis: str, n: int = 20) -> list[str]:
+        """`<hash> <Betreff>` der Commits zwischen zwei Staenden (R13n)."""
+        try:
+            return self.out("log", f"--max-count={n}", "--pretty=%h %s",
+                            f"{von}..{bis}").splitlines()
+        except GitError:
+            return []
+
     # -------------------------------------------------------------- Checkpoint
     def checkpoint(self, batch: int) -> str:
         """Leichtes lokales Tag als Fangpunkt vor dem Batch (wird NICHT gepusht)."""

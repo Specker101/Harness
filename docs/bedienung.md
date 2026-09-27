@@ -87,7 +87,7 @@ Immer aus `g:\Harness\harness` aufrufen (`python -m hx.cli …`).
 | `number <N>` | Batch-Nummer des **offenen** Auftrags setzen (z. B. wenn der Reviewer eine andere nennt) |
 | `send ds "Text"` / `send ds --file auftrag.md` | Nachricht an den **Worker** in die Queue (Zustellung am nächsten Batch-Übergang) |
 | `send claude "Text"` / `send claude --file ziele.md` | Nachricht an den **Reviewer** in die Queue (Zustellung am nächsten Review) |
-| `ask "Frage"` / `ask --file frage.md` | **freie Frage an Claude** (eigener Lauf, eigene Session, Modell des Reviewers, **nur lesend**). Antwort kommt direkt zurück; Belegdatei unter `logs\ask\`. Läuft **auch während eines Batches** und beeinflusst ihn nicht. |
+| `ask "Frage"` / `ask --file frage.md` / `ask --neu "Frage"` | **freie Frage an Claude** (eigener Lauf, Modell des Reviewers, **nur lesend**). Antwort kommt direkt zurück; Belegdatei unter `logs\ask\`. Läuft **auch während eines Batches** und beeinflusst ihn nicht. Fragen laufen **nacheinander** und im **selben Chat** weiter (Gedächtnis); `--neu` beginnt einen neuen Chat. |
 | `run-instruction --file instruktion.md [--profile ghidra-read] [--program /830d01.27p.main.bin]` | **eigene** Instruktion als nächster Worker-Batch, **am Reviewer vorbei**; im Log/Status als „vom Nutzer" gekennzeichnet; danach normaler Batch-Ende-Review |
 | `watch [--batch N] [--run name] [--no-color] [--once]` | Live-Ansicht bzw. Nachspielen; **rein lesend** |
 | `profiles` | verfügbare Ghidra-Werkzeugprofile mit Zahlen |
@@ -110,13 +110,23 @@ Im Notfall ist `stop.ps1 -Force` sofort.
 
 `/status` · `/budget` · `/pause` · `/resume [ok]` · `/stop` · `/approve [Text]` ·
 `/number <N>` · `/autonom [on|off]` · `/ds <Text>` · `/claude <Text>` · `/ask <Frage>` ·
+`/ask-neu <Frage>` ·
 `/review` · `/last [ds|claude] [n]` · `/queue` · `/why` · `/help`
 
 `/ask` ist **kein** Eingriff in den Betrieb: es ist ein eigener, rein lesender Lauf
-(Decomp-Repo **und** Harness-Code/Logs/Status) im **eigenen Thread** — der laufende Batch
-merkt nichts davon. Der Ordner `secrets` ist für diesen Lauf gesperrt (nachgewiesen:
-`docs\_ask_zugriff_beleg.txt`). Antworten sind lang und werden automatisch aufgeteilt;
-unter der Antwort steht die Zeile mit Modell, Anfragen, Kosten und Dauer.
+(Decomp-Repo **und** der ganze Harness-Ordner samt `docs\`-Belegen) im **eigenen Thread** —
+der laufende Batch merkt nichts davon. Gesperrt sind `secrets`, `backups` und jede
+`.credentials.json` (nachgewiesen: `docs\_ask_zugriff_beleg.txt`). Antworten sind lang und
+werden automatisch aufgeteilt; unter der Antwort steht die Zeile mit Modell, Anfragen,
+**Token-Zahlen** (statt Dollar — der Lauf geht über das Abo), Chat und Dauer.
+
+**Frage-Chat (`/ask`, R13o):** Die erste Frage öffnet einen Chat, weitere Fragen laufen
+darin weiter — Rückfragen („und warum?“) kennen also die vorige Antwort. Ein neuer Chat
+beginnt, wenn eine der drei Grenzen aus `[ask]` reißt (30 min ohne Frage, mehr als
+10 Fragen, älter als 2 h) — oder sofort mit `/ask-neu <Frage>`. Fragen werden **strikt
+nacheinander** abgearbeitet: läuft schon eine, kommt „Frage eingereiht (Platz N)“ und sie
+kommt danach dran. Eine Datei-Sperre verhindert außerdem, dass `hx.cli ask` und ein
+Telegram-`/ask` dieselbe Session gleichzeitig greifen.
 
 `/review` verwirft einen offenen Auftrag und hebt die Pause auf — der Harness bewertet
 sofort neu. `/last claude` liefert die **vollständige** letzte Instruktion.
@@ -205,6 +215,32 @@ nur der Harness, nicht der Worker.
 6. **Ghidra speichern** (nur bei `ghidra-standard`/`ghidra-full`) — siehe 7a.
 7. Nach dem Batch: Kennzahlen, Snapshot, Review, Push nach `origin/main`
    (Checkpoint-Tags bleiben lokal).
+
+### 7b. Stand vom Remote übernehmen (seit R13n)
+
+Vor **jedem** Batch und beim **Fortsetzen** (`/resume`) prüft der Harness `origin/main`.
+Ist **nur der Remote voraus** (lokaler HEAD ist Vorfahre, also nichts Eigenes ungepusht) und
+der **Arbeitsbaum sauber**, macht er einen **schnellen Vorlauf** (`merge --ff-only`, kein
+Merge, kein Konfliktrisiko) und meldet:
+
+```
+Stand vom Remote übernommen: 3 Commit(s) (a1b2c3d -> e4f5g6h)
+  * …
+```
+
+Diese Commits gelten als **Nutzerarbeit** (Kennzeichnung über den Hash, nicht über den
+Commit-Titel): der nächste Review bekommt dafür einen eigenen Block „VOM REMOTE
+ÜBERNOMMEN“, und der nächste Worker erfährt es in seinem Vorspann. Wegen R367 gilt dann:
+**Neubau** (`port_build.ps1`, `-Gl`) und **eine** vollständige Regression
+(`port_regression.py`) zu Batch-Beginn.
+
+Angehalten wird weiter, wenn
+* der lokale Stand voraus ist (`ahead > 0`) → Meldung „weicht ab“,
+* beide Seiten eigene Commits haben → Meldung „**DIVERGIERT**“,
+* der Arbeitsbaum nicht sauber ist → „kein Pull“, Meldung mit den Änderungen.
+
+Ein stehengebliebener Auftrag bleibt in allen diesen Fällen **erhalten** — nach dem
+Fortsetzen startet er ohne neuen Review (R13m).
 
 ### 7a. Ghidra speichern (seit R13)
 

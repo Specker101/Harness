@@ -105,10 +105,12 @@ def pfad_regeln(wurzeln, rollen: tuple[str, ...] = LESE_ROLLEN) -> list[str]:
 
 
 def secrets_verbote(*dirs, rollen: tuple[str, ...] = LESE_ROLLEN) -> list[str]:
-    """Ausdrueckliches Verbot fuer die secrets-Ordner (Guertel und Hosentraeger).
+    """Ausdrueckliches Verbot fuer Ordner, die NIE gelesen werden (Guertel+Hosentraeger).
 
     Mehrere Ordner sind moeglich: seit dem Umzug (2026-09-26) wird auch der ALTE
-    Ort weiter verboten, damit ein Modell dort gar nicht erst sucht.
+    Ort der Schluessel weiter verboten, damit ein Modell dort gar nicht erst sucht.
+    Seit R13o kommt der Backup-Ordner dazu (die Ghidra-Sicherungen gehen niemanden
+    etwas an, und ein 14-MB-.gar bringt ein Lesewerkzeug nur zum Anschlag).
     Das Verbot greift auch dann, wenn irgendwo versehentlich ein ungebundenes
     `Read` in der Erlaubnisliste steht.
     """
@@ -120,3 +122,34 @@ def secrets_verbote(*dirs, rollen: tuple[str, ...] = LESE_ROLLEN) -> list[str]:
         regeln += [f"{rolle}(//{s}/**)" for rolle in rollen]
         regeln += [f"{rolle}({s}/**)" for rolle in rollen]
     return regeln
+
+
+# R13o: Zugangsdateien, die in KEINER Wurzel gelesen werden duerfen. Claude Code legt
+# die Abo-Zugangsdaten als `.credentials.json` im jeweiligen CLAUDE_CONFIG_DIR ab -
+# hier `harness/cc-reviewer/`. Ohne dieses Verbot koennte ein Lese-Lauf den Token des
+# eigenen Kontos oeffnen und zitieren.
+CREDENTIAL_NAMEN = (".credentials.json",)
+
+
+def credential_verbote(wurzeln, rollen: tuple[str, ...] = LESE_ROLLEN) -> list[str]:
+    """Verbot fuer Zugangsdateien unter jeder Wurzel - in allen Schreibweisen.
+
+    Drei Fassungen je Wurzel, weil die Trefferregel der CLI nicht dokumentiert ist:
+    `**/<name>` (auch direkt in der Wurzel), `*/<name>` (eine Ebene tiefer) und die
+    beiden konkreten Konfigurationsordner, die der Harness selbst setzt.
+    """
+    regeln: list[str] = []
+    for w in wurzeln:
+        if not w:
+            continue
+        p = str(w).replace("\\", "/").rstrip("/")
+        for name in CREDENTIAL_NAMEN:
+            # `**/<name>` deckt auch die Wurzel selbst ab, `*/<name>` eine Ebene tiefer,
+            # dazu die beiden Konfigurationsordner, die der Harness selbst setzt.
+            for muster in (f"//{p}/**/{name}", f"//{p}/{name}", f"//{p}/*/{name}"):
+                regeln += [f"{rolle}({muster})" for rolle in rollen]
+            for ordner in ("cc-worker", "cc-reviewer"):
+                regeln += [f"{rolle}(//{p}/{ordner}/{name})" for rolle in rollen]
+            # Zweite Schreibweise ohne fuehrende Doppelstriche (wie bei secrets).
+            regeln += [f"{rolle}({p}/**/{name})" for rolle in rollen]
+    return list(dict.fromkeys(regeln))

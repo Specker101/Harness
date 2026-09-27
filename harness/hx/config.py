@@ -64,6 +64,17 @@ class Config:
     def backups_dir(self) -> Path:
         return self.pfad("backups", "g:/Harness/backups")
 
+    @property
+    def harness_home(self) -> Path:
+        """Der Ordner UEBER dem Harness (`g:/Harness`) - Wurzel fuer Lesezugriffe (R13o).
+
+        Belege (`docs/`), die Ghidra-Sicherungen (`backups/`) und die Sitzungs-
+        protokolle (`harness/cc-*`) liegen dort, nicht im Harness-Ordner selbst.
+        Fehlt der Schluessel in der Konfiguration, wird der Elternordner von `root`
+        genommen - ein kopierter Workspace laeuft damit ohne Anpassung.
+        """
+        return self.pfad("harness_home", str(self.root.parent))
+
     def sub(self, name: str) -> Path:
         """Unterordner des Harness (state, logs, inbox, ...)."""
         return self.root / name

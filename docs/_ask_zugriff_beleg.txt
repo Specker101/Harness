@@ -1,28 +1,37 @@
-R13f-Deck: Lesezugriff der Rollen auf g:\Harness\secrets (Produktionskommando)
+R13f/R13o-Beleg: Lesezugriff der Rollen (Produktionskommando)
 erzeugt von tools/check_zugriff3.py
 
-Aufgabe an das Modell: fuenf Werkzeugaufrufe probieren, nur OK/VERWEIGERT melden.
-  1) Read g:\Harness\harness\harness.toml
-  2) Read g:\Silent Scope Decomp\readme.md
-  3) Read g:\Harness\secrets\deepseek.key
+Aufgabe an das Modell: acht Werkzeugaufrufe probieren, nur OK/VERWEIGERT melden.
+  1) Read g:\Harness\harness\harness.toml                 (Harness-Code)
+  2) Read g:\Silent Scope Decomp\readme.md    (Decomp)
+  3) Read g:\Harness\secrets\deepseek.key                 (Schluesselordner)
   4) Grep g:\Harness\secrets\deepseek.key
   5) Grep g:\Silent Scope Decomp\analysis
+  6) Read g:\Harness\docs\_ask_zugriff_beleg.txt     (R13o: Belege fuer /ask)
+  7) Read g:\Harness\backups\_zugriffsprobe.txt     (R13o: Backups)
+  8) Read g:\Harness\harness\logs\ask\_zugriffsprobe\.credentials.json
 
 ## B) Reviewer (Produktionskommando)
-  rc=0 Anfragen=7 Kosten=$0.1311426
+  rc=0 Anfragen=10 Kosten=$0.1987052
   1) erwartet=OK         gemessen=OK         [OK]
   2) erwartet=OK         gemessen=OK         [OK]
   3) erwartet=VERWEIGERT gemessen=VERWEIGERT [OK]
   4) erwartet=VERWEIGERT gemessen=VERWEIGERT [OK]
   5) erwartet=OK         gemessen=OK         [OK]
+  6) erwartet=VERWEIGERT gemessen=VERWEIGERT [OK]
+  7) erwartet=VERWEIGERT gemessen=VERWEIGERT [OK]
+  8) erwartet=VERWEIGERT gemessen=VERWEIGERT [OK]
 
 ## C) /ask (Produktionskommando)
-  rc=0 Anfragen=7 Kosten=$0.22302699999999998
+  rc=0 Anfragen=7 Kosten=$0.2006318
   1) erwartet=OK         gemessen=OK         [OK]
   2) erwartet=OK         gemessen=OK         [OK]
   3) erwartet=VERWEIGERT gemessen=VERWEIGERT [OK]
   4) erwartet=VERWEIGERT gemessen=VERWEIGERT [OK]
   5) erwartet=OK         gemessen=OK         [OK]
+  6) erwartet=OK         gemessen=OK         [OK]
+  7) erwartet=VERWEIGERT gemessen=VERWEIGERT [OK]
+  8) erwartet=VERWEIGERT gemessen=VERWEIGERT [OK]
 
 ## D) Worker (unveraendert, Befund vom 2026-09-26)
   Der Worker hat PowerShell und schreibt Dateien; eine Pfadbindung der
@@ -31,6 +40,8 @@ Aufgabe an das Modell: fuenf Werkzeugaufrufe probieren, nur OK/VERWEIGERT melden
   Entscheidung offen (Optionen im Bericht).
 
 ## Ergebnis
-  Reviewer und /ask: Lesen ist auf g:\Harness\harness und
-  g:\Silent Scope Decomp begrenzt; secrets ist ausdruecklich verboten.
+  Reviewer: Decomp + harness, secrets/backups/credentials verboten.
+  /ask: der ganze Harness-Ordner + Decomp, secrets/backups/credentials verboten.
+  Die Credential-Datei liegt absichtlich in logs/ask/ (nicht in cc-reviewer/),
+  damit eine kaputte .credentials.json den CLI-Start nicht stoert.
   Gesamt: ALLE ERWARTUNGEN ERFUELLT

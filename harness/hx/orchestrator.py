@@ -43,7 +43,11 @@ class Orchestrator:
         self.ghidra_failed = False
         self.quit = False
         self._wip_done = False
+        # R13o: Fragen laufen in EINER Warteschlange nacheinander. Ohne das koennten
+        # zwei Aufrufe dieselbe Chat-Session gleichzeitig greifen.
         self._ask_running = False
+        self._ask_queue: list[tuple[str, bool]] = []
+        self._ask_lock = threading.Lock()
         self._notified: dict[str, float] = {}
         # Attrappen-Modus des Reviewers (Tests/Demo): "ok", "parser_error",
         # "ok_zweiter_versuch", "reviewer_crash", "modell_falsch", "limit".
@@ -213,7 +217,15 @@ class Orchestrator:
     _BATCH_COMMIT = re.compile(r"^(?:B\d+\b|Batch\s+\d+\b)", re.IGNORECASE)
 
     def _ist_harness_commit(self, zeile: str) -> bool:
-        """'12d1198 2026-09-26 Batch 172: ...' gehoert zu einem Harness-Batch."""
+        """'12d1198 2026-09-26 Batch 172: ...' gehoert zu einem Harness-Batch.
+
+        R13n: Ein Commit, der per Pull vom Remote kam, ist IMMER Nutzerarbeit - auch
+        wenn er nach Projektkonvention 'B172: ...' heisst. Entschieden wird das ueber
+        den Hash, nicht ueber den Betreff.
+        """
+        kurz = str(zeile).split(" ", 1)[0]
+        if kurz and kurz in self._remote_hashes():
+            return False
         teile = str(zeile).split(" ", 2)
         subj = (teile[2] if len(teile) > 2 else str(zeile)).strip()
         return bool(self._BATCH_COMMIT.match(subj))
@@ -232,6 +244,22 @@ class Orchestrator:
                           zustand=self.state.state)
             return
         pause = self.state.data.get("pause_since") or {}
+        # R13n: beim Fortsetzen zuerst den Git-Stand klaeren. Ist NUR der Remote voraus
+        # und der Baum sauber, wird er uebernommen. Eine ECHTE Abweichung (eigener Stand
+        # voraus, divergiert, unsauberer Baum, gescheiterter Pull) haelt weiter an -
+        # ein nicht pruefbarer git-Stand dagegen nicht: den faengt die Vorpruefung vor
+        # dem naechsten Batch ohnehin ab, und `resume` soll daran nicht scheitern.
+        gok, gwarum, gart = self.git_sync("Fortsetzen")
+        if not gok and gart != "unpruefbar":
+            self.state.data["paused"] = True
+            self.state.set(st.PAUSED, gwarum)
+            self.say("PAUSE: " + gwarum)
+            self.log.info("Fortsetzen verweigert - Git-Stand nicht in Ordnung", grund=gwarum)
+            return
+        if not gok:
+            self.log.warn("Git-Stand beim Fortsetzen nicht pruefbar", grund=gwarum)
+            self.say("Hinweis: Git-Stand nicht pruefbar (" + gwarum + ")\n"
+                     "Ich setze fort; die Vorpruefung vor dem naechsten Batch prueft erneut.")
         try:
             head_now = self.git.head_short()
             dirty_now = self.git.status_porcelain()
@@ -375,38 +403,56 @@ class Orchestrator:
             self.log.warn("lokaler Steuerbefehl fehlgeschlagen", fehler=str(exc)[:200])
 
     # ------------------------------------------------------------------ /ask
-    def _do_ask(self, frage: str = "") -> None:
-        """Freie Frage an Claude - eigener Lauf im EIGENEN THREAD (R13f).
+    def _do_ask(self, frage: str = "", neu: bool = False) -> None:
+        """Freie Frage an Claude - eigener Lauf im EIGENEN THREAD (R13f/R13o).
 
         Der Thread ist Pflicht, nicht Bequemlichkeit: laeuft ein Batch, wird
         `poll(fast=True)` aus dem Mitschnitt-Thread des Workers aufgerufen
         (`proc.run_stream` -> `on_event`). Ein blockierender Unterprozess dort
         wuerde den Mitschnitt anhalten und damit den Batch beeinflussen.
+
+        R13o: Fragen laufen **strikt nacheinander** (`_ask_arbeiter`). Laeuft schon
+        eine, wird die neue eingereiht statt abgelehnt - so kann nie ein zweiter
+        Aufruf dieselbe Chat-Session gleichzeitig greifen.
         """
         frage = (frage or "").strip()
         if not frage:
-            self.say("Nutzung: /ask <Frage>  (nur lesend; eigener Lauf, eigene Session)")
+            self.say("Nutzung: /ask <Frage>   (nacheinander, mit Chat-Gedaechtnis; "
+                     "neuer Chat: /ask-neu <Frage>)")
             return
-        if self._ask_running:
-            self.say("Es laeuft schon eine Frage - ich melde mich, sobald sie beantwortet ist.")
-            return
-        self._ask_running = True
-        self.say("Frage laeuft (eigener Lauf, nur lesend: Decomp-Repo + Harness). "
-                 "Der Betrieb hier laeuft weiter.")
+        with self._ask_lock:
+            self._ask_queue.append((frage, bool(neu)))
+            platz = len(self._ask_queue)
+            laeuft = self._ask_running
+            if not self._ask_running:
+                self._ask_running = True
+                threading.Thread(target=self._ask_arbeiter, daemon=True,
+                                 name="hx-ask").start()
+        if laeuft:
+            self.say(f"Frage eingereiht (Platz {platz}). Ich melde sie der Reihe nach.")
+        else:
+            self.say("Frage laeuft (eigener Lauf, nur lesend: g:\\Harness + Decomp-Repo). "
+                     "Der Betrieb hier laeuft weiter.")
 
-        def lauf():
+    def _ask_arbeiter(self) -> None:
+        """Die Warteschlange der Fragen abarbeiten - eine nach der anderen (R13o)."""
+        while True:
+            with self._ask_lock:
+                if not self._ask_queue:
+                    self._ask_running = False
+                    return
+                frage, neu = self._ask_queue.pop(0)
+                rest = len(self._ask_queue)
             try:
-                res = askmod.ask(self.cfg, self.log, frage, mock=self.mock)
+                res = askmod.ask(self.cfg, self.log, frage, mock=self.mock, neu=neu)
                 self.say(res.get("text") or "(keine Antwort)")
                 if res.get("hinweis"):
                     self.say(res["hinweis"])
             except Exception as exc:                            # noqa: BLE001
                 self.log.error("Frage fehlgeschlagen", fehler=str(exc)[:250])
                 self.say("FRAGE FEHLGESCHLAGEN: " + str(exc)[:300])
-            finally:
-                self._ask_running = False
-
-        threading.Thread(target=lauf, daemon=True, name="hx-ask").start()
+            if rest:
+                self.say(f"Naechste Frage laeuft ({rest} in der Warteschlange).")
 
     # ------------------------------------------------------------------ Pollen
     def poll(self, fast: bool = False):
@@ -489,6 +535,8 @@ class Orchestrator:
                 self.say(f"In die Queue gelegt ({p.name}). Wird beim naechsten Review zugestellt.")
         elif cmd == "ask":
             self._do_ask(rest)
+        elif cmd in ("ask-neu", "ask_neu", "askneu"):
+            self._do_ask(rest, neu=True)
         elif cmd == "approve":
             self._do_approve(rest)
         elif cmd == "autonom":
@@ -605,6 +653,11 @@ class Orchestrator:
                          f"({s.data.get('limit_wait_quelle') or '-'}) - setzt von selbst fort")
         if s.data.get("pause_work"):
             lines.append("In der Pause wurde gearbeitet - der naechste Review bekommt den Hinweis.")
+        if s.data.get("remote_work"):
+            rw = s.data["remote_work"]
+            lines.append(f"Vom Remote uebernommen: {len(rw.get('commits') or [])} Commit(s) "
+                         f"({rw.get('ts')}, gilt als Nutzerarbeit) - Review und Worker sind "
+                         "informiert (R367: Neubau + volle Regression).")
         lokal = control.pending(self.cfg)
         if lokal:
             lines.append("Lokale Befehle warten: " + ", ".join(lokal))
@@ -651,18 +704,123 @@ class Orchestrator:
         ])
 
     # ------------------------------------------------------------------ Git
-    def git_preflight(self) -> tuple[bool, str]:
+    def git_sync(self, anlass: str) -> tuple[bool, str, str]:
+        """Git-Vorpruefung + schneller Vorlauf, wenn NUR der Remote voraus ist (R13N).
+
+        Nutzerwunsch 2026-09-27: liegt `origin/<branch>` vorne und ist der lokale HEAD
+        ein Vorfahre davon (also nichts Eigenes ungepusht), wird der Stand automatisch
+        uebernommen - dann arbeitet der Harness auf derselben Basis wie der andere
+        Rechner. Alles andere haelt weiter an:
+          * eigener Stand voraus (ahead > 0): "weicht ab", kein Merge,
+          * BEIDE Seiten (ahead + behind): "DIVERGIERT", kein Merge,
+          * unsauberer Arbeitsbaum: kein Pull.
+        Die uebernommenen Commits werden als NUTZERARBEIT gefuehrt (R13n) - nicht ueber
+        den Commit-Titel, sondern ueber ihren Hash.
+
+        Rueckgabe: (ok, Meldung, Art). Die Art trennt "echte Abweichung" von
+        "nicht pruefbar": beim Fortsetzen haelt nur eine echte Abweichung an, ein
+        kaputter/ferner git-Stand wird dort nur gemeldet (die Vorpruefung vor dem
+        Batch entscheidet spaeter endgueltig).
+        """
         ok, err = self.git.fetch()
         if not ok:
-            return False, f"git fetch fehlgeschlagen: {err}"
+            return False, f"git fetch fehlgeschlagen: {err}", "unpruefbar"
         d = self.git.divergence()
         if not d.get("ok"):
-            return False, f"Git-Divergenz nicht pruefbar: {d.get('error')}"
-        if not d.get("same"):
-            return False, (f"origin/{self.git.branch} weicht ab (lokal {d['local'][:8]}, "
-                           f"origin {str(d['remote'])[:8]}, ahead {d.get('ahead')}, behind {d.get('behind')}) "
-                           "- kein Merge durch das Harness")
-        return True, ""
+            return False, f"Git-Divergenz nicht pruefbar: {d.get('error')}", "unpruefbar"
+        if d.get("same"):
+            return True, "", "ok"
+        lokal = str(d.get("local"))[:8]
+        remote = str(d.get("remote"))[:8]
+        ahead = int(d.get("ahead") or 0)
+        behind = int(d.get("behind") or 0)
+        if ahead and behind:
+            return (False, f"origin/{self.git.branch} DIVERGIERT (lokal {lokal}, origin "
+                           f"{remote}, ahead {ahead}, behind {behind}) "
+                           "- kein Merge durch das Harness", "abweichung")
+        if ahead:
+            return (False, f"origin/{self.git.branch} weicht ab (lokal {lokal}, origin "
+                           f"{remote}, ahead {ahead}, behind {behind}) "
+                           "- kein Merge durch das Harness", "abweichung")
+        # Ab hier: nur der Remote ist voraus. Voraussetzungen fuer den Vorlauf pruefen.
+        dirty = self.git.status_porcelain()
+        if dirty:
+            return (False, f"origin/{self.git.branch} ist {behind} Commit(s) voraus, aber der "
+                           f"Arbeitsbaum ist nicht sauber ({len(dirty)} Aenderungen) "
+                           "- kein Pull, kein Merge durch das Harness", "unsauber")
+        if not self.git.is_ancestor(str(d.get("local")), f"{self.git.remote}/{self.git.branch}"):
+            return (False, f"origin/{self.git.branch} ist {behind} Commit(s) voraus, aber kein "
+                           "Vorfahre von HEAD - kein Pull durch das Harness", "abweichung")
+        ok, text = self.git.pull_ff_only()
+        if not ok:
+            return False, f"git pull --ff-only fehlgeschlagen: {text}", "pull-fehler"
+        commits = self.git.commits_between(str(d.get("local")), "HEAD", 20)
+        self._merke_remote_work(anlass, str(d.get("local")), commits)
+        nach = self.git.head_short()
+        self.log.info("Remote-Stand uebernommen", anlass=anlass, commits=len(commits),
+                      von=lokal, nach=nach)
+        self.say(f"Stand vom Remote uebernommen: {len(commits)} Commit(s) "
+                 f"({lokal} -> {nach})\n  "
+                 + ("\n  ".join(commits[:10]) or "(keine Einzelcommits gemeldet)")
+                 + "\nSie gelten als Nutzerarbeit (Hinweis geht an den naechsten Review).\n"
+                   "R367: der naechste Batch baut neu und faehrt EINE volle Regression.")
+        return True, "", "geholt"
+
+    def git_preflight(self) -> tuple[bool, str]:
+        """Vor jedem Batch: fetch + (falls nur der Remote voraus ist) schneller Vorlauf."""
+        ok, meldung, _art = self.git_sync("Batch-Vorpruefung")
+        return ok, meldung
+
+    # ------------------------------------------------- Nutzerarbeit vom Remote
+    def _merke_remote_work(self, anlass: str, von: str, commits: list[str]) -> None:
+        """Uebernommene Commits als Nutzerarbeit festhalten (R13n)."""
+        hashes = [str(c).split(" ", 1)[0] for c in commits if str(c).strip()]
+        self.state.data["remote_work"] = {
+            "ts": now_iso(), "anlass": anlass, "von": str(von),
+            "nach": self.git.head_short(), "commits": list(commits), "hashes": hashes}
+        self.state.save()
+
+    def _remote_work(self) -> dict:
+        return self.state.data.get("remote_work") or {}
+
+    def _remote_hashes(self) -> set[str]:
+        return {str(h) for h in (self._remote_work().get("hashes") or [])}
+
+    def remote_work_zeile(self, batch: int | None = None) -> str:
+        """Eine Zeile fuer den Messdatenblock des Reviews (R13n)."""
+        rw = self._remote_work()
+        if not rw:
+            return "nichts uebernommen (origin unveraendert)"
+        n = len(rw.get("commits") or [])
+        return (f"{n} Commit(s) am {rw.get('ts')} uebernommen "
+                f"({str(rw.get('von') or '?')[:8]} -> {rw.get('nach')}, {rw.get('anlass')}) "
+                "- gilt als NUTZERARBEIT; R367: Neubau + EINMALIGE volle Regression "
+                "zu Batch-Beginn wurde dem Worker aufgetragen")
+
+    def remote_work_hinweis(self) -> str:
+        """Auftrag an den naechsten Worker, wenn Code von aussen dazukam (R13n)."""
+        rw = self._remote_work()
+        if not rw:
+            return ""
+        commits = list(rw.get("commits") or [])
+        zeilen = [
+            "=== REMOTE-STAND UEBERNOMMEN (R367 GILT) ===",
+            f"Vor diesem Batch wurden {len(commits)} Commit(s) von "
+            f"{self.git.remote}/{self.git.branch} uebernommen "
+            f"({str(rw.get('von') or '?')[:8]} -> {rw.get('nach')}). Diese Arbeit stammt vom "
+            "anderen Rechner und gilt als NUTZERARBEIT - nicht als deine und nicht als die "
+            "des Reviewers.",
+            "Deshalb gilt R367: NEUBAU inkl. einmaliger voller Regression zu Batch-Beginn - "
+            "baue ZUERST neu und fahre EINE vollstaendige Regression, BEVOR du etwas aenderst:",
+            r"  1) & .\scripts\port_build.ps1          (PoC + Port)",
+            r"  2) & .\scripts\port_build.ps1 -Gl      (GL-Senke; die baut der Standardlauf nicht)",
+            "  3) python scripts/port_regression.py   (volle Regression, EINMAL zu Batch-Beginn)",
+            "Melde die drei Ergebnisse im Bericht. Wiederhole die volle Regression NICHT bei "
+            "jedem Zwischenschritt.",
+        ]
+        for c in commits[:10]:
+            zeilen.append("  * " + c)
+        return "\n".join(zeilen)
 
     def git_push(self) -> tuple[bool, str]:
         if not self.cfg.get("git", "push_after_batch", True):
@@ -776,10 +934,12 @@ class Orchestrator:
     def run_worker(self, instruction: str, profile: str, program: str | None, queue_block: str) -> wk.WorkerResult:
         self.state.set(st.DS_WORKING, f"Profil {profile}")
         self.phase("worker", f"Batch {self.state.batch}, Profil {profile}")
+        # R13n: wurde vor diesem Batch Remote-Code uebernommen, MUSS der Worker das
+        # wissen - samt R367 (Neubau + EINE volle Regression zu Batch-Beginn).
         res = wk.run_batch(self.cfg, self.log, self.state, instruction, profile, program,
                            queue_block=queue_block, notify=self.say,
                            tick=lambda: self.poll(fast=True), cancel=self.cancel_check,
-                           mock=self.mock)
+                           mock=self.mock, remote_hinweis=self.remote_work_hinweis())
         self.state.worker_finished()
         self.state.data["last_profile"] = profile
         gs = res.ghidra_save or {}
@@ -917,6 +1077,11 @@ class Orchestrator:
                                 previous_raw=self._review_previous_raw))
         if self.state.data.get("pause_work"):
             self.state.data.pop("pause_work", None)   # einmal zugestellt
+            self.state.save()
+        if self.state.data.get("remote_work"):
+            # R13n: ebenfalls EINMAL zugestellt - der naechste Review soll nicht
+            # denselben Pull erneut gemeldet bekommen.
+            self.state.data.pop("remote_work", None)
             self.state.save()
         # R13e: der Ordner des laufenden Reviews gehoert in den Zustand. `watch`
         # liest nur und wusste sonst nicht, wo der Reviewer gerade schreibt - es
@@ -1287,6 +1452,7 @@ class Orchestrator:
             f"| Abbruchgrund: {res.get('killed_reason') or 'kein Abbruch'}",
             f"- Alarmmeldungen: {'; '.join(res.get('alarms') or []) or 'keine'}",
             f"- SECRET-ZUGRIFF (Ueberwachung): {self.secret_zeile(batch)}",
+            f"- Remote-Stand (R13n): {self.remote_work_zeile(batch)}",
             f"- Laufzeit-Profil: {self.laufzeit_zeile(res, st)}",
             f"- Kosten (gerechnet, Tarif je Aufruf): ${float(res.get('cost_usd') or 0):.4f} "
             f"| Gegenprobe alles zum Jetzt-Tarif: ${float(res.get('cost_naive_usd') or 0):.4f}",
@@ -1371,36 +1537,57 @@ class Orchestrator:
         }
 
     def pause_work_note(self) -> str:
-        """Hinweis fuer den Review, wenn der Nutzer in der Pause gearbeitet hat.
+        """Hinweis fuer den Review, wenn in der Pause gearbeitet wurde (oder ein Pull kam).
 
         R13e: Harness-Batch-Commits werden ausdruecklich getrennt ausgewiesen.
         Sie sind keine Handarbeit - ohne diese Trennung meldete der Review die
         eigenen Batches als "Arbeit in der Pause".
+        R13n: Vom Remote uebernommene Commits sind NUTZERARBEIT und stehen in einem
+        eigenen Block; in der Pausenliste erscheinen sie nicht noch einmal.
         """
         pause = self.state.data.get("pause_work") or {}
-        if not pause:
+        remote = self._remote_work()
+        if not pause and not remote:
             return ""
-        zeilen = ["HINWEIS: Der Nutzer hat in der Pause selbst gearbeitet.",
-                  f"- Pause seit {pause.get('since')}, "
-                  f"HEAD {pause.get('head_before')} -> {pause.get('head_now')}"]
-        if pause.get("dirty"):
-            zeilen.append(f"- Arbeitsbaum: {len(pause['dirty'])} Aenderungen: "
-                          + "; ".join(str(x) for x in pause["dirty"][:10]))
-        hand = list(pause.get("commits_hand") or [])
-        har = list(pause.get("commits_harness") or [])
-        if hand or har:
-            zeilen.append(f"- Commits in der Pause: {len(hand)} Handarbeit, "
-                          f"{len(har)} Harness-Batch (keine Handarbeit)")
-        for c in hand[:10]:
-            zeilen.append(f"  * Handarbeit: {c}")
-        for c in har[:10]:
-            zeilen.append(f"  * Harness-Batch: {c}")
-        ref = pause.get("head_before")
+        remote_hashes = self._remote_hashes()
+        zeilen: list[str] = []
+        if pause:
+            zeilen += ["HINWEIS: Der Nutzer hat in der Pause selbst gearbeitet.",
+                       f"- Pause seit {pause.get('since')}, "
+                       f"HEAD {pause.get('head_before')} -> {pause.get('head_now')}"]
+            if pause.get("dirty"):
+                zeilen.append(f"- Arbeitsbaum: {len(pause['dirty'])} Aenderungen: "
+                              + "; ".join(str(x) for x in pause["dirty"][:10]))
+            hand = [c for c in (pause.get("commits_hand") or [])
+                    if str(c).split(" ", 1)[0] not in remote_hashes]
+            har = list(pause.get("commits_harness") or [])
+            if hand or har:
+                zeilen.append(f"- Commits in der Pause: {len(hand)} Handarbeit, "
+                              f"{len(har)} Harness-Batch (keine Handarbeit)")
+            for c in hand[:10]:
+                zeilen.append(f"  * Handarbeit: {c}")
+            for c in har[:10]:
+                zeilen.append(f"  * Harness-Batch: {c}")
+        if remote:
+            commits = list(remote.get("commits") or [])
+            zeilen += ["",
+                       "VOM REMOTE UEBERNOMMEN - DAS IST NUTZERARBEIT (nicht die des Workers):",
+                       f"- {len(commits)} Commit(s), {str(remote.get('von') or '?')[:8]} -> "
+                       f"{remote.get('nach')} am {remote.get('ts')} "
+                       f"(Anlass: {remote.get('anlass')})",
+                       "- Diese Arbeit wurde auf dem anderen Rechner committet und gepusht; "
+                       "der Harness hat sie nur uebernommen. Sie ist NICHT zu bewerten wie "
+                       "ein Worker-Batch, aber ihr Stand ist die Grundlage des neuen Auftrags.",
+                       "- R367: wegen des uebernommenen Codes wurde Neubau + EINE volle "
+                       "Regression zu Batch-Beginn verlangt (siehe Worker-Bericht)."]
+            for c in commits[:10]:
+                zeilen.append(f"  * Nutzerarbeit (Remote): {c}")
+        ref = pause.get("head_before") if pause else remote.get("von")
         if ref:
             try:
-                zeilen.append("- git log seit Pausenbeginn (Rohform): "
+                zeilen.append("- git log seit " + str(ref)[:8] + " (Rohform): "
                               + (" | ".join(self.git.log_since(ref, 10)) or "(keine Commits)"))
-                zeilen.append("- Diffstat seit Pausenbeginn:\n```\n"
+                zeilen.append("- Diffstat seit " + str(ref)[:8] + ":\n```\n"
                               + self.git.diffstat_since(ref) + "\n```")
             except Exception as exc:
                 zeilen.append(f"- git-Angaben nicht ermittelbar: {str(exc)[:150]}")

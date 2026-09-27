@@ -196,7 +196,8 @@ def build_command(cfg, profile, run_path: Path, session_id: str,
 
 
 def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str | None,
-              queue_block: str = "", notify=None, tick=None, cancel=None, mock=False) -> WorkerResult:
+              queue_block: str = "", notify=None, tick=None, cancel=None, mock: bool = False,
+              remote_hinweis: str = "") -> WorkerResult:
     res = WorkerResult()
     res.profile = profile_name
     profile = load_profile(cfg.root, profile_name)
@@ -245,7 +246,8 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
         res.limits["ghidra_backup"] = bk.get("path")
 
     # --- Auftrag schreiben -------------------------------------------------------------
-    prompt = build_prompt(cfg, instruction, queue_block, res.program, profile_name)
+    prompt = build_prompt(cfg, instruction, queue_block, res.program, profile_name,
+                          remote_hinweis=remote_hinweis)
     write_text_atomic(rd / "auftrag.md", prompt)
 
     # --- 4. Umgebung -------------------------------------------------------------------
@@ -647,7 +649,8 @@ MAX_STDIN_BYTES = 9_000_000
 TICK_MIN_INTERVAL_S = 2.0
 
 
-def build_prompt(cfg, instruction: str, queue_block: str, program: str | None, profile: str) -> str:
+def build_prompt(cfg, instruction: str, queue_block: str, program: str | None, profile: str,
+                 remote_hinweis: str = "") -> str:
     """Vorspann + Auftrag + Queue. Der Worker bekommt KEINE Rückfragemöglichkeit."""
     parts = [WORKER_PREAMBLE]
     umfeld = [f"Ghidra-Profil dieses Laufs: {profile}"]
@@ -660,8 +663,12 @@ def build_prompt(cfg, instruction: str, queue_block: str, program: str | None, p
         umfeld.append("  - Ein anderes Programm NICHT selbst stellen: PROGRAM_REQUEST melden.")
     else:
         umfeld.append("Kein Ghidra-Programm gestellt (Profil ohne Ghidra-Zugriff).")
-    parts += ["", "UMFELD DIESES LAUFS", *umfeld, "", "=== AUFTRAG (vom Reviewer) ===",
-              instruction.strip()]
+    parts += ["", "UMFELD DIESES LAUFS", *umfeld]
+    # R13n: ist waehrend des Pulls Code von aussen dazugekommen, MUSS der Worker das
+    # wissen - sonst arbeitet er auf einem Stand, der den Neubau noch nicht gesehen hat.
+    if remote_hinweis:
+        parts += ["", remote_hinweis.strip()]
+    parts += ["", "=== AUFTRAG (vom Reviewer) ===", instruction.strip()]
     if queue_block:
         parts += ["", queue_block.strip()]
     return "\n".join(parts) + "\n"

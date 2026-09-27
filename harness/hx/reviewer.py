@@ -13,7 +13,7 @@ from pathlib import Path
 
 from . import envs, protocol, secrets, streamjson
 from .proc import run_stream
-from .profiles import builtin_args, pfad_regeln, secrets_verbote
+from .profiles import builtin_args, credential_verbote, pfad_regeln, secrets_verbote
 from .util import ensure_dir, now_iso, read_text, write_json_atomic, write_text_atomic
 
 
@@ -66,6 +66,11 @@ def build_command(cfg, session_id: str | None, new_session: bool) -> list[str]:
            "--disallowedTools", "Bash", "WebFetch", "WebSearch", "Task", "NotebookEdit",
            "TodoWrite", "SlashCommand", "Skill", "mcp__ghidra",
            *secrets_verbote(cfg.secrets_dir, *secrets.ALT_ORTE),
+           # R13o: auch der Reviewer hat eine `.credentials.json` in seinem
+           # CLAUDE_CONFIG_DIR (cc-reviewer) - und dieses Verzeichnis liegt IN seiner
+           # erlaubten Wurzel. Ohne diese Regeln koennte er den Abo-Token des eigenen
+           # Kontos oeffnen und zitieren.
+           *credential_verbote((cfg.root, cfg.decomp)),
            # R13f: Wurzel fuer den Pfadbereich anmelden. Sonst gilt ein absoluter
            # Pfad ausserhalb des Arbeitsverzeichnisses als "draussen" und wird
            # abgelehnt, obwohl die Regel ihn erlaubt (gemessen: harness.toml war

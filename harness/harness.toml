@@ -13,6 +13,10 @@ decomp      = "g:/Silent Scope Decomp"
 secrets     = "$USERPROFILE/.hx-secrets"
 prompts     = "g:/Harness/harness/prompts"
 backups     = "g:/Harness/backups"
+# R13o: der Ordner UEBER dem Harness - Lese-Wurzel fuer /ask (Belege in docs/,
+# Sitzungsprotokolle, Sandbox). Fehlt der Schluessel, nimmt der Code den Elternordner
+# von `root`; gesperrt bleiben darin secrets/, backups/ und .credentials.json.
+harness_home = "g:/Harness"
 # Nur fuer den Umgebungs-Nachweis (R16): der Testlauf darf NICHT ins Decomp-Repo.
 sandbox     = "g:/Harness/sandbox/workspace"
 
@@ -48,6 +52,17 @@ extra_offpeak_dates = []
 
 [reviewer]
 rotation_after = 10
+
+[ask]
+# R13o: Gedaechtnis des Frage-Chats (/ask). Der Chat wird wiederverwendet, solange
+# KEINE der drei Grenzen reisst - sonst beginnt eine neue Session. Jede Fortsetzung
+# (`--resume`) schickt den bisherigen Chat erneut mit: laenger = teurer.
+fenster_min   = 30    # so lange ohne Frage darf der Chat weiterlaufen
+max_fragen    = 10    # danach beginnt ein neuer Chat
+max_alter_min = 120   # Gesamtalter, danach beginnt ein neuer Chat
+# Werkzeugrunden je Frage. Eine Runde = ein Werkzeugaufruf; 25 Runden reichen fuer
+# ein paar Dateien. Wenn Antworten abgeschnitten wirken, hier auf 40 heben.
+max_turns     = 25
 
 [git]
 push_after_batch = true

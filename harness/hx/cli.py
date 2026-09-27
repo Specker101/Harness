@@ -1027,8 +1027,12 @@ def cmd_ask(args) -> int:
     """Freie Frage an Claude - eigener, nur lesender Lauf (R13f).
 
     Laeuft im EIGENEN Prozess: der Harness (und ein laufender Batch) bleibt
-    unberuehrt. Antwort kommt auf die Konsole, der Hinweis (Modell, Anfragen,
-    Kosten, Limit) darunter.
+    unberuehrt. Antwort kommt auf die Konsole, der Hinweis (Abo, Modell, Anfragen,
+    Token, Chat, Limit) darunter.
+
+    R13o: Fragen laufen nacheinander und in EINEM Chat weiter (Gedaechtnis); mit
+    `--neu` beginnt ein neuer Chat. Eine Datei-Sperre verhindert, dass zwei
+    Aufrufe gleichzeitig dieselbe Session greifen.
     """
     from . import ask as askmod
     cfg = load_config(args.config)
@@ -1044,10 +1048,13 @@ def cmd_ask(args) -> int:
               file=sys.stderr)
         return 2
     log = _log(cfg, "ask")
-    res = askmod.ask(cfg, log, frage)
+    res = askmod.ask(cfg, log, frage, neu=bool(getattr(args, "neu", False)))
     print(res.get("text") or "(keine Antwort)")
     print()
     print(res.get("hinweis") or "")
+    if res.get("chat"):
+        print(f"Chat: {res['chat'].get('id')} (neu: {res['chat'].get('neu')} - "
+              f"{res['chat'].get('grund')}, Frage {res['chat'].get('fragen')})")
     if res.get("datei"):
         print(f"Beleg: {res['datei']}")
     return 0 if res.get("ok") else 1
@@ -1187,6 +1194,9 @@ def build_parser() -> argparse.ArgumentParser:
     ak = sub.add_parser("ask", help="freie Frage an Claude (eigener Lauf, nur lesend)")
     ak.add_argument("frage", nargs="?", default="", help="die Frage")
     ak.add_argument("--file", help="Frage aus einer Datei")
+    ak.add_argument("--neu", action="store_true",
+                    help="neuen Frage-Chat beginnen (sonst laeuft die Frage im selben "
+                         "Chat weiter)")
     ri = sub.add_parser("run-instruction", help="eigene Instruktion als naechsten Batch")
     ri.add_argument("--file", help="Datei mit der Instruktion")
     ri.add_argument("--text", default="", help="Instruktion direkt")
