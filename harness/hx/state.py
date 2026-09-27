@@ -35,6 +35,10 @@ DEFAULTS = {
     "note": None,
     "last_error": None,
     "phase": None,
+    # R13q: Live-Zahlen des LAUFENDEN Batches (der Worker schreibt sie gedrosselt
+    # im Takt) und der letzte Stand nach dem Lauf.
+    "live": None,
+    "live_letzte": None,
 }
 
 
@@ -84,6 +88,18 @@ class State:
         self.save()
 
     def worker_finished(self) -> None:
+        """Worker-Ende: die LIVE-Zahlen des Laufs aufheben (R13q).
+
+        `/status` zeigt danach noch `letzter Batch 196: 184 Anfragen, $0.2747`, statt
+        die Zeile zu verlieren. Die Zahlen wandern nach `live_letzte`, BEVOR `live`
+        und der Worker-Eintrag geloescht werden.
+        """
+        live = self.data.get("live") or {}
+        if isinstance(live, dict) and live:
+            letzte = dict(live)
+            letzte["batch"] = int(live.get("batch") or self.data.get("batch", 0))
+            self.data["live_letzte"] = letzte
+        self.data["live"] = None
         self.data["worker"] = None
         self.save()
 

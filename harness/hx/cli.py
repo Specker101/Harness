@@ -3,6 +3,7 @@
   python -m hx.cli run            [--mock] [--config PFAD]
   python -m hx.cli status
   python -m hx.cli budget
+  python -m hx.cli bilanz         [--n <Abstand in Batches>]
   python -m hx.cli profiles
   python -m hx.cli probe-telegram
   python -m hx.cli allowlist-add <USER_ID>
@@ -71,6 +72,18 @@ def cmd_budget(args) -> int:
     cfg = load_config(args.config)
     log = Log(Path(cfg.sub("logs")) / "status.log", echo=False)
     print(Orchestrator(cfg, log).budget_text())
+    return 0
+
+
+def cmd_bilanz(args) -> int:
+    """Bilanz auf der Konsole (R13q) - dieselbe Ausgabe wie Telegram `/bilanz [N]`.
+
+    Rein lesend: kleiner Schnappschuss, Belegdateien, `runs/b*/result.json`,
+    `logs/rate-limit.json`. Kein Ghidra, kein Netz, kein Mitschnitt.
+    """
+    from . import bilanz as bilanzmod
+    cfg = load_config(args.config)
+    print(bilanzmod.bericht(cfg, n=max(1, int(getattr(args, "n", 1) or 1))))
     return 0
 
 
@@ -1162,6 +1175,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("status")
     sub.add_parser("budget")
+    bi = sub.add_parser("bilanz", help="Bilanz: Aeste im Vergleich, Projektstand, Kosten")
+    bi.add_argument("--n", type=int, default=1,
+                    help="Vergleichsabstand in Batches (Vorgabe 1 = direkter Vorgaenger)")
     sub.add_parser("profiles")
     sub.add_parser("probe-telegram")
 
@@ -1216,6 +1232,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     return {
         "run": cmd_run, "status": cmd_status, "budget": cmd_budget, "profiles": cmd_profiles,
+        "bilanz": cmd_bilanz,
         "probe-telegram": cmd_probe, "allowlist-add": cmd_allowlist, "demo": cmd_demo,
         "show-prompts": cmd_show_prompts,
         "env-proof": cmd_env_proof, "rebuild": cmd_rebuild, "ghidra-smoke": cmd_ghidra_smoke,

@@ -20,6 +20,7 @@ from pathlib import Path
 
 from . import control, envs, pricing, protocol, queue, retention, reviewer as rv, secrets, state as st, streamjson, worker as wk
 from . import ask as askmod
+from . import bilanz as bilanzmod
 from .gitsafe import Git
 from .telegram import HELP, Telegram, TelegramError
 from .util import ensure_dir, now_iso, read_json, read_text, secs_human, write_text_atomic
@@ -74,9 +75,11 @@ class Orchestrator:
         except TelegramError as exc:
             self.log.warn("Telegram getMe fehlgeschlagen", fehler=str(exc)[:120])
 
-    def say(self, text: str):
+    def say(self, text: str, mono: bool = False):
+        """Abschicken. `mono=True` (R13q) laesst Telegram den Text in Festbreitenschrift
+        zeigen - die Bilanz braucht das, damit die Spalten untereinander stehen."""
         if self.tg:
-            self.tg.send(text)
+            self.tg.send(text, mono=mono)
 
     # ------------------------------------------------------------------ Phase
     def phase(self, name: str | None, extra: str = "") -> None:
@@ -434,6 +437,31 @@ class Orchestrator:
             self.say("Frage laeuft (eigener Lauf, nur lesend: g:\\Harness + Decomp-Repo). "
                      "Der Betrieb hier laeuft weiter.")
 
+    def _do_bilanz(self, rest: str = "") -> None:
+        """`/bilanz [N]` - Aeste im Vergleich, Projektstand, Kosten (R13q).
+
+        Rein lesend und schnell (kleine JSON-Dateien, kein Ghidra, kein Netz, kein
+        Mitschnitt): die Antwort kann direkt aus dem Takt-Thread kommen. `N` ist der
+        Vergleichsabstand in Batches (Vorgabe 1 = direkter Vorgaenger).
+        """
+        n = 1
+        if rest.strip():
+            wert = rest.strip().split()[0]
+            if wert.isdigit():
+                n = max(1, int(wert))
+            else:
+                self.say("Nutzung: /bilanz [N] - N = Vergleichsabstand in Batches "
+                         "(Vorgabe 1).")
+                return
+        try:
+            text = bilanzmod.bericht(self.cfg, n=n)
+        except Exception as exc:                                # noqa: BLE001
+            self.log.error("Bilanz fehlgeschlagen", fehler=str(exc)[:250])
+            self.say("BILANZ FEHLGESCHLAGEN: " + str(exc)[:300])
+            return
+        # Monospace: die Spalten sollen untereinander stehen (Telegram-Tauglichkeit).
+        self.say(text, mono=True)
+
     def _ask_arbeiter(self) -> None:
         """Die Warteschlange der Fragen abarbeiten - eine nach der anderen (R13o)."""
         while True:
@@ -586,6 +614,8 @@ class Orchestrator:
             self._do_ask(rest)
         elif cmd in ("ask-neu", "ask_neu", "askneu"):
             self._do_ask(rest, neu=True)
+        elif cmd == "bilanz":
+            self._do_bilanz(rest)
         elif cmd == "approve":
             self._do_approve(rest)
         elif cmd == "autonom":
@@ -664,6 +694,54 @@ class Orchestrator:
             self.say("Noch keine Instruktion vorhanden.")
 
     # ------------------------------------------------------------------ Texte
+    @staticmethod
+    def _lokale_zeit(iso: str | None) -> str:
+        """`15:11` aus einem ISO-Zeitstempel (nichts, wenn er fehlt/kaputt ist)."""
+        try:
+            dt = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.astimezone().strftime("%H:%M")
+        except (TypeError, ValueError):
+            return ""
+
+    def live_batch_zeile(self) -> str:
+        """Dauer und Kosten des laufenden Batches - ohne den Mitschnitt zu lesen (R13q).
+
+        Quelle sind die LIVE-Zahlen, die `worker.run_batch` gedrosselt (alle 15 s) in
+        den Zustand schreibt (`state.data["live"]`). `runs/b*/stream.jsonl` wird
+        ausdruecklich NICHT angefasst: der Mitschnitt ist bis zu 32 MB gross (b180),
+        und /status muss sofort antworten. Nach dem Lauf bleibt der letzte Stand als
+        `state.data["live_letzte"]` stehen.
+        """
+        live = self.state.data.get("live") or {}
+        if live:
+            w = self.state.data.get("worker") or {}
+            dauer = ""
+            try:
+                start = datetime.fromisoformat(str(w.get("started_at")).replace("Z", "+00:00"))
+                if start.tzinfo is None:
+                    start = start.replace(tzinfo=timezone.utc)
+                dauer = "seit " + secs_human(
+                    (datetime.now(timezone.utc) - start).total_seconds()) + " "
+            except (TypeError, ValueError):
+                pass
+            stand = self._lokale_zeit(live.get("ts"))
+            return (f"Laufender Batch {live.get('batch')}: {dauer}| "
+                    f"{live.get('requests')} Anfragen | "
+                    f"${float(live.get('cost_usd') or 0):.4f} | "
+                    f"({live.get('input_miss')} ein / {live.get('cache_read')} cache / "
+                    f"{live.get('output')} aus)"
+                    + (f" | Stand {stand}" if stand else ""))
+        letzte = self.state.data.get("live_letzte") or {}
+        if letzte:
+            stand = self._lokale_zeit(letzte.get("ts"))
+            return (f"Laufender Batch: keiner (letzter Batch {letzte.get('batch')}: "
+                    f"{letzte.get('requests')} Anfragen, "
+                    f"${float(letzte.get('cost_usd') or 0):.4f}"
+                    + (f", Stand {stand}" if stand else "") + ")")
+        return "Laufender Batch: keiner (noch keine Live-Zahlen)"
+
     def status_text(self) -> str:
         s = self.state
         rev = s.data.get("reviewer") or {}
@@ -674,6 +752,7 @@ class Orchestrator:
             f"{s.data.get('last_batch_number') or 'keiner'} | {self.batch_number_line()}",
             f"Dauerbetrieb: {'AN' if s.data.get('autonomous') else 'AUS'}",
             f"Worker: {'PID ' + str(s.live_worker_pid()) if s.live_worker_pid() else 'laeuft nicht'}",
+            self.live_batch_zeile(),
             f"Reviewer-Session: {rev.get('session_id')} ({rev.get('reviews')}/{self.cfg.get('reviewer','rotation_after',10)} Reviews)"
             + (" - Wechsel beim naechsten Review erzwungen" if rev.get("force_rotate") else ""),
             (f"Reviewer-Modell: {self.reviewer_model_seen() or '-'} (Soll {self.model_reviewer()}, "

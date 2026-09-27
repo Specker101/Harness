@@ -80,6 +80,7 @@ Immer aus `g:\Harness\harness` aufrufen (`python -m hx.cli …`).
 |---|---|
 | `status` | Zustand, Batch, Gate (mit Quelle „vom Nutzer"/„vom Reviewer"), Pause-Info, Kosten, Tarif, Queue, Git-Lage |
 | `budget` | Kosten, Alarm-/Hartgrenzen, Tarif |
+| `bilanz [--n N]` | **Bilanz** (R13q): Aeste im Vergleich zum Batch N Batches vorher (Vorgabe 1), Projektstand Teil C, Kosten der letzten 24 h, Abo-Auslastung, letzte Batches aus git |
 | `pause` | pausieren; ein laufender Batch läuft zu Ende, danach startet nichts Neues |
 | `resume` | fortsetzen (`--accept-dirty`, wenn ein unsauberer Arbeitsbaum bewusst akzeptiert wird) |
 | `stop` | laufenden Batch abbrechen: WIP wird gesichert (Status + Patch + Stash); danach **beendet sich der Harness** |
@@ -108,7 +109,7 @@ Im Notfall ist `stop.ps1 -Force` sofort.
 
 ## 3. Telegram-Befehle
 
-`/status` · `/budget` · `/pause` · `/resume [ok]` · `/stop` · `/approve [Text]` ·
+`/status` · `/budget` · `/bilanz [N]` · `/pause` · `/resume [ok]` · `/stop` · `/approve [Text]` ·
 `/number <N>` · `/autonom [on|off]` · `/ds <Text>` · `/claude <Text>` · `/ask <Frage>` ·
 `/ask-neu <Frage>` ·
 `/review` · `/last [ds|claude] [n]` · `/queue` · `/why` · `/help`
@@ -606,3 +607,57 @@ eine Telegram-Warnung (`WENIG PLATZ: …`); in `/status` steht die Zeile
   dem Checkpoint) und **`HISTORIE`** (letzte 15 Commits + die neuesten
   `analysis/port-batch*.md`). Vorher sah der Reviewer nur die letzten **vier**
   Commit-Betreffe und konnte selbst kein `git log` fahren.
+
+---
+
+## 14. Live-Zahlen im Status und die Bilanz (R13q)
+
+### 14a. `/status` zeigt jetzt den **laufenden** Batch
+
+Zwischen „Worker: PID …" und der Reviewer-Session steht eine Zeile, die sich während
+des Batches bewegt:
+
+```
+Laufender Batch 196: seit 12m34s | 184 Anfragen | $0.2747 | (245889 ein / 45222144 cache / 170190 aus) | Stand 15:11
+```
+
+Sie kommt **nicht** aus dem Mitschnitt: `runs\b<N>\stream.jsonl` wird während des Laufs
+bis zu **32 MB** groß (b180), und der Harness müsste ihn bei jeder `/status`-Abfrage
+lesen. Stattdessen schreibt der Worker die Zahlen **selbst** — gedrosselt auf alle 15 s
+(`LIVE_SEKUNDEN`, im Takt-Block von `run_batch`, nach `state.data["live"]`).
+
+Nach dem Lauf bleibt der letzte Stand stehen (`live_letzte`), `/status` zeigt dann
+`Laufender Batch: keiner (letzter Batch 196: 184 Anfragen, $0.2747, Stand 15:29)`.
+Gibt es noch gar keine Zahlen: `Laufender Batch: keiner (noch keine Live-Zahlen)`.
+
+### 14b. `/bilanz [N]` — Telegram und Konsole
+
+`/bilanz` (Telegram) und `python -m hx.cli bilanz [--n N]` zeigen **dieselbe** Ausgabe,
+als **festes Format**:
+
+1. **Ast-Tabelle.** Alle Aeste in der Reihenfolge des Schnappschusses, je Zeile
+   `vorher -> jetzt` und ein Delta (`=`, `+3`, `+0.4 pp`). Was sich bewegt hat, wird
+   als Nebenzeile mit `vorher: …` gezeigt. Gezählt werden beide: Hauptzahl **und**
+   Nebenzahlen — sonst gälte ein Ast, dessen Nachzügler wandern, als unverändert.
+2. **Projektstand (Teil C).** Köpfe/Insn gebaut und offen, je in Prozent, dazu die
+   Zahl der Blätter (Köpfe ohne offenen Ruf) und der Stand des **Programm-Inventars**.
+   Quelle sind die Belegdateien (`analysis/port-batch<N>-*.md` und der Ankerkopf);
+   die Zahlen stehen dort als Prosa mit Fettmarken. Was nicht dasteht, wird **nicht**
+   geschätzt, sondern als „nicht ermittelbar" ausgewiesen.
+3. **Kosten und Abo.** DeepSeek-Kosten der letzten 24 h mit Anzahl der Batches,
+   die Tageskosten aus dem Zustand samt Tagesbudget, und die **Abo-Auslastung**
+   (Sitzung 5 h / Woche 7 Tage mit Rücksetzzeit) aus `logs\rate-limit.json`.
+   Fehlt die Datei (kein Review seit R13p gelaufen), wird der neueste vorhandene
+   Review-Mitschnitt ausgewertet — der Worker-Mitschnitt bleibt unangetastet.
+4. **Aufgaben.** „Stand"-Zeile des Ankers, offener Auftrag, die letzten
+   Batch-Betreffe aus `git log`.
+
+Der Vergleichsabstand ist der **erste** Parameter: `/bilanz 5` vergleicht mit dem
+nächsten **vorhandenen** Batch ≤ `jetzt − 5` (Batch 154 fehlt im Schnappschuss), und
+wenn es keinen gibt, steht dort `kein frueherer Batch vorhanden` — es wird nie unter
+den ältesten vorhandenen zurückgegriffen.
+
+Versendet wird die Bilanz als **Monospace-Block**. Geteilt wird **vor** dem Umfassen
+der Zäune (sonst zerreißt eine Teilung den Block und Telegram lehnt die Nachricht ab),
+und Backticks im Text werden entschärft — ein einzelnes ``` ` ``` würde den Block
+sonst beenden.

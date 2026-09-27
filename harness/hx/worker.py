@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -304,6 +305,32 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
         extra_dates = list(cfg.get("peak", "extra_offpeak_dates", []) or [])
         takt = streamjson.TaktGeber(TICK_MIN_INTERVAL_S)
         takt_lock = threading.Lock()        # R13h: Takt-Thread und Leser duerfen nicht doppelt takten
+        live_stand = [0.0]                  # R13q: Zeitpunkt der letzten Live-Schreibung
+
+        def live_schreiben(t: dict, cost: float) -> None:
+            """Live-Zahlen des laufenden Batches ablegen (R13q), hoechstens alle 15 s.
+
+            Rein lokal und billig: der Zustand ist eine kleine JSON-Datei. Der
+            Mitschnitt wird NICHT dafuer gelesen. Fehler hier duerfen den Lauf nicht
+            stoeren - die Anzeige ist kein Messwert.
+            """
+            jetzt = time.monotonic()
+            if jetzt - live_stand[0] < LIVE_SEKUNDEN:
+                return
+            live_stand[0] = jetzt
+            state.data["live"] = {
+                "batch": int(batch),
+                "ts": now_iso(),
+                "requests": int(t.get("requests") or 0),
+                "cost_usd": round(float(cost), 6),
+                "input_miss": int(t.get("input_miss") or 0),
+                "cache_read": int(t.get("cache_read") or 0),
+                "output": int(t.get("output") or 0),
+            }
+            try:
+                state.save()
+            except OSError as exc:
+                log.warn("Live-Zahlen nicht gespeichert", fehler=str(exc)[:120])
 
         def takt_jetzt():
             """Einen Taktschlag ausfuehren - hoechstens einer gleichzeitig."""
@@ -363,6 +390,7 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
                 return None
             t = stats.totals()
             cost = stats.cost_usd(extra_dates)
+            live_schreiben(t, cost)
             for key, cond, text in (
                 ("alarm_requests", t["requests"] >= lim["alarm_requests"],
                  f"ALARM: {t['requests']} Anfragen erreicht (Alarmgrenze {lim['alarm_requests']})"),
@@ -650,6 +678,12 @@ MAX_STDIN_BYTES = 9_000_000
 # laufen. B159 hatte 20.486 Zeilen - mit einem Langpoll je Zeile stand der Harness
 # nach dem Worker-Ende minutenlang still. Ein Takt alle 2 s genuegt.
 TICK_MIN_INTERVAL_S = 2.0
+
+# R13q: wie oft die Live-Zahlen des laufenden Batches in den Zustand wandern.
+# Anlass: `/status` soll Dauer und Kosten eines LAUFENDEN Batches zeigen, ohne den
+# Mitschnitt zu lesen (`runs/b*/stream.jsonl` ist in b180 32 MB gross - und der
+# Leser-Thread ist derselbe, der entscheiden soll, ob das Kind fertig ist).
+LIVE_SEKUNDEN = 15.0
 
 
 def build_prompt(cfg, instruction: str, queue_block: str, program: str | None, profile: str,

@@ -55,6 +55,8 @@ HELP = (
     "/claude <Text> - Nachricht an den Reviewer (Queue)\n"
     "/ask <Frage> - freie Frage an Claude (eigener Lauf, nur lesend)\n"
     "/ask-neu <Frage> - Frage in einem NEUEN Chat stellen (Themenwechsel)\n"
+    "/bilanz [N] - Bilanz: Aeste im Vergleich (N Batches zurueck), Projektstand, "
+    "Kosten, Abo\n"
     "/review - neuer Review jetzt (verwirft einen offenen Auftrag, hebt die Pause auf)\n"
     "/last [ds|claude] [n] - letzten Text zeigen (claude = vollstaendige Instruktion)\n"
     "/budget - Kosten und Grenzen\n"
@@ -69,6 +71,11 @@ class TelegramError(RuntimeError):
 
 
 class Telegram:
+    # R13q: Telegram rendert Festbreitenschrift nur in einem Code-Block. Geteilt wird
+    # VOR dem Umfassen der Zaeune (sonst zerreisst eine Teilung den Block und Telegram
+    # lehnt die Nachricht ab), und die Grenze liegt entsprechend tiefer als 4000.
+    MONO_LIMIT = 3800
+
     def __init__(self, token: str, allowlist: list[str] | None = None, poll_timeout: int = 25,
                  log=None, read_only: bool = False):
         self.token = token
@@ -149,18 +156,30 @@ class Telegram:
                         grenze=(8.0 if kur else to + 20))
         return res.get("result", [])
 
-    def send(self, text: str, chat_id: str | None = None) -> bool:
+    def send(self, text: str, chat_id: str | None = None, mono: bool = False) -> bool:
+        """Abschicken. `mono=True` schickt jeden Teil als Code-Block (R13q, /bilanz)."""
         cid = chat_id or self.last_chat_id
         if not cid:
             return False
+        if mono and not (text or "").strip():
+            return False
         ok = True
-        for chunk in split_message(text or ""):
+        teile = split_message(text or "", self.MONO_LIMIT if mono else 4000)
+        for chunk in teile:
+            if mono:
+                # Backticks im Text wuerden den Block beenden (Markdown v1) - deshalb
+                # wird der Inhalt entschaerft, BEVOR die Zaeune drumherum kommen.
+                params = {"chat_id": cid,
+                          "text": "```\n" + chunk.replace("`", "'").rstrip() + "\n```",
+                          "parse_mode": "Markdown",
+                          "disable_web_page_preview": "true"}
+            else:
+                params = {"chat_id": cid, "text": chunk,
+                          "disable_web_page_preview": "true"}
             try:
                 # R13k: knapp begrenzt - ein Sendeversuch darf keinen Lauf aufhalten
                 # (Alarme werden auch aus dem Mitschnitt-Leser heraus gemeldet).
-                self.call("sendMessage", {"chat_id": cid, "text": chunk,
-                                          "disable_web_page_preview": "true"},
-                          timeout=15, grenze=20)
+                self.call("sendMessage", params, timeout=15, grenze=20)
             except TelegramError as exc:
                 ok = False
                 if self.log:
