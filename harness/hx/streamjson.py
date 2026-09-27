@@ -12,11 +12,11 @@ import json
 import re
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from . import pricing, secrets
-from .util import append_jsonl, now_iso, read_text
+from .util import append_jsonl, ensure_dir, now_iso, read_text, write_text_atomic
 
 # Punkt 2c (R13e): Der HTTP-Weg auf 127.0.0.1:8089 ist ausdruecklich erlaubt. Er
 # kann aber den GEMEINSAMEN Ghidra-Zustand beruehren (Programm wechseln/oeffnen/
@@ -335,6 +335,122 @@ def scanne_mitschnitt(cfg, pfad) -> list[dict]:
     return stats.secret_hits
 
 
+# ------------------------------------------------------- Nutzerlimit (R13p)
+# Der Abo-Verbrauch steht in JEDEM Abo-Mitschnitt: Claude Code schreibt ein
+# `rate_limit_event` mit `unifiedWindows.{five_hour,seven_day}` (Auslastung 0..1
+# und resetsAt). Der DeepSeek-Worker hat kein Claude-Kontingent und liefert es
+# nicht - die Werte kommen also aus Review, Uebergabe und /ask.
+RATE_SCHWELLE = 0.8
+RATE_FENSTER = (("five_hour", "Sitzung (5 h)"), ("seven_day", "Woche (7 Tage)"))
+
+
+def resets_zeit(stamp) -> str:
+    """`resetsAt` (Unix-Sekunden) in deutscher Zeit: `27.09.2026 18:30 (UTC+02:00)`."""
+    try:
+        dt = datetime.fromtimestamp(int(stamp), tz=timezone.utc).astimezone()
+    except (TypeError, ValueError, OSError, OverflowError):
+        return "?"
+    off = dt.utcoffset() or timedelta(0)
+    vorz = "+" if off >= timedelta(0) else "-"
+    std, rest = divmod(abs(int(off.total_seconds())), 3600)
+    return f"{dt:%d.%m.%Y %H:%M} (UTC{vorz}{std:02d}:{rest // 60:02d})"
+
+
+def rate_limit_werte(info: dict) -> list[dict]:
+    """Beide Fenster als Liste: Schluessel, Name, Anteil (0..1), Reset-Zeit."""
+    fenster = (info or {}).get("unifiedWindows") or {}
+    out: list[dict] = []
+    for schluessel, name in RATE_FENSTER:
+        d = fenster.get(schluessel) if isinstance(fenster, dict) else None
+        if not isinstance(d, dict):
+            continue
+        try:
+            anteil = float(d.get("utilization"))
+        except (TypeError, ValueError):
+            continue
+        out.append({"schluessel": schluessel, "name": name, "anteil": anteil,
+                    "resets_at": d.get("resetsAt"), "reset": resets_zeit(d.get("resetsAt"))})
+    return out
+
+
+def rate_limit_zeile(info: dict) -> str:
+    """Eine Zeile fuer /status: beide Fenster mit Prozent und Ruectsetzzeit."""
+    teile = [f"{w['name']}: {w['anteil'] * 100:.0f} % (Reset {w['reset']})"
+             for w in rate_limit_werte(info)]
+    return " | ".join(teile) if teile else "keine Angaben"
+
+
+def rate_limit_hoch(info: dict, schwelle: float = RATE_SCHWELLE) -> list[dict]:
+    return [w for w in rate_limit_werte(info) if w["anteil"] >= schwelle]
+
+
+def rate_limit_warnung(info: dict, schwelle: float = RATE_SCHWELLE) -> str:
+    """Telegram-Text, solange ein Fenster ueber der Schwelle liegt (sonst leer)."""
+    hoch = rate_limit_hoch(info, schwelle)
+    if not hoch:
+        return ""
+    zeilen = [f"NUTZERLIMIT: {w['name']} zu {w['anteil'] * 100:.0f} % verbraucht "
+              f"(Schwelle {schwelle * 100:.0f} %), Reset {w['reset']}" for w in hoch]
+    zeilen.append("Bei 100 % ist bis zum Reset Schluss - das Abo hat kein Nachkaufen "
+                  "(overageStatus: rejected).")
+    return "\n".join(zeilen)
+
+
+def rate_limit_schluessel(info: dict, schwelle: float = RATE_SCHWELLE) -> str:
+    """Schluessel fuer `notify_once`: eine Warnung je Fenster UND Reset-Zeitpunkt."""
+    return ";".join(f"{w['schluessel']}@{w.get('resets_at')}"
+                    for w in rate_limit_hoch(info, schwelle))
+
+
+def rate_limit_pfad(cfg) -> Path:
+    return Path(cfg.sub("logs")) / "rate-limit.json"
+
+
+def schreibe_rate_limit(cfg, info: dict, quelle: str = "") -> Path | None:
+    """Letzte bekannte Auslastung ablegen (der Takt liest sie von dort)."""
+    if not rate_limit_werte(info or {}):
+        return None
+    p = rate_limit_pfad(cfg)
+    ensure_dir(p.parent)
+    write_text_atomic(p, json.dumps({"ts": now_iso(), "quelle": quelle, "info": info,
+                                     "zeile": rate_limit_zeile(info)}, ensure_ascii=False,
+                                    indent=1) + "\n")
+    return p
+
+
+def lies_rate_limit(cfg) -> dict:
+    """Zuletzt gemeldete Auslastung (leer, wenn noch keine gemessen wurde)."""
+    p = rate_limit_pfad(cfg)
+    if not p.is_file():
+        return {}
+    try:
+        d = json.loads(read_text(p))
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def rate_limit_aus_mitschnitt(cfg, pfad) -> dict:
+    """Die LETZTE Limit-Angabe aus einem fertigen Mitschnitt (oder `{}`).
+
+    Gedacht fuer Laeufe, bei denen die Zahlen nicht schon im Speicher stehen
+    (Reviewer, /ask). Der grosse Worker-Mitschnitt wird NICHT noch einmal gelesen -
+    dort liegen die Werte ohnehin schon im `StreamStats` des Laufs.
+    """
+    p = Path(pfad)
+    if not p.is_file():
+        return {}
+    stats = StreamStats()
+    try:
+        with open(p, "r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if "rate_limit_event" in line:
+                    stats.feed(line)
+    except OSError:
+        return {}
+    return stats.rate_limit
+
+
 
 class StreamStats:
     def __init__(self, secret_watch: "SecretWatch | None" = None):
@@ -344,6 +460,11 @@ class StreamStats:
         self.session_id: str | None = None
         self.model: str | None = None
         self.models: dict[str, int] = {}
+        # R13p: Nutzerlimit des Abos. Claude Code schreibt im Mitschnitt ein
+        # `rate_limit_event` mit `rate_limit_info.unifiedWindows.{five_hour,seven_day}`
+        # (Auslastung 0..1 + resetsAt). Es kommt nur bei den Abo-Laeufen (Reviewer,
+        # Uebergabe, /ask) - der DeepSeek-Worker hat kein Claude-Kontingent.
+        self.rate_limit: dict = {}
         self.mcp_servers: dict = {}
         self.permission_mode: str | None = None
         self.tools_available: int | None = None
@@ -413,6 +534,11 @@ class StreamStats:
             tools = ev.get("tools")
             if isinstance(tools, list):
                 self.tools_available = len(tools)
+
+        elif etype == "rate_limit_event":
+            info = ev.get("rate_limit_info")
+            if isinstance(info, dict) and info:
+                self.rate_limit = info
 
         elif etype == "assistant":
             msg = ev.get("message") or {}

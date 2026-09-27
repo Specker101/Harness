@@ -144,7 +144,10 @@ def reviewer_env(cfg, environ: dict, oauth_token: str) -> dict:
         "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB": "1",
         "DISABLE_AUTOUPDATER": "1",
         "DISABLE_UPDATES": "1",
-        # Kein PowerShell-Werkzeug fuer den Reviewer (er hat nur Read/Grep/Glob).
+        # R13p: Der Reviewer bekommt das PowerShell-Werkzeug - aber NUR fuer die vier
+        # Nur-Lese-Git-Befehle (Erlaubnisliste in reviewer.build_command). Ohne diese
+        # Variable hiessen die Regeln `Bash(...)` und es braeuchte Git Bash.
+        "CLAUDE_CODE_USE_POWERSHELL_TOOL": "1",
     })
     return env
 

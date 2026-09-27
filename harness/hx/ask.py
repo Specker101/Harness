@@ -334,6 +334,9 @@ def ask(cfg, log, frage: str, mock: bool = False, zusatz: str = "", neu: bool = 
     limit = protocol.looks_like_limit(antwort) or protocol.looks_like_limit(rohtext[-2000:])
     stand = session_merken(cfg, sess)
     tok = token_zeile(stats)
+    # R13p: die Abo-Auslastung steht in jedem Frage-Mitschnitt - hier ablegen, damit
+    # /status und der Takt sie kennen (der Worker hat kein Claude-Kontingent).
+    streamjson.schreibe_rate_limit(cfg, stats.rate_limit, "/ask")
     # R13o: KEIN Dollar - die Zahl waere mit der DeepSeek-Tabelle gerechnet.
     hinweis = (f"(Abo - kein Einzelpreis | {stats.model or '?'} | {anfragen} Anfragen | "
                f"{tok} | {chat_zeile(cfg, sess, stand)} | {dauer:.0f}s"

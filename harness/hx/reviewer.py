@@ -13,8 +13,14 @@ from pathlib import Path
 
 from . import envs, protocol, secrets, streamjson
 from .proc import run_stream
-from .profiles import builtin_args, credential_verbote, pfad_regeln, secrets_verbote
+from .profiles import (builtin_args, credential_verbote, git_schreib_verbote,
+                       nur_lese_git_regeln, pfad_regeln, secrets_verbote)
 from .util import ensure_dir, now_iso, read_text, write_json_atomic, write_text_atomic
+
+# R13p: Name des Shell-Werkzeugs fuer die Nur-Lese-Git-Befehle. Unter Windows laeuft
+# die CLI mit CLAUDE_CODE_USE_POWERSHELL_TOOL=1 (envs.reviewer_env), damit die Regeln
+# `PowerShell(...)` heissen und die CLI den AST parst (Aliase werden normalisiert).
+GIT_TOOL = "PowerShell"
 
 
 class ReviewResult:
@@ -31,6 +37,7 @@ class ReviewResult:
         self.parsed: protocol.Review | None = None
         self.error: str | None = None
         self.secret_hits: list[dict] = []    # R13g: Schluessel-Zugriffe/Werte im Mitschnitt
+        self.rate_limit: dict = {}           # R13p: Abo-Auslastung aus diesem Lauf
 
     def describe(self) -> str:
         base = f"rc={self.rc} dauer={self.duration_s:.0f}s modell={self.model_seen} limit={self.limit_reached}"
@@ -52,6 +59,11 @@ def build_command(cfg, session_id: str | None, new_session: bool) -> list[str]:
     """
     exe = str(cfg.get("claude", "exe"))
     _tools_value, allowed = builtin_args("reviewer")
+    # R13p: Die Shell ist NUR fuer vier Nur-Lese-Git-Befehle da (Doku:
+    # code.claude.com/docs/en/permissions). Das Werkzeug wird gestellt, aber seine
+    # Erlaubnisliste enthaelt ausschliesslich `git log/show/diff/status *` - im
+    # `-p`-Lauf wird jeder andere Aufruf abgelehnt (keine Rueckfrage moeglich).
+    tools_value = ",".join([*allowed, GIT_TOOL])
     cmd = [exe, "-p",
            "--output-format", "stream-json",
            "--verbose",
@@ -59,12 +71,15 @@ def build_command(cfg, session_id: str | None, new_session: bool) -> list[str]:
            "--strict-mcp-config",
            "--permission-prompts", "none",
            "--max-turns", "40",
-           "--tools", ",".join(allowed),
+           "--tools", tools_value,
            # R13f: Lesen ist pfadgebunden. Gemessen 2026-09-26 konnte der Reviewer mit
            # einem ungebundenen `Read` auch `g:\Harness\secrets` oeffnen.
-           "--allowedTools", *pfad_regeln((cfg.root, cfg.decomp)),
+           "--allowedTools", *pfad_regeln((cfg.root, cfg.decomp)), *nur_lese_git_regeln(GIT_TOOL),
            "--disallowedTools", "Bash", "WebFetch", "WebSearch", "Task", "NotebookEdit",
            "TodoWrite", "SlashCommand", "Skill", "mcp__ghidra",
+           # R13p: schreibende Git-Befehle und jede fremde Shell-Arbeit ausdruecklich
+           # verbieten (Deny schlaegt Allow).
+           *git_schreib_verbote(GIT_TOOL),
            *secrets_verbote(cfg.secrets_dir, *secrets.ALT_ORTE),
            # R13o: auch der Reviewer hat eine `.credentials.json` in seinem
            # CLAUDE_CONFIG_DIR (cc-reviewer) - und dieses Verzeichnis liegt IN seiner
@@ -209,6 +224,18 @@ def run_review(cfg, log, prompt: str, session_id: str | None = None, new_session
             log.error("SECRET-ZUGRIFF", rolle="Reviewer",
                       treffer=[f"{h['werkzeug']}:{h['art']}:{h['name']}" for h in res.secret_hits])
 
+    # R13p: Abo-Auslastung aus dem Review-Mitschnitt ablegen (fuer /status und die
+    # 80-%-Warnung). Nur die Zeilen mit `rate_limit_event` werden gelesen.
+    if not mock and res.raw_path:
+        try:
+            info = streamjson.rate_limit_aus_mitschnitt(cfg, res.raw_path)
+            if info:
+                streamjson.schreibe_rate_limit(cfg, info, "Reviewer")
+                res.rate_limit = info
+        except Exception as exc:                                 # noqa: BLE001
+            if log:
+                log.warn("Nutzerlimit nicht auswertbar", err=str(exc)[:150])
+
     res.parsed = protocol.parse_review(res.text)
     # --- Nachher-Pruefung (E3, R11-5c): Modell muss das konfigurierte sein ------------
     res.model_expected = str(cfg.get("claude", "model_reviewer", "claude-opus-5-5"))
@@ -335,6 +362,13 @@ def build_prompt(cfg, kind: str, ctx: dict) -> str:
         "",
         "=== MARKER DES WORKERS (fehlende Werkzeuge / Programmwunsch) ===",
         (ctx.get("markers") or "(keine)").strip(),
+        "",
+        # R13p: der Diff des bewerteten Batches - ohne ihn urteilt der Reviewer blind.
+        "=== BATCH-DIFF (was der bewertete Batch geaendert hat) ===",
+        (ctx.get("diff") or "(kein Diff ermittelbar)").strip(),
+        "",
+        "=== HISTORIE (aeltere Batches: Commits und Belegdateien) ===",
+        (ctx.get("historie") or "(keine Historie ermittelbar)").strip(),
         "",
         "=== NACHRICHTEN AUS DER /claude-QUEUE ===",
         (ctx.get("queue_block") or "(keine)").strip(),

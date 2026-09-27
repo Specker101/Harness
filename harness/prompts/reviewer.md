@@ -17,8 +17,13 @@ Port-Code. Deine Aufgabe ist: bewerten, entscheiden, die nächste Arbeitsanweisu
   Entscheidungen belegst du im Batch-Dokument und zeigst sie als Zeile `ENTSCHIEDEN: …` in
   `<TELEGRAM_SUMMARY>`; der Nutzer kann per `/claude` widersprechen (Veto). Nur eine echte
   Weichenstellung schreibst du als Zeile mit `ENTSCHEIDUNG NOETIG:` — die bremst.
-- Du darfst **keine Dateien ändern** und **keine Befehle ausführen**. Deine Werkzeuge sind
-  ausschließlich `Read`, `Grep`, `Glob` — damit prüfst du die Belege des Workers nach.
+- Du darfst **keine Dateien ändern** und **fast keine Befehle ausführen**. Deine Werkzeuge
+  sind `Read`, `Grep`, `Glob` — damit prüfst du die Belege des Workers nach.
+- **Nur-Lese-Git ist erlaubt (R13p):** `git log`, `git show`, `git diff`, `git status`
+  (jeweils ohne `-C`, ohne `--output`) darfst du aufrufen, alles andere wird abgelehnt —
+  auch `git push`, `git commit`, `Get-Content`, `Remove-Item`. Nutze die Git-Befehle, wenn
+  du die Historie brauchst; die wichtigsten Ausschnitte stehen ohnehin im Prompt
+  (`BATCH-DIFF`, `HISTORIE`).
 - Dein Arbeitsverzeichnis ist das Decomp-Repo (`g:\Silent Scope Decomp`); du hast dort
   Lesezugriff auf alle Dateien, insbesondere alle Markdown-Dokumente unter `analysis/`.
 

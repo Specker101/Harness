@@ -18,7 +18,7 @@ import threading
 import uuid
 from pathlib import Path
 
-from . import envs, pricing, secrets, streamjson
+from . import envs, pricing, retention, secrets, streamjson
 from .ghidra import Ghidra
 from .proc import run_stream
 from .profiles import builtin_args, load_profile
@@ -291,10 +291,11 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
         stats = streamjson.StreamStats(streamjson.secret_watch(cfg))
         lim = {
             "alarm_wall": float(cfg.get("limits", "alarm_wall_s", 5400)),
-            "alarm_requests": int(cfg.get("limits", "alarm_requests", 250)),
+            # R13p: Vorgaben wie in harness.toml (Alarm 500 / Hart 1000).
+            "alarm_requests": int(cfg.get("limits", "alarm_requests", 500)),
             "alarm_cost": float(cfg.get("limits", "alarm_cost_usd", 1.0)),
             "hard_wall": float(cfg.get("limits", "hard_wall_s", 10800)),
-            "hard_requests": int(cfg.get("limits", "hard_requests", 400)),
+            "hard_requests": int(cfg.get("limits", "hard_requests", 1000)),
             "hard_cost": float(cfg.get("limits", "hard_cost_usd", 2.0)),
         }
         fired: set[str] = set()
@@ -397,8 +398,10 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
             if ticker is not None:
                 ticker.stop()
                 log.info("Takt-Thread beendet", aufrufe=ticker.aufrufe)
-        # R13j: Das Kind war fertig, die Pipe blieb offen (Enkelprozess). Das ist kein
-        # Abbruch, aber es gehoert in die Batch-Meldung - sonst sieht es aus, als haette
+        # R13p: Abo-Auslastung mitschreiben, WENN dieser Lauf sie geliefert hat. Der
+        # DeepSeek-Worker hat kein Claude-Kontingent - dann passiert hier nichts.
+        streamjson.schreibe_rate_limit(cfg, stats.rate_limit, f"Worker b{batch}")
+        # R13j: Das Kind war fertig, die Pipe blieb offen (Enkelprozess). Das ist kein        # Abbruch, aber es gehoert in die Batch-Meldung - sonst sieht es aus, als haette
         # der Worker gehaengt.
         if getattr(run, "eof_offen_s", None):
             res.alarms.append(
@@ -536,12 +539,12 @@ def rebuild_from_stream(cfg, log, state, batch: int):
     """
     rd = run_dir(cfg, batch)
     stream = rd / "stream.jsonl"
-    if not stream.is_file():
-        raise RuntimeError(f"kein Mitschnitt vorhanden: {stream}")
+    zeilen = retention.mitschnitt_zeilen(stream)
+    if zeilen is None:
+        raise RuntimeError(f"kein Mitschnitt vorhanden: {stream} (auch nicht als .zip)")
     stats = streamjson.StreamStats()
-    with open(stream, "r", encoding="utf-8", errors="replace") as fh:
-        for line in fh:
-            stats.feed(line)
+    for line in zeilen:
+        stats.feed(line)
     res = WorkerResult()
     res.run_dir = str(rd)
     res.stream_path = str(stream)
@@ -689,7 +692,8 @@ def write_snapshot(cfg, state, res: WorkerResult, stats: streamjson.StreamStats,
 
     reasoning = []
     if res.stream_path:
-        for line in Path(res.stream_path).read_text(encoding="utf-8", errors="replace").splitlines():
+        # R13p: der Mitschnitt kann gepackt sein (.zip) - retention liest beide Formen.
+        for line in (retention.mitschnitt_zeilen(res.stream_path) or []):
             if '"thinking"' in line or '"redacted_thinking"' in line:
                 reasoning.append(line)
     if reasoning:

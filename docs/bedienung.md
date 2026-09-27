@@ -519,3 +519,90 @@ laufen **nacheinander** (b177: vier `m177_hull`-Läufe à 77–81 s; b172: zwei
 2–4 auf genau diesen Anteil. Das sind Skripte und Batch-Entscheidungen des Workers —
 die Harness-Seite kann sie nur sichtbar machen und anordnen (12a), nicht selbst
 umschreiben.
+
+---
+
+## 13. Was mitgeschnitten wird — und wie man nach einem Absturz vorgeht (R13p)
+
+**Alles, was ein Batch tut, steht auf der Platte.** Es gibt keinen Sammel-Export und
+keine Aufräumroutine, die Mitschnitte löscht; die Dateien sind Rohbelege und werden
+nur nach 14 Tagen gepackt (13c).
+
+### 13a. Wo was steht
+
+| Datei | Inhalt |
+| :--- | :--- |
+| `runs/b<N>/stream.jsonl` | **Der vollständige Mitschnitt des Worker-Laufs**: jede Zeile der DeepSeek-Ausgabe — Antworttexte, Denkblöcke, jeder Werkzeugaufruf **und dessen Ergebnis**. Das ist die Quelle für `rebuild`, `watch` und alle Token-/Kostenzahlen. (Testläufe: `stream-v1.jsonl` beim zweiten Anlauf.) |
+| `runs/b<N>/reviewer.jsonl` | Mitschnitt des Reviews (Prompt-Ereignisse, Antwort, Nutzerlimit-Werte) |
+| `runs/b<N>/auftrag.md` | Der vollständige Prompt des Workers (Vorspann + Auftrag + Queue) |
+| `runs/b<N>/result.json` | Kennzahlen des Laufs: Exit-Code, Dauer, Anfragen, Token, Kosten, Abbruchgrund |
+| `runs/b<N>/harness-facts.md` | Der Messdatenblock, den der Review bekam |
+| `runs/b<N>/antwort.md` | Abschlussbericht des Workers (wortgleich im Review) |
+| `runs/b<N>/review.md`, `review-prompt-*.md` | Bewertung und der Prompt, mit dem sie entstand |
+| `snapshots/b<N>/snapshot.md`, `tools.tsv`, `reasoning.jsonl` | Kennzahlen-Snapshot, Werkzeugzählung, Denkblöcke separat |
+| `logs/harness-<startzeit>.log` | Harness-Protokoll als JSONL — **je Start eine neue Datei**, wird nie überschrieben |
+| `logs/crash-<zeit>.txt` | Traceback bei einem echten Absturz (Python-Fehler) |
+| `logs/secret-zugriff.jsonl` | Jeder Zugriff auf Schluesseldateien (Art, Werkzeug, Dateiname) |
+| `logs/rate-limit.json` | Zuletzt gemeldete Abo-Auslastung (Quelle, Zeitpunkt, Prozent) |
+| `state/run.json` | Zustand, Batch, Gate, `harness_head`, `remote_work`, `retention` |
+| `logs/wip-b<N>-status.txt` / `.patch` | Was bei einem Stopp unfertig im Arbeitsbaum lag |
+
+### 13b. Nach einem Absturz: die Reihenfolge
+
+1. **`watch`** — zeigt den laufenden bzw. letzten Lauf, ohne etwas anzufassen
+   (`watch --batch N` spielt einen abgeschlossenen Batch nach).
+2. **`python -m hx.cli rebuild [N]`** — rechnet den Lauf aus dem Mitschnitt nach
+   (Anfragen, Token, Kosten, Dauer) und markiert das Ergebnis als `nachgerechnet`.
+   Geht auch bei gepackten Batches.
+3. **Harness neu starten** — beim Start läuft die Spurenkunde (`recover()`): sie
+   sichert unfertige Arbeit, sucht im Mitschnitt nach verbotenen Prozessabbrüchen
+   und nennt in Telegram, ob der Lauf *hart* abgeräumt wurde.
+4. **Bei Python-Fehlern** den Traceback in `logs/crash-<zeit>.txt` lesen; die
+   letzte Zeile steht auch in `/status`.
+5. **Bei „hängt"** (Prozess läuft, tut aber nichts): `py-spy dump --pid <pid>` gibt
+   den Stack aller Threads. Damit wurden zwei Hänger gefunden (Telegram-Aufruf im
+   Mitschnitt-Leser; Ausgabe-Pipe ohne EOF).
+
+**Ehrliche Lücke:** Ein *harter* Tod (Prozess von aussen beendet, kein
+Python-Fehler) hinterlässt **keinen** Crash-Bericht — dann hilft nur,
+`runs/b<N>/stream.jsonl` und das Harness-Protokoll zu lesen, plus die Spurenkunde
+beim nächsten Start.
+
+### 13c. Aufbewahrung und Platz (R13p)
+
+Einmal pro Tag packt der Harness (nur wenn gerade kein Lauf arbeitet) die
+**Mitschnitte und Snapshots, die älter als 14 Tage sind**, als ZIP — je Datei ein
+`stream.jsonl.zip` bzw. je Batch ein `snapshots/b<N>.zip`. Geprüft wird vor dem
+Löschen: Prüfsumme (`testzip`) **und** Größe des Eintrags; erst dann verschwindet
+das Original, und bei jedem Fehler bleibt es liegen. **Unkomprimiert** bleiben
+`result.json`, `harness-facts.md`, `antwort.md`, `auftrag.md`, `review.md` — die
+braucht man täglich. Pro Tag werden höchstens `MAX_EINHEITEN` (6) Einheiten gepackt,
+damit der erste Lauf die Schleife nicht blockiert; der Rest folgt am nächsten Tag.
+
+`watch --batch N` und `rebuild` lesen gepackte Batches **unverändert** (die Leser
+gehen über `hx/retention.mitschnitt_zeilen`).
+
+Sind auf dem Laufwerk des Harness **weniger als 20 GB frei**, kommt einmal täglich
+eine Telegram-Warnung (`WENIG PLATZ: …`); in `/status` steht die Zeile
+`Aufbewahrung (14 Tage -> ZIP): …`.
+
+### 13d. Was R13p sonst geändert hat
+
+- **Grenzen je Batch** (`[limits]`): Alarm erst bei **500** Anfragen (vorher 250),
+  harte Grenze bei **1000** (vorher 400 — sie lag nur 53 über dem je gemessenen
+  Maximum und hätte einen normalen langen Batch getötet). Gemessen über alle Batches:
+  84–347 Anfragen, $0.10–0.41 pro Lauf. `Alarm` meldet nur, `Hart` bricht ab.
+- **Nutzerlimit des Abos (neu)**: Claude Code schreibt in jedem Abo-Mitschnitt
+  (Review, Übergabe, `/ask`) ein `rate_limit_event` mit dem Verbrauch von Sitzung
+  (5 h) und Woche (7 Tage). Bei **≥ 80 %** kommt einmal je Fenster eine
+  Telegram-Warnung mit Rücksetzzeitpunkt in deutscher Zeit; `/status` zeigt beide
+  Fenster dauerhaft. Bei 100 % ist bis zum Reset Schluss — das Abo hat kein
+  Nachkaufen (`overageStatus: rejected`).
+- **Nur-Lese-Git für den Reviewer (neu)**: Er hat jetzt das PowerShell-Werkzeug,
+  darf damit aber **ausschließlich** `git log`, `git show`, `git diff`, `git status`
+  (ohne `-C`, ohne `--output`). Alles andere wird abgelehnt — gemessen mit
+  `tools/check_zugriff4.py`, Beleg `docs/_reviewer_git_beleg.txt`.
+- **Review-Prompt**: zwei neue Blöcke **`BATCH-DIFF`** (name-status + Diffstat seit
+  dem Checkpoint) und **`HISTORIE`** (letzte 15 Commits + die neuesten
+  `analysis/port-batch*.md`). Vorher sah der Reviewer nur die letzten **vier**
+  Commit-Betreffe und konnte selbst kein `git log` fahren.

@@ -131,6 +131,73 @@ def secrets_verbote(*dirs, rollen: tuple[str, ...] = LESE_ROLLEN) -> list[str]:
 CREDENTIAL_NAMEN = (".credentials.json",)
 
 
+# --------------------------------------------- Nur-Lese-Git fuer den Reviewer (R13p)
+# Ausgangslage: Der Reviewer hatte KEINE Shell und konnte `git log` nicht selbst
+# fahren - er sah nur, was im Prompt stand. Doku (code.claude.com/docs/en/permissions):
+#   * Regelform `Tool(spezifizierer)`; `*` steht fuer beliebigen Text, `:*` ist die
+#     gleichwertige Schreibweise fuer ein abschliessendes ` *`,
+#   * das `*` MUSS nach dem Unterbefehl stehen: `Bash(git log *)` erlaubt nur `git log`,
+#     `Bash(git *)` dagegen JEDEN git-Befehl,
+#   * Deny schlaegt Allow (Reihenfolge: deny, ask, allow) - ein breites Verbot laesst
+#     sich nicht durch ein engeres Allow aufweichen,
+#   * im `-p`-Lauf gibt es keine Rueckfrage: jeder Aufruf OHNE Allow-Regel wird
+#     abgelehnt (genau darauf beruht schon die Pfadbindung von `Read`),
+#   * `PowerShell`-Regeln: die CLI parst den AST, normalisiert Aliase (`gci` = `dir` =
+#     `ls` = `Get-ChildItem`) und verlangt, dass JEDE Teil-Anweisung passt.
+# Deshalb ist der Werkzeugsatz eine ERLAUBNISLISTE: die Shell darf genau vier
+# Git-Unterbefehle, alles andere (auch Lesen mit `Get-Content`) ist ausdruecklich zu.
+NUR_LESE_GIT = ("log", "show", "diff", "status")
+
+GIT_SCHREIBEND = ("add", "am", "apply", "archive", "bisect", "branch", "bundle",
+                  "checkout", "cherry-pick", "clean", "commit", "config", "credential",
+                  "daemon", "fetch", "filter-branch", "format-patch", "gc", "init",
+                  "instaweb", "lfs", "maintenance", "merge", "mergetool", "mv", "notes",
+                  "pack-refs", "prune", "pull", "push", "rebase", "reflog", "remote",
+                  "repack", "replace", "request-pull", "reset", "restore", "revert", "rm",
+                  "send-email", "sparse-checkout", "stash", "submodule", "switch", "tag",
+                  "update-index", "update-ref", "worktree")
+
+# Die Shell ist NUR fuer Git da. Alles, was sonst Dateien liest, schreibt oder startet,
+# wird verboten - damit ein Modell nicht ueber `Get-Content` an den Schluesselordner
+# kommt (der Read-Bann greift bei Shell-Befehlen nur teilweise) und nicht ueber
+# `Invoke-Expression` ausbricht.
+SHELL_FREMD_VERBOTEN = ("Get-Content", "Get-ChildItem", "Get-Item", "Get-ItemProperty",
+                        "Get-Acl", "Get-FileHash", "Select-String", "Select-Object",
+                        "Import-Csv", "Import-Module", "Import-Clixml", "Export-Csv",
+                        "Out-File", "Set-Content", "Add-Content", "New-Item", "New-ItemProperty",
+                        "Set-ItemProperty", "Set-ExecutionPolicy", "Remove-Item",
+                        "Remove-ItemProperty", "Move-Item", "Copy-Item", "Rename-Item",
+                        "Start-Process", "Start-Job", "Stop-Process", "Invoke-Expression",
+                        "Invoke-Command", "Invoke-WebRequest", "Invoke-RestMethod",
+                        "Register-ScheduledTask", "New-Service", "Clear-Content",
+                        "cmd", "powershell", "pwsh", "wsl", "bash", "sh", "python", "python3",
+                        "node", "curl", "wget", "ssh", "scp", "tar", "reg", "net", "schtasks",
+                        "wmic", "robocopy", "xcopy", "del", "rmdir", "md", "echo")
+
+
+def nur_lese_git_regeln(tool: str = "PowerShell") -> list[str]:
+    """Erlaubnisse: genau `git log`, `git show`, `git diff`, `git status`."""
+    return [f"{tool}(git {v} *)" for v in NUR_LESE_GIT]
+
+
+def git_schreib_verbote(tool: str = "PowerShell") -> list[str]:
+    """Die schreibenden Gegenstuecke ausdruecklich verbieten (Guertel und Hosentraeger).
+
+    Die Allowlisten oben sind die eigentliche Grenze; diese Verbote fangen den Fall ab,
+    dass eine Allow-Regel weiter greift als beabsichtigt. `--output` legen Dateien an,
+    deshalb sind die Ausgabe-Schalter der vier erlaubten Befehle eigens verboten.
+    """
+    regeln: list[str] = []
+    for v in GIT_SCHREIBEND:
+        regeln += [f"{tool}(git {v} *)", f"{tool}(git {v}*)"]
+    for v in NUR_LESE_GIT:
+        # `--output` legen Dateien an - die vier erlaubten Befehle sind sonst rein lesend.
+        regeln += [f"{tool}(git {v}*--output*)", f"{tool}(git {v}*--output *)"]
+    for c in SHELL_FREMD_VERBOTEN:
+        regeln += [f"{tool}({c} *)", f"{tool}({c}*)"]
+    return list(dict.fromkeys(regeln))
+
+
 def credential_verbote(wurzeln, rollen: tuple[str, ...] = LESE_ROLLEN) -> list[str]:
     """Verbot fuer Zugangsdateien unter jeder Wurzel - in allen Schreibweisen.
 

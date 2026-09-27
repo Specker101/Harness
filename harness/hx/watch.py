@@ -16,7 +16,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import protocol, streamjson
+from . import protocol, retention, streamjson
 from .util import read_json, read_text
 
 STYLES = {
@@ -152,11 +152,14 @@ class Watcher:
             print(text, flush=True)
 
     def _tail(self, path: Path, who: str, counter: str) -> int:
-        """Neue Zeilen einer Mitschnittdatei anzeigen; gibt die Gesamtzahl zurueck."""
-        if not path.is_file():
+        """Neue Zeilen einer Mitschnittdatei anzeigen; gibt die Gesamtzahl zurueck.
+
+        R13p: gepackte Batches (`.zip`) werden mitgelesen - `retention.mitschnitt_zeilen`
+        oeffnet beide Formen.
+        """
+        alle = retention.mitschnitt_zeilen(path)
+        if alle is None:
             return getattr(self, counter, 0)
-        with open(path, "r", encoding="utf-8", errors="replace") as fh:
-            alle = fh.read().splitlines()
         start = getattr(self, counter, 0)
         if len(alle) > start:
             for line in alle[start:]:
@@ -221,10 +224,10 @@ class Watcher:
     def _limits_text(self) -> str:
         """Die Grenzen aus [limits] - sie gelten JE BATCH (worker.run_batch)."""
         g = lambda k, d: self.cfg.get("limits", k, d)              # noqa: E731
-        return (f"  Grenzen je Batch (aus [limits]): ALARM {int(g('alarm_requests', 250))} "
+        return (f"  Grenzen je Batch (aus [limits]): ALARM {int(g('alarm_requests', 500))} "
                 f"Anfragen / ${float(g('alarm_cost_usd', 1.0)):.2f} / "
                 f"{float(g('alarm_wall_s', 5400)) / 60:.0f} min - HART "
-                f"{int(g('hard_requests', 400))} / ${float(g('hard_cost_usd', 2.0)):.2f} / "
+                f"{int(g('hard_requests', 1000))} / ${float(g('hard_cost_usd', 2.0)):.2f} / "
                 f"{float(g('hard_wall_s', 10800)) / 60:.0f} min")
 
     def _stats_umlegen(self):
@@ -387,7 +390,7 @@ class Watcher:
         if gate:
             self._show_gate(gate)
             return 0
-        if zust == "DS_WORKING" and (rd / "stream.jsonl").is_file():
+        if zust == "DS_WORKING" and retention.mitschnitt_vorhanden(rd / "stream.jsonl"):
             self._tail(rd / "stream.jsonl", "WORKER", "seen_worker")
             self._print_stats(force=True)
         elif (rd / "result.json").is_file():

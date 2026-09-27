@@ -34,11 +34,15 @@ max_turns_safety    = 800
 
 [limits]
 # ALARM = Telegram-Hinweis, Lauf geht weiter. HARD = Prozess wird beendet.
+# R13p (2026-09-27): Alarm 250 -> 500. Gemessen ueber alle Batches braucht ein
+# normaler Lauf 84..347 Anfragen (b176 = 347) - bei 250 klingelte der Alarm fast
+# immer. ZWINGEND mitgezogen: die harte Grenze 400 -> 1000, sonst toetet sie den
+# Batch, BEVOR der Alarm erscheinen kann (und 400 lag nur 53 ueber dem Maximum).
 alarm_wall_s      = 5400      # 90 min
-alarm_requests    = 250
+alarm_requests    = 500
 alarm_cost_usd    = 1.0
 hard_wall_s       = 10800     # 3 h
-hard_requests     = 400
+hard_requests     = 1000
 hard_cost_usd     = 2.0
 daily_budget_usd  = 10.0
 reviewer_wall_s   = 900

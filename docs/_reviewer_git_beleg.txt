@@ -1,0 +1,27 @@
+R13p-Beleg: Nur-Lese-Git fuer den Reviewer (Produktionskommando)
+erzeugt von tools/check_zugriff4.py
+
+Geprueft: erlaubt sind genau git log/show/diff/status; alles andere wird abgelehnt.
+Regeln siehe hx/profiles.py (NUR_LESE_GIT, git_schreib_verbote).
+
+  rc=0 Anfragen=12 Kosten=$0.2734588
+
+   1) erwartet=OK         gemessen=OK         [OK]
+   2) erwartet=OK         gemessen=OK         [OK]
+   3) erwartet=OK         gemessen=OK         [OK]
+   4) erwartet=OK         gemessen=OK         [OK]
+   5) erwartet=VERWEIGERT gemessen=VERWEIGERT [OK]
+   6) erwartet=VERWEIGERT gemessen=VERWEIGERT [OK]
+   7) erwartet=VERWEIGERT gemessen=VERWEIGERT [OK]
+   8) erwartet=VERWEIGERT gemessen=VERWEIGERT [OK]
+   9) erwartet=VERWEIGERT gemessen=VERWEIGERT [OK]
+  10) erwartet=VERWEIGERT gemessen=VERWEIGERT [OK]
+
+## Ergebnis
+  ALLE ERWARTUNGEN ERFUELLT
+
+Hinweis: Der Reviewer hatte bis R13p GAR KEINE Shell. Mit dieser Aenderung
+bekommt er das PowerShell-Werkzeug, aber nur mit den vier Nur-Lese-Regeln in
+der Erlaubnisliste - im -p-Lauf ohne Rueckfrage wird jeder andere Aufruf
+abgelehnt. Die Verbotsliste (git push/commit/..., Get-Content, Remove-Item, ...)
+ist der zweite Riegel.

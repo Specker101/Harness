@@ -18,7 +18,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from . import control, envs, pricing, protocol, queue, reviewer as rv, secrets, state as st, streamjson, worker as wk
+from . import control, envs, pricing, protocol, queue, retention, reviewer as rv, secrets, state as st, streamjson, worker as wk
 from . import ask as askmod
 from .gitsafe import Git
 from .telegram import HELP, Telegram, TelegramError
@@ -454,6 +454,53 @@ class Orchestrator:
             if rest:
                 self.say(f"Naechste Frage laeuft ({rest} in der Warteschlange).")
 
+    # ------------------------------------------------- Nutzerlimit des Abos (R13p)
+    def rate_limit_text(self) -> str:
+        """Was zuletzt gemessen wurde - mit Quelle und Zeitpunkt (leer, wenn nichts)."""
+        d = streamjson.lies_rate_limit(self.cfg)
+        if not d:
+            return ""
+        return (f"{streamjson.rate_limit_zeile(d.get('info') or {})} "
+                f"[{(d.get('quelle') or '?')}, {d.get('ts') or '?'}]")
+
+    def rate_limit_pruefen(self) -> str:
+        """Bei >= 80 % Auslastung EINMAL je Fenster und Reset-Zeitpunkt warnen.
+
+        Der Schluessel enthaelt den Reset-Zeitpunkt: nach dem Reset darf dieselbe
+        Warnung wieder kommen, im selben Fenster aber nur einmal.
+        """
+        d = streamjson.lies_rate_limit(self.cfg)
+        info = d.get("info") or {}
+        text = streamjson.rate_limit_warnung(info)
+        if not text:
+            return ""
+        key = "rate:" + (streamjson.rate_limit_schluessel(info) or "?")
+        self.notify_once(key, text + f"\n(Quelle: {d.get('quelle') or '?'}, {d.get('ts')})",
+                         6 * 3600)
+        return text
+
+    # --------------------------------------------- Aufbewahrung (R13p, einmal taeglich)
+    def retention_tick(self) -> dict | None:
+        """Alte Mitschnitte packen - NUR wenn kein Lauf arbeitet.
+
+        Auftrag 2026-09-27: `stream.jsonl`/`reviewer.jsonl`/Snapshots aelter als 14 Tage
+        als ZIP ablegen, einmal taeglich. Der Merker steht im Zustand und ueberlebt damit
+        einen Neustart.
+        """
+        if self.state.data.get("worker") or self.state.state in (st.DS_WORKING,
+                                                                 st.CLAUDE_REVIEWING):
+            return None
+        if not retention.faellig(self.cfg, self.state):
+            return None
+        res = retention.lauf(self.cfg, self.log, notify=self.say)
+        retention.schreibe_bericht(self.cfg, res)
+        self.state.data["retention"] = {"ts": res["ts"], "gezippt": res["gezippt"],
+                                        "uebrig": res["uebrig"], "frei_gb": res["frei_gb"]}
+        self.state.save()
+        if res.get("warnung"):
+            self.notify_once("platz", res["warnung"], 24 * 3600)
+        return res
+
     # ------------------------------------------------------------------ Pollen
     def poll(self, fast: bool = False):
         """Lokale Befehle + Telegram abfragen.
@@ -475,6 +522,8 @@ class Orchestrator:
             self.stop_requested = True
             self.state.set(st.STOPPED, "Stop-Marker")
             self.say("Stop-Marker: WIP wird gesichert, dann beende ich den Batch.")
+        # R13p: Abo-Auslastung pruefen - auch ohne Telegram (Log) und in jedem Takt.
+        self.rate_limit_pruefen()
         if not self.tg:
             return
         offset = int(self.state.data.get("telegram_offset", 0))
@@ -658,6 +707,15 @@ class Orchestrator:
             lines.append(f"Vom Remote uebernommen: {len(rw.get('commits') or [])} Commit(s) "
                          f"({rw.get('ts')}, gilt als Nutzerarbeit) - Review und Worker sind "
                          "informiert (R367: Neubau + volle Regression).")
+        rl = self.rate_limit_text()
+        if rl:
+            lines.append("Nutzerlimit (Abo): " + rl)
+        else:
+            lines.append("Nutzerlimit (Abo): noch nicht gemessen "
+                         "(kommt aus Review, Uebergabe und /ask)")
+        rt = retention.bericht(self.cfg)
+        if rt:
+            lines.append("Aufbewahrung (14 Tage -> ZIP): " + rt)
         lokal = control.pending(self.cfg)
         if lokal:
             lines.append("Lokale Befehle warten: " + ", ".join(lokal))
@@ -1499,6 +1557,61 @@ class Orchestrator:
             pass
         return text
 
+    def batch_diff_text(self) -> str:
+        """Was der bewertete Batch geaendert hat (R13p).
+
+        Der Reviewer hat nur Read/Grep/Glob (+ seit R13p vier Nur-Lese-Git-Befehle) -
+        ohne diesen Block beurteilte er einen Batch, dessen Diff er nie sah.
+        """
+        batch = int(self.state.data.get("last_batch_number") or self.state.batch or 0)
+        ref = str(self.state.data.get("last_checkpoint") or f"harness/b{batch}-start")
+        if not self.git.has_ref(ref):
+            return (f"(Checkpoint {ref} fehlt - dieser Batch lief ohne Checkpoint, "
+                    "ein Diff ist nicht ermittelbar)")
+        try:
+            dateien = self.git.name_status_since(ref, 60)
+            stat = self.git.diffstat_since(ref)
+            anzahl = self.git.commits_since(ref)
+        except Exception as exc:                                     # noqa: BLE001
+            return f"(Diff nicht ermittelbar: {str(exc)[:150]})"
+        return "\n".join([f"Vergleich {ref}..HEAD: Batch {batch}, {anzahl} Commit(s) "
+                          "seit dem Checkpoint",
+                          "Geaenderte Dateien (name-status, max. 60):",
+                          *(dateien or ["(keine Aenderungen)"]),
+                          "", "Diffstat:", "```", stat, "```"])
+
+    def historie_text(self, commits: int = 15, docs: int = 8) -> str:
+        """Aeltere Batches greifbar machen, ohne den Prompt zu sprengen (R13p).
+
+        Anlass (Nutzerfrage 2026-09-27): Der Reviewer bekam nur die letzten VIER
+        Commit-Betreffe aus `lage()` und kann `git log` nicht selbst fahren (lange
+        kein Bash; seit R13p nur `git log/show/diff/status`). Aeltere Batches waren
+        damit praktisch unsichtbar. Hier stehen die letzten Commits als Einzeiler und
+        die Namen der neuesten Batch-Dokumente - dort liegt das Wissen der alten
+        Batches, und lesen kann er sie mit `Read`.
+        """
+        zeilen: list[str] = []
+        try:
+            zeilen.append(f"Letzte {commits} Commits (Hash Datum Betreff):")
+            zeilen += (self.git.out("log", f"--max-count={commits}", "--pretty=%h %ad %s",
+                                    "--date=short").splitlines() or ["(keine Commits)"])
+        except Exception as exc:                                     # noqa: BLE001
+            zeilen.append(f"(git log nicht ermittelbar: {str(exc)[:150]})")
+        try:
+            adir = Path(self.cfg.decomp) / "analysis"
+            if adir.is_dir():
+                kandidaten = sorted(adir.glob("port-batch*.md"),
+                                    key=lambda p: p.stat().st_mtime, reverse=True)[:docs]
+                if kandidaten:
+                    zeilen += ["", f"Neuere Batch-Dokumente (im Decomp-Repo, {len(kandidaten)}):"]
+                    zeilen += [f"  * analysis/{p.name}" for p in kandidaten]
+                    zeilen.append("Dort steht, was die einzelnen Batches gemacht haben. Lies die "
+                                  "fuer den Auftrag relevanten - ein Urteil aus dem Gedaechtnis "
+                                  "ist keine Tatsache.")
+        except OSError:
+            pass
+        return "\n".join(zeilen)
+
     def review_context(self, snapshot_text: str, reviewer_note: str = "",
                        handover: str = "", attempt: int = 1, rdir: Path | None = None,
                        previous_raw: str = "") -> dict:
@@ -1526,6 +1639,8 @@ class Orchestrator:
             "anchor_hint": self.anchor_next_hint(),
             "facts": self.harness_facts(batch, ziel=rdir),
             "worker_report": report,
+            "diff": self.batch_diff_text(),
+            "historie": self.historie_text(),
             "markers": "\n".join(marker_lines),
             "queue_block": reviewer_note,
             "anchor": anchor,
@@ -1694,6 +1809,7 @@ class Orchestrator:
             self.say(self.status_text())
         while not self.quit:
             self.poll()
+            self.retention_tick()
             s = self.state
             if self.review_now:
                 # /review: offenen Auftrag verwerfen und sofort neu bewerten lassen.
@@ -1920,25 +2036,25 @@ class Orchestrator:
         jeden python.exe mit ueber 50 s CPU-Zeit abgeraeumt, darunter den Harness.
         """
         p = Path(self.cfg.sub("runs")) / f"b{int(batch or 0):03d}" / "stream.jsonl"
-        if not p.is_file():
+        zeilen = retention.mitschnitt_zeilen(p)      # R13p: auch aus dem ZIP
+        if not zeilen:
             return ""
         try:
-            with open(p, "r", encoding="utf-8", errors="replace") as fh:
-                for zeile in fh:
-                    if "stop-process" not in zeile.lower() and "taskkill" not in zeile.lower():
+            for zeile in zeilen:
+                if "stop-process" not in zeile.lower() and "taskkill" not in zeile.lower():
+                    continue
+                try:
+                    ev = json.loads(zeile)
+                except json.JSONDecodeError:
+                    continue
+                for b in (((ev or {}).get("message") or {}).get("content") or []):
+                    if not (isinstance(b, dict) and b.get("type") == "tool_use"):
                         continue
-                    try:
-                        ev = json.loads(zeile)
-                    except json.JSONDecodeError:
-                        continue
-                    for b in (((ev or {}).get("message") or {}).get("content") or []):
-                        if not (isinstance(b, dict) and b.get("type") == "tool_use"):
-                            continue
-                        eingabe = b.get("input") or {}
-                        cmd = eingabe.get("command") if isinstance(eingabe, dict) else ""
-                        grund = streamjson.abbau_gefahr(cmd)
-                        if grund:
-                            return f"{grund} -> {' '.join(str(cmd).split())[:160]}"
+                    eingabe = b.get("input") or {}
+                    cmd = eingabe.get("command") if isinstance(eingabe, dict) else ""
+                    grund = streamjson.abbau_gefahr(cmd)
+                    if grund:
+                        return f"{grund} -> {' '.join(str(cmd).split())[:160]}"
         except OSError:
             return ""
         return ""

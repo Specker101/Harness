@@ -140,8 +140,10 @@ class TestWatchReviewDir(Base):
 class TestWatchWerte(Base):
     def test_grenzen_kommen_aus_der_konfiguration(self):
         text = self.watcher()._limits_text()
-        self.assertIn("250", text)
-        self.assertIn("400", text)
+        # R13p: Alarm 500 / Hart 1000 (vorher 250/400 - die harte Grenze lag zu knapp
+        # ueber dem Normalbetrieb und haette den Alarm unerreichbar gemacht).
+        self.assertIn("500", text)
+        self.assertIn("1000", text)
         self.assertIn("90 min", text)
         self.assertIn("180 min", text)
 
