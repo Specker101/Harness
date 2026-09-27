@@ -1644,16 +1644,21 @@ class Orchestrator:
                          "(kein Wechsel, keine Sicherung).")
                 program = None
             batch_no = int(tools.get("batch") or self.expected_batch() or 0)
-            self.approved_gate = None
-            s.clear_gate()
             instruction = gate.get("instruction") or ""
 
             ok, why = self.git_preflight()
             if not ok:
+                # R13m: Der Auftrag BLEIBT stehen (Vorgabe 2026-09-27). Wird er hier
+                # verworfen, laesst der naechste Versuch einen neuen Review laufen -
+                # gemessen am 2026-09-27: nach dem Git-Halt (origin/main lag hinter
+                # dem lokalen Stand) war der bezahlte Auftrag weg und der Review lief
+                # ein zweites Mal, obwohl die Instruktion unveraendert galt.
                 s.data["paused"] = True
                 s.set(st.PAUSED, why)
                 self.phase(None)
-                self.say("PAUSE: " + why)
+                self.say("PAUSE: " + why +
+                         f"\nDer Auftrag fuer Batch {batch_no} bleibt stehen - "
+                         "nach dem Fortsetzen startet er ohne neuen Review.")
                 continue
             try:
                 tag = self.git.checkpoint(batch_no)
@@ -1661,6 +1666,11 @@ class Orchestrator:
                 self.log.info("Git-Checkpoint", tag=tag, head=self.git.head_short())
             except Exception as exc:
                 self.log.warn("Checkpoint fehlgeschlagen", fehler=str(exc)[:150])
+
+            # R13m: erst JETZT wird der Auftrag verbraucht - alles davor (Git-Vorpruefung,
+            # Checkpoint) kann den Start verhindern, ohne die Instruktion zu entwerten.
+            self.approved_gate = None
+            s.clear_gate()
 
             note_block, _ = self.read_queue_block("ds")
             s.data["last_batch_number"] = batch_no
