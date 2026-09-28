@@ -1,0 +1,17 @@
+NUTZERENTSCHEIDUNG (7): JA - "ausgefuehrt zuerst, dann kleinste zuerst" nach Paket E.
+
+Der Nutzer hat die Ankerfrage (7) am 2026-09-28 so entschieden. Bitte im Ankerkopf so
+fuehren:
+
+  **(7) ENTSCHIEDEN (Nutzer, 2026-09-28):** ja - nach Paket E laeuft C in der Reihenfolge
+  "ausgefuehrt zuerst, dann kleinste zuerst". Die Kandidatenliste bekommt eine Spalte
+  "ausgefuehrt (Aufnahmen)" (677 der 1403 nicht gebauten Koepfe, 28976 Insn; Beleg
+  `docs/_r13t3_belege.md` bzw. Harness-Seite `docs/_r13t2_beleg_4.txt`), und wo der
+  Kopf im Referenzstrom/Aufnahmepfad liegt, dient der Mitschnitt als zusaetzliche
+  Gegenprobe neben dem Interpreter. Danach wie bisher kleinste zuerst.
+
+Wichtig fuer die Umsetzung: die Spalte gehoert in die Kandidatentafel, BEVOR die
+Reihenfolge greift; der Vorhersage-Commit nennt dann je Kandidat "ausgefuehrt: ja/nein"
+und den Grund. Die Aufnahmen decken nur Boot + einen Teil von Level 1 ab (Menuepfade und
+Service fehlen) - "nicht ausgefuehrt" heisst deshalb nicht "unnoetig" (Klasse 3 der
+Port-Relevanz).

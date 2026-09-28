@@ -1,0 +1,28 @@
+NUR ALS OFFENE FRAGE IN DEN ANKER - NICHT UMSETZEN (Nutzerauftrag 2026-09-28, Punkt 2).
+
+Der Nutzer will wissen, **wann es ein lauffaehiges Spiel auf dem PC gibt**. Dazu wurde
+A/B/C verglichen (Harness-Seite, nur lesend; Belege `docs/_r13t3_belege.md`).
+Diese Zeile gehoert woertlich in den Ankerkopf als offene Entscheidung (fuer `/fragen`).
+In diesem Batch wird **nichts** davon gebaut.
+
+**(8) NEU:** drei Wege zum lauffaehigen Spiel - A) C zu Ende bauen, danach integrieren
+(Kurs von heute, erste sichtbare Frucht erst nach ~295 Batches C + Audio-Rest +
+Integration); B) **Hybrid-Laeufer frueh**: ein C++-403-Kern fuehrt das ROM aus,
+verifizierte Portkoepfe ersetzen Funktionen ueber `kHeads`, Hardware ueber die
+vorhandenen Portmodule/GL-Senke (der Wortinterpreter deckt heute **97,3 %** der
+ROM-Befehle, fehlen 3158 Woerter / 35 Formen; MAME nennt **PPC 403GA mit 32 MHz**,
+`mame/mame/src/mame/konami/hornet.cpp:29` - Python ist dafuer 3-4 Groessenordnungen zu
+langsam, ein C++-Kern ist es nicht); C) Static-Recompilation vorziehen
+(`readme.md:661-673` sagt dazu ausdruecklich "document only - do not work on this",
+erst nach dem fertigen Port, mit dem Port als Referenz).
+**Soll B als Pruef-Fahrzeug gebaut werden (C laeuft unveraendert weiter, Static-
+Recompilation bleibt vertagt)? (Vorschlag: ja)** bei ja: eigener Vorhaben-Zuschnitt
+"C++-403-Kern + Maschine (RAM/MMIO/DCR/Timer/IRQ) + Kopf-Uebernahme ueber `kHeads`",
+erster sichtbarer Meilenstein "ROM bootet und faehrt Attract im Hybrid-Laeufer"
+(HYPOTHESIS ca. 10-20 Batches bis dahin, 16-32 Batches bis spielbar); als Gegenprobe
+kommt eine DRITTE Welt dazu - ganzer Lauf gegen die 21 Referenzstroeme
+`capture/poc_ref_*.txt` (11995 Pakete, 34 distinkte Opcodes) und gegen die
+Coverage-Karten -, die
+den R535-Fall "beide Welten teilen denselben Denkfehler" ausschliesst. bei nein: es
+bleibt bei A; dann ist der erste sichtbare Meilenstein das Ende von C + Integration, und
+die Gegenprobe bleibt der Kopf-fuer-Kopf-Vergleich Interpreter<->Port.
