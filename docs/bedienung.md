@@ -615,9 +615,11 @@ Weiter steht nach einem Abbruch:
 * `runs/b<N>/stream.jsonl` (endet an der Abbruchstelle), `stream.err.txt`,
   `result.json` mit `"killed_reason": "warteschleife"`, `antwort.md` (ggf. leer),
   `harness-facts.md` mit der Zeile `WARTESCHLEIFEN …`;
-* der Auftrag ist **verbraucht** (Gate gelöscht, `/claude`-Queue zugestellt — R13u),
-  die Batch-Nummer bleibt bei `N`, der nächste Review plant `N+1`: der halbe Batch wird
-  **nicht** wiederholt, der Reviewer entscheidet (typisch: Aufräum-Batch);
+* der Auftrag ist **verbraucht** (Gate gelöscht, `/claude`-Queue zugestellt — R13u);
+  die Nummer des nächsten Reviews kommt **aus dem Ankerkopf des Decomp-Repos**
+  (`expected_batch()` = Anker + 1, `orchestrator.py:1460`) — hat der Worker den Anker nicht
+  mehr fortgeschrieben, ist das dieselbe Nummer `N`, sonst `N+1`. Ein abgebrochener Batch
+  wird **nicht** automatisch wiederholt; der Reviewer entscheidet (typisch: Aufräum-Batch);
 * der Batch geht den **normalen Weg weiter** — Push und Review (`orchestrator.py:2210`),
   keine automatische Rücknahme. Unfertige Änderungen des Workers bleiben im Arbeitsbaum;
   die Git-Vorprüfung des nächsten Batches verlangt **keinen sauberen Baum**
