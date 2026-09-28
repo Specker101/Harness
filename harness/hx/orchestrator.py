@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from . import aufraeumen, control, envs, pricing, protocol, queue, retention, reviewer as rv, secrets, state as st, streamjson, worker as wk
+from . import aussensicht
 from . import ask as askmod
 from . import bilanz as bilanzmod
 from . import denken as denkenmod
@@ -401,6 +402,9 @@ class Orchestrator:
             txt = control.take(self.cfg, "number")
             if txt is not None:
                 self._do_number(txt)
+            txt = control.take(self.cfg, "meta")
+            if txt is not None:
+                self._do_aussensicht("Befehl /meta (lokal)")
             obj = control.take_instruction(self.cfg)
             if obj:
                 self._take_user_instruction(obj)
@@ -546,7 +550,103 @@ class Orchestrator:
             self.log.error("Fragen fehlgeschlagen", fehler=str(exc)[:250])
             self.say("FRAGEN FEHLGESCHLAGEN: " + str(exc)[:300])
             return
-        self.say(text, mono=True)
+        # R13w: offene Befunde der Aussensicht mit Empfaenger "Nutzer" gehoeren hierher.
+        try:
+            zusatz = aussensicht.fragen_zeilen(self.cfg)
+        except Exception as exc:                                # noqa: BLE001
+            zusatz = ""
+            self.log.warn("Aussensicht-Befunde nicht lesbar", fehler=str(exc)[:150])
+        self.say(text + ("\n" + zusatz if zusatz else ""), mono=True)
+
+    # ------------------------------------------------------- Aussensicht (R13w)
+    def meta_zeile(self) -> str:
+        """Was der Nutzer ueber die Aussensicht wissen muss (fuer /status)."""
+        meta = dict(self.state.data.get("meta") or {})
+        teile: list[str] = []
+        if meta.get("vorgemerkt"):
+            teile.append(f"vorgemerkt (laeuft nach Batch {self.state.batch})")
+        try:
+            z = aussensicht.zeile(self.cfg)
+        except Exception:                                                # noqa: BLE001
+            z = ""
+        teile.append(z or "noch keine Aussensicht")
+        return "Aussensicht: " + " | ".join(teile)
+
+    def _do_aussensicht(self, grund: str, gruende: list[str] | None = None) -> None:
+        """Die Aussensicht fahren - SYNCHRON (Nutzerentscheid 1, R13w).
+
+        Laeuft ein Worker, wird nur VORGEMERKT (Nutzerentscheid: "/meta ist jederzeit
+        erlaubt"); die Ausfuehrung passiert dann in der Schleife nach dem Batch-Ende und
+        VOR dem Review, damit Befunde mit Empfaenger "Reviewer" schon im selben Review
+        stehen. Mehrfaches Vormerken zaehlt einmal.
+        """
+        meta = dict(self.state.data.get("meta") or {})
+        if self.state.state == st.DS_WORKING or self.state.data.get("worker"):
+            if not meta.get("vorgemerkt"):
+                meta["vorgemerkt"] = True
+                meta["vorgemerkt_grund"] = grund
+                meta["vorgemerkt_ts"] = now_iso()
+                self.state.data["meta"] = meta
+                self.state.save()
+            self.say(f"Aussensicht vorgemerkt - laeuft nach Batch {self.state.batch}, "
+                     "vor dem naechsten Review.")
+            self.log.info("Aussensicht vorgemerkt", grund=grund, batch=self.state.batch)
+            return
+        gruende = list(gruende or [grund])
+        batch = int(self.state.batch or 0)
+        self.say(f"Aussensicht laeuft (Anlass: {grund}; kann einige Minuten dauern). "
+                 "Sie entscheidet nichts und aendert nichts.")
+        self.phase("aussensicht", f"Batch {batch}")
+        try:
+            res = aussensicht.run(self.cfg, self.log, self.state, grund, mock=self.mock)
+        except Exception as exc:                                    # noqa: BLE001
+            self.log.error("Aussensicht fehlgeschlagen", fehler=str(exc)[:250])
+            self.say("AUSSENSICHT FEHLGESCHLAGEN: " + str(exc)[:300])
+        else:
+            verteilung = aussensicht.verteile(self.cfg, self.state, res.summary,
+                                              res.befunde, res.pruefungen, batch, self.log)
+            pfad = aussensicht.bericht_schreiben(self.cfg, batch, grund, res, verteilung,
+                                                 gruende)
+            ids = set(verteilung.get("ids") or [])
+            index = {b["id"]: b for b in aussensicht.ledger(self.cfg) if b["id"] in ids}
+            an_reviewer, an_nutzer = [], []
+            for bid in (verteilung.get("ids") or []):
+                b = index.get(bid)
+                if not b:
+                    continue
+                text = aussensicht.befund_text(b)
+                if str(b.get("empfaenger")) == "Nutzer":
+                    an_nutzer.append(text)
+                else:
+                    p = queue.enqueue(self.qroot, "claude", text, "aussensicht")
+                    an_reviewer.append(f"{bid} ({p.name})")
+            meldung = [f"Aussensicht Batch {batch}: {len(res.befunde)} Befunde"
+                       + (f", {len(res.verworfen)} ohne Beleg verworfen"
+                          if res.verworfen else "")]
+            if an_reviewer:
+                meldung.append("an den Reviewer (Queue): " + ", ".join(an_reviewer))
+            if an_nutzer:
+                meldung.append("an dich:\n" + "\n\n".join(an_nutzer))
+            if verteilung.get("verdikte"):
+                meldung.append("Verdikte zu frueheren Befunden: "
+                               + ", ".join(verteilung["verdikte"]))
+            if verteilung.get("offen_alt"):
+                meldung.append("Weiter offen: " + ", ".join(verteilung["offen_alt"]))
+            meldung.append(f"Bericht: {pfad}")
+            self.say("\n".join(meldung))
+            if res.summary:
+                self.say("Zusammenfassung:\n" + res.summary)
+            self.log.info("Aussensicht beendet", batch=batch, befunde=len(res.befunde),
+                          verworfen=len(res.verworfen), an_reviewer=len(an_reviewer),
+                          an_nutzer=len(an_nutzer))
+        finally:
+            meta = dict(self.state.data.get("meta") or {})
+            meta.update({"letzter_lauf_batch": batch, "letzter_lauf_ts": now_iso(),
+                         "geprueft_batch": batch, "vorgemerkt": False,
+                         "vorgemerkt_grund": ""})
+            self.state.data["meta"] = meta
+            self.state.save()
+            self.phase(None)
 
     def _ask_arbeiter(self) -> None:
         """Die Warteschlange der Fragen abarbeiten - eine nach der anderen (R13o)."""
@@ -706,6 +806,9 @@ class Orchestrator:
             self._do_thinking(rest)
         elif cmd in ("fragen", "frage"):
             self._do_fragen(rest)
+        elif cmd in ("meta", "aussensicht"):
+            # R13w: jederzeit erlaubt - laeuft ein Worker, wird nur vorgemerkt.
+            self._do_aussensicht("Befehl /meta" + (f" - {rest}" if rest else ""))
         elif cmd == "approve":
             self._do_approve(rest)
         elif cmd == "autonom":
@@ -2034,6 +2137,7 @@ class Orchestrator:
                 f"- Kosten heute: ${self.state.spent_today(today):.4f}",
                 f"- {pricing.status_line(self.cfg)}",
                 f"- Queue: ds {len(ds)}, claude {len(cl)}",
+                f"- {self.meta_zeile()}",
                 ""] + st_lines
         if note:
             head += ["", note]
@@ -2153,6 +2257,20 @@ class Orchestrator:
                 time.sleep(IDLE_SLEEP)
                 continue
 
+            # R13w: Ist eine Aussensicht faellig? (Vormerkung durch /meta, 10er-Regel,
+            # Worker-Abbruch, "MEILENSTEIN/Abbruchkriterium ERREICHT" laut Review,
+            # stehengebliebener B-Schritt, ruhende C-Kernzahl.) Der Lauf liegt hier VOR
+            # dem Review derselben Iteration - nur so stehen Befunde mit Empfaenger
+            # "Reviewer" schon in diesem Review. Je Batch wird genau EINMAL entschieden
+            # (`geprueft_batch`), deshalb kostet die Pruefung nur den ersten Durchgang.
+            try:
+                gruende = aussensicht.faellig(self.cfg, self.state)
+            except Exception as exc:                                    # noqa: BLE001
+                gruende = []
+                self.log.warn("Aussensicht-Ausloeser nicht pruefbar", fehler=str(exc)[:150])
+            if gruende:
+                self._do_aussensicht("; ".join(gruende)[:200], gruende=gruende)
+
             gate = s.gate
             if gate is None:
                 ok, why = self.peak_gate()
@@ -2200,6 +2318,17 @@ class Orchestrator:
                 if p.issues:
                     self.say("Review unvollstaendig: " + "; ".join(p.issues) +
                              "\nBitte pruefen; ich starte NICHT automatisch.")
+                # R13w (Nutzerentscheid d): Antworten des Reviewers auf Aussensicht-Befunde
+                # uebernehmen - "M208-3: uebernommen …" / "M208-3: abgelehnt, Grund …".
+                # Unbeantwortete Befunde bleiben offen und werden erneut vorgelegt.
+                try:
+                    beantwortet = aussensicht.antworten_uebernehmen(
+                        self.cfg, p.summary, int(self.state.batch or 0))
+                    if beantwortet:
+                        self.log.info("Aussensicht-Befunde beantwortet", ids=beantwortet)
+                except Exception as exc:                                     # noqa: BLE001
+                    self.log.warn("Aussensicht-Antworten nicht uebernommen",
+                                  fehler=str(exc)[:150])
                 status = self.gate_from_review(p, str(res.raw_path), claude_ids=note_ids)
                 tools = (self.state.gate or {}).get("tools") or {}
                 profile = tools.get("profile") or "none"

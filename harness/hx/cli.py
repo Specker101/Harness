@@ -108,7 +108,43 @@ def cmd_fragen(args) -> int:
     from . import stand as standmod
     cfg = load_config(args.config)
     gate = (read_json(Path(cfg.sub("state")) / "run.json", {}) or {}).get("gate")
-    _druck(standmod.fragen_text(cfg, gate=gate))
+    text = standmod.fragen_text(cfg, gate=gate)
+    from . import aussensicht
+    zusatz = aussensicht.fragen_zeilen(cfg)
+    _druck(text + ("\n" + zusatz if zusatz else ""))
+    return 0
+
+
+def cmd_meta(args) -> int:
+    """Aussensicht (Meta-Review) starten - wie Telegram `/meta` (R13w).
+
+    Laeuft der Harness, wird NUR der Steuerbefehl `state/ctl/meta` abgelegt: nur der
+    Harness darf den Zustand schreiben (und nur er weiss, ob gerade ein Worker laeuft -
+    dann wird die Aussensicht vorgemerkt und nach dem Batch-Ende vor dem Review gefahren).
+    Ohne laufenden Harness faehrt die CLI den Lauf direkt.
+    """
+    from . import control, state as st_mod
+    from .orchestrator import Orchestrator
+    from .util import Log as _Log
+    cfg = load_config(args.config)
+    pid = control.read_pid(cfg)
+    if pid:
+        control.put(cfg, "meta", "cli")
+        print(f"Aussensicht vorgemerkt (Harness laeuft, PID {pid})."
+              "\nLaeuft ein Batch, startet sie direkt danach - noch vor dem Review.")
+        return 0
+    log = _Log(Path(cfg.sub("logs")) / "meta.log", echo=False)
+    state = st_mod.State(Path(cfg.sub("state")) / "run.json")
+    orch = Orchestrator.__new__(Orchestrator)          # nur fuer den Zustand gebraucht
+    orch.cfg, orch.state, orch.log = cfg, state, log
+    orch.qroot = Path(cfg.root)
+    gesagt: list[str] = []
+    orch.say = lambda *t, **k: (gesagt.append(" ".join(str(x) for x in t)),
+                                _druck(" ".join(str(x) for x in t)))
+    orch.phase = lambda *a, **k: None
+    orch.mock = bool(getattr(args, "mock", False))
+    grund = str(getattr(args, "grund", "") or "Befehl 'hx.cli meta'")
+    orch._do_aussensicht(grund)
     return 0
 
 
@@ -1237,6 +1273,9 @@ def build_parser() -> argparse.ArgumentParser:
     th.add_argument("--voll", action="store_true",
                     help="Denkbloecke ungekuerzt (sonst je 200 Zeichen)")
     sub.add_parser("fragen", help="offene Fragen an den Nutzer (Anker + letztes Review)")
+    mt = sub.add_parser("meta", help="Aussensicht (Meta-Review) starten bzw. vormerken")
+    mt.add_argument("--grund", default="", help="Anlass im Bericht (Vorgabe: Befehl)")
+    mt.add_argument("--mock", action="store_true", help="Attrappe ohne API-Kosten")
     sub.add_parser("profiles")
     sub.add_parser("probe-telegram")
 
@@ -1294,6 +1333,7 @@ def main(argv: list[str] | None = None) -> int:
         "bilanz": cmd_bilanz,
         "thinking": cmd_thinking,
         "fragen": cmd_fragen,
+        "meta": cmd_meta,
         "probe-telegram": cmd_probe, "allowlist-add": cmd_allowlist, "demo": cmd_demo,
         "show-prompts": cmd_show_prompts,
         "env-proof": cmd_env_proof, "rebuild": cmd_rebuild, "ghidra-smoke": cmd_ghidra_smoke,

@@ -229,11 +229,48 @@ Ergebnis: was wurde erreicht (2-4 Punkte).
 Bewertung: wie gut, was war falsch (gefundene Fehler nennen).
 Kosten/Laufzeit: die Harness-Messwerte (Kosten, Dauer, Anfragen).
 Nächster Batch: ein Satz.
+B-SCHRITT: <n>/5 <Name>, B-Batch <k> von max 20      (PFLICHT in B-Batches, s. u.)
+MEILENSTEIN ERREICHT: …        (nur wenn zutreffend, s. u.)
+ABBRUCHKRITERIUM ERREICHT: …   (nur wenn zutreffend, s. u.)
+M<batch>-<n>: übernommen … / abgelehnt, Grund …  (je offener Aussensicht-Nachricht, s. u.)
 ENTSCHIEDEN: …              (was du selbst entschieden hast - ein Punkt je Zeile)
 ENTSCHEIDUNG NOETIG: …      (nur die fünf Fälle oben - bremst!)
 OFFENE FRAGE: …             (nur zur Information - bremst nicht)
 WARTET AUF LIVE-AUFNAHME: … (nur Material, das fehlt - bremst nicht)
 ```
+
+### Strang B: Fortschritt und Auslöser melden (R13w, Nutzerentscheid 2026-09-28)
+
+- **In jedem B-Batch ist diese Zeile Pflicht** (sie ist der einzige maschinell lesbare
+  Fortschrittswert des B-Strangs; die Aussensicht und `/bilanz` hängen daran):
+
+  `B-SCHRITT: <n>/5 <Name>, B-Batch <k> von max 20`
+
+  Beispiel: `B-SCHRITT: 2/5 Maschine, B-Batch 2 von max 20`. `n` ist der Stand **nach**
+  diesem Batch. In C-Batches schreibst du stattdessen `B-SCHRITT: kein B-Batch (Strang C)`.
+- **Nur wenn es wirklich zutrifft**, zusätzlich eine dieser Zeilen — sie lösen sofort eine
+  **Aussensicht** (Meta-Review) aus:
+  - `MEILENSTEIN ERREICHT: <welcher, mit Beleg>`
+  - `ABBRUCHKRITERIUM ERREICHT: <welches, mit Beleg>`
+  Schreibe sie **nicht** vorsorglich: ein falscher Auslöser kostet einen Lauf. Die Wörter
+  „Abbruchkriterium" oder „Meilenstein" allein — etwa in einer Wiederholung der
+  Auftragsbedingungen — zählen nicht, nur diese beiden Zeilenformen.
+
+### Aussensicht-Befunde beantworten (Pflicht)
+
+Die Aussensicht (Meta-Review, R13w) schickt dir Nachrichten in der Form
+`Aussensicht Batch N - Befund M<N>-<k> (Gewicht …)`. **Jede** dieser Nachrichten
+beantwortest du im nächsten Review mit **einer** Zeile in `<TELEGRAM_SUMMARY>`:
+
+```text
+M208-3: übernommen (was du daraus gemacht hast)
+M208-3: abgelehnt, Grund …
+```
+
+Das ist keine Höflichkeit, sondern die Rückmeldung: der Harness führt die Befunde in
+einem Register; **unbeantwortete Befunde bleiben „offen"** und werden dir in jedem
+weiteren Review erneut vorgelegt, bis sie beantwortet sind. Ein „abgelehnt, Grund …" ist
+eine vollwertige Antwort — Widerspruch mit Begründung ist ausdrücklich erwünscht.
 
 Regeln zum Format:
 

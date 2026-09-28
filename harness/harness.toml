@@ -68,6 +68,18 @@ max_alter_min = 120   # Gesamtalter, danach beginnt ein neuer Chat
 # ein paar Dateien. Wenn Antworten abgeschnitten wirken, hier auf 40 heben.
 max_turns     = 25
 
+[meta]
+# R13w (2026-09-28): Aussensicht - der Meta-Review. Eigener Auftrag als der Reviewer:
+# "stimmen Messgroessen, Plan und Annahmen noch?" Sie entscheidet und aendert NICHTS;
+# sie liefert Befunde (Empfaenger Reviewer -> /claude-Queue, Nutzer -> Telegram+fragen).
+# Laeuft immer in einer FRISCHEN Session mit dem Reviewer-Modell (Abo-Kontingent).
+every_batches    = 10    # zusaetzlich automatisch alle N Batches (erste loest /meta aus)
+wall_s           = 900   # harte Zeitgrenze je Lauf (danach bricht der Lauf ab)
+max_turns        = 30    # Werkzeugrunden; Stichproben brauchen mehr als ein Review
+max_befunde      = 7     # mehr wird nicht in den Ledger uebernommen
+summaries        = 10    # so viele Review-Zusammenfassungen gehen in den Prompt
+bilanz_zeitfenster = 12  # so viele Batches umfasst der Bilanz-Trend
+
 [git]
 push_after_batch = true
 remote           = "origin"

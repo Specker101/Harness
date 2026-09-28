@@ -658,6 +658,15 @@ def bericht(cfg, n: int = 1, batch: int | None = None, jetzt: datetime | None = 
     zeilen.append("")
     zeilen.append(zusatz_zeile(daten["batches"].get(str(letzte)) or {}))
     zeilen.append("")
+    # R13w: die letzte Aussensicht (Meta-Review) mit offenen Befunden.
+    try:
+        from . import aussensicht as aussichtmod
+        az = aussichtmod.zeile(cfg)
+    except Exception:                                                    # noqa: BLE001
+        az = ""
+    if az:
+        zeilen.append(az)
+        zeilen.append("")
     zeilen += kosten_block(cfg, jetzt=jetzt_dt)
     zeilen.append("")
     zeilen += aufgaben_block(cfg, batch=letzte)

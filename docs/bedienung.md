@@ -113,7 +113,7 @@ Im Notfall ist `stop.ps1 -Force` sofort.
 `/status` · `/budget` · `/bilanz [N]` · `/thinking [N] [voll]` · `/pause` · `/resume [ok]` ·
 `/stop` · `/approve [Text]` ·
 `/number <N>` · `/autonom [on|off]` · `/ds <Text>` · `/claude <Text>` · `/ask <Frage>` ·
-`/ask-neu <Frage>` ·
+`/ask-neu <Frage>` · `/meta` ·
 `/review` · `/last [ds|claude] [n]` · `/queue` · `/why` · `/help`
 
 `/ask` ist **kein** Eingriff in den Betrieb: es ist ein eigener, rein lesender Lauf
@@ -658,6 +658,44 @@ abgebrochener Worker den Anker nicht fort, bekommt der nächste Lauf dieselbe Nu
 das Review liegt wieder in `runs/b<N>`, die Belege des abgebrochenen Laufs liegen als
 `*-v1.*` daneben. Gemessen am echten Anker: Kopf BATCH 207 → nächster Lauf 208, und
 `state["batch"] = 999` ändert daran nichts (`docs/_r13v3_beleg_zustand.txt`).
+
+### 12e. Aussensicht — der Meta-Review (R13w, 2026-09-28)
+
+**Anderer Auftrag als der Reviewer.** Der Reviewer fragt „war dieser Batch gut?". Die
+Aussensicht fragt: **„stimmen Messgrößen, Plan und Annahmen noch?"** Sie prüft bewusst
+skeptisch: Messen die Kennzahlen, was sie behaupten? Stimmen Aussagen in `readme.md`,
+`AGENTS.md` und Anker mit dem Code? Welche Probleme wiederholen sich? Ist der Plan beim
+gemessenen Durchsatz realistisch? Was würde ein Aussenstehender bezweifeln? Wurden
+frühere Aussensicht-Befunde umgesetzt?
+
+**Sie entscheidet nichts und ändert nichts.** Ihre Werkzeuge sind `Read`, `Grep`, `Glob`
+und die vier Nur-Lese-Git-Befehle; Schreiben, Bash, Ghidra und Netz sind verboten,
+Schlüssel/`backups`/`.credentials.json` gesperrt. Sie läuft **immer in einer frischen
+Session** (kein Verlauf) mit dem Reviewer-Modell über das Abo.
+
+| Was | Wie |
+|---|---|
+| **Start** | `/meta` (Telegram, jederzeit) oder `python -m hx.cli meta [--grund …] [--mock]`; zusätzlich automatisch (s. u.) |
+| **läuft gerade ein Worker** | `/meta` wird nur **vorgemerkt** (Antwort: „vorgemerkt, laeuft nach Batch N") und läuft **direkt nach dem Batch-Ende, VOR dem Review** — so stehen Befunde für den Reviewer schon in dessen Review. Mehrfaches Vormerken zählt **einmal**. In Pause/Gate/Leerlauf läuft sie sofort; während einer Pause lösen **Automatik**-Auslöser nicht aus |
+| **Automatik** | (a) alle `[meta] every_batches` = 10 Batches (die **erste** Aussensicht löst du per `/meta` aus, damit der erste Start nicht sofort einen Lauf kostet), (b) Worker-Abbruch (`letzter_abbruch` aus R13v3), (c) Zeile `MEILENSTEIN ERREICHT:` bzw. `ABBRUCHKRITERIUM ERREICHT:` in der neuesten Review-Zusammenfassung, (d) **B-Schritt** über zwei B-Batches unverändert (Pflichtzeile `B-SCHRITT: <n>/5 …`), (e) eine **C-Kernzahl** über die letzten zwei **C-Batches** unverändert. Je Batch wird höchstens **einmal** entschieden |
+| **Eingaben** | Bilanz-Trend der letzten 12 Batches, PLAN/IST-Tafel, die letzten 10 `TELEGRAM_SUMMARY`, Ankerkopf, Ziel-/Scope-Abschnitte aus `readme.md`/`AGENTS.md`, `/fragen`, Kosten/Laufzeiten je Batch, die noch offene `/ds`-Queue und die **Befundliste der letzten Aussensicht** |
+| **Stichprobenpflicht** | mindestens zwei Aussagen aus den Zusammenfassungen gegen die Rohbelege des Batches (`result.json`, `harness-facts.md`, `antwort.md`) prüfen **und** für mindestens einen Batch die Denkblöcke `snapshots/b<N>/reasoning.jsonl` lesen — damit nicht dieselben aufbereiteten Zahlen die einzige Quelle sind |
+| **Ausgabe** | `<AUSSENSICHT>` (2–4 Zeilen, inkl. Stichprobenergebnisse) + je Befund `<BEFUND n gewicht empfaenger>Beleg/Aussage/Empfehlung</BEFUND>` + `<PRUEFUNG id status/>` zu früheren Befunden. **Höchstens 7** Befunde, sortiert nach Gewicht (`hoch`/`mittel`/`niedrig`), Empfänger `Reviewer` oder `Nutzer` |
+| **Belegpflicht (gelockert)** | gültig ist `Datei:Zeile` **oder** eine Zahl mit Quelldatei **oder** `Fehlstelle: gesucht in <Ort>, nicht gefunden`. Nur Befunde **ganz ohne** Beleg werden verworfen — und im Bericht als verworfen **genannt** |
+| **Verteilung** | Empfänger `Reviewer` → **eine `/claude`-Nachricht je Befund** in die Queue; Empfänger `Nutzer` → Telegram **und** unter `/fragen` |
+| **Ablage** | Bericht `runs/meta-<batch>.md` (mit Rohantwort), Maschinenfassung `runs/meta-<batch>.json`, Mitschnitt `runs/meta-<batch>.jsonl`, Register `state/meta_befunde.json` |
+| **Anzeige** | `/bilanz` zeigt `letzte Aussensicht: Batch N, k Befunde, davon m offen`; `/status` zeigt `Aussensicht: …` |
+| **Grenzen** | harte Zeitgrenze `[meta] wall_s` (Vorgabe 900 s); schlägt der Lauf fehl, wird das gemeldet und der Betrieb läuft weiter. Die Aussensicht blockiert **ihren eigenen** Lauf (synchron wie der Review) |
+
+**Antwortpflicht des Reviewers (R13w).** Jede `/claude`-Nachricht trägt eine ID
+`M<batch>-<n>`. Der Reviewer antwortet in der nächsten `TELEGRAM_SUMMARY` mit
+`M208-3: übernommen (…)` oder `M208-3: abgelehnt, Grund …`. Der Harness übernimmt den
+Status in das Register; **unbeantwortete Befunde bleiben „offen"** und werden in jedem
+weiteren Review erneut vorgelegt (und in `/bilanz` gezählt). Ein „abgelehnt, Grund …" ist
+eine vollwertige Antwort.
+
+**Einstellungen** (`harness.toml`, Abschnitt `[meta]`): `every_batches`, `wall_s`,
+`max_turns`, `max_befunde`, `summaries`, `bilanz_zeitfenster`.
 
 ### 12b. Was der Nutzer selbst entscheiden muss
 

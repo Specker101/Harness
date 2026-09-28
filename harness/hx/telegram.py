@@ -60,6 +60,8 @@ HELP = (
     "/thinking [N] [voll] - letzte Denkbloecke des Workers (Vorgabe 10, je 200 "
     "Zeichen; 'voll' = ungekuerzt)\n"
     "/fragen - offene Fragen an dich, je eine entscheidbare Zeile\n"
+    "/meta - Aussensicht (Meta-Review) jetzt: prueft Messgroessen, Plan und "
+    "Annahmen (laeuft ein Batch, wird sie vorgemerkt und laeuft nach dessen Ende)\n"
     "/review - neuer Review jetzt (verwirft einen offenen Auftrag, hebt die Pause auf)\n"
     "/last [ds|claude] [n] - letzten Text zeigen (claude = vollstaendige Instruktion)\n"
     "/budget - Kosten und Grenzen\n"
