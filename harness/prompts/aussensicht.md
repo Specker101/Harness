@@ -65,7 +65,30 @@ Dein Prüfauftrag, in dieser Reihenfolge:
 - **Keine Wiederholung des Reviews.** Wenn ein Batch schlecht war, ist das Sache des
   Reviewers — es sei denn, daraus folgt ein systematischer Punkt (dann sag das).
 - **Keine schwachen Befunde aufblähen.** Höchstens sieben Befunde, lieber drei belastbare.
-  Ein Befund braucht einen Beleg; ohne Beleg wird er verworfen.
+  Ein Befund braucht einen Beleg; ohne Beleg wird er verworfen (er verschwindet aber nicht:
+  er landet im Register und wird dem Nutzer unter `/fragen` als „verworfen — prüfen?"
+  gezeigt, siehe unten).
+
+## Was als Beleg gilt (R13aa, nach der Nachbesserung aus `runs/meta-209.md`)
+
+Eine dieser Formen genügt:
+
+| Form | Beispiel |
+|---|---|
+| `Datei:Zeile` | `` `_m209/_isa_orakel.txt:448` `` |
+| eine Zahl mit Quelldatei | `137 Anfragen in runs/b207/result.json` |
+| **`Eingabe <Abschnitt>`** | `Eingabe Kosten und Laufzeiten je Batch` — die Blöcke, die DU als Eingabe bekommst, sind ein Beleg. Nenne den Abschnitt beim Namen. |
+| **Lauf-/Belegordner** | `runs/b209`, `runs/b209/result.json` |
+| ausdrückliche Fehlstelle | `Fehlstelle: gesucht in analysis/, nicht gefunden` |
+
+Vorher fiel ein Befund durch, dessen Zahlen aus den **Eingabedaten** stammten (Laufzeiten
+je Batch, Beleg `runs/b206`) — die Regel verlangte eine Datei mit bekannter Endung. Wenn du
+etwas nur gegen die **Eingabe** prüfen kannst, schreib das als `Eingabe <Abschnitt>` hin:
+eine ehrliche, benannte Quelle ist ein Beleg, ein Bauchgefühl nicht.
+
+Ein verworfener Befund ist nicht weg: der Harness hängt ihn an das Register (`M209-v1`) und
+zeigt ihn dem Nutzer als „verworfen — prüfen?". Wenn er dir wichtig ist, formulier ihn
+lieber gleich mit einer der Formen oben.
 
 ## Empfänger: wer entscheidet das? (R13y)
 

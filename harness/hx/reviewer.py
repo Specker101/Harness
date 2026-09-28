@@ -405,6 +405,15 @@ def build_prompt(cfg, kind: str, ctx: dict) -> str:
         "=== SNAPSHOT / LAGE ===",
         (ctx.get("snapshot") or "(kein Snapshot)").strip(),
         "",
+        # R13aa (Punkt 1, Aussensicht-Nachbesserung aus runs/meta-209.md): die
+        # Pflichtzeilen des Reviews werden geprueft. Fehlt `B-SCHRITT:`, kann der Harness
+        # den B-Fortschritt nicht messen UND der Ausloeser "Kernzahl ohne Bewegung" haelt
+        # einen B-Batch fuer einen C-Batch (gemessen B208/B209). Deshalb steht hier, was
+        # dieser Review ueber den Strang des bewerteten Batches schreiben MUSS.
+        "=== PROTOKOLL-WARNUNG (Pflichtzeilen im Review) ===",
+        (ctx.get("protokoll_warnung")
+         or "(nichts offen - die Pflichtzeilen sind vollstaendig)").strip(),
+        "",
         "Antworte jetzt ausschliesslich im vereinbarten Blockformat (TELEGRAM_SUMMARY, "
         "DS_TOOLS, DS_INSTRUCTION; SUMMARY max. ca. 1500 Zeichen).",
     ]

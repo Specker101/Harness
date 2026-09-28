@@ -263,7 +263,11 @@ class TestStand(Basis):
         self.assertIn("offen (Paket E, C-Arbeitsvorrat)", text)
         self.assertIn("HYPOTHESIS", text)
         self.assertIn("_bilanz101.txt", text)
-        self.assertIn("Batches fuer die", text)
+        # R13aa: die Hochrechnung ist getrennt (je C-Batch, Mischung, Kalender-Batches) -
+        # die alte Sammelzeile "noch ca. N Batches fuer die K offenen Koepfe" entfaellt.
+        self.assertIn("je C-Batch", text)
+        self.assertIn("Mischung", text)
+        self.assertIn("KALENDER-Batches", text)
 
     def test_median(self):
         self.assertEqual(stand.median([5, 9, 5, 0, 5]), 5)

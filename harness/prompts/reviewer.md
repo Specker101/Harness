@@ -291,6 +291,13 @@ WARTET AUF LIVE-AUFNAHME: … (nur Material, das fehlt - bremst nicht)
 
   Beispiel: `B-SCHRITT: 2/5 Maschine, B-Batch 2 von max 20`. `n` ist der Stand **nach**
   diesem Batch. In C-Batches schreibst du stattdessen `B-SCHRITT: kein B-Batch (Strang C)`.
+- **Der Harness prüft die Zeile (R13aa).** Ob ein Batch ein B-Batch ist, hängt **nicht mehr
+  allein** an dieser Zeile: der Harness liest zusätzlich den Auftrag des bewerteten Batches
+  (`runs/b<N>/auftrag.md`, Marker „Strang B"/„B-Batch") und die Zeile `Mischverhaeltnis …`
+  in `analysis/hybrid-plan.md`. Fehlt die Pflichtzeile in einem B-Batch, steht das als
+  **`PROTOKOLL-WARNUNG`** im nächsten Review-Prompt und wird im Protokoll vermerkt.
+  Grund (gemessen): sie fehlte in jedem Review seit B205 — und der Auslöser „Kernzahl ohne
+  Bewegung" hielt B208/B209 deshalb für C-Batches und schlug falsch an.
 - **Nur wenn es wirklich zutrifft**, zusätzlich eine dieser Zeilen — sie lösen sofort eine
   **Aussensicht** (Meta-Review) aus:
   - `MEILENSTEIN ERREICHT: <welcher, mit Beleg>`
@@ -325,6 +332,10 @@ eine vollwertige Antwort — Widerspruch mit Begründung ist ausdrücklich erwü
   Harness hängt den Wortlaut der Frage samt Empfehlung an die Nachricht an. Nimm die
   Antwort in deiner Zusammenfassung auf (`ENTSCHIEDEN: …`) und behandle die Frage danach
   als erledigt; sie verschwindet aus `/fragen`, sobald dein Review sie gelesen hat.
+- Eine Kennung der Form `M209-v1` ist ein **verworfener** Aussensicht-Befund: die
+  Beleg-Regel hat ihn aussortiert, `/fragen` zeigt ihn als „verworfen — prüfen?". Antwortet
+  der Nutzer darauf, prüfe den Befund und entscheide ihn (`ENTSCHIEDEN: …`) oder trage ihn
+  in die Instruktion — der Beleg steht im Anhang der Nachricht („nicht anerkannt: …").
 
 ### `## VERALLGEMEINERUNG` — Pflichtabschnitt vor der `DS_INSTRUCTION` (R13z, 2026-09-28)
 

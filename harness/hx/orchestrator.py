@@ -1623,6 +1623,13 @@ class Orchestrator:
             write_text_atomic(rdir / name, (res.text or "") + "\n")
         except OSError:
             pass
+        # R13aa (Punkt 1): Pflichtzeilen des frischen Reviews pruefen und im Protokoll
+        # melden (Log + Hinweis im naechsten Review). Ein B-Batch ohne `B-SCHRITT:` liess
+        # den Stillstands-Ausloeser der Aussensicht falsch anschlagen (B208/B209).
+        try:
+            self.pflichtzeile_melden(res)
+        except Exception as exc:                                    # noqa: BLE001
+            self.log.warn("Pflichtzeilen-Pruefung fehlgeschlagen", fehler=str(exc)[:150])
         if self._review_rotation and res.session_id and res.session_id != session_id:
             # Der Prozess meldet eine andere Kennung - die gilt.
             self.log.warn("Reviewer-Kennung abweichend - uebernommen", erwartet=session_id,
@@ -2127,6 +2134,10 @@ class Orchestrator:
             "historie": self.historie_text(),
             # R13s: PLAN/IST der letzten Batches (rein lesend aus den Belegdateien)
             "plan_ist": standmod.plan_ist_text(self.cfg),
+            # R13aa (Punkt 1): fehlt die Pflichtzeile `B-SCHRITT:` in einem B-Batch, muss
+            # das im Review-Protokoll stehen - sonst haelt der Stillstands-Ausloeser der
+            # Aussensicht den B-Batch fuer einen C-Batch (gemessen B208/B209).
+            "protokoll_warnung": standmod.pflichtzeile_hinweis(self.cfg, batch),
             # R13t: die /ds-Nachrichten, die DIESER Batch im Auftrag hatte
             "ds_queue": standmod.ds_nachrichten(self.cfg, batch),
             # R13v3: wurde der Lauf abgebrochen, gehoert das ausdruecklich in den Review
@@ -2140,6 +2151,40 @@ class Orchestrator:
             "previous_raw": previous_raw,
             "extra": self.pause_work_note(),
         }
+
+    def pflichtzeile_melden(self, res) -> list[str]:
+        """Fehlende Pflichtzeilen des frischen Reviews ins Protokoll schreiben (R13aa).
+
+        Auftrag (Aussensicht-Nachbesserung aus `runs/meta-209.md`, Punkt 1): die
+        Pflichtzeile `B-SCHRITT:` fehlte in JEDEM Review seit B205 - still. Jetzt wird
+        sie geprueft: in einem **B-Batch** ist ihr Fehlen eine Warnung (ohne sie kann der
+        Harness keinen B-Fortschritt messen und der Ausloeser "Kernzahl ohne Bewegung"
+        haelt den Batch faelschlich fuer einen C-Batch), in einem **C-Batch** nur ein
+        Hinweis (die Kurzform macht die Zuordnung belegbar). Der Hinweis steht zusaetzlich
+        im naechsten Review-Prompt (`stand.pflichtzeile_hinweis`).
+
+        Rueckgabe: die gemeldeten Punkte (fuer Tests und `watch`).
+        """
+        p = getattr(res, "parsed", None)
+        summary = ((p.summary if p else "") or "")
+        batch = int(self.state.batch or 0)
+        if batch <= 0 or not summary:
+            return []
+        info = standmod.strang_von_batch(self.cfg, batch)
+        strang = info.get("strang")
+        hat = bool(re.search(r"B-SCHRITT\s*:", summary, re.IGNORECASE))
+        if strang == "B" and not hat:
+            self.log.warn("Pflichtzeile B-SCHRITT fehlt in einem B-Batch", batch=batch,
+                          quelle=info.get("quelle"), review=str(res.review_file or ""))
+            return [f"B{batch}: B-SCHRITT fehlt"]
+        if strang == "C" and not hat:
+            self.log.info("B-SCHRITT-Zeile fehlt (C-Batch, Kurzform erwartet)",
+                          batch=batch, quelle=info.get("quelle"))
+            return [f"B{batch}: B-SCHRITT-Kurzform fehlt"]
+        if not strang and not hat:
+            self.log.info("Strang nicht belegbar und keine B-SCHRITT-Zeile", batch=batch)
+            return [f"B{batch}: Strang unbelegt"]
+        return []
 
     def pause_work_note(self) -> str:
         """Hinweis fuer den Review, wenn in der Pause gearbeitet wurde (oder ein Pull kam).

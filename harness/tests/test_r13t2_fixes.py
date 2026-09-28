@@ -100,8 +100,9 @@ class TestKlassen(Basis):
         self.assertIn("677 Koepfe /  28976 Insn", text)
         self.assertIn("(2) nicht ausgefuehrt, Paket E", text)
         self.assertIn("(3) nicht ausgefuehrt, sonstiger Rest", text)
-        # Hochrechnung mit dem Mittel aus der Bilanzdatei (hier +5 -> 677/5 = 135)
-        self.assertIn("-> ca. 135 Batches", text)
+        # Hochrechnung mit dem Durchsatz JE C-BATCH aus der Bilanzdatei (hier +5 ->
+        # 677/5 = 135). R13aa: gerechnet wird in C-Batches, nicht in Kalender-Batches.
+        self.assertIn("-> ca. 135 C-Batches", text)
 
     def test_klasse_3_wird_als_aufnahme_luecke_ausgewiesen(self):
         self.cache()

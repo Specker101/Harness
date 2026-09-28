@@ -1,0 +1,64 @@
+### 1) Fehlausloeser: welcher Batch ist ein B-Batch? (echte Belege)
+   Der Befund aus runs/meta-209.md nennt den Anlass des Laufs:
+     - Anlass: Kernzahl ohne Bewegung ueber die letzten C-Batches: C Koepfe = 78 (B208 wie B209); C Faelle = 2903 (B208 wie B209); C Abweichungen = 0 (B208
+   -> so sah der Fehler aus: C Koepfe = 78 (B208 wie B209) - beide waren B-Batches
+   hybrid-plan.md (Rueckfall 3): anteil=0.333 paare={208: 'B', 209: 'B', 210: 'C'}
+   B206: strang=(unbekannt -> zaehlt als C) quelle=
+   B207: strang=(unbekannt -> zaehlt als C) quelle=
+   B208: strang=B                      quelle=Auftrag runs/b<N>/auftrag.md
+   B209: strang=B                      quelle=Auftrag runs/b<N>/auftrag.md
+   B210: strang=C                      quelle=Auftrag runs/b<N>/auftrag.md
+   B211: strang=(unbekannt -> zaehlt als C) quelle=
+   ohne Pflichtzeile: [208, 209]
+   Stillstand jetzt (statt B208/B209):
+     C Koepfe = 78 (B207 wie B210)
+     C Abweichungen = 0 (B207 wie B210)
+   Hinweis fuer den naechsten Review (Block PROTOKOLL-WARNUNG):
+     B210 ist ein C-Batch (Auftrag runs/b<N>/auftrag.md)
+     In DEINER TELEGRAM_SUMMARY gehoert die Zeile `B-SCHRITT: kein B-Batch (Strang C)`
+     In den letzten Reviews fehlte sie in: B208, B209.
+
+### 2) Beleg-Regel: der echte M209-4 laeuft jetzt durch
+   Wortlaut aus runs/meta-209.json:
+     aussage: Das vorzeitige Ende wiederholt sich auch nach der Get-Date-/70-min-Regel (B208, B209). Das ist ein Vorgehenspr
+     beleg  : Laufzeiten aus den Kosten und Laufzeiten je Batch: B201 18,1 min, B202 25,2 min, B208 19,3 min, B209 28,0 min 
+     -> beleg_gueltig: True
+   True  Eingabe Kosten und Laufzeiten je Batch
+   True  runs/b209
+   True  runs/b209/result.json
+   True  === KOSTEN UND LAUFZEITEN JE BATCH ===
+   True  port/src/x.cpp:12
+   True  137 Anfragen in runs/b207/result.json
+   True  Fehlstelle: gesucht in analysis/, nicht gefunden
+   False ich glaube, das ist ungenau
+
+### 3) Verworfene Befunde: nicht wegwerfen - in /fragen als 'verworfen - pruefen?'
+   Register (Wegwerf-Baum) bekommt: ['M209-v1']
+   verworfene(cfg, 209) = 1 Eintrag/Eintraege, Gesamtzahl 1
+   Quote zaehlt sie NICHT mit: {'gesamt': 0, 'uebernommen': 0, 'abgelehnt': 0, 'offen': 0}
+   /fragen |  M209-v1   AUSSENSICHT (verworfen - pruefen?): Das vorzeitige Ende wiederholt sich auch nach der Get-Date-/70-min-Regel (B208, B209). Das ist ein Vorgehensproblem: Der Auftragszuschnitt ist so e...
+   /fragen |ANTWORTEN: /claude <Kennung> <Text>   (z. B. "/claude M209-v1 ja" - Kennung am Anfang, dann der Text)
+   Antwort '/claude M209-v1 pruefen' -> ok: True | bekannt: ['M209-v1']
+   Anhang:
+     M209-v1 pruefen
+     
+     [Antwort auf Frage(n) - Wortlaut zum Zeitpunkt der Antwort]
+     --- M209-v1 (Aussensicht (verworfen, Gewicht mittel)) ---
+     Frage: Das vorzeitige Ende wiederholt sich auch nach der Get-Date-/70-min-Regel (B208, B209). Das ist ein Vorgehensprobl
+     Empfehlung: Die Aufträge der B-Batches sollten eine geordnete Nachrückliste mit Soll-Delta tragen (z. B. Pflicht-Zufalls
+     Beleg: nicht anerkannt: Laufzeiten aus den Kosten und Laufzeiten je Batch: B201 18,1 min, B202 25,2 min, B208 19,3 min, 
+     Quelle: runs/meta-209.md (Rohantwort dort)
+
+### 4) Hochrechnung getrennt (echter Stand)
+   vorher (Befund M209-3, zitiert aus runs/meta-209.md):
+     "Die Hochrechnung '369 Batches bei +3,8' stuetzt sich auf ein Fenster (B204 bis B208), das diesen Stillstand nicht enthaelt."
+     Durchsatz    : Koepfe (R207 gebaut) letzter Batch 208: 686 -> 686 (+0)
+                    Mittel der letzten 5 (B+C gemischt): +3.8 Koepfe je Batch   (Fenster: 208: +0, 207: +0, 206: +5, 205: +9, 204: +5)
+                    Insn (nur wo belegt, Paket-E-Zeile): letzter Batch 0 / Mittel 351 Insn
+                    nur C-Batches: +4.8 Koepfe je C-Batch (4 von 5: B207, B206, B205, B204)
+     Mischung     : 4 C von 5 Batches im Fenster (80 %); Regel hybrid-plan.md: "2 B : 1 C" -> jeder 3. Batch ist ein C-Batch (33 %)
+                      -> 8 C-Batches bei +4.8 Koepfe je C-Batch (C-Batches im Fenster: B207, B206, B205, B204)
+                      -> ca. 24 KALENDER-Batches (8 C-Batches / Anteil 33 % = Regel hybrid-plan.md: "2 B : 1 C")
+                    HYPOTHESIS (C gesamt, GEMESSEN): offen 1403 Koepfe / 53535 Insn (Inventar minus gebaut, s. Klassen unten)
+                      -> 295 C-Batches bei +4.8 Koepfe je C-Batch (C-Batches im Fenster: B207, B206, B205, B204)
+                      -> ca. 886 KALENDER-Batches (295 C-Batches / Anteil 33 % = Regel hybrid-plan.md: "2 B : 1 C")

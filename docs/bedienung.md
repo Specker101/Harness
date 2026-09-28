@@ -702,11 +702,11 @@ Session** (kein Verlauf) mit dem Reviewer-Modell über das Abo.
 |---|---|
 | **Start** | `/meta` (Telegram, jederzeit) oder `python -m hx.cli meta [--grund …] [--mock]`; zusätzlich automatisch (s. u.) |
 | **läuft gerade ein Worker** | `/meta` wird nur **vorgemerkt** (Antwort: „vorgemerkt, laeuft nach Batch N") und läuft **direkt nach dem Batch-Ende, VOR dem Review** — so stehen Befunde für den Reviewer schon in dessen Review. Mehrfaches Vormerken zählt **einmal**. In Pause/Gate/Leerlauf läuft sie sofort; während einer Pause lösen **Automatik**-Auslöser nicht aus |
-| **Automatik** | (a) alle `[meta] every_batches` Batches (**seit R13z vorläufig 3** — Begründung unten; die **erste** Aussensicht löst du per `/meta` aus, damit der erste Start nicht sofort einen Lauf kostet), (b) Worker-Abbruch (`letzter_abbruch` aus R13v3), (c) Zeile `MEILENSTEIN ERREICHT:` bzw. `ABBRUCHKRITERIUM ERREICHT:` in der neuesten Review-Zusammenfassung, (d) **B-Schritt** über zwei B-Batches unverändert (Pflichtzeile `B-SCHRITT: <n>/5 …`), (e) eine **C-Kernzahl** über die letzten zwei **C-Batches** unverändert. Je Batch wird höchstens **einmal** entschieden |
+| **Automatik** | (a) alle `[meta] every_batches` Batches (**seit R13z vorläufig 3** — Begründung unten; die **erste** Aussensicht löst du per `/meta` aus, damit der erste Start nicht sofort einen Lauf kostet), (b) Worker-Abbruch (`letzter_abbruch` aus R13v3), (c) Zeile `MEILENSTEIN ERREICHT:` bzw. `ABBRUCHKRITERIUM ERREICHT:` in der neuesten Review-Zusammenfassung, (d) **B-Schritt** über zwei B-Batches unverändert (Pflichtzeile `B-SCHRITT: <n>/5 …`), (e) eine **C-Kernzahl** über die letzten zwei **C-Batches** unverändert. Je Batch wird höchstens **einmal** entschieden. **Welcher Batch ein B-Batch ist**, liest der Harness aus mehreren Belegen (Pflichtzeile im Review, Marker im Auftrag `runs/b<N>/auftrag.md`, Zeile `Mischverhaeltnis …` in `analysis/hybrid-plan.md`) — vorher hing das allein an der Pflichtzeile, die seit B205 in jedem Review fehlte, und (e) hielt B208/B209 fälschlich für C-Batches (R13aa) |
 | **Eingaben** | Bilanz-Trend der letzten 12 Batches, PLAN/IST-Tafel, die letzten 10 `TELEGRAM_SUMMARY`, Ankerkopf, Ziel-/Scope-Abschnitte aus `readme.md`/`AGENTS.md`, `/fragen`, Kosten/Laufzeiten je Batch, die noch offene `/ds`-Queue und die **Befundliste der letzten Aussensicht** |
 | **Stichprobenpflicht** | mindestens zwei Aussagen aus den Zusammenfassungen gegen die Rohbelege des Batches (`runs/b<N>/result.json`, `antwort.md`, `review.md`) prüfen **und** für mindestens einen Batch die Denkblöcke `snapshots/b<N>/reasoning.jsonl` lesen — damit nicht dieselben aufbereiteten Zahlen die einzige Quelle sind. **Achtung:** `runs/b<N>/harness-facts.md` gehört zu Batch N−1 (siehe §14e) |
 | **Ausgabe** | `<AUSSENSICHT>` (2–4 Zeilen, inkl. Stichprobenergebnisse) + je Befund `<BEFUND n gewicht empfaenger>Beleg/Aussage/Empfehlung</BEFUND>` + `<PRUEFUNG id status/>` zu früheren Befunden. **Höchstens 7** Befunde, sortiert nach Gewicht (`hoch`/`mittel`/`niedrig`), Empfänger `Reviewer` oder `Nutzer` |
-| **Belegpflicht (gelockert)** | gültig ist `Datei:Zeile` **oder** eine Zahl mit Quelldatei **oder** `Fehlstelle: gesucht in <Ort>, nicht gefunden`. Nur Befunde **ganz ohne** Beleg werden verworfen — und im Bericht als verworfen **genannt** |
+| **Belegpflicht** | gültig ist `Datei:Zeile` **oder** eine Zahl mit Quelldatei **oder** `Eingabe <Abschnitt>` (ein Eingabeblock beim Namen genannt) **oder** ein Lauf-/Belegordner (`runs/b<N>`, `runs/b<N>/result.json`) **oder** `Fehlstelle: gesucht in <Ort>, nicht gefunden`. Nur Befunde **ganz ohne** Beleg werden verworfen — und im Bericht als verworfen **genannt** und unter `/fragen` als „verworfen — prüfen?" gezeigt (R13aa, s. u.) |
 | **Verteilung** | Empfänger `Reviewer` → **eine `/claude`-Nachricht je Befund** in die Queue; Empfänger `Nutzer` → Telegram **und** unter `/fragen` |
 | **Ablage** | Bericht `runs/meta-<batch>.md` (mit Rohantwort), Maschinenfassung `runs/meta-<batch>.json`, Mitschnitt `runs/meta-<batch>.jsonl`, Register `state/meta_befunde.json` |
 | **Anzeige** | `/bilanz` zeigt die **Quote** des Registers: `Aussensicht: n Befunde, davon u uebernommen, a abgelehnt, o offen   (letzte Aussensicht: Batch N; k Befunde in diesem Lauf; Takt: alle 3 Batches)`; `/status` zeigt dieselbe Zeile (hinter dem Vorgemerkten) |
@@ -756,6 +756,50 @@ eine vollwertige Antwort.
    (die Aussensicht hat selbst nachgeprüft) als **übernommen**, `verworfen` als
    **abgelehnt**; alles Unbekannte gilt weiter als **offen**. Ein falsch geschriebener
    Status lässt einen Befund also nicht stillschweigend verschwinden.
+
+### 12f. Strang-Klassifikation, verworfene Befunde, getrennte Hochrechnung (R13aa, 2026-09-28)
+
+Nachbesserung aus `runs/meta-209.md` (drei Punkte):
+
+**1. Welcher Batch ist ein B-Batch?** Der Auslöser „Kernzahl ohne Bewegung" hatte B208/B209
+als **C-Batches** gezählt — beide waren B-Batches, die C-Zahl durfte sich also gar nicht
+bewegen. Ursache: die Klassifikation hing allein an der Pflichtzeile `B-SCHRITT:` des
+Reviewers, und die fehlte in **jedem** Review seit B205. Jetzt liest
+`stand.strang_von_batch` mehrere Belege, in dieser Reihenfolge:
+
+| Quelle | Beispiel (echter Beleg) |
+|---|---|
+| Pflichtzeile im Review dieses Batches | `B-SCHRITT: 2/5 Maschine, B-Batch 2 von max 20` bzw. `B-SCHRITT: kein B-Batch (Strang C)` |
+| Marker im **Auftrag** des Batches, der ihn nennt | `runs/b208/auftrag.md`: „B208 ist der ERSTE Batch von Strang B"; `runs/b209/auftrag.md`: Zeile „Strang B, Batch 2 von hoechstens 20" |
+| Zeile `Mischverhaeltnis …` in `analysis/hybrid-plan.md` | „Mischverhaeltnis 2 B : 1 C (ENTSCHEIDUNG Reviewer): **B208 B, B209 B, B210 C**" |
+
+Sagt keine Quelle etwas, bleibt der Batch **unbekannt** und zählt wie bisher als C-Batch
+(die vorsichtige Seite — geraten wird nichts). Fremde Erwähnungen zählen nicht: der
+B209-Auftrag nennt „B210 = C-Batch", das macht B209 nicht zum C-Batch.
+
+**Fehlt die Pflichtzeile in einem B-Batch, wird gewarnt.** Der Block
+`=== PROTOKOLL-WARNUNG (Pflichtzeilen im Review) ===` steht im nächsten Review-Prompt
+(`reviewer.build_prompt`), und beim Review wird es ins Protokoll geschrieben
+(`orchestrator.pflichtzeile_melden`: B-Batch → Warnung, C-Batch → Hinweis, unbekannt →
+Info). Gemessen: `stand.ohne_pflichtzeile` findet B208 und B209.
+
+**2. Verworfene Befunde werden nicht weggeworfen.** `beleg_gueltig` nimmt jetzt auch
+`Eingabe <Abschnitt>`, `=== <EINGABEBLOCK> ===` und Lauf-/Belegordner (`runs/b209`,
+`runs/b209/result.json`) an — M209-4 (Laufzeiten je Batch, Beleg `runs/b206`) war an der
+alten Regel gescheitert. Was trotzdem durchfällt, wird mit eigener Kennung
+(`M209-v1`) im Register gespeichert (`state/meta_befunde.json`, zweiter Schlüssel
+`verworfen`) und in `/fragen` als **`AUSSENSICHT (verworfen - pruefen?)`** gezeigt —
+mit dem nicht anerkannten Beleg und dem Verweis auf die Rohantwort in
+`runs/meta-209.md`. Die Quote (§12e) zählt diese Befunde **nicht** mit. Antworten geht wie
+bei jeder Kennung: `/claude M209-v1 pruefen` — der Anhang trägt den Wortlaut mit.
+
+**3. Die Hochrechnung ist getrennt.** `/bilanz` nennt jetzt (a) das gemischte Mittel
+**gekennzeichnet** als „B+C gemischt", (b) den Durchsatz **je C-Batch**, (c) die
+**Mischung** (gemessener C-Anteil im Fenster *und* die Regel aus `hybrid-plan.md`) und
+(d) daraus **zwei** Hochrechnungszeilen: `-> x C-Batches` und
+`-> ca. y KALENDER-Batches`. Am echten Stand (2026-09-28): +4,8 Köpfe je C-Batch, Anteil
+33 % (Regel 2 B : 1 C) → 295 C-Batches → ca. **886** Kalender-Batches für den ganzen
+C-Strang (vorher stand dort „ca. 369 Batches" aus +3,8 gemischt).
 
 ### 12b. Was der Nutzer selbst entscheiden muss
 
@@ -941,12 +985,14 @@ Der Block steht in `GESAMT` und rechnet **nur aus Belegdateien**, nichts wird ge
 | Zeile | Quelle | Rechnung |
 |---|---|---|
 | `Koepfe (R207 gebaut)` | `analysis/_m<N>/_bilanz*.txt`, Zeile **`R207 rueckwaerts`** (maschinengeschrieben von `scripts/m149_bilanz.py`) | Spalte „heute" minus Spalte „Vorbatch" = was **dieser** Batch verifiziert hat |
-| `Mittel der letzten N` | dieselbe Reihe (bis zu 5 belegte Batches) | arithmetisches Mittel der Differenzen; die Batches stehen in Klammern dahinter |
+| `Mittel der letzten N (B+C gemischt)` | dieselbe Reihe (bis zu 5 belegte Batches) | arithmetisches Mittel der Differenzen; die Batches stehen in Klammern dahinter. **Gemischt** heißt: B-Batches zählen mit — sie bauen keine Köpfe. Für die Hochrechnung wird diese Zahl **nicht** mehr benutzt |
+| `nur C-Batches` | dieselbe Reihe, B-Batches ausgelassen | Mittel **je C-Batch** — das ist der Durchsatz, mit dem gerechnet wird |
+| `Mischung` | `stand.strang_von_batch` (Klassifikation) + Zeile `Mischverhaeltnis …` aus `analysis/hybrid-plan.md` | zwei Zahlen getrennt: der **gemessene** C-Anteil im Fenster und die **Regel** (z. B. „2 B : 1 C" → jeder 3. Batch ist ein C-Batch) |
 | `Insn (nur wo belegt)` | Zeile **`Paket E offen`**, **Ist-Spalte** der Soll/Ist-Tafel des Batch-Dokuments (`analysis/port-batch<N>-*.md`) | Insn offen (letzter belegter Wert) minus Insn offen (heute) |
 | `offen (Paket E, C-Arbeitsvorrat)` | dieselbe Tabellenzeile, **Ist-Spalte** | Köpfe/Insn, die in Paket E noch offen sind |
-| `HYPOTHESIS (Paket E, Arbeitsvorrat)` | offen ÷ Mittel | **Schätzung**, ausdrücklich als HYPOTHESIS markiert — sie gilt nur, solange die Rate gleich bleibt |
+| `HYPOTHESIS (Paket E, Arbeitsvorrat)` | offene Köpfe ÷ Durchsatz **je C-Batch** | **Schätzung** — und zwar in **zwei** Schritten: `-> x C-Batches` und daraus `-> ca. y KALENDER-Batches` (x ÷ C-Anteil). Vorher stand dort eine einzige Zahl aus dem gemischten Mittel („ca. 369 Batches"), die den C-Stillstand nicht enthielt (M209-3, R13aa) |
 | `HYPOTHESIS (C gesamt, ABGELEITET)` | Planungsdokument mit der Zeile `OFFEN: <K> Koepfe / <I> Insn` (z. B. B196 §6.1, Quelle `analysis/_m196/_plan_c.txt`) | `<K> - (R207 heute - Bau-Liste damals)`; die Insn über den damaligen **Insn-je-Kopf-Schnitt** fortgeschrieben (deshalb „~" und „Schaetzung") |
-| `-> ca. M Batches` | offen ÷ Mittel | **Schätzung** — dieselbe Rate wie oben |
+| `-> x C-Batches` / `-> ca. y KALENDER-Batches` | offene Köpfe ÷ Durchsatz je C-Batch, danach ÷ C-Anteil | **Schätzung** — beide Schritte stehen einzeln da, damit die Annahme sichtbar ist |
 
 Die **zwei** Hochrechnungen stehen seit R13t getrennt: die Paket-E-Zeile beschreibt nur den
 C-**Arbeitsvorrat**, die C-gesamt-Zeile den ganzen C-Strang. Sie ist **abgeleitet** und
@@ -984,7 +1030,8 @@ Aufnahmen zeigen:
 rechnet das Werkzeug **selbst** nach (Ruf-Abschluss ab den Wurzeln aus `_c_paket_e.txt`:
 265 Köpfe, davon 28 offen; Projektzahl `c_kopf.py paket_e`: 274 / 38 — die kleine
 Differenz steht in der Anzeige). Jede Klasse bekommt eine Hochrechnung
-(offene Köpfe ÷ Mittel der letzten Batches). Die Aufnahme-Zeile nennt die beiden Karten
+(offene Köpfe ÷ Durchsatz **je C-Batch** — die Klasse wird in C-Batches abgearbeitet,
+nicht in jedem Kalender-Batch). Die Aufnahme-Zeile nennt die beiden Karten
 mit Szene (`ppc_coverage.bin` = Gameplay-Replay, `ppc_cov_boot.bin` = Boot+Attract),
 Herkunft (`analysis/f5-descr-batch42-2026-09-17.md:87-88`) und die Grenze der Aussage.
 Warum die Insn nicht durchgängig da sind: die kanonische Bilanzdatei führt nur Köpfe
@@ -1144,6 +1191,23 @@ des Reviewers tragen keine Empfehlung — sie wird nicht erfunden.
 Ein geteilter Aussensicht-Befund (Ziel/Scope-Anteil beim Nutzer, Sachanteil beim
 Reviewer) trägt zwei Kennungen: `M208-5a` (du) und `M208-5b` (Reviewer). Die Kurzform
 `M208-5` gilt für beide Teile.
+
+**Verworfene Befunde (`M209-v1`, R13aa).** Hat die **Beleg-Regel** einen Aussensicht-Befund
+aussortiert, steht er trotzdem unter `/fragen` — mit der Kennung `M<batch>-v<n>` und der
+Marke **`AUSSENSICHT (verworfen - pruefen?)`**:
+
+```
+  M209-v1   AUSSENSICHT (verworfen - pruefen?): Das vorzeitige Ende wiederholt sich auch
+            nach der Get-Date-/70-min-Regel (B208, B209). ...
+            Empfehlung: Die Auftraege der B-Batches sollten eine geordnete Nachrueckliste ...
+            Beleg: nicht anerkannt: Laufzeiten aus den Kosten und Laufzeiten je Batch ...
+            Quelle: runs/meta-209.md (Rohantwort dort)
+```
+
+Der Beleg steht als **„nicht anerkannt"** dabei — du kannst also selbst urteilen, ob die
+Regel zu streng war. Zeigt der Lauf **neueste** verworfene Befunde; das Register behält
+alle. Antworten läuft wie sonst: `/claude M209-v1 pruefen` (der Anhang trägt den Wortlaut
+mit). Die Quote in `/bilanz` zählt sie **nicht** mit.
 
 ### 16b. Antworten mit Kennung (`/claude`, R13y)
 

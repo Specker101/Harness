@@ -36,10 +36,12 @@ from pathlib import Path
 from . import aussensicht, protocol, queue, stand
 from .util import read_text
 
-# Kennungen: A<n> | R<batch>-<n> | M<batch>-<n> (mit optionalem Teilbuchstaben a/b).
+# Kennungen: A<n> | R<batch>-<n> | M<batch>-<n> (mit optionalem Teilbuchstaben a/b) und
+# M<batch>-v<n> fuer einen VERWORFENEN Aussensicht-Befund (R13aa, Punkt 2).
 # Gelesen wird ohne Ruecksicht auf Gross-/Kleinschreibung; ausgegeben wird die Form, die
-# das Register benutzt (`A5`, `R209-1`, `M208-5a`) - der Nutzer tippt "a5" und meint A5.
-_RE_ID = re.compile(r"(?P<id>A\d+|R\d{1,4}-\d+|M\d{1,4}-\d+(?:[a-z])?)\b",
+# das Register benutzt (`A5`, `R209-1`, `M208-5a`, `M209-v1`) - der Nutzer tippt "a5"
+# und meint A5.
+_RE_ID = re.compile(r"(?P<id>A\d+|R\d{1,4}-\d+|M\d{1,4}-v?\d+(?:[a-z])?)\b",
                     re.IGNORECASE)
 
 # Marker des Reviewers -> Beschriftung in der Anzeige (Reihenfolge = Dringlichkeit).
@@ -206,6 +208,49 @@ def _aussensicht_posten(cfg) -> list[dict]:
                     "bei_ja": "", "bei_nein": "", "bei_a": "", "bei_b": "",
                     "entscheidbar": False,
                     "beleg": str(b.get("beleg") or "")})
+    out += _verworfene_posten(cfg)
+    return out
+
+
+def _verworfene_posten(cfg) -> list[dict]:
+    """Befunde, die die **Beleg-Regel** verworfen hat - als "verworfen - pruefen?" (R13aa).
+
+    Auftrag (Aussensicht-Nachbesserung aus `runs/meta-209.md`, Punkt 2): M209-4 wurde
+    verworfen, obwohl die Zahlen aus den Eingabedaten stammten. Wegwerfen ist keine
+    Loesung - die Frage "war die Regel zu streng?" gehoert an den Nutzer. Gezeigt werden
+    die Verwerfungen des **neuesten Laufs** (hat er nichts verworfen, steht hier nichts);
+    das Register behaelt alle (`aussensicht.verworfene`).
+    """
+    try:
+        alle = aussensicht.verworfene(cfg)
+    except Exception:                                            # noqa: BLE001
+        return []
+    if not alle:
+        return []
+    letzte = max(int(b.get("batch") or 0) for b in alle)
+    try:
+        laeufe = aussensicht.letzte_bericht_batches(cfg)
+    except Exception:                                            # noqa: BLE001
+        laeufe = []
+    if laeufe and laeufe[-1] != letzte:
+        return []                        # der neueste Lauf hat nichts verworfen
+    out: list[dict] = []
+    for b in alle:
+        if int(b.get("batch") or 0) != letzte:
+            continue
+        beleg = str(b.get("beleg") or "").strip()
+        out.append({"id": str(b.get("id")),
+                    "art": f"Aussensicht (verworfen, Gewicht {b.get('gewicht')})",
+                    "label": "AUSSENSICHT (verworfen - pruefen?)",
+                    "quelle": f"runs/meta-{letzte:03d}.md (Rohantwort dort)",
+                    "bremst": False,
+                    "frage": str(b.get("aussage") or ""), "rohtext": "",
+                    "empfehlung": str(b.get("empfehlung") or ""),
+                    "bei_ja": "", "bei_nein": "", "bei_a": "", "bei_b": "",
+                    "entscheidbar": False,
+                    # Der Beleg ist der GRUND der Verwerfung - so kennzeichnen.
+                    "beleg": (f"nicht anerkannt: {beleg[:150]}" if beleg else
+                              "kein Beleg angegeben")})
     return out
 
 
@@ -308,6 +353,10 @@ def anhang(posten: list[dict]) -> str:
             bloecke.append(zeile)
         if p.get("beleg"):
             bloecke.append("Beleg: " + str(p["beleg"]))
+        if p.get("quelle"):
+            # R13aa: bei einem VERWORFENEN Befund zeigt die Quelle, wo der Wortlaut steht
+            # (`runs/meta-209.md`) - ohne sie waere die Nachfrage nicht nachpruefbar.
+            bloecke.append("Quelle: " + str(p["quelle"]))
     return "\n".join(bloecke)
 
 

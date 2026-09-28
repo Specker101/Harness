@@ -46,7 +46,8 @@ from pathlib import Path
 from . import envs, protocol, secrets, stand, streamjson
 from .proc import run_stream
 from .profiles import credential_verbote, git_schreib_verbote, nur_lese_git_regeln, pfad_regeln, secrets_verbote
-from .util import ensure_dir, now_iso, read_text, write_json_atomic, write_text_atomic
+from .util import (ensure_dir, now_iso, read_json, read_text, write_json_atomic,
+                   write_text_atomic)
 
 # ------------------------------------------------------------------ Vorgaben
 # `every_batches` ist die Vorgabe, falls der Schluessel in `harness.toml` fehlt; die
@@ -108,8 +109,65 @@ def ledger(cfg) -> list[dict]:
     return [b for b in daten if isinstance(b, dict)] if isinstance(daten, list) else []
 
 
-def ledger_schreiben(cfg, befunde: list[dict]) -> None:
-    write_json_atomic(ledger_pfad(cfg), {"updated_at": now_iso(), "befunde": list(befunde)})
+def ledger_schreiben(cfg, befunde: list[dict],
+                    verworfen: list[dict] | None = None) -> None:
+    """Das Register schreiben.
+
+    R13aa (Punkt 2): unter dem zweiten Schluessel `verworfen` stehen die Befunde, die
+    die **Beleg-Regel** aussortiert hat. Sie werden NICHT weggeworfen - `/fragen` zeigt
+    sie als "verworfen - pruefen?", damit ein zu strenges Urteil auffaellt. Wird
+    `verworfen` nicht mitgegeben, bleibt der vorhandene Stand stehen (sonst loeschte
+    jeder Register-Schreibvorgang die Liste).
+    """
+    daten: dict = {"updated_at": now_iso(), "befunde": list(befunde)}
+    if verworfen is None:
+        alt = read_json(ledger_pfad(cfg), {}) or {}
+        verworfen = list(alt.get("verworfen") or []) if isinstance(alt, dict) else []
+    daten["verworfen"] = list(verworfen)
+    write_json_atomic(ledger_pfad(cfg), daten)
+
+
+def verworfene(cfg, batch: int | None = None) -> list[dict]:
+    """Die von der Beleg-Regel verworfenen Befunde (leer, wenn es keine gibt).
+
+    `batch=N` liefert nur die des Laufs zu Batch N - so zeigt `/fragen` die frischesten
+    als "verworfen - pruefen?" (der gespeicherte Stand bleibt vollstaendig erhalten).
+    """
+    p = ledger_pfad(cfg)
+    if not p.is_file():
+        return []
+    try:
+        daten = json.loads(read_text(p))
+    except (OSError, ValueError):
+        return []
+    liste = daten.get("verworfen") if isinstance(daten, dict) else None
+    out = [b for b in liste if isinstance(b, dict)] if isinstance(liste, list) else []
+    if batch is not None:
+        out = [b for b in out if int(b.get("batch") or 0) == int(batch)]
+    return out
+
+
+def verworfene_speichern(cfg, batch: int, liste: list[dict]) -> list[str]:
+    """Verworfene Befunde ins Register uebernehmen (Kennung `M<batch>-v<n>`).
+
+    R13aa (Punkt 2): ein Befund, den nur die Beleg-Regel aussortiert hat, ist damit
+    nicht verloren - er steht mit Wortlaut in `runs/meta-<batch>.md`, im Register und in
+    `/fragen` ("verworfen - pruefen?"). Eine EIGENE Kennung (`-v1`) ist noetig, weil die
+    Nummern der angenommenen Befunde beim Verteilen nach Gewicht neu vergeben werden -
+    sonst koennten zwei Eintraege dieselbe Kennung tragen.
+    """
+    if not liste:
+        return []
+    alt = [b for b in verworfene(cfg) if int(b.get("batch") or 0) != int(batch)]
+    neu: list[dict] = []
+    for i, b in enumerate(liste, 1):
+        e = {k: v for k, v in dict(b).items() if k != "n"}
+        e.update({"id": f"M{int(batch)}-v{i}", "batch": int(batch), "ts": now_iso(),
+                  "status": "offen", "quelle": "aussensicht",
+                  "verworfen": "Beleg-Regel"})
+        neu.append(e)
+    ledger_schreiben(cfg, ledger(cfg), verworfen=alt + neu)
+    return [str(e["id"]) for e in neu]
 
 
 def offene(cfg) -> list[dict]:
@@ -140,6 +198,24 @@ def klasse(befund: dict) -> str:
     if wert in ABGELEHNT_WORTE:
         return "abgelehnt"
     return "offen"
+
+
+def letzte_bericht_batches(cfg) -> list[int]:
+    """Die Batches, fuer die ein Aussensicht-Bericht vorliegt (`runs/meta-<N>.json`).
+
+    R13aa (Punkt 2): damit laesst sich sagen, welcher Lauf der NEUESTE war - `/fragen`
+    zeigt die verworfenen Befunde nur, wenn dieser Lauf welche verworfen hat.
+    """
+    try:
+        dateien = list((Path(cfg.root) / "runs").glob("meta-*.json"))
+    except OSError:
+        return []
+    out: list[int] = []
+    for p in dateien:
+        m = re.fullmatch(r"meta-(\d+)\.json", p.name)
+        if m:
+            out.append(int(m.group(1)))
+    return sorted(out)
 
 
 def quote(cfg) -> dict:
@@ -293,8 +369,11 @@ def b_schritt(cfg, n: int = 6) -> list[tuple[int, int, str]]:
     """Die `B-SCHRITT:`-Zeilen aus den letzten Reviews: `[(reviewordner, schritt, zeile)]`.
 
     Die Zeile ist seit R13w Pflicht in der Review-Zusammenfassung
-    ("B-SCHRITT: <n>/5 <Name>, B-Batch <k> von max 20"); fehlt sie, ist der Batch kein
-    B-Batch (oder der Reviewer hat sie vergessen - dann wird NICHT geraten).
+    ("B-SCHRITT: <n>/5 <Name>, B-Batch <k> von max 20"). Sie ist die EINZIGE Quelle des
+    **Schritt-Fortschritts** - fehlt sie, gibt es keine Zahl und es wird NICHT geraten.
+    Ob ein Batch ueberhaupt ein B-Batch ist, haengt dagegen NICHT mehr an dieser Zeile:
+    das entscheidet `stand.strang_von_batch` aus mehreren Belegen (R13aa, Punkt 1 -
+    B208/B209 wurden als C-Batches gezaehlt, weil die Pflichtzeile fehlte).
     """
     out: list[tuple[int, int, str]] = []
     for batch, summary in summaries(cfg, n):
@@ -331,11 +410,13 @@ def _marker(cfg, muster: str) -> list[tuple[int, str]]:
 
 
 def ist_b_batch(cfg, batch: int) -> bool:
-    """Ist dieser Batch ein B-Batch? (Pflichtzeile `B-SCHRITT:` in seinem Review)"""
-    for b, _n, _z in b_schritt(cfg, 8):
-        if b == int(batch):
-            return True
-    return False
+    """Ist dieser Batch ein B-Batch? (`stand.strang_von_batch` - unbekannt = nein).
+
+    R13aa (Punkt 1): vorher hing das allein an der Pflichtzeile `B-SCHRITT:` im Review.
+    Die fehlt seit B205 in JEDEM Review, also hielt der Stillstands-Ausloeser B208/B209
+    fuer C-Batches und schlug Alarm, weil sich die C-Zahl in einem B-Batch nicht bewegt.
+    """
+    return stand.strang_von_batch(cfg, int(batch)).get("strang") == "B"
 
 
 def kernzahl_stillstand(cfg) -> list[str]:
@@ -343,7 +424,9 @@ def kernzahl_stillstand(cfg) -> list[str]:
 
     Befund Nr. 2 des Nutzers (2026-09-28): bei einem Mischverhaeltnis 2 B : 1 C darf der
     Ausloeser nicht in jedem B-Batch feuern. Deshalb werden B-Batches ausgelassen und
-    nur die C-Batches verglichen.
+    nur die C-Batches verglichen. Welcher Batch ein B-Batch ist, kommt aus
+    `stand.strang_von_batch` (R13aa: Pflichtzeile, Auftrag, hybrid-plan.md) - nicht mehr
+    allein aus der Pflichtzeile, die in der Praxis fehlte.
     """
     fenster = stand.kernzahlen(cfg, int(grenzen(cfg)["bilanz_zeitfenster"]))
     c_batches = [e for e in fenster if not ist_b_batch(cfg, int(e.get("batch") or 0))]
@@ -478,7 +561,13 @@ Antworte NUR mit den folgenden Bloecken, ohne Einleitung:
 </AUSSENSICHT>
 
 <BEFUND n="1" gewicht="hoch|mittel|niedrig" empfaenger="Reviewer|Nutzer">
-Beleg: <Datei:Zeile> ODER <Zahl + Quelldatei> ODER "Fehlstelle: gesucht in <Ort>, nicht gefunden"
+Beleg: EINE dieser Formen (R13aa):
+  * <Datei:Zeile>            z. B. `_m209/_isa_orakel.txt:448`
+  * <Zahl + Quelldatei>      z. B. "137 Anfragen in runs/b207/result.json"
+  * "Eingabe <Abschnitt>"    z. B. "Eingabe Kosten und Laufzeiten je Batch" (die Bloecke,
+                             die DU als Eingabe bekommst - sie sind ein Beleg)
+  * <Lauf-/Belegordner>      z. B. "runs/b209" oder "runs/b209/result.json"
+  * "Fehlstelle: gesucht in <Ort>, nicht gefunden"
 Aussage: <was nicht stimmt, in EINEM Satz>
 Empfehlung: <was getan werden sollte, in EINEM Satz>
 </BEFUND>
@@ -583,14 +672,29 @@ _RE_DATEI_ZEILE = re.compile(r"[\w./\\-]+\.(?:cpp|hpp|h|c|py|md|json|txt|inc|ps1
                              r"\s*:\s*\d+", re.IGNORECASE)
 _RE_DATEI = re.compile(r"[\w./\\-]+\.(?:cpp|hpp|h|c|py|md|json|txt|inc|ps1|toml|cfg|tsv|csv)",
                        re.IGNORECASE)
+# Ein benannter EINGABE-Abschnitt ("Eingabe Kosten und Laufzeiten je Batch") oder ein
+# Blockkopf der Eingaben ("=== KOSTEN UND LAUFZEITEN JE BATCH ===", R13aa Punkt 2).
+_RE_EINGABE = re.compile(r"\beingabe\b\s*:?\s*\S|===+\s*\w[^=\n]{2,60}?===+",
+                         re.IGNORECASE)
+# Lauf-/Belegordner: `runs/b209`, `runs/b209/result.json`, `runs\b209`.
+_RE_RUNS = re.compile(r"runs[/\\]b\d{1,4}\b", re.IGNORECASE)
 
 
 def beleg_gueltig(beleg: str) -> bool:
-    """Beleg-Pflicht, gelockert (Nutzerentscheidung 2026-09-28, Punkt b).
+    """Beleg-Pflicht, gelockert (Nutzerentscheidung 2026-09-28, Punkt b; R13aa Punkt 2).
 
-    Gueltig ist: `Datei:Zeile` ODER eine Zahl mit Quelldatei ODER die ausdrueckliche
-    Fehlstelle ("Fehlstelle: gesucht in <Ort>, nicht gefunden"). Nur Befunde ganz ohne
-    Beleg werden verworfen - eine ehrliche Fehlstelle ist ein Ergebnis, kein Fehler.
+    Gueltig ist:
+      * `Datei:Zeile`,
+      * eine Zahl mit Quelldatei,
+      * eine **Eingabe**-Stelle ("Eingabe <Abschnitt>" - genau die Bloecke, die die
+        Aussensicht selbst als Eingabe bekommt, z. B. "Kosten und Laufzeiten je Batch"),
+      * ein **Lauf-/Belegordner** (`runs/b<N>`, `runs/b<N>/result.json`),
+      * die ausdrueckliche Fehlstelle ("Fehlstelle: gesucht in <Ort>, nicht gefunden").
+
+    R13aa (Befund M209-4): vorher fiel ein Befund durch, dessen Zahlen aus den
+    EINGABEDATEN stammten (Laufzeiten je Batch, Beleg "runs/b206") - die Regel verlangte
+    eine Datei mit bekannter Endung. Eine ehrliche Fehlstelle ist ein Ergebnis, kein
+    Fehler; eine benannte Eingabe ist ein Beleg.
     """
     t = str(beleg or "").strip()
     if not t:
@@ -598,6 +702,10 @@ def beleg_gueltig(beleg: str) -> bool:
     if _RE_DATEI_ZEILE.search(t):
         return True
     if re.search(r"\d", t) and _RE_DATEI.search(t):
+        return True
+    if _RE_EINGABE.search(t):
+        return True
+    if _RE_RUNS.search(t):
         return True
     return bool(re.search(r"fehlstelle\s*:", t, re.IGNORECASE))
 
@@ -924,6 +1032,9 @@ def bericht_schreiben(cfg, batch: int, grund: str, res: Ergebnis, verteilung: di
                       gruende: list[str]) -> Path:
     p = bericht_pfad(cfg, batch)
     write_text_atomic(p, bericht(cfg, batch, grund, res, verteilung, gruende))
+    # R13aa (Punkt 2): verworfene Befunde ins Register - nicht wegwerfen (siehe
+    # `verworfene_speichern`), damit `/fragen` sie als "verworfen - pruefen?" zeigen kann.
+    verworfene_speichern(cfg, int(batch), list(res.verworfen or []))
     write_json_atomic(json_pfad(cfg, batch), {
         "batch": int(batch), "ts": now_iso(), "grund": grund, "gruende": list(gruende),
         "summary": res.summary, "rc": res.rc, "dauer_s": res.dauer_s, "modell": res.modell,

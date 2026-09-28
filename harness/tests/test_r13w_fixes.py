@@ -318,16 +318,18 @@ class TestAusloeser(unittest.TestCase):
     def test_kernzahl_stillstand_nur_ueber_c_batches(self):
         """Bei 2 B : 1 C darf der C-Ausloeser nicht in jedem B-Batch feuern.
 
-        B208, B209 = B-Batches, B210 = C-Batch; C-Zahlen stehen in 209 und 210 still.
-        Verglichen werden 209 (B) und 210 (C) NICHT - sondern 208 (C-Ersatz?) ... hier:
-        es gibt nur EINEN C-Batch mit Zahlen -> kein Ausloeser.
+        ACHTUNG Ordner-Konvention (R13x/R13aa): das Review, das Batch N bewertet, liegt in
+        `runs/b<N+1>` - `_review(N+1, …)` erklaert also Batch N. B208/B209 sind B-Batches,
+        B210 ist der einzige C-Batch mit Zahlen -> kein Ausloeser.
         """
         self._dokument(208, ("76 / 1800 / 0", "78 / 2903 / 0"))
         self._dokument(209, ("76 / 1800 / 0", "78 / 2903 / 0"))
         self._dokument(210, ("76 / 1800 / 0", "78 / 2903 / 0"))
-        self._review(208, "Ergebnis: x\nB-SCHRITT: 1/5 Kern, B-Batch 1 von max 20")
-        self._review(209, "Ergebnis: x\nB-SCHRITT: 2/5 Maschine, B-Batch 2 von max 20")
-        self._review(210, "Ergebnis: x\nB-SCHRITT: kein B-Batch (Strang C)")
+        self._review(209, "Ergebnis: x\nB-SCHRITT: 1/5 Kern, B-Batch 1 von max 20")
+        self._review(210, "Ergebnis: x\nB-SCHRITT: 2/5 Maschine, B-Batch 2 von max 20")
+        self._review(211, "Ergebnis: x\nB-SCHRITT: kein B-Batch (Strang C)")
+        self.assertTrue(aussensicht.ist_b_batch(self.cfg, 208))
+        self.assertFalse(aussensicht.ist_b_batch(self.cfg, 210))
         self.assertEqual(aussensicht.kernzahl_stillstand(self.cfg), [],
                          "ein einzelner C-Batch ist kein Stillstand")
 
@@ -335,9 +337,9 @@ class TestAusloeser(unittest.TestCase):
         self._dokument(208, ("76 / 1800 / 0", "78 / 2903 / 0"))
         self._dokument(209, ("76 / 1800 / 0", "78 / 2903 / 0"))
         self._dokument(210, ("76 / 1800 / 0", "78 / 2903 / 0"))
-        self._review(208, "Ergebnis: x\nB-SCHRITT: 1/5 Kern, B-Batch 1 von max 20")
-        self._review(209, "Ergebnis: x\nB-SCHRITT: kein B-Batch (Strang C)")
+        self._review(209, "Ergebnis: x\nB-SCHRITT: 1/5 Kern, B-Batch 1 von max 20")
         self._review(210, "Ergebnis: x\nB-SCHRITT: kein B-Batch (Strang C)")
+        self._review(211, "Ergebnis: x\nB-SCHRITT: kein B-Batch (Strang C)")
         stehend = aussensicht.kernzahl_stillstand(self.cfg)
         self.assertTrue(stehend, "zwei C-Batches ohne Bewegung muessen melden")
         self.assertTrue(any("C Koepfe" in z for z in stehend))
@@ -349,8 +351,8 @@ class TestAusloeser(unittest.TestCase):
         self._dokument(210, ("74 / 1700 / 0", "80 / 2951 / 0"),
                        ("46 / 3100 (Bl 21 / 1500)", "40 / 3000 (Bl 19 / 1400)"),
                        inv="2000 Koepfe / 28000 Insn", bau="560 Koepfe / 17000 Insn")
-        self._review(209, "Ergebnis: x\nB-SCHRITT: kein B-Batch (Strang C)")
         self._review(210, "Ergebnis: x\nB-SCHRITT: kein B-Batch (Strang C)")
+        self._review(211, "Ergebnis: x\nB-SCHRITT: kein B-Batch (Strang C)")
         # Nur die bewegten Zahlen duerfen NICHT gemeldet werden - die stehengebliebenen
         # (Inventar/Bau-Liste) duerfen es sehr wohl.
         stehend = aussensicht.kernzahl_stillstand(self.cfg)

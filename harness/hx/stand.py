@@ -311,7 +311,52 @@ def durchsatz(cfg, n: int = STANDARD_FENSTER) -> dict:
         erg["batches_koepfe"] = offen_koepfe / erg["mittel_koepfe"]
     if offen_insn and erg["mittel_insn"] > 0:
         erg["batches_insn"] = offen_insn / erg["mittel_insn"]
+    # R13aa (Punkt 3, M209-3): der Durchsatz wird GETRENNT ausgewiesen - je C-Batch,
+    # mit dem Mischverhaeltnis, daraus Kalender-Batches. Das "Mittel der letzten 5"
+    # mischte B- und C-Batches und ergab eine Zahl, die den C-Stillstand (B207-B210:
+    # kein neuer Kopf) nicht enthielt.
+    c_fenster = [e for e in fenster
+                 if strang_von_batch(cfg, int(e["batch"])).get("strang") != "B"]
+    plan = plan_mischung(cfg)
+    erg["c_fenster"] = c_fenster
+    erg["mittel_c_koepfe"] = (sum(e["koepfe"] for e in c_fenster) / len(c_fenster)
+                              if c_fenster else 0.0)
+    erg["anteil_gemessen"] = (len(c_fenster) / len(fenster)) if fenster else None
+    erg["anteil_c"] = plan.get("anteil")
+    erg["anteil_quelle"] = (f"Regel {plan['datei']}: \"{plan.get('regel') or ''}\""
+                            if plan.get("anteil") else "")
+    if not erg["anteil_c"] and erg["anteil_gemessen"]:
+        erg["anteil_c"] = erg["anteil_gemessen"]
+        erg["anteil_quelle"] = "gemessen im Fenster (kein Mischverhaeltnis in hybrid-plan.md)"
     return erg
+
+
+def kalender_zeilen(cfg, offen: float, d: dict, einheit: str = "Koepfe",
+                    einzug: str = "                   ") -> list[str]:
+    """`-> x C-Batches -> ca. y KALENDER-Batches` - die getrennte Hochrechnung (R13aa).
+
+    Drei Schritte, jeder einzeln lesbar:
+      * Durchsatz **je C-Batch** (nicht je Kalender-Batch - B-Batches bauen keine Koepfe),
+      * **Anteil** der C-Batches (Mischverhaeltnis aus `hybrid-plan.md`, sonst gemessen),
+      * daraus die **Kalender-Batches** (C-Batches ÷ Anteil).
+    Fehlt eine Zahl, wird nichts gerechnet (keine Schaetzung ohne Grundlage).
+    """
+    mittel_c = float(d.get("mittel_c_koepfe") or 0)
+    if not offen or mittel_c <= 0:
+        return []
+    c_need = float(offen) / mittel_c
+    reihe = ", ".join(f"B{e['batch']}" for e in (d.get("c_fenster") or []))
+    zeilen = [f"{einzug}-> {c_need:.0f} C-Batches bei +{mittel_c:.1f} {einheit} je C-Batch"
+              + (f" (C-Batches im Fenster: {reihe})" if reihe else "")]
+    anteil = d.get("anteil_c")
+    if anteil:
+        zeilen.append(f"{einzug}-> ca. {c_need / anteil:.0f} KALENDER-Batches "
+                      f"({c_need:.0f} C-Batches / Anteil {anteil * 100:.0f} % = "
+                      f"{d.get('anteil_quelle') or 'gemessen'})")
+    else:
+        zeilen.append(f"{einzug}-> Kalender-Batches: nicht rechenbar (kein Anteil der "
+                      f"C-Batches belegbar)")
+    return zeilen
 
 
 def dokumente(cfg, anzahl: int = MAX_DOKUMENTE) -> list[tuple[int, Path]]:
@@ -604,6 +649,211 @@ def ds_nachrichten(cfg, batch: int) -> str:
     return text[i:].strip() if i >= 0 else ""
 
 
+# ------------------------------------------------- Strang je Batch (R13aa)
+# Auftrag (Aussensicht-Nachbesserung aus `runs/meta-209.md`, Punkt 1): der Ausloeser
+# "Kernzahl ohne Bewegung" hat B208/B209 als C-Batches gezaehlt - beide waren B-Batches,
+# die C-Zahl durfte sich also gar nicht bewegen. Ursache: `ist_b_batch` hing ALLEIN an
+# der Pflichtzeile `B-SCHRITT:` des Reviewers, und die fehlt in jedem Review seit B205
+# (gemessen). Klassifiziert wird jetzt aus mehreren Belegen; jede Antwort nennt ihre
+# Quelle, damit die Anzeige nichts behauptet, was sie nicht belegen kann.
+_RE_B_SCHRITT = re.compile(r"B-SCHRITT:\s*(\d+)\s*/\s*5", re.IGNORECASE)
+_RE_B_SCHRITT_C = re.compile(r"B-SCHRITT:\s*(?:kein|keinen)\s+B-Batch"
+                             r"|B-SCHRITT:[^\n]{0,60}?Strang\s+C", re.IGNORECASE)
+_RE_B_MARKER = re.compile(r"Strang\s+B\b|\bB-Batch\b|\bB-Schritt\b", re.IGNORECASE)
+_RE_C_MARKER = re.compile(r"Strang\s+C\b|\bC-Batch\b", re.IGNORECASE)
+_RE_MISCHUNG = re.compile(r"mischverh(?:ae|ä)ltnis", re.IGNORECASE)
+_RE_MISCH_PAAR = re.compile(r"\bB(\d{1,4})\s*[=:]?\s*([BC])\b")
+_RE_MISCH_ZAHL = re.compile(r"(\d+)\s*B\s*[:\-/]\s*(\d+)\s*C\b", re.IGNORECASE)
+# Zeile, die MIT dem Strang beginnt ("Strang B, Batch 2 von hoechstens 20; …") - in
+# einem Auftrag beschreibt so eine Zeile den Batch, um den es in dem Auftrag geht.
+_RE_STRANG_ZEILE = re.compile(r"^\s*\**\s*Strang\s+([BC])\b", re.IGNORECASE | re.MULTILINE)
+
+STRANG_QUELLEN = ("Pflichtzeile B-SCHRITT im Review", "Auftrag runs/b<N>/auftrag.md",
+                  "analysis/hybrid-plan.md")
+
+
+def review_zu_batch(cfg, batch: int) -> str:
+    """Der Review, der Batch `batch` bewertet hat ('' = keiner).
+
+    Konvention (R13x belegt): das Review von Batch N liegt im Ordner des NAECHSTEN
+    Batches, also `runs/b<N+1>/review.md`.
+    """
+    if int(batch or 0) <= 0:
+        return ""
+    return read_text(Path(cfg.root) / "runs" / f"b{int(batch)+1:03d}" / "review.md") or ""
+
+
+def plan_mischung(cfg) -> dict:
+    """Das Mischverhaeltnis aus `analysis/hybrid-plan.md`.
+
+    Gelesen wird die Zeile mit dem Wort "Mischverhaeltnis" - sie traegt die Zuordnung
+    ausdruecklich (`… B208 B, B209 B, B210 C`) und das Verhaeltnis (`2 B : 1 C`).
+    Rueckgabe: `{"paare": {batch: "B"|"C"}, "anteil": float|None, "zeile": str,
+    "datei": "hybrid-plan.md"}` (leer, wenn die Datei fehlt oder die Zeile nichts hergibt).
+    """
+    try:
+        text = read_text(Path(cfg.decomp) / "analysis" / "hybrid-plan.md")
+    except OSError:
+        text = ""
+    for zeile in (text or "").splitlines():
+        if not _RE_MISCHUNG.search(zeile):
+            continue
+        paare = {int(m.group(1)): m.group(2).upper()
+                 for m in _RE_MISCH_PAAR.finditer(zeile)}
+        m = _RE_MISCH_ZAHL.search(zeile)
+        anteil = None
+        regel = ""
+        if m:
+            b, c = int(m.group(1)), int(m.group(2))
+            anteil = c / (b + c) if (b + c) else None
+            regel = " ".join(m.group(0).split())
+        if paare or anteil:
+            return {"paare": paare, "anteil": anteil, "regel": regel,
+                    "zeile": " ".join(zeile.split())[:160], "datei": "hybrid-plan.md"}
+    return {}
+
+
+def _auftrag_zu_batch(cfg, batch: int) -> str:
+    """Der Auftrag, mit dem Batch `batch` gelaufen ist ('' = keiner)."""
+    if int(batch or 0) <= 0:
+        return ""
+    return read_text(Path(cfg.root) / "runs" / f"b{int(batch):03d}" / "auftrag.md") or ""
+
+
+def _auftrag_strang(text: str, batch: int) -> str:
+    """Strang aus dem Auftragstext - belegt aus dem Auftrag, nicht geraten.
+
+    Drei Formen, in dieser Reihenfolge:
+      * der Auftrag nennt DIESEN Batch bei einem Strang-Wort ("B208 ist der ERSTE Batch
+        von Strang B", "B210 ist ein C-Batch");
+      * eine Zeile beginnt mit dem Strang ("Strang B, Batch 2 von hoechstens 20; …") -
+        im Auftrag beschreibt das den Batch, um den der Auftrag geht;
+      * der Auftrag nennt den Batch und ein Strang-Wort in beliebiger Reihenfolge.
+    Alles andere bleibt leer: ein Auftrag erwaehnt oft FREMDE Batches ("B210 = C-Batch"
+    im b209-Auftrag, "Arbeit fuer den C-Batch") - daraus wird nichts geschlossen.
+    """
+    num = rf"\bB{int(batch)}\b"
+    m = re.search(num + r"[^.\n;]{0,80}?(?:Strang\s+([BC])|([BC])-Batch)", text, re.I)
+    if not m:
+        m = re.search(r"(?:Strang\s+([BC])|([BC])-Batch)[^.\n;]{0,40}?" + num, text, re.I)
+    if m:
+        return (m.group(1) or m.group(2) or "").upper()
+    m = _RE_STRANG_ZEILE.search(text)
+    return m.group(1).upper() if m else ""
+
+
+def strang_von_batch(cfg, batch: int) -> dict:
+    """`{"strang": "B"|"C"|"", "quelle": "…"}` - ist dieser Batch ein B- oder C-Batch?
+
+    Quellen in dieser Reihenfolge (die erste, die etwas sagt, gewinnt):
+
+      1. **Pflichtzeile** `B-SCHRITT: <n>/5 …` bzw. `B-SCHRITT: kein B-Batch (Strang C)`
+         in der Review-Zusammenfassung dieses Batches (R13w).
+      2. **Auftrag** `runs/b<N>/auftrag.md`, wenn er diesen Batch ausdruecklich nennt
+         ("B208 ist der ERSTE Batch von Strang B", "B210 ist ein C-Batch").
+      3. **`analysis/hybrid-plan.md`**, Zeile "Mischverhaeltnis …" (`B208 B, B209 B, B210 C`).
+      4. **Auftrag**, sonst: eine Zeile, die mit dem Strang beginnt ("Strang B, Batch 2
+         von hoechstens 20; …" nennt den Batch, um den der Auftrag geht).
+
+    Bleibt es leer (`strang == ""`), wird **nichts** geraten: der Batch zaehlt dann wie
+    bisher als C-Batch (die vorsichtige Seite - ein C-Batch zu viel zeigt eine Bewegung
+    zu viel, aber verschluckt keinen Befund).
+    """
+    review = review_zu_batch(cfg, batch)
+    if review:
+        if _RE_B_SCHRITT.search(review):
+            return {"strang": "B", "quelle": STRANG_QUELLEN[0]}
+        if _RE_B_SCHRITT_C.search(review):
+            return {"strang": "C", "quelle": STRANG_QUELLEN[0]}
+    auftrag = _auftrag_zu_batch(cfg, batch)
+    if auftrag:
+        s = _auftrag_strang(auftrag, batch)
+        if s in ("B", "C"):
+            return {"strang": s, "quelle": STRANG_QUELLEN[1]}
+    plan = plan_mischung(cfg)
+    if plan.get("paare", {}).get(int(batch)):
+        return {"strang": plan["paare"][int(batch)],
+                "quelle": f"{STRANG_QUELLEN[2]} ({plan['zeile'][:80]})"}
+    return {"strang": "", "quelle": ""}
+
+
+def ist_b_batch(cfg, batch: int) -> bool:
+    """Ist dieser Batch ein B-Batch? (`strang_von_batch`; unbekannt = nein)"""
+    return strang_von_batch(cfg, batch).get("strang") == "B"
+
+
+def ohne_pflichtzeile(cfg, anzahl: int = 6) -> list[int]:
+    """B-Batches der letzten `anzahl` Bewertungen, deren Review die Pflichtzeile fehlen laesst."""
+    out: list[int] = []
+    try:
+        ordner = sorted(((int(p.name[1:]), p) for p in (Path(cfg.root) / "runs").iterdir()
+                         if p.is_dir() and p.name.startswith("b")
+                         and p.name[1:].isdigit()), reverse=True)
+    except (OSError, ValueError):
+        return []
+    for nummer, p in ordner[: max(1, int(anzahl))]:
+        bewertet = nummer - 1
+        if bewertet <= 0:
+            continue
+        if not (p / "review.md").is_file():
+            continue
+        if strang_von_batch(cfg, bewertet).get("strang") != "B":
+            continue
+        if not _RE_B_SCHRITT.search(read_text(p / "review.md") or ""):
+            out.append(bewertet)
+    return sorted(out)
+
+
+def pflichtzeile_hinweis(cfg, batch: int) -> str:
+    """Was der Review ueber den Strang des BEWERTETEN Batches schreiben muss ('' = nichts).
+
+    R13aa (Punkt 1): fehlt die Pflichtzeile in einem B-Batch, wird das im Review-Protokoll
+    gemeldet - vorher fiel es still aus, und der Ausloeser "Kernzahl ohne Bewegung" hielt
+    den B-Batch fuer einen C-Batch. Fuer C-Batches steht die Kurzform bereit, damit die
+    Klassifikation sich selbst erklaert.
+    """
+    if int(batch or 0) <= 0:
+        return ""
+    s = strang_von_batch(cfg, int(batch))
+    fehlend = ohne_pflichtzeile(cfg, 6)
+    zusatz = ("" if not fehlend else
+              " In den letzten Reviews fehlte sie in: "
+              + ", ".join(f"B{n}" for n in fehlend) + ".")
+    if s.get("strang") == "B":
+        return (f"B{batch} ist ein B-Batch ({s.get('quelle')}). In DEINER TELEGRAM_SUMMARY "
+                f"muss die Pflichtzeile `B-SCHRITT: <n>/5 <Name>, B-Batch <k> von max 20` "
+                f"stehen (Stand nach diesem Batch).{zusatz}")
+    if s.get("strang") == "C":
+        return (f"B{batch} ist ein C-Batch ({s.get('quelle')}). In DEINER TELEGRAM_SUMMARY "
+                f"gehoert die Zeile `B-SCHRITT: kein B-Batch (Strang C)`.{zusatz}")
+    return (f"Fuer B{batch} ist der Strang nicht belegbar (keine Pflichtzeile im Review, "
+            f"kein Marker im Auftrag, kein Eintrag in hybrid-plan.md). Schreibe die "
+            f"Pflichtzeile, damit die Zuordnung belegt ist.{zusatz}")
+
+
+def _mischung_zeile(cfg, d: dict) -> list[str]:
+    """Die Mischungs-Zeile: wieviele C-Batches im Fenster - und was die Regel sagt (R13aa).
+
+    Zwei Zahlen, bewusst getrennt: **gemessen** (Anteil im Fenster) und **Regel**
+    (Mischverhaeltnis aus `hybrid-plan.md`). Die Kalender-Rechnung nimmt die Regel, wenn
+    es sie gibt - sie beschreibt die Zukunft; im Fenster liegen noch reine C-Batches.
+    """
+    gem = d.get("anteil_gemessen")
+    n = int(d.get("n") or 0)
+    c = len(d.get("c_fenster") or [])
+    if not n:
+        return []
+    teile = [f"  Mischung     : {c} C von {n} Batches im Fenster ({gem * 100:.0f} %)"
+             if gem is not None else "  Mischung     : nicht ermittelbar"]
+    regel = d.get("anteil_c")
+    if regel and d.get("anteil_quelle", "").startswith("Regel"):
+        teile[0] += (f"; Regel {d['anteil_quelle'][6:]} -> jeder "
+                     f"{1 / regel:.0f}. Batch ist ein C-Batch ({regel * 100:.0f} %)")
+    elif regel:
+        teile[0] += f"; Anteil fuer die Rechnung: {regel * 100:.0f} % ({d['anteil_quelle']})"
+    return teile
+
+
 # ------------------------------------------------------------ Durchsatz (R13s)
 def durchsatz_alt(cfg, n: int = STANDARD_FENSTER) -> dict:
     """(entfernt) - frueher aus den C-Koepfe-Zeilen der Batch-Dokumente."""
@@ -621,8 +871,8 @@ def durchsatz_zeilen(cfg, n: int = STANDARD_FENSTER) -> list[str]:
     zeilen = [
         f"  Durchsatz    : Koepfe (R207 gebaut) letzter Batch {letzter['batch']}: "
         f"{letzter['r207_vorher']} -> {letzter['r207']} ({letzter['koepfe']:+d})",
-        f"                 Mittel der letzten {d['n']}: +{d['mittel_koepfe']:.1f} Koepfe "
-        f"je Batch   (Fenster: {reihe})",
+        f"                 Mittel der letzten {d['n']} (B+C gemischt): +{d['mittel_koepfe']:.1f} "
+        f"Koepfe je Batch   (Fenster: {reihe})",
     ]
     if d["mittel_insn"]:
         zeilen.append(f"                 Insn (nur wo belegt, Paket-E-Zeile): letzter "
@@ -630,22 +880,23 @@ def durchsatz_zeilen(cfg, n: int = STANDARD_FENSTER) -> list[str]:
     else:
         zeilen.append("                 Insn: je Batch nicht durchgaengig belegt "
                       "(die Bilanzdatei fuehrt nur Koepfe)")
+    # R13aa (Punkt 3): Durchsatz je C-Batch + Mischverhaeltnis GETRENNT nennen.
+    c_batches = d.get("c_fenster") or []
+    if c_batches and d.get("mittel_c_koepfe"):
+        namen = ", ".join(f"B{e['batch']}" for e in c_batches)
+        zeilen.append(f"                 nur C-Batches: "
+                      f"+{d['mittel_c_koepfe']:.1f} Koepfe je C-Batch "
+                      f"({len(c_batches)} von {d['n']}: {namen})")
+    zeilen += _mischung_zeile(cfg, d)
     if pe.get("paket_e_koepfe") is not None:
         zeilen.append(f"                 offen (Paket E, C-Arbeitsvorrat): "
                       f"{pe['paket_e_koepfe']} Koepfe / {pe.get('paket_e_insn', '?')} Insn"
                       + (f" (Bl {pe.get('paket_e_blatt')} / {pe.get('paket_e_insn_blatt')})"
                          if pe.get("paket_e_blatt") is not None else ""))
-    if d["batches_koepfe"] or d["batches_insn"]:
-        teile = []
-        if d["batches_koepfe"]:
-            teile.append(f"ca. {d['batches_koepfe']:.0f} Batches fuer die "
-                         f"{pe.get('paket_e_koepfe')} offenen Koepfe")
-        if d["batches_insn"]:
-            teile.append(f"ca. {d['batches_insn']:.0f} Batches fuer "
-                         f"{pe.get('paket_e_insn')} offene Insn")
-        zeilen.append("                 HYPOTHESIS (Paket E, Arbeitsvorrat): noch "
-                      + " / ".join(teile)
-                      + f" (offen / Mittel der letzten {d['n']}, Rate unveraendert)")
+    hoch = kalender_zeilen(cfg, pe.get("paket_e_koepfe") or 0, d)
+    if hoch:
+        zeilen.append("                 HYPOTHESIS (Paket E, Arbeitsvorrat):")
+        zeilen += hoch
     else:
         zeilen.append("                 HYPOTHESIS: keine Hochrechnung moeglich")
     zeilen += _c_gesamt_zeilen(cfg, d)
@@ -692,10 +943,7 @@ def _c_gesamt_zeilen(cfg, d: dict) -> list[str]:
         insn = sum(k["insn"] for k in klassen.values())
         zeilen = [f"                 HYPOTHESIS (C gesamt, GEMESSEN): offen {offen} Koepfe / "
                   f"{insn} Insn (Inventar minus gebaut, s. Klassen unten)"]
-        if d.get("mittel_koepfe", 0) > 0:
-            zeilen.append(f"                   -> ca. {offen / d['mittel_koepfe']:.0f} Batches bei "
-                          f"+{d['mittel_koepfe']:.1f} Koepfen/Batch (Mittel der letzten "
-                          f"{d['n']})")
+        zeilen += kalender_zeilen(cfg, offen, d)
         return zeilen
     g = c_offen_gesamt(cfg)
     if not g or not d.get("letzter"):
@@ -713,10 +961,7 @@ def _c_gesamt_zeilen(cfg, d: dict) -> list[str]:
     insn = max(0.0, g["insn"] - seitdem * schnitt)
     zeilen = [f"                 HYPOTHESIS (C gesamt, ABGELEITET): offen "
               f"{offen} Koepfe / ~{insn / 1000:.1f}k Insn (Schaetzung)"]
-    if d["mittel_koepfe"] > 0:
-        zeilen.append(f"                   -> ca. {offen / d['mittel_koepfe']:.0f} "
-                      f"Batches bei +{d['mittel_koepfe']:.1f} Koepfen/Batch "
-                      f"(Mittel der letzten {d['n']})")
+    zeilen += kalender_zeilen(cfg, offen, d)
     zeilen.append(f"                   Rechenweg: analysis/{g['dokument']} "
                   f"(\"OFFEN: {g['koepfe']} Koepfe / {g['insn']} Insn\", Stand B"
                   f"{g['batch']}; Bau-Liste damals {g['bau']}) minus R207-Delta "
@@ -731,7 +976,9 @@ def _relevanz_zeilen(cfg, d: dict | None = None) -> list[str]:
     if not r:
         return ["  Port-Relevanz: nicht gemessen (tools/r13t_cov_relevanz.py fahren)"]
     d = d or {}
-    mittel = d.get("mittel_koepfe") or 0.0
+    # R13aa: gerechnet wird mit dem Durchsatz JE C-BATCH - die Klasse "nicht gebaut"
+    # wird nur in C-Batches abgearbeitet, nicht in jedem Kalender-Batch.
+    mittel = d.get("mittel_c_koepfe") or 0.0
     zeilen = [
         f"  Port-Relevanz: ausgefuehrt {r['ausgefuehrt']} | davon gebaut "
         f"{r['gebaut_ausgefuehrt']} | davon verifiziert {r['verifiziert_ausgefuehrt']}"
@@ -751,7 +998,7 @@ def _relevanz_zeilen(cfg, d: dict | None = None) -> list[str]:
         zeilen.append(f"  C-Arbeitsvorrat: {gesamt} Koepfe nicht gebaut (von "
                       f"{r.get('inventar', '?')} im Inventar)")
         for schluessel, k in klassen.items():
-            hoch = (f" -> ca. {k['koepfe'] / mittel:.0f} Batches" if mittel > 0 else "")
+            hoch = (f" -> ca. {k['koepfe'] / mittel:.0f} C-Batches" if mittel > 0 else "")
             zeilen.append(f"                 {namen.get(schluessel, schluessel)}: "
                           f"{k['koepfe']:4d} Koepfe / {k['insn']:6d} Insn{hoch}")
         zeilen.append("                 \"nicht ausgefuehrt\" = in den VORHANDENEN Aufnahmen "
