@@ -1,0 +1,23 @@
+NUR ALS OFFENE FRAGE IN DEN ANKER - NICHT UMSETZEN (Nutzerauftrag 2026-09-28, Punkt 5).
+
+Diese Zeile gehoert woertlich in den Ankerkopf als neuer Posten der offenen
+Entscheidungen (sie soll in `/fragen` erscheinen). Sie wird NICHT gefahren, bevor der
+Nutzer antwortet - insbesondere aendert sich in diesem Batch NICHT die Reihenfolge und
+NICHT die Kandidatenliste.
+
+**(7) NEU:** heute laeuft C nach "Blaetter zuerst, kleinste zuerst" - gemessen sind aber
+**677 der 1403** noch nicht gebauten Koepfe (48 %, 28976 Insn) in den vorhandenen
+Aufnahmen (`capture/ppc_coverage.bin` + `ppc_cov_boot.bin`, Boot+Attract+Gameplay)
+schon AUSGEFUEHRT, und fuer sie ist eine dritte Gegenprobe denkbar (Mitschnitt/Referenz-
+strom), die den Doppelfehler-Fall ausschliesst: eine gruene Probe Interpreter<->Port
+beweist nichts, wenn beide Welten denselben Denkfehler tragen (genau das war R535) -
+**soll C nach Paket E in der Reihenfolge "ausgefuehrt zuerst, dann kleinste zuerst"
+laufen? (Vorschlag: ja)** bei ja: die Kandidatenliste bekommt eine Spalte "ausgefuehrt
+(Aufnahmen)", die ausgefuehrten Blaetter kommen vor dem uebrigen Blattvorrat, und die
+Aufnahme dient als zusaetzliche Gegenprobe, soweit der Referenzstrom den Kopf beruehrt.
+bei nein: es bleibt bei "kleinste zuerst" (Vorteil: kleine Blaetter brauchen keinen
+neuen Wirt), die ausgefuehrten Koepfe kommen erst am Schluss, die Aufnahme bleibt reine
+Kontrolle.
+
+Zahlenbelege fuer die Frage (Harness-Seite, nur lesend): `docs/_r13t2_beleg_4.txt`,
+`analysis/f5-descr-batch42-2026-09-17.md:87-88` (Herkunft der Aufnahmen).

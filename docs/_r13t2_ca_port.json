@@ -1,0 +1,491 @@
+{
+ "koepfe_mit_ca": 34,
+ "registrierte": 78,
+ "inventar_ca": {
+  "funktionen": 2072,
+  "lesend": {
+   "addze": 382,
+   "subfe": 18
+  },
+  "schreibend": {
+   "subfc": 1490,
+   "addc": 3815
+  }
+ },
+ "verdaechtig": [
+  {
+   "kopf": "5BF74",
+   "datei": "ckopf_leaves.cpp",
+   "zeile": 1977,
+   "art": "VERDAECHTIG",
+   "text": "if (r0 >= r10) r0 += 1u;                                  // CA aus `subfc`"
+  }
+ ],
+ "koepfe": [
+  {
+   "kopf": "10E9C",
+   "adresse": "0x80010E9C",
+   "funktion": "L10E9C",
+   "formen": {
+    "addc": 3
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L10E9C() ab Zeile 146",
+   "treffer": []
+  },
+  {
+   "kopf": "3C17C",
+   "adresse": "0x8003C17C",
+   "funktion": "L3C17C",
+   "formen": {
+    "addc": 3,
+    "subfc": 3
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L3C17C() ab Zeile 206",
+   "treffer": []
+  },
+  {
+   "kopf": "622AC",
+   "adresse": "0x800622AC",
+   "funktion": "L622AC",
+   "formen": {
+    "subfc": 1
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L622AC() ab Zeile 161",
+   "treffer": []
+  },
+  {
+   "kopf": "62C78",
+   "adresse": "0x80062C78",
+   "funktion": "L62C78",
+   "formen": {
+    "subfc": 2
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L62C78() ab Zeile 395",
+   "treffer": []
+  },
+  {
+   "kopf": "10A20",
+   "adresse": "0x80010A20",
+   "funktion": "L10A20",
+   "formen": {
+    "addc": 20
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L10A20() ab Zeile 427",
+   "treffer": []
+  },
+  {
+   "kopf": "62124",
+   "adresse": "0x80062124",
+   "funktion": "L62124",
+   "formen": {
+    "addc": 2,
+    "subfc": 1
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L62124() ab Zeile 462",
+   "treffer": []
+  },
+  {
+   "kopf": "0F7E4",
+   "adresse": "0x8000F7E4",
+   "funktion": "L0F7E4",
+   "formen": {
+    "addc": 3,
+    "subfc": 1
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L0F7E4() ab Zeile 538",
+   "treffer": [
+    {
+     "datei": "ckopf_leaves.cpp",
+     "zeile": 571,
+     "art": "harmlos (Zaehler)",
+     "text": "r30 += 1u;"
+    }
+   ]
+  },
+  {
+   "kopf": "21148",
+   "adresse": "0x80021148",
+   "funktion": "L21148",
+   "formen": {
+    "addc": 1
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L21148() ab Zeile 618",
+   "treffer": []
+  },
+  {
+   "kopf": "1DAB4",
+   "adresse": "0x8001DAB4",
+   "funktion": "L1DAB4",
+   "formen": {
+    "subfc": 1
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L1DAB4() ab Zeile 661",
+   "treffer": []
+  },
+  {
+   "kopf": "159B0",
+   "adresse": "0x800159B0",
+   "funktion": "L159B0",
+   "formen": {
+    "subfc": 2,
+    "addc": 1
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L159B0() ab Zeile 686",
+   "treffer": []
+  },
+  {
+   "kopf": "156CC",
+   "adresse": "0x800156CC",
+   "funktion": "L156CC",
+   "formen": {
+    "subfc": 2,
+    "addc": 2
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L156CC() ab Zeile 692",
+   "treffer": []
+  },
+  {
+   "kopf": "29E48",
+   "adresse": "0x80029E48",
+   "funktion": "L29E48",
+   "formen": {
+    "addc": 1
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L29E48() ab Zeile 843",
+   "treffer": []
+  },
+  {
+   "kopf": "662E8",
+   "adresse": "0x800662E8",
+   "funktion": "L662E8",
+   "formen": {
+    "addc": 1,
+    "subfc": 3
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L662E8() ab Zeile 948",
+   "treffer": []
+  },
+  {
+   "kopf": "3C12C",
+   "adresse": "0x8003C12C",
+   "funktion": "L3C12C",
+   "formen": {
+    "subfc": 3
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L3C12C() ab Zeile 902",
+   "treffer": []
+  },
+  {
+   "kopf": "5C040",
+   "adresse": "0x8005C040",
+   "funktion": "L5C040",
+   "formen": {
+    "subfc": 3
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L5C040() ab Zeile 939",
+   "treffer": []
+  },
+  {
+   "kopf": "5C090",
+   "adresse": "0x8005C090",
+   "funktion": "L5C090",
+   "formen": {
+    "subfc": 3
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L5C090() ab Zeile 943",
+   "treffer": []
+  },
+  {
+   "kopf": "57320",
+   "adresse": "0x80057320",
+   "funktion": "L57320",
+   "formen": {
+    "addc": 2
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L57320() ab Zeile 1118",
+   "treffer": []
+  },
+  {
+   "kopf": "0DDD4",
+   "adresse": "0x8000DDD4",
+   "funktion": "L0DDD4",
+   "formen": {
+    "addc": 3,
+    "subfc": 1
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L0DDD4() ab Zeile 1210",
+   "treffer": []
+  },
+  {
+   "kopf": "10690",
+   "adresse": "0x80010690",
+   "funktion": "L10690",
+   "formen": {
+    "addc": 3
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L10690() ab Zeile 1266",
+   "treffer": []
+  },
+  {
+   "kopf": "5BEFC",
+   "adresse": "0x8005BEFC",
+   "funktion": "L5BEFC",
+   "formen": {
+    "subfc": 4
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L5BEFC() ab Zeile 1301",
+   "treffer": []
+  },
+  {
+   "kopf": "5B2A8",
+   "adresse": "0x8005B2A8",
+   "funktion": "L5B2A8",
+   "formen": {
+    "addc": 1
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L5B2A8() ab Zeile 1419",
+   "treffer": [
+    {
+     "datei": "ckopf_leaves.cpp",
+     "zeile": 1425,
+     "art": "harmlos (addic)",
+     "text": "i32 r5 = r6 + 1;                                         // addic"
+    },
+    {
+     "datei": "ckopf_leaves.cpp",
+     "zeile": 1430,
+     "art": "harmlos (addic)",
+     "text": "r5 = r0b + 1;                                        // addic r5,r0,0x1"
+    }
+   ]
+  },
+  {
+   "kopf": "82BA0",
+   "adresse": "0x80082BA0",
+   "funktion": "L82BA0",
+   "formen": {
+    "addc": 2
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L82BA0() ab Zeile 1456",
+   "treffer": []
+  },
+  {
+   "kopf": "833B8",
+   "adresse": "0x800833B8",
+   "funktion": "L833B8",
+   "formen": {
+    "addc": 2
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L833B8() ab Zeile 1486",
+   "treffer": []
+  },
+  {
+   "kopf": "5BC90",
+   "adresse": "0x8005BC90",
+   "funktion": "L5BC90",
+   "formen": {
+    "subfc": 2,
+    "addc": 1
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L5BC90() ab Zeile 1375",
+   "treffer": []
+  },
+  {
+   "kopf": "0CE14",
+   "adresse": "0x8000CE14",
+   "funktion": "L0CE14",
+   "formen": {
+    "subfc": 1,
+    "addc": 6
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L0CE14() ab Zeile 1500",
+   "treffer": []
+  },
+  {
+   "kopf": "3B808",
+   "adresse": "0x8003B808",
+   "funktion": "L3B808",
+   "formen": {
+    "subfc": 3,
+    "addc": 1
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L3B808() ab Zeile 1554",
+   "treffer": []
+  },
+  {
+   "kopf": "4721C",
+   "adresse": "0x8004721C",
+   "funktion": "L4721C",
+   "formen": {
+    "addc": 2
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L4721C() ab Zeile 1870",
+   "treffer": [
+    {
+     "datei": "ckopf_leaves.cpp",
+     "zeile": 1900,
+     "art": "harmlos (addic)",
+     "text": "r30 += 1u;                                            // lbzu r3,0x1(r30)"
+    }
+   ]
+  },
+  {
+   "kopf": "564D4",
+   "adresse": "0x800564D4",
+   "funktion": "L564D4",
+   "formen": {
+    "addc": 1
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L564D4() ab Zeile 1649",
+   "treffer": []
+  },
+  {
+   "kopf": "431D4",
+   "adresse": "0x800431D4",
+   "funktion": "L431D4",
+   "formen": {
+    "addc": 1
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L431D4() ab Zeile 1802",
+   "treffer": []
+  },
+  {
+   "kopf": "5BF74",
+   "adresse": "0x8005BF74",
+   "funktion": "L5BF74",
+   "formen": {
+    "subfc": 1,
+    "addc": 1
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L5BF74() ab Zeile 1969",
+   "treffer": [
+    {
+     "datei": "ckopf_leaves.cpp",
+     "zeile": 1977,
+     "art": "VERDAECHTIG",
+     "text": "if (r0 >= r10) r0 += 1u;                                  // CA aus `subfc`"
+    },
+    {
+     "datei": "ckopf_leaves.cpp",
+     "zeile": 1991,
+     "art": "harmlos (addic)",
+     "text": "r8 += 1u;                                         // addic r8,r8,0x1"
+    },
+    {
+     "datei": "ckopf_leaves.cpp",
+     "zeile": 1995,
+     "art": "harmlos (Zaehler)",
+     "text": "r8 += 1u;                                             // 8005bfd8"
+    }
+   ]
+  },
+  {
+   "kopf": "55DA8",
+   "adresse": "0x80055DA8",
+   "funktion": "L55DA8",
+   "formen": {
+    "addc": 3
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L55DA8() ab Zeile 2028",
+   "treffer": []
+  },
+  {
+   "kopf": "5873C",
+   "adresse": "0x8005873C",
+   "funktion": "L5873C",
+   "formen": {
+    "subfc": 2,
+    "addc": 4
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L5873C() ab Zeile 2114",
+   "treffer": [
+    {
+     "datei": "ckopf_leaves.cpp",
+     "zeile": 2131,
+     "art": "harmlos (addic)",
+     "text": "u32 r5c = static_cast<u32>(r6 + 1);                   // addic r5,r6,0x1"
+    },
+    {
+     "datei": "ckopf_leaves.cpp",
+     "zeile": 2142,
+     "art": "harmlos (addic)",
+     "text": "const u32 r0 = static_cast<u32>(r6 + 1);                  // addic r0,r6,0x1"
+    }
+   ]
+  },
+  {
+   "kopf": "17A8C",
+   "adresse": "0x80017A8C",
+   "funktion": "L17A8C",
+   "formen": {
+    "addc": 3
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L17A8C() ab Zeile 2185",
+   "treffer": [
+    {
+     "datei": "ckopf_leaves.cpp",
+     "zeile": 2221,
+     "art": "harmlos (addic)",
+     "text": "u32 ctr = static_cast<u32>(r8 + 1);                   // addic r6,r8,0x1"
+    },
+    {
+     "datei": "ckopf_leaves.cpp",
+     "zeile": 2230,
+     "art": "harmlos (addic)",
+     "text": "r0 += 1u;                                     // addic r0,r0,0x1"
+    },
+    {
+     "datei": "ckopf_leaves.cpp",
+     "zeile": 2234,
+     "art": "harmlos (Zaehler)",
+     "text": "r0 += 1u;                                         // 0x80017b5c"
+    }
+   ]
+  },
+  {
+   "kopf": "65898",
+   "adresse": "0x80065898",
+   "funktion": "L65898",
+   "formen": {
+    "addc": 19,
+    "subfc": 3
+   },
+   "ca_lesend": {},
+   "quelle": "ckopf_leaves.cpp L65898() ab Zeile 2277",
+   "treffer": []
+  }
+ ]
+}

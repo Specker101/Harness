@@ -39,6 +39,20 @@ _RE_KOPF = re.compile(r'\(\s*"[0-9A-Fa-f]+"\s*,\s*0x([0-9A-Fa-f]{8})\s*,')
 _RE_HEAD = re.compile(r"\{\s*0x([0-9A-Fa-f]{8})u\s*,")
 _RE_HEX8 = re.compile(r"\b([0-9A-F]{8})\b")
 
+# Was die beiden Karten abdecken. QUELLE ist der Satz in
+# `analysis/f5-descr-batch42-2026-09-17.md:87-88`: "die Coverage-Bins (…, 74 528
+# markierte PCs aus Boot+Attract+Gameplay-Replay)". 74528 = beide Karten SUMMIERT
+# (31929 + 42599), daher wird hier zusaetzlich die Vereinigungsmenge gemessen.
+AUFNAHMEN = ("ppc_coverage.bin = Gameplay-Replay, ppc_cov_boot.bin = Boot+Attract "
+             "(neueste Aufnahme 2026-09-17; deckt NICHT das ganze Spiel ab - "
+             "Menuepfade/Service fehlen, s. analysis/bucket-d-2026-09-16.md:312)")
+AUFNAHMEN_JSON = {
+    "gameplay": "capture/ppc_coverage.bin",
+    "boot_attract": "capture/ppc_cov_boot.bin",
+    "beschreibung": AUFNAHMEN,
+    "quelle": "analysis/f5-descr-batch42-2026-09-17.md:87-88",
+}
+
 
 def coverage() -> bytearray:
     merged = bytearray(0x400000)
@@ -65,6 +79,75 @@ def funktionen() -> list[tuple[str, int]]:
         except ValueError:
             continue
     return out
+
+
+def inventar() -> dict[int, tuple[int, int]]:
+    """`analysis/_m60_inventar.csv`: Adresse -> (Groesse in B, Insn).
+
+    Das CSV ist die Inventarquelle des Projekts (2072 Funktionen, Spalten
+    `addr,name,size,span,...,insn,...`). `size` ist NICHT immer die Funktionsgrenze
+    (R170/R177) - fuer die Huelle wird deshalb zusaetzlich am ersten `blr` gestoppt.
+    """
+    import csv
+
+    p = WS / "analysis" / "_m60_inventar.csv"
+    out: dict[int, tuple[int, int]] = {}
+    if not p.is_file():
+        return out
+    with p.open(encoding="utf-8") as fp:
+        for row in csv.DictReader(fp):
+            try:
+                addr = int(row["addr"])
+                groesse = max(4, int(row["size"]))
+                insn = int(row["insn"] or 0)
+            except (KeyError, ValueError):
+                continue
+            out[addr] = (groesse, insn)
+    return out
+
+
+def _rufziele(abbild: bytes, adresse: int, groesse: int, bekannt: set[int]) -> set[int]:
+    """Die Ziele der Rufbefehle in einem Rumpf (`bl` = Op 18 mit LK, Tail-`b`).
+
+    Gescannt wird bis zum ersten `blr` ODER bis `groesse` (was zuerst kommt), hoechstens
+    0x800 B - das ist dieselbe Rumpf-Idee wie in der Relevanzmessung.
+    """
+    off = adresse - BASE
+    ziele: set[int] = set()
+    for i in range(min(groesse, 0x800) // 4):
+        if off + 4 * i + 4 > len(abbild):
+            break
+        w = struct.unpack_from(">I", abbild, off + 4 * i)[0]
+        if w == BLR:
+            break
+        if (w >> 26) != 18:
+            continue
+        li = w & 0x03FFFFFC
+        if li & 0x02000000:
+            li -= 0x04000000
+        pc = adresse + 4 * i
+        ziel = (li if (w & 2) else (pc + li)) & 0xFFFFFFFF
+        if (w & 1) or ziel in bekannt:          # `bl` oder Tail-`b` auf einen Kopf
+            if ziel in bekannt:
+                ziele.add(ziel)
+    return ziele
+
+
+def paket_e_huelle(abbild: bytes, wurzeln: set[int],
+                   bekannt: set[int], groessen: dict[int, tuple[int, int]]) -> set[int]:
+    """Der Ruf-Abschluss der Paket-E-Wurzeln (Definition aus `_c_paket_e.txt`)."""
+    gesehen: set[int] = set()
+    rand = [w for w in sorted(wurzeln) if w in bekannt]
+    while rand:
+        a = rand.pop()
+        if a in gesehen:
+            continue
+        gesehen.add(a)
+        groesse = groessen.get(a, (0x400, 0))[0]
+        for z in _rufziele(abbild, a, groesse, bekannt):
+            if z not in gesehen:
+                rand.append(z)
+    return gesehen
 
 
 def verifizierte() -> set[int]:
@@ -160,6 +243,24 @@ def main() -> int:
     w_laeuft = [a for a in wurzeln if laeuft(a)]
     b_laeuft = [a for a in blaetter if laeuft(a)]
 
+    # ---- die drei Klassen des C-Arbeitsvorrats (R13t2, Punkt 4) --------------
+    inv = inventar()
+    bekannt = set(inv) or {a for _n, a in funcs}
+
+    def insn_von(adressen) -> int:
+        return sum(inv.get(a, (0, 0))[1] for a in adressen)
+
+    huelle = paket_e_huelle(abbild, wurzeln, bekannt, inv) if abbild else set()
+    nicht_gebaut = bekannt - gebaut
+    k1 = sorted(a for a in nicht_gebaut if laeuft(a))
+    k2 = sorted(a for a in nicht_gebaut if not laeuft(a) and a in huelle)
+    k3 = sorted(a for a in nicht_gebaut if not laeuft(a) and a not in huelle)
+    klassen = {
+        "1_ausgefuehrt_nicht_gebaut": {"koepfe": len(k1), "insn": insn_von(k1)},
+        "2_nicht_ausgefuehrt_paket_e": {"koepfe": len(k2), "insn": insn_von(k2)},
+        "3_nicht_ausgefuehrt_rest": {"koepfe": len(k3), "insn": insn_von(k3)},
+    }
+
     def pct(x: int, y: int) -> str:
         return f"{100.0 * x / y:.1f} %" if y else "-"
 
@@ -184,6 +285,20 @@ def main() -> int:
     print(f"#   ausgefuehrt {len(ausgefuehrt)} | davon gebaut {len(gebaut_laeuft)}"
           f" | davon verifiziert {len(ver_laeuft)} von {len(ausgefuehrt)}"
           f"  ({pct(len(ver_laeuft), len(ausgefuehrt))})")
+    print()
+    print(f"# C-ARBEITSVORRAT (nicht gebaut: {len(nicht_gebaut)} Koepfe):")
+    for name, werte in klassen.items():
+        print(f"#   ({name}) {werte['koepfe']} Koepfe / {werte['insn']} Insn")
+    print(f"# Paket-E-Huelle (eigene Nachrechnung ab den {len(wurzeln)} Wurzeln): "
+          f"{len(huelle)} Koepfe"
+          + (f"  (Projektzahl in _c_paket_e.txt: 274)" if huelle else ""))
+    offen_huelle = sorted(nicht_gebaut & huelle)
+    print(f"# davon NICHT gebaut (= offener Paket-E-Vorrat): {len(offen_huelle)} Koepfe"
+          f" / {insn_von(offen_huelle)} Insn"
+          f"  (Projektzahl der Bilanz: 38 Koepfe / 2674 Insn)"
+          f" - davon ausgefuehrt: "
+          f"{len([a for a in offen_huelle if laeuft(a)])}")
+    print(f"# Aufnahmen: {AUFNAHMEN}")
     ziel = Path(__file__).resolve().parents[1] / "docs" / "_port_relevanz.json"
     ziel.write_text(json.dumps({
         "erzeuger": "tools/r13t_cov_relevanz.py",
@@ -202,6 +317,11 @@ def main() -> int:
         "paket_e_wurzeln_ausgefuehrt": len(w_laeuft),
         "paket_e_blaetter": len(blaetter),
         "paket_e_blaetter_ausgefuehrt": len(b_laeuft),
+        "paket_e_huelle": len(huelle),
+        "paket_e_huelle_offen": len(offen_huelle),
+        "paket_e_huelle_offen_ausgefuehrt": len([a for a in offen_huelle if laeuft(a)]),
+        "klassen": klassen,
+        "aufnahmen": AUFNAHMEN_JSON,
     }, indent=1, ensure_ascii=False), encoding="utf-8")
     print(f"# Cache fuer /bilanz: {ziel}")
     print()

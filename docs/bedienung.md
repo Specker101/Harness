@@ -710,7 +710,24 @@ Die drei Mengen sind **gemessen** (nicht geschätzt) von `tools/r13t_cov_relevan
 Das Werkzeug schreibt die Zahl als Cache nach `docs/_port_relevanz.json`; `/bilanz` liest
 nur diese Datei (die Messung selbst dauert Sekunden). Fehlt sie, steht dort
 „nicht gemessen" — geraten wird nicht. Nachmessen: `python tools/r13t_cov_relevanz.py`, Beleg `docs/_r13t_beleg_4b.txt`.
+**Der C-Arbeitsvorrat in drei Klassen (R13t2).** Direkt darunter stehen die noch nicht
+gebauten Köpfe (`Inventar minus Bau-Liste`), getrennt nach dem, was die vorhandenen
+Aufnahmen zeigen:
 
+| Klasse | Definition | Stand 2026-09-28 |
+|---|---|---|
+| (1) ausgeführt, noch nicht gebaut | Coverage im Rumpf-Fenster gesetzt | 677 Köpfe / 28976 Insn |
+| (2) nicht ausgeführt, Paket E | außerhalb der Aufnahmen, aber in der Paket-E-Hülle | 1 Kopf / 38 Insn |
+| (3) nicht ausgeführt, sonstiger Rest | weder Aufnahme noch Paket E | 725 Köpfe / 24521 Insn |
+
+„nicht ausgeführt“ heißt **in den vorhandenen Aufnahmen nicht ausgeführt**, nicht
+„unnötig“ — die Aufnahmen decken nur Boot + einen Teil von Level 1 ab. Die Paket-E-Hülle
+rechnet das Werkzeug **selbst** nach (Ruf-Abschluss ab den Wurzeln aus `_c_paket_e.txt`:
+265 Köpfe, davon 28 offen; Projektzahl `c_kopf.py paket_e`: 274 / 38 — die kleine
+Differenz steht in der Anzeige). Jede Klasse bekommt eine Hochrechnung
+(offene Köpfe ÷ Mittel der letzten Batches). Die Aufnahme-Zeile nennt die beiden Karten
+mit Szene (`ppc_coverage.bin` = Gameplay-Replay, `ppc_cov_boot.bin` = Boot+Attract),
+Herkunft (`analysis/f5-descr-batch42-2026-09-17.md:87-88`) und die Grenze der Aussage.
 Warum die Insn nicht durchgängig da sind: die kanonische Bilanzdatei führt nur Köpfe
 (nach dem Rumpf gemessen), und die Paket-E-Zeile gibt es erst in neueren Dokumenten.
 Fehlt sie, steht das ausdrücklich da, statt eine Zahl zu erfinden.

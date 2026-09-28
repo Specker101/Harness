@@ -1,0 +1,84 @@
+# R13t2 (1b): warum war 8005BF74 gruen? - Beleg mit Datei:Zeile
+
+Frage (Nutzer 2026-09-28): "Warum war 8005BF74 gruen? Belege, welche Ausgaben `c_kopf`
+vergleicht und wie die Fallfabrik Eingaben waehlt."
+
+## 1. Was verglichen wird (Werkzeug `scripts/c_kopf.py`, nur gelesen)
+
+| Schritt | Datei:Zeile | Was |
+|---|---|---|
+| beide Welten fahren | `c_kopf.py:1852` `cmd_vergl` | Wortinterpreter (`_rom_lauf`, `:1397`) und das **Portbinaer** (`_port_lauf`, `:1771`) laufen denselben Fall |
+| Ausgabe des Rumpfes | `c_kopf.py:1369` `== CASE %d %08X` und `:1389` `MEM %08X %02X` | je Fall eine Kopfzeile und **jedes geschriebene Speicherwort** (Registerzeilen und Rueckgabewert kommen aus `_rom_one`, `:1333`) |
+| Normierung | `c_kopf.py:1800` `_kanon` | Kommentar-/Kopfzeilen fliegen raus, Zahlen werden kanonisch geschrieben |
+| Vergleich | `c_kopf.py:1825` `_diff` | **Zeile fuer Zeile**, gezaehlt werden ungleiche Zeilen (und Laengendifferenz) |
+
+Verglichen wird also **jedes Byte, das der Kopf schreibt, plus sein Rueckgabewert** -
+aber nur das, was der Fall auch beruehrt.
+
+## 2. Wie die Fallfabrik die Eingaben waehlt
+
+| Schritt | Datei:Zeile | Was |
+|---|---|---|
+| welche Register liest der Kopf? | `c_kopf.py:1437` `regs_art` | Stoerung je Register: aendert sie die Ausgabe, gilt das Register als GELESEN; zwei Sandzeiger entscheiden "Zeiger" gegen "Wert" |
+| Grundlage | `c_kopf.py:1433` `_basis_regs` (bzw. Profilzeile `basis`) | `sand + 0x40*(i+1)` je Argumentregister |
+| Wertefaecher | `c_kopf.py:1427` `SANDFAECHER`, `:1429` `WERTEFAECHER` | feste Leitern (0, 1, 2, 3, 5, 8, 0x10 … 0x7FFFFFFF, 0x80000000, 0xFFFFFFFF) |
+| Fallerzeugung | `c_kopf.py:1472` `_faelle` | je Fall jedes GELESENE Register neu aus dem Facher, Saat `0x19800000 + head`; NICHT gelesene Register behalten die Basis |
+| ROM-Werte | `c_kopf.py:1521` `WERTE_DEF` | wo die Rufstellen im ROM bekannt sind, NUR diese Werte (heute ein Eintrag: `3B808`) |
+| das Ergebnis | `analysis/_m197/_ck_5BF74.case` | 24 `CASE`-Zeilen, Format `<seed> <r3> <r4> <r5> <r6> <r7> <r8> <r9> <r10>` |
+
+## 3. Der konkrete Kopf - und warum die Abweichung unsichtbar bleibt
+
+ROM (`docs/_r13t2_beleg_1b_rom.txt`, 51 Woerter ab `0x8005BF74`):
+
+    +10  0x80070008  lwz    r0,0x8(r7)      r0 = [r3+8]
+    +14  0x39450000  addi   r10,r5,0        r10 = r5
+    +18  0x7CAA0011  subfc. r5,r10,r0       r5 = r0 - r10, CR0 aus r5, CA = (r0 >= r10)
+    +20  0x7C005014  addc   r0,r0,r10       r0 = r0 + r10   (XO 10, Rc=0: CA wird NICHT gelesen)
+    +2C  0x41810098  bgt    +0x98           Zweig fuer r5 > 0
+
+Port (`port/src/ckopf_leaves.cpp`):
+
+    1975  const i32 diff = static_cast<i32>(r0 - r10);   // subfc.
+    1977  if (r0 >= r10) r0 += 1u;                       // <== addiert CA, die nicht existiert
+    1978  r0 += r10;                                     // addc
+    1979  if (diff > 0) return -1;                        // li r3,-1 / bgt
+
+Fallwerte (`_ck_5BF74.case`): `r3 = 0x803D8100` → `[r3+8]` = `MEM 803D8108 = 0x10000`;
+**r5 = 0 in ALLEN 24 Faellen** (die dritte Zahl jeder `CASE`-Zeile). Damit:
+
+* `r10 = 0`, `r0 = 0x10000` → `diff = 0x10000 > 0` → **Zeile 1979 greift in jedem Fall**,
+  der Kopf kehrt sofort mit `-1` zurueck.
+* Die Schleife dahinter (Port 1983-1998) - die einzige Stelle, an der das um 1 verschobene
+  `r0` als Vergleichsschwelle `(i32)r0 > (i32)r9` wirkt - wird **nie betreten**.
+* Also aendert die falsche Zeile in keinem der 24 Faelle eine verglichene Ausgabe:
+  identische Speicherabbilder, identischer Rueckgabewert → `0 Abweichungen`, Kopf gruen.
+
+**Wann waere er rot geworden?** Sobald ein Fall den Rumpf hinter `bgt` erreicht
+(`r5 > 0`) UND dort ein Tabellenwort `r9` genau den Wert `r0 + (r0 >= r10)` trifft - also
+die Vergleichsgrenze `+-1`. Genau diese zwei Bedingungen fehlen im Facher.
+
+## 4. Vorschlag (im /ds-Auftrag enthalten)
+
+* **Feste Grenzfaelle in jede Fallfabrik** (`_faelle`, `:1472`): 0, 1, 2, 3, `0x7FFFFFFF`,
+  `0x80000000`, `0xFFFFFFFF`, `0xFFFFFFF0`, `0x10`, **gleiche Operanden**, und die
+  **Vergleichsgrenze +-1** (`r9 == r0`, `r0-1`, `r0+1`). Fuer diesen Kopf: `r5` aus
+  `{0, 1, 0x10000, 0x10001}` (damit der Zweig hinter `bgt` laeuft) und Tabellenworte, die
+  `r9 == r0` treffen.
+* **Standardmutation "CA-Semantik vertauscht"** fuer jeden Kopf mit CA-Formen
+  (`MUT`, `:1943`): `if (r0 >= r10) r0 += 1u;` → `if (r0 < r10) r0 += 1u;`
+  (Interpreter: `+ self.ca` → `+ (1 - self.ca)`). Rotprobe zaehlt nur, wenn sie ROT wird
+  (R527).
+
+## 5. Gegenprobe: CA wird im Programm sehr wohl gelesen
+
+`tools/r13t2_port_ca_scan.py` zaehlt ueber ALLE 2072 Inventarfunktionen
+(`analysis/_m60_inventar.csv`, innerhalb `size`):
+
+    LESEND    : addze 382x, subfe 18x
+    schreibend: addc 3815x, subfc 1490x
+    in den 78 registrierten Koepfen: LESEND 0
+
+Die CA-Ketten im Port (`game_result.cpp:94-99`, `mission_content_helpers.cpp:406-407`
+und `:561-572`) sind damit **legitim**: dort liest das ROM CA wirklich (`addze` nach
+`addc`, `subfe` nach `addic`). Falsch ist nur eine CA-Addition an einem `addc`, das CA
+nicht liest - und davon gibt es im Port genau **eine** (`ckopf_leaves.cpp:1977`).

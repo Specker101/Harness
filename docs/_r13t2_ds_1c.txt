@@ -1,0 +1,55 @@
+PORTFUND 8005BF74 - KORREKTUR + FALLFABRIK HAERTEN (Nutzerauftrag 2026-09-28, Punkt 1c)
+
+ZENSUS (gemessen, nur lesend, `tools/r13t2_port_ca_scan.py`, Beleg `docs/_r13t2_beleg_1a.txt`):
+34 der 78 registrierten Koepfe enthalten CA-Formen; im GANZEN Inventar gibt es
+CA-LESENDE Formen (`addze` 382x, `subfe` 18x) - in den 78 Koepfen **keine einzige**.
+Die Port-Seite wurde fuer alle 34 Koepfe geprueft (Datei:Zeile, Zeilenfenster +-2 fuer
+mehrzeilige Vergleiche): **genau EINE** Stelle addiert CA, obwohl das ROM sie nicht liest:
+
+    port/src/ckopf_leaves.cpp:1977   if (r0 >= r10) r0 += 1u;   // CA aus `subfc`
+    port/src/ckopf_leaves.cpp:1978   r0 += r10;                 // addc r0,r0,r10
+
+Das ROM-Wort an dieser Stelle ist `0x7C005014` = **`addc`** (XO 10, Rc=0; Rohbeleg
+`docs/_r13t2_beleg_1b_rom.txt`, Wort +0x20 von 8005BF74). `addc` liest CA NICHT - die
+Zeile ist `adde`-Semantik und damit falsch. (Die vier anderen R535-Stellen in
+`ckopf_leaves.cpp` - 2026, 2112, 2183, 2276 - sind Kommentare und in Ordnung.)
+
+WARUM DER KOPF TROTZDEM GRUEN WAR (gemessen, `docs/_r13t2_beleg_1b_fall.txt`):
+In ALLEN 24 `CASE`-Zeilen von `analysis/_m197/_ck_5BF74.case` ist r5 = 0 (r5 wird vom
+Fallerzeuger nicht variiert) und `MEM 803D8108 = 0x10000`. Damit ist
+`diff = r0 - r10 = 0x10000 - 0 > 0` und der Kopf nimmt in jedem Fall den FRUEHEN AUSGANG
+`port/src/ckopf_leaves.cpp:1979 if (diff > 0) return -1;`. Die Schleife, in der das um
+1 verschobene r0 als Vergleichsschwelle dient, wird **nie betreten** - die Abweichung
+erreicht keine verglichene Ausgabe. `c_kopf` vergleicht Zeile fuer Zeile die Ausgabe
+beider Welten (`cmd_vergl` 1852, `_diff` 1825, Speicherabbild `MEM %08X %02X` 1389);
+Eingaben waehlt `_faelle` (1472) aus `WERTEFAECHER`/`SANDFAECHER` (1427/1429) mit
+`WERTE_DEF`-Leitern (1521).
+
+AUFTRAG (alles im Decomp-Repo, mit Belegen und Rotproben):
+1. `port/src/ckopf_leaves.cpp:1977`: die CA-Addition ENTFERNEN (`if (r0 >= r10) r0 += 1u;`
+   streichen). Der Kommentar an der Stelle nennt den Grund (`addc` liest CA nicht, R535).
+2. Den falschen Kommentar berichtigen: `scripts/m114_matrix.py:395-397` behauptet
+   "das Handbuch verlangt rD = rA + rB + CA" - richtig ist: `addc` liest CA NICHT
+   (nur `adde`/`addze`/`addme`/`subfe`/`subfze`/`subfme`); der Code rechnet bereits
+   korrekt. Auch `analysis/port-batch206-rc-bit-und-paket-e-2026-09-28.md` §5 und die
+   Anker-Regel **R535** sind entsprechend zu fassen (R535 -> WIDERLEGT; die Probe
+   `+ self.ca` war die Fehlannahme, ihr Zuruecknehmen war richtig).
+3. `c_kopf` haerten (Punkt 1b des Auftrags), damit so etwas nicht wieder still bleibt:
+   a) FESTE GRENZFAELLE in jede Fallfabrik (`scripts/c_kopf.py::_faelle`, Zeile 1472):
+      0, 1, 2, 3, 0x7FFFFFFF, 0x80000000, 0xFFFFFFFF, 0xFFFFFFF0, 0x10,
+      GLEICHE OPERANDEN (rA == rB) und die Vergleichsgrenze +-1 (r9 == r0, r9 == r0-1,
+      r9 == r0+1). Fuer 8005BF74 konkret: r5 (= r10) aus {0, 1, 0x10000, 0x10001} und
+      die Tabellenworte bei 0x803D8200.. so, dass r9 == r0 eintritt - genau der Fall,
+      den die heutigen 24 Faelle nicht treffen. Wo die Werte aus dem ROM bekannt sind,
+      gehoeren sie als `WERTE_DEF`-Eintrag dazu (Zeile 1521).
+   b) STANDARDMUTATION "CA-Semantik vertauscht" in `MUT` (Zeile 1943) fuer JEDEN Kopf mit
+      CA-Formen (die 34 aus dem Zensus): `if (r0 >= r10) r0 += 1u;` ->
+      `if (r0 < r10) r0 += 1u;` (bzw. im Interpreter `+ self.ca` -> `+ (1 - self.ca)`).
+      Gueltig ist die Rotprobe erst, wenn sie ROT wird (R527).
+4. Danach ALLE 78 Koepfe neu profilieren und `vergl alle` fahren; Beleg mit
+   Vorher/Nachher und der Zahl der Faelle je Kopf. Zusaetzlich die 24 alten Faelle von
+   8005BF74 so erweitern, dass der Rumpf HINTER dem `bgt` wirklich laeuft (heute laeuft
+   er nie). Erwartung: der alte Stand ist an der neuen Stelle ROT, der neue gruen.
+5. Meldet, ob die Klasse-1-Auswertung (Port-Relevanz, Harness-Seite:
+   677 der 1403 nicht gebauten Koepfe wurden in den Aufnahmen AUSGEFUEHRT) fuer die
+   Kandidatenwahl nutzbar ist - bitte nur als Befund, nicht als Umbau in diesem Batch.

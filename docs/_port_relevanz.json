@@ -1,6 +1,6 @@
 {
  "erzeuger": "tools/r13t_cov_relevanz.py",
- "ts": "2026-09-28 02:38",
+ "ts": "2026-09-28 02:58",
  "fenster": "Rumpf (Eintritt bis erstes blr, max 0x400 B)",
  "inventar": 2072,
  "ausgefuehrt": 1086,
@@ -14,5 +14,28 @@
  "paket_e_wurzeln": 86,
  "paket_e_wurzeln_ausgefuehrt": 66,
  "paket_e_blaetter": 17,
- "paket_e_blaetter_ausgefuehrt": 12
+ "paket_e_blaetter_ausgefuehrt": 12,
+ "paket_e_huelle": 265,
+ "paket_e_huelle_offen": 28,
+ "paket_e_huelle_offen_ausgefuehrt": 27,
+ "klassen": {
+  "1_ausgefuehrt_nicht_gebaut": {
+   "koepfe": 677,
+   "insn": 28976
+  },
+  "2_nicht_ausgefuehrt_paket_e": {
+   "koepfe": 1,
+   "insn": 38
+  },
+  "3_nicht_ausgefuehrt_rest": {
+   "koepfe": 725,
+   "insn": 24521
+  }
+ },
+ "aufnahmen": {
+  "gameplay": "capture/ppc_coverage.bin",
+  "boot_attract": "capture/ppc_cov_boot.bin",
+  "beschreibung": "ppc_coverage.bin = Gameplay-Replay, ppc_cov_boot.bin = Boot+Attract (neueste Aufnahme 2026-09-17; deckt NICHT das ganze Spiel ab - Menuepfade/Service fehlen, s. analysis/bucket-d-2026-09-16.md:312)",
+  "quelle": "analysis/f5-descr-batch42-2026-09-17.md:87-88"
+ }
 }

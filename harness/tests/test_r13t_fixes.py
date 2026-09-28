@@ -185,7 +185,9 @@ class TestHochrechnungGetrennt(Basis):
         (self.ana / "port-batch206-beispiel-2026-09-28.md").unlink()
         self.assertFalse(stand.c_offen_gesamt(self.cfg))
         zeilen = "\n".join(stand.durchsatz_zeilen(self.cfg))
-        self.assertNotIn("HYPOTHESIS (C gesamt", zeilen)
+        # R13t2: statt einer weggelassenen Zeile steht jetzt die ehrliche Meldung
+        self.assertIn("HYPOTHESIS (C gesamt): nicht ermittelbar", zeilen)
+        self.assertNotIn("ABGELEITET", zeilen)
 
 
 if __name__ == "__main__":

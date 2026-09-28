@@ -475,7 +475,7 @@ def durchsatz_zeilen(cfg, n: int = STANDARD_FENSTER) -> list[str]:
     else:
         zeilen.append("                 HYPOTHESIS: keine Hochrechnung moeglich")
     zeilen += _c_gesamt_zeilen(cfg, d)
-    zeilen += _relevanz_zeilen(cfg)
+    zeilen += _relevanz_zeilen(cfg, d)
     zeilen.append(f"                 Quelle: analysis/{d['quelle']} (Zeile \"R207 "
                   "rueckwaerts\")"
                   + (f" + analysis/{pe['dokument']} (\"Paket E offen\")"
@@ -486,16 +486,31 @@ def durchsatz_zeilen(cfg, n: int = STANDARD_FENSTER) -> list[str]:
 def _c_gesamt_zeilen(cfg, d: dict) -> list[str]:
     """Die zweite, GETRENNTE Hochrechnung: das ganze C-Programm (R13t, Punkt 3).
 
-    Der C-Gesamtvorrat steht nur in den Planungsdokumenten (B196 §6.1:
-    "OFFEN: 1481 Koepfe / 94913 Insn", Quelle `analysis/_m196/_plan_c.txt`). Er wird
-    deshalb **abgeleitet** auf heute gerechnet: seit dem Stand wurden
-    `R207 heute - Bau-Liste damals` Koepfe gebaut und oben abgezogen. Die Insn-Zahl
-    wird nur ueber den damaligen Insn-je-Kopf-Schnitt fortgeschrieben - das ist eine
-    Schaetzung und steht so in der Zeile.
+    Zwei Quellen, in dieser Reihenfolge:
+      1. **gemessen** - die drei Klassen des Arbeitsvorrats aus dem Relevanz-Cache
+         (Inventar minus gebaut); das ist die frischeste Zahl.
+      2. **abgeleitet** - der Vorrat steht sonst nur in den Planungsdokumenten (B196
+         §6.1: "OFFEN: 1481 Koepfe / 94913 Insn", Quelle `analysis/_m196/_plan_c.txt`)
+         und wird ueber das R207-Delta auf heute gerechnet; die Insn-Zahl ist dann
+         eine Schaetzung.
     """
+    r = port_relevanz(cfg) or {}
+    klassen = r.get("klassen") or {}
+    if klassen:
+        offen = sum(k["koepfe"] for k in klassen.values())
+        insn = sum(k["insn"] for k in klassen.values())
+        zeilen = [f"                 HYPOTHESIS (C gesamt, GEMESSEN): offen {offen} Koepfe / "
+                  f"{insn} Insn (Inventar minus gebaut, s. Klassen unten)"]
+        if d.get("mittel_koepfe", 0) > 0:
+            zeilen.append(f"                   -> ca. {offen / d['mittel_koepfe']:.0f} Batches bei "
+                          f"+{d['mittel_koepfe']:.1f} Koepfen/Batch (Mittel der letzten "
+                          f"{d['n']})")
+        return zeilen
     g = c_offen_gesamt(cfg)
     if not g or not d.get("letzter"):
-        return []
+        return ["                 HYPOTHESIS (C gesamt): nicht ermittelbar - kein "
+                "Relevanz-Cache (tools/r13t_cov_relevanz.py) und kein Dokument mit "
+                "der Zeile \"OFFEN: <K> Koepfe / <I> Insn\""]
     heute = d["letzter"].get("r207")
     if not heute or not g.get("bau"):
         return [f"                 HYPOTHESIS (C gesamt): Vorrat "
@@ -519,12 +534,14 @@ def _c_gesamt_zeilen(cfg, d: dict) -> list[str]:
     return zeilen
 
 
-def _relevanz_zeilen(cfg) -> list[str]:
-    """Die feste Zeile "Port-Relevanz: ausgefuehrt X | davon gebaut Y | verifiziert Z"."""
+def _relevanz_zeilen(cfg, d: dict | None = None) -> list[str]:
+    """Port-Relevanz, die drei Klassen des C-Arbeitsvorrats und die Aufnahmen (R13t2)."""
     r = port_relevanz(cfg)
     if not r:
         return ["  Port-Relevanz: nicht gemessen (tools/r13t_cov_relevanz.py fahren)"]
-    return [
+    d = d or {}
+    mittel = d.get("mittel_koepfe") or 0.0
+    zeilen = [
         f"  Port-Relevanz: ausgefuehrt {r['ausgefuehrt']} | davon gebaut "
         f"{r['gebaut_ausgefuehrt']} | davon verifiziert {r['verifiziert_ausgefuehrt']}"
         f" von {r['ausgefuehrt']}"
@@ -534,6 +551,32 @@ def _relevanz_zeilen(cfg) -> list[str]:
         f"/{r['paket_e_wurzeln']} ausgefuehrt, offene Blaetter "
         f"{r['paket_e_blaetter_ausgefuehrt']}/{r['paket_e_blaetter']}",
     ]
+    klassen = r.get("klassen") or {}
+    if klassen:
+        gesamt = sum(k["koepfe"] for k in klassen.values())
+        namen = {"1_ausgefuehrt_nicht_gebaut": "(1) ausgefuehrt, noch nicht gebaut  ",
+                 "2_nicht_ausgefuehrt_paket_e": "(2) nicht ausgefuehrt, Paket E   ",
+                 "3_nicht_ausgefuehrt_rest": "(3) nicht ausgefuehrt, sonstiger Rest"}
+        zeilen.append(f"  C-Arbeitsvorrat: {gesamt} Koepfe nicht gebaut (von "
+                      f"{r.get('inventar', '?')} im Inventar)")
+        for schluessel, k in klassen.items():
+            hoch = (f" -> ca. {k['koepfe'] / mittel:.0f} Batches" if mittel > 0 else "")
+            zeilen.append(f"                 {namen.get(schluessel, schluessel)}: "
+                          f"{k['koepfe']:4d} Koepfe / {k['insn']:6d} Insn{hoch}")
+        zeilen.append("                 \"nicht ausgefuehrt\" = in den VORHANDENEN Aufnahmen "
+                      "nicht ausgefuehrt - NICHT \"unnoetig\" (die Aufnahmen decken nur "
+                      "Boot + einen Teil von Level 1 ab)")
+        if r.get("paket_e_huelle"):
+            zeilen.append(f"                 (Paket-E-Huelle eigene Nachrechnung: "
+                          f"{r['paket_e_huelle']} Koepfe, davon offen "
+                          f"{r.get('paket_e_huelle_offen', '?')}; Projektzahl "
+                          f"`c_kopf.py paket_e`: 274 / 38)")
+    a = r.get("aufnahmen") or {}
+    if a:
+        zeilen.append(f"  Aufnahmen    : {a.get('beschreibung', '?')}")
+        zeilen.append(f"                 Quelle: {a.get('quelle', '?')}; "
+                      f"gemessen {r.get('ts', '?')}")
+    return zeilen
 
 
 # ------------------------------------------------------------------ PLAN/IST
