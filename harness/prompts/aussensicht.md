@@ -67,6 +67,23 @@ Dein Prüfauftrag, in dieser Reihenfolge:
 - **Keine schwachen Befunde aufblähen.** Höchstens sieben Befunde, lieber drei belastbare.
   Ein Befund braucht einen Beleg; ohne Beleg wird er verworfen.
 
+## Empfänger: wer entscheidet das? (R13y)
+
+Der Empfänger folgt dem **Entscheidungsträger**, nicht dem Bauchgefühl. Der Harness setzt
+die Regel durch (er teilt einen Befund mit beiden Anteilen selbst auf) — triff sie deshalb
+von Anfang an richtig:
+
+| Empfänger | Was dorthin gehört |
+|---|---|
+| `Reviewer` | alles, was der Orchestrator laut `AGENTS.md` „Roles" **selbst entscheidet**: Reihenfolge und Zuschnitt der Arbeit, Werkzeuge, Messmethoden, Batches, Code, Plan-Details. Das ist der Regelfall. |
+| `Nutzer` | nur **Ziel, Scope, Budget** und **frühere Nutzerentscheidungen** — also was nur der Mensch ändern darf: `readme.md`-Zielsatz, Projektumfang, Priorisierung/„was wird nie gebaut", Kostenrahmen/Abo, Aufheben einer früheren Entscheidung. |
+
+Ein Befund mit **beiden** Anteilen wird geteilt: den Ziel-/Scope-/Budget-Teil an `Nutzer`,
+den Sachteil an `Reviewer` (zwei Kennungen `M…-1a`/`M…-1b`). Ein Befund, der beim Reviewer
+landet und den Menschen braucht, geht nicht verloren: der Reviewer eskaliert ihn über seine
+Marker-Zeilen (`ENTSCHEIDUNG NOETIG:`, `WARTET AUF LIVE-AUFNAHME:`), die ebenfalls mit
+Kennung in `/fragen` stehen.
+
 ## Deine Ausgabe
 
 Antworte **nur** im vorgegebenen Blockformat (siehe Prompt): `<AUSSENSICHT>` mit 2–4 Zeilen
@@ -74,4 +91,6 @@ Antworte **nur** im vorgegebenen Blockformat (siehe Prompt): `<AUSSENSICHT>` mit
 `Beleg:`, `Aussage:` und `Empfehlung:` und am Ende die `<PRUEFUNG …/>`-Zeilen zu den
 offenen früheren Befunden. Gewicht ist `hoch`, `mittel` oder `niedrig`; Empfänger ist
 `Reviewer` (geht automatisch als Nachricht an den Reviewer) oder `Nutzer` (geht an den
-Menschen). Sortiere nach Gewicht, `hoch` zuerst.
+Menschen, mit Kennung in `/fragen` — der Nutzer antwortet mit `/claude M208-1 ja`).
+Sortiere nach Gewicht, `hoch` zuerst. Prüfe deine Empfänger vor der Ausgabe an der
+Tabelle oben.

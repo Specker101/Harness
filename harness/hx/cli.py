@@ -104,14 +104,15 @@ def cmd_bilanz(args) -> int:
 
 
 def cmd_fragen(args) -> int:
-    """Offene Fragen an den Nutzer auf der Konsole (R13s) - wie Telegram `/fragen`."""
+    """Offene Fragen an den Nutzer auf der Konsole (R13s/R13y) - wie Telegram `/fragen`.
+
+    Jede Frage traegt eine Kennung (`A5`, `R209-1`, `M208-1`); geantwortet wird per
+    `/claude <Kennung> <Text>` beziehungsweise `send claude "<Kennung> <Text>"`.
+    """
     from . import stand as standmod
     cfg = load_config(args.config)
     gate = (read_json(Path(cfg.sub("state")) / "run.json", {}) or {}).get("gate")
-    text = standmod.fragen_text(cfg, gate=gate)
-    from . import aussensicht
-    zusatz = aussensicht.fragen_zeilen(cfg)
-    _druck(text + ("\n" + zusatz if zusatz else ""))
+    _druck(standmod.fragen_text(cfg, gate=gate))
     return 0
 
 
@@ -1182,8 +1183,20 @@ def cmd_send(args) -> int:
     if not text.strip():
         print("Kein Text: 'send ds \"...\"' oder 'send ds --file <pfad.md>'", file=sys.stderr)
         return 2
+    zusatz = ""
+    if target == "claude":
+        # R13y: beginnt die Nachricht mit einer Kennung aus /fragen, gilt sie als Antwort -
+        # Wortlaut und Empfehlung werden angehaengt, eine unbekannte Kennung wird gemeldet.
+        from . import fragen as fragenmod
+        gate = (read_json(Path(cfg.sub("state")) / "run.json", {}) or {}).get("gate")
+        vor = fragenmod.nachricht_vorbereiten(cfg, text, gate=gate)
+        if not vor.get("ok"):
+            print(vor.get("meldung") or "Unbekannte Kennung.", file=sys.stderr)
+            return 2
+        text = vor["text"]
+        zusatz = "  " + vor["meldung"] if vor.get("bekannt") else ""
     item = queue.enqueue(cfg.root, target, text, "lokal", None)
-    print(f"{target}: {item.name} ({len(text)} Zeichen)")
+    print(f"{target}: {item.name} ({len(text)} Zeichen){zusatz}")
     print("Zustellung: ds beim naechsten Batch-Uebergang, claude beim naechsten Review.")
     print(_runner_note(cfg))
     return 0

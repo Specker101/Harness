@@ -943,46 +943,15 @@ def _letztes_review(cfg) -> str:
 
 
 def fragen_text(cfg, gate: dict | None = None, review_text: str | None = None) -> str:
-    """`/fragen`: NAECHSTER SCHRITT + OFFENE FRAGEN AN DICH (entscheidbar)."""
-    kopf = anchor_bloecke(cfg)
-    batch = _batch_aus_anker(kopf)
-    zeilen = [f"FRAGEN AN DICH (Anker: BATCH {batch or '?'})"]
-    if kopf.get("Naechster Schritt"):
-        zeilen.append("")
-        zeilen.append("NAECHSTER SCHRITT")
-        zeilen.append("  " + _kurz(kopf["Naechster Schritt"], 300))
-    offen, geschlossen = offene_entscheidungen(kopf.get("Offene Entscheidung", ""))
-    zeilen.append("")
-    zeilen.append("OFFENE FRAGEN AN DICH")
-    if not offen:
-        zeilen.append("  keine - der Reviewer entscheidet den Regelfall selbst (R13f)")
-    for nr, txt in offen:
-        e = entscheidbar(txt)
-        if not e:
-            zeilen.append(f"  {nr or '-'} UNKLAR FORMULIERT: {_kurz(txt, 160)}")
-            continue
-        zeilen.append(f"  {nr or '-'} {e['frage']}")
-        folgen = f"bei ja: {e['bei_ja'] or '-'} / bei nein: {e['bei_nein'] or '-'}"
-        zeilen.append(f"      Empfehlung: {e['empfehlung']} | {_kurz(folgen, 160)}")
-    if geschlossen:
-        zeilen.append(f"  ({geschlossen} Posten hat der Reviewer selbst geschlossen - "
-                      "Veto per /claude)")
-    review = _letztes_review(cfg) if review_text is None else review_text
-    punkte = protocol.parse_offene_punkte(review)
-    zeilen.append("")
-    zeilen.append("AUS DEM LETZTEN REVIEW")
-    kurz = protocol.offene_punkte_kurz(punkte, breite=170)
-    zeilen += ["  " + z for z in kurz] if kurz else ["  keine Marker"]
-    if len(punkte.get("entschieden") or []) > 0 and not any(
-            z.startswith("Entschieden") for z in kurz):
-        zeilen.append(f"  {len(punkte['entschieden'])} eigene Entscheidung(en) des "
-                      "Reviewers")
-    if gate and gate.get("instruction"):
-        quelle = (gate.get("tools") or {}).get("source") or "reviewer"
-        zeilen.append("")
-        zeilen.append(f"OFFENER AUFTRAG ({'VOM NUTZER' if quelle == 'user' else 'vom Reviewer'})")
-        zeilen.append("  " + _kurz(str(gate["instruction"]), 200))
-    return "\n".join(zeilen)
+    """`/fragen`: NAECHSTER SCHRITT + OFFENE FRAGEN AN DICH (mit Kennung, R13y).
+
+    Steht hier nur noch als Eingang: die Ausgabe baut `hx/fragen.py` (dort liegen die
+    Kennungen `A5`/`R209-1`/`M208-1`, der Antwortstatus und der Anhang fuer `/claude`).
+    Der Import geschieht ABSICHTLICH erst im Aufruf: `fragen` liest `stand` (Kopf, Zahlen,
+    Formate), und ein Import auf Modulebene waere ein Kreis.
+    """
+    from . import fragen as fragenmod
+    return fragenmod.fragen_text(cfg, gate=gate, review_text=review_text)
 
 
 def _kurz(text: str, grenze: int) -> str:

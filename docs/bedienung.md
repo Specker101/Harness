@@ -1021,10 +1021,10 @@ Mehr: /thinking 20   Ungekuerzt: /thinking 10 voll
 
 ---
 
-## 16. Offene Fragen an dich (`/fragen`, R13s)
+## 16. Offene Fragen an dich (`/fragen`, R13s/R13y)
 
 `/fragen` (Telegram) und `python -m hx.cli fragen` zeigen, was gerade **an dir** offen
-ist — je Frage als **eine entscheidbare Zeile**:
+ist — jede Frage mit **Kennung**, je Frage als **eine entscheidbare Zeile**:
 
 ```
 FRAGEN AN DICH (Anker: BATCH 206)
@@ -1033,29 +1033,93 @@ NAECHSTER SCHRITT
   (a) R535 (NEU, GEMESSEN, OFFEN): addc addiert das EINGEHENDE CA NICHT - eine Probe ...
 
 OFFENE FRAGEN AN DICH
-  (5) soll prof je Kopf MEHRERE MEM-Varianten fahren?
-      Empfehlung: ja | bei ja: - / bei nein: -
-  (6) UNKLAR FORMULIERT: offen bleiben: R330, M60_NO_EVID, NEG_IMM_LO, ...
+  A5        ANKERPOSTEN (5): soll prof je Kopf MEHRERE MEM-Varianten fahren?
+            Empfehlung: ja | bei ja: eigener Werkzeugschritt / bei nein: -
+            Quelle: Ankerkopf r1b-workstream.md
+  A6        UNKLAR FORMULIERT: offen bleiben: R330, M60_NO_EVID, ...
+  R209-1    ENTSCHEIDUNG NOETIG (bremst): Soll der Hybrid-Kern gegen Unicorn geprueft ...
+  R209-2    OFFENE FRAGE: Du nennst 21 Referenzstroeme, gezaehlt sind 20. Welcher fehlt?
+  R209-3    WARTET AUF LIVE-AUFNAHME: 0x40B/0x40E/0x40F
+  R209-4    ENTSCHIEDEN (Veto per /claude moeglich): Zuerst wird der Interpreter streng ...
+  M208-1    AUSSENSICHT (Gewicht mittel): Der Zielsatz in readme.md nennt kein Budget ...
+            Empfehlung: Das Budget im Zielsatz der readme nachtragen.
+            Beleg: readme.md:640-642
   (4 Posten hat der Reviewer selbst geschlossen - Veto per /claude)
 
-AUS DEM LETZTEN REVIEW
-  Entschieden (Reviewer, Widerspruch per /claude): ...
-  Wartet auf Live-Aufnahme: 0x40B/0x40E/0x40F
+ANTWORTEN: /claude <Kennung> <Text>   (z. B. "/claude A5 ja" oder "/claude M208-1: abgelehnt, weil ...")
 ```
 
-Quellen (alle nur lesend): der Ankerkopf (`**Naechster Schritt:**`,
-`**Offene Entscheidung:**`), das letzte Review (`runs/b<N>/review.md`, ausgewertet mit
-`protocol.parse_offene_punkte`) und ein offenes Gate.
+### 16a. Die Kennungen (R13y, 2026-09-28)
 
-**Wie eine Frage „entscheidbar" wird:** Der Harness zerlegt die Ankerzeile in ihre
-`(n) …`-Posten und sucht darin drei Teile — eine **Ja/Nein-Frage** (Satz, der mit
-`soll/ist/bleibt/wird/kann/darf/muss/gibt` beginnt und mit `?` endet), eine
+| Kennung | Woher | Beispiel |
+|---|---|---|
+| `A5` | Ankerposten `(5)` im Ankerkopf — die Kennung ist die Postennummer | `A12` |
+| `R209-1` | Marker-Zeile des Reviews, das **Batch 209** bewertet hat (fortlaufend in der Reihenfolge `ENTSCHEIDUNG NOETIG` → `OFFENE FRAGE` → `WARTET AUF LIVE-AUFNAHME` → `ENTSCHIEDEN`) | `R209-2` |
+| `M208-1` | Aussensicht-Befund (vergleicht sie selbst) | `M208-5b` |
+
+Es gibt **keinen neuen Befehl** und **keinen eigenen Speicher**: die Kennungen werden aus
+den vorhandenen Belegen abgeleitet (Ankerkopf, letztes Review, Aussensicht-Register,
+Queue-Dateien). Deshalb bleiben sie auch nach einem Harness-Neustart oder einem
+abgebrochenen Batch gültig.
+
+**Wie eine Frage „entscheidbar" wird** (unverändert seit R13s): Der Harness zerlegt die
+Ankerzeile in ihre `(n) …`-Posten und sucht darin drei Teile — eine **Ja/Nein-Frage**
+(Satz, der mit `soll/ist/bleibt/wird/kann/darf/muss/gibt` beginnt und mit `?` endet), eine
 **Empfehlung** (`Vorschlag:` / `Empfehlung:`) und die **Folgen** (`bei ja:` / `bei nein:`).
-Fehlt einer der Teile, steht der Posten als **`UNKLAR FORMULIERT`** mit dem
-Originaltext — nichts wird umgedeutet (Nutzerentscheid 2026-09-28). Die Folgen stehen
-als `-`, wenn sie in der Prosa nicht genannt sind; der Harness erfindet sie nicht.
+Fehlt einer der Teile, steht der Posten als **`UNKLAR FORMULIERT`** mit dem Originaltext —
+nichts wird umgedeutet (Nutzerentscheid 2026-09-28); er bekommt aber trotzdem seine
+Kennung, damit auch eine unklare Frage beantwortbar ist (dann am besten den Wortlaut
+nennen). Die Marker-Zeilen des Reviewers tragen keine Empfehlung — sie wird nicht
+erfunden.
 
-**Antworten** laufen über die gewohnten Wege: `/ds <Text>` schickt die Antwort als
-Nutzer-Nachricht in den nächsten Batch (dort wird sie als „vom Nutzer" ausgewiesen),
-`/claude <Text>` geht an den Reviewer. Posten, die der Reviewer selbst entschieden hat,
-brauchen keine Antwort — sie stehen nur zur Information da (Widerspruch per `/claude`).
+Ein geteilter Aussensicht-Befund (Ziel/Scope-Anteil beim Nutzer, Sachanteil beim
+Reviewer) trägt zwei Kennungen: `M208-5a` (du) und `M208-5b` (Reviewer). Die Kurzform
+`M208-5` gilt für beide Teile.
+
+### 16b. Antworten mit Kennung (`/claude`, R13y)
+
+Beginnt eine `/claude`-Nachricht mit einer Kennung, gilt sie als **Antwort auf genau
+diese Frage**:
+
+```
+/claude A5 ja, aber erst nach den Paket-E-Blaettern
+/claude M208-1: abgelehnt, das Budget steht in hybrid-plan.md
+/claude A5, M208-1: ja bzw. abgelehnt
+```
+
+Der Harness hängt dann **Wortlaut der Frage und Empfehlung** (den Stand von jetzt) an die
+Nachricht an — der Reviewer sieht also, worauf sich „ja" bezieht, auch wenn der
+Ankerposten später umgeschrieben wird. Danach steht die Frage in `/fragen` unter
+**`BEANTWORTET, WARTET AUF REVIEW`** und verschwindet ganz, sobald das Review die
+Nachricht gelesen hat (dann steht sie nur noch als `aufgenommen (nicht mehr offen)` mit
+ihrer Kennung).
+
+Eine **unbekannte** Kennung am Anfang wird abgewiesen: die Nachricht wird **nicht** in die
+Queue gelegt, und der Harness antwortet mit den gültigen Kennungen. Eine Nachricht
+**ohne** Kennung am Anfang geht unverändert an den Reviewer (Hinweise, Wünsche, freier
+Text). Mehrere Kennungen in einer Nachricht sind erlaubt.
+
+## 17. Was nehme ich wann? (R13y)
+
+| Ich will … | Befehl | Ankunft |
+|---|---|---|
+| **Nachlesen**, was offen ist | `/fragen` | sofort (rein lesend) |
+| **Antworten** auf eine Frage | `/claude <Kennung> <Text>` | beim nächsten Review |
+| Einen **Hinweis/Wunsch** loswerden, der auch später noch passt | `/claude <Text>` | beim nächsten Review (als „vom Nutzer, nicht verhandelbar") |
+| Dass der **nächste Batch sofort anders läuft** (am Gate) | `/ds <Text>` | mit dem nächsten Auftrag — nur am Batch-Übergang, **nicht** in einen laufenden Batch |
+| Eine **Frage an Claude** außerhalb des Betriebs (nur lesend) | `/ask <Frage>` | sofort, eigener Lauf (kostet Abo-Kontingent) |
+| Den **Zwischenstand** sehen | `/status` (Zustand, letzter Batch, offene Kennungen) | sofort |
+| Die **Bilanz** (Äste, Durchsatz, Kosten) | `/bilanz [N]` | sofort |
+| **Nur zusehen** | `/thinking [N]`, `hx.cli watch` | sofort, rein lesend |
+
+Faustregeln:
+
+* **`/fragen` ist zum Lesen, `/claude` zum Antworten** — und für alles, was der Reviewer
+  wissen soll, ohne eine Batch-Instruktion zu ändern.
+* **`/ds` nur, wenn der kommende Batch wirklich anders laufen soll.** Es ist die einzige
+  Rückmeldung, die den Worker direkt erreicht; sie geht am Reviewer vorbei und gilt für
+  genau einen Batch. Antworten auf Fragen gehören **nicht** hierher (sie brauchen die
+  Bewertung des Reviewers).
+* **Wissen/Belege statt Zurufe**: Wenn dir etwas auffällt (Messung, Widerspruch,
+  fehlender Beleg), ist `/claude` der richtige Weg — der Reviewer prüft es und entscheidet
+  selbst.

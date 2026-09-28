@@ -12,7 +12,11 @@ Anderer Auftrag als der Reviewer (bewusst):
     Empfaenger `Nutzer` per Telegram und unter `/fragen`.
   * Ausgabeformat (strikt, damit maschinell lesbar):
     `<AUSSENSICHT>…</AUSSENSICHT>`, je Befund
-    `<BEFUND n="1" gewicht="hoch" empfaenger="Reviewer">Beleg: … Aussage: … Empfehlung: …</BEFUND>`
+    `<BEFUND n="1" gewicht="hoch" empfaenger="Reviewer|Nutzer">Beleg: … Aussage: … Empfehlung: …</BEFUND>`
+    Der Empfaenger folgt dem **Entscheidungstraeger** (R13y): Reviewer = Orchestrator-Sache
+    (Regelfall), Nutzer = nur Ziel/Scope/Budget/fruehere Nutzerentscheidungen. Ein Befund mit
+    beiden Anteilen wird mechanisch geteilt (`M208-5a` Nutzer / `M208-5b` Reviewer,
+    `entscheidungstraeger`).
     und je frueherem Befund `<PRUEFUNG id="M208-3" status="erledigt|offen|verworfen"/>`.
 
 Ausloeser (`faellig`): Vormerkung durch `/meta`, alle `[meta] every_batches` Batches, ein
@@ -124,19 +128,65 @@ def zeile(cfg) -> str:
     return (f"letzte Aussensicht: Batch {batch or '?'}, {anzahl} Befunde, davon {offen} offen")
 
 
-def fragen_zeilen(cfg) -> str:
-    """Offene Befunde mit Empfaenger Nutzer fuer `/fragen`."""
-    rows = [b for b in offene(cfg) if str(b.get("empfaenger")) == "Nutzer"]
-    if not rows:
-        return ""
-    zeilen = ["", "== AUSSENSICHT - offene Punkte an dich =="]
-    for b in rows:
-        zeilen.append(f"- [{b.get('id')}] {str(b.get('aussage') or '')[:300]}")
-        if b.get("empfehlung"):
-            zeilen.append(f"  Empfehlung: {str(b['empfehlung'])[:200]}")
-        if b.get("beleg"):
-            zeilen.append(f"  Beleg: {str(b['beleg'])[:160]}")
-    return "\n".join(zeilen)
+# ------------------------------------------- Entscheidungstraeger (R13y)
+# Was der Orchestrator laut AGENTS.md "Roles" SELBST entscheiden darf, geht an den
+# Reviewer. An den Nutzer geht nur, was Ziel, Scope, Budget oder eine fruehere
+# Nutzerentscheidung beruehrt. Ein Befund mit beiden Anteilen wird geteilt.
+# Absichtlich eine kurze, pruefbare Liste von WENDUNGEN (kein Sprachmodell): "Ziel des
+# naechsten Batches" ist ein Zuschnitt-Thema des Reviewers und darf NICHT als "Ziel"
+# durchschlagen, deshalb stehen dort "projektziel"/"zielsatz" und nicht "ziel".
+NUTZER_THEMEN = re.compile(
+    r"(projektziel|zielsatz|projektumfang|umfang des projekts|\bscope\b|\bbudget\b|"
+    r"tagesbudget|kostenrahmen|\bkontingent\b|\babo\b|priorisier\w*|priorit\w*|"
+    r"\breadme\b|nutzerentscheid\w*|nutzerauftrag\w*|deine entscheidung|"
+    r"abbruchkriteri\w*|liefergegenstand\w*|was wird nie gebaut|nicht mehr gebaut)",
+    re.IGNORECASE)
+_SATZ_ENDE = re.compile(r"(?<=[.!?])\s+")
+
+
+def _saetze(text: str) -> list[str]:
+    """Einen Text in Saetze zerlegen (Leerraum normalisiert, leere Teile weg)."""
+    t = " ".join(str(text or "").split())
+    return [s.strip() for s in _SATZ_ENDE.split(t) if s.strip()] if t else []
+
+
+def _ist_nutzer_thema(text: str) -> bool:
+    return bool(NUTZER_THEMEN.search(str(text or "")))
+
+
+def entscheidungstraeger(befund: dict) -> list[dict]:
+    """Befund nach Entscheidungstraeger aufteilen (R13y) -> 1 oder 2 Befunde.
+
+    Regel (Nutzerauftrag 2026-09-28):
+      * Saetze der Aussage, die Ziel/Scope/Budget/fruehere Nutzerentscheidungen
+        beruehren, gehen an den **Nutzer**;
+      * alle anderen an den **Reviewer** (der Orchestrator entscheidet den Regelfall
+        selbst, AGENTS.md "Roles");
+      * hat der Befund beide Anteile, entstehen ZWEI Befunde - gleicher Beleg, gleiches
+        Gewicht, getrennte Kennungen (`M208-5a` Nutzer, `M208-5b` Reviewer);
+      * die Empfehlung geht an den Teil, zu dem sie inhaltlich gehoert; beim geteilten
+        Befund bleibt der andere Teil ohne Empfehlung (dann steht dort keine Zeile).
+
+    Die Aufteilung ist absichtlich mechanisch und nachpruefbar - sie ersetzt die
+    Empfaengerangabe des Modells, wenn sie widerspricht.
+    """
+    aussage = str(befund.get("aussage") or "")
+    empfehlung = str(befund.get("empfehlung") or "")
+    saetze = _saetze(aussage)
+    nutzer = [s for s in saetze if _ist_nutzer_thema(s)]
+    rest = [s for s in saetze if not _ist_nutzer_thema(s)]
+    e_nutzer = _ist_nutzer_thema(empfehlung)
+    if not saetze:
+        return [dict(befund, empfaenger="Nutzer" if e_nutzer else "Reviewer",
+                     geteilt=False)]
+    if not nutzer:
+        return [dict(befund, empfaenger="Reviewer", geteilt=False)]
+    if not rest:
+        return [dict(befund, empfaenger="Nutzer", geteilt=False)]
+    return [dict(befund, empfaenger="Nutzer", geteilt=True, teil="a",
+                 aussage=" ".join(nutzer), empfehlung=empfehlung if e_nutzer else ""),
+            dict(befund, empfaenger="Reviewer", geteilt=True, teil="b",
+                 aussage=" ".join(rest), empfehlung="" if e_nutzer else empfehlung)]
 
 
 # ------------------------------------------------------------------ Eingaben
@@ -371,6 +421,14 @@ Empfehlung: <was getan werden sollte, in EINEM Satz>
 (weitere Befunde fortlaufend nummeriert, hoechstens {max_befunde} Stueck, nach Gewicht
 sortiert: hoch zuerst. Ein Befund OHNE jeden Beleg wird verworfen und zaehlt nicht.)
 
+EMPFAENGER (R13y, pruefe JEDEN Befund daran):
+  Reviewer = alles, was der Orchestrator laut AGENTS.md "Roles" selbst entscheidet
+             (Reihenfolge/Zuschnitt/Werkzeuge/Messmethoden/Code/Plan) - der Regelfall.
+  Nutzer   = NUR Ziel, Scope, Budget, frueherere Nutzerentscheidungen (readme-Zielsatz,
+             Projektumfang, Priorisierung, Kostenrahmen/Abo, Aufheben einer Entscheidung).
+  Befund mit beiden Anteilen: ZWEI Befunde schreiben (einer Nutzer, einer Reviewer),
+  sonst setzt der Harness die Aufteilung selbst durch.
+
 Fuer JEDEN noch offenen frueheren Befund eine Zeile:
 <PRUEFUNG id="M208-3" status="erledigt|offen|verworfen"/>
 
@@ -529,8 +587,21 @@ def parse(text: str, max_befunde: int = 7) -> tuple[str, list[dict], list[dict],
     return summary, befunde, verworfen, pruefungen
 
 
-_RE_ANTWORT = re.compile(r"\bM(\d{3})-(\d+)\s*:\s*(uebernommen|übernommen|abgelehnt|erledigt|"
-                         r"verworfen|offen)\b(?P<rest>[^\n]*)", re.IGNORECASE)
+_RE_ANTWORT = re.compile(r"\bM(\d{3})-(\d+)([a-z]?)\s*:\s*(uebernommen|übernommen|abgelehnt|"
+                         r"erledigt|verworfen|offen)\b(?P<rest>[^\n]*)", re.IGNORECASE)
+
+
+def finde_eintraege(index: dict, bid: str) -> list[dict]:
+    """Die Registereintraege zu einer Kennung - auch die Teile eines geteilten Befunds.
+
+    Ein geteilter Befund heisst `M208-5a` (Nutzer) und `M208-5b` (Reviewer). Antwortet
+    der Reviewer auf die Kurzform `M208-5`, gilt das fuer BEIDE Teile (R13y).
+    """
+    bid = str(bid or "").strip()
+    if bid in index:
+        return [index[bid]]
+    return [e for k, e in index.items()
+            if k.lower() in (bid.lower() + "a", bid.lower() + "b")]
 
 
 def antworten_uebernehmen(cfg, summary: str, batch: int) -> list[str]:
@@ -538,7 +609,8 @@ def antworten_uebernehmen(cfg, summary: str, batch: int) -> list[str]:
 
     Der Reviewer muss jede `/claude`-Nachricht mit `M<batch>-<n>` beantworten
     ("M208-3: uebernommen (…)" / "M208-3: abgelehnt, Grund …"). Unbeantwortete Befunde
-    bleiben `offen` und erscheinen weiter in `/bilanz`.
+    bleiben `offen` und erscheinen weiter in `/bilanz`. Seit R13y gibt es geteilte
+    Befunde (`M208-5a`/`M208-5b`) - die Kurzform gilt fuer beide.
     """
     alle = ledger(cfg)
     if not alle:
@@ -546,18 +618,16 @@ def antworten_uebernehmen(cfg, summary: str, batch: int) -> list[str]:
     index = {str(b.get("id")): b for b in alle}
     geaendert: list[str] = []
     for m in _RE_ANTWORT.finditer(summary or ""):
-        bid = f"M{m.group(1)}-{m.group(2)}"
-        eintrag = index.get(bid)
-        if eintrag is None:
-            continue
-        wort = m.group(3).lower()
+        bid = f"M{m.group(1)}-{m.group(2)}{m.group(3) or ''}"
+        wort = m.group(4).lower()
         status = {"übernommen": "beantwortet", "uebernommen": "beantwortet"}.get(wort, wort)
-        eintrag["status"] = status
-        eintrag["antwort"] = (str(m.group(4) or "").strip()[:400]
-                              or str(summary).strip()[:200])
-        eintrag["antwort_batch"] = int(batch)
-        eintrag["antwort_ts"] = now_iso()
-        geaendert.append(bid)
+        for eintrag in finde_eintraege(index, bid):
+            eintrag["status"] = status
+            eintrag["antwort"] = (str(m.group(5) or "").strip()[:400]
+                                  or str(summary).strip()[:200])
+            eintrag["antwort_batch"] = int(batch)
+            eintrag["antwort_ts"] = now_iso()
+            geaendert.append(str(eintrag.get("id")))
     if geaendert:
         ledger_schreiben(cfg, alle)
     return geaendert
@@ -567,28 +637,47 @@ def verteile(cfg, state, summary: str, befunde: list[dict], pruefungen: list[dic
              batch: int, log=None) -> dict:
     """Befunde in den Ledger uebernehmen, Verdikte anwenden, Empfaenger bedienen.
 
+    R13y: Jeder Befund wird vorher nach **Entscheidungstraeger** aufgeteilt
+    (`entscheidungstraeger`): was der Orchestrator selbst entscheiden darf, geht an den
+    Reviewer; an den Nutzer nur Ziel/Scope/Budget/fruehere Nutzerentscheidungen. Ein
+    Befund mit beiden Anteilen wird geteilt und bekommt zwei Kennungen
+    (`M208-5a` Nutzer / `M208-5b` Reviewer).
+
     Rueckgabe: {"ids": [...], "queue": [...], "nutzer": [...], "verdikte": [...]}
     """
     alle = ledger(cfg)
     index = {str(b.get("id")): b for b in alle}
     neu_ids: list[str] = []
+    geteilt: list[str] = []
+    umgeleitet: list[str] = []
     for i, b in enumerate(befunde, 1):
-        bid = f"M{batch}-{i}"
-        eintrag = dict(b)
-        eintrag.update({"id": bid, "batch": int(batch), "ts": now_iso(), "status": "offen",
-                        "quelle": "aussensicht", "antwort": "", "antwort_batch": None})
-        index[bid] = eintrag
-        alle.append(eintrag)
-        neu_ids.append(bid)
+        teile = entscheidungstraeger(b)
+        for t in teile:
+            bid = f"M{batch}-{i}{t.get('teil') or ''}"
+            eintrag = dict(t)
+            eintrag.update({"id": bid, "batch": int(batch), "ts": now_iso(),
+                            "status": "offen", "quelle": "aussensicht",
+                            "antwort": "", "antwort_batch": None,
+                            "empfaenger_modell": str(b.get("empfaenger") or "")})
+            eintrag.pop("teil", None)
+            index[bid] = eintrag
+            alle.append(eintrag)
+            neu_ids.append(bid)
+        if len(teile) > 1:
+            geteilt.append(f"M{batch}-{i}")
+        elif str(teile[0].get("empfaenger")) != str(b.get("empfaenger") or ""):
+            umgeleitet.append(f"M{batch}-{i} {b.get('empfaenger')} -> "
+                              f"{teile[0].get('empfaenger')}")
 
     verdikte: list[str] = []
     for p in pruefungen:
-        eintrag = index.get(str(p.get("id")))
-        if eintrag is None:
+        treffer = finde_eintraege(index, str(p.get("id")))
+        if not treffer:
             continue
-        eintrag["status"] = p.get("status") or "offen"
-        eintrag["letzte_pruefung"] = int(batch)
-        verdikte.append(f"{p['id']} -> {eintrag['status']}")
+        for eintrag in treffer:
+            eintrag["status"] = p.get("status") or "offen"
+            eintrag["letzte_pruefung"] = int(batch)
+            verdikte.append(f"{eintrag.get('id')} -> {eintrag['status']}")
 
     # Alte, laenger unbeantwortete Befunde mitzaehlen (Sichtbarkeit im Bericht)
     offen_alt = [b["id"] for b in alle
@@ -596,8 +685,10 @@ def verteile(cfg, state, summary: str, befunde: list[dict], pruefungen: list[dic
     ledger_schreiben(cfg, alle)
     if log:
         log.info("Aussensicht: Befunde uebernommen", batch=batch, neu=neu_ids,
-                 verdikte=verdikte, offen_alt=len(offen_alt))
+                 verdikte=verdikte, offen_alt=len(offen_alt), geteilt=geteilt,
+                 umgeleitet=umgeleitet)
     return {"ids": neu_ids, "verdikte": verdikte, "offen_alt": offen_alt,
+            "geteilt": geteilt, "umgeleitet": umgeleitet,
             "empfaenger": {b["id"]: b["empfaenger"] for b in alle if b["id"] in neu_ids}}
 
 

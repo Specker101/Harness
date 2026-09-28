@@ -1,0 +1,38 @@
+### Kennungen aus den echten Texten (Review-Ordner b210)
+   A1        Ankerposten            ENTSCHIEDEN (Nutzer, 2026-09-28):** In den B-Plan kommt ein eigener Schritt **"K
+   A2        Ankerposten            NEU/offen:** F1/F2 sind **gemeinsame** Referenzfehler - die Korrektur gehoert in
+   A3        Ankerposten            offen bleiben: die `nachzuegler`-Sonde "toter Betriebsweg" (B194/B195), die per-
+   R209-1    Reviewer (entschieden) Die R391-Reihenfolge prüft künftig ein Werkzeug (Commit-Folge plus Änderungszeit
+   R209-2    Reviewer (entschieden) Die A2-Altposten verschiebe ich auf den nächsten C-Batch ohne Werkzeugumbau. Dei
+   R209-3    Reviewer (entschieden) Den Wunsch nach `/830d01.27p.be.bin` (Lader, Anfangszustand) nehme ich für den B
+   M208-1    Aussensicht (hoch)     Der Kern ist die Kommandoschicht eines Funktionsinterpreters. Er kann weder zurü
+   M208-3    Aussensicht (mittel)   Die Harness-Aufbereitung trägt einen Vorhersagewert als Messwert weiter, zeigt v
+   M208-5    Aussensicht (mittel)   Die Hochrechnung von 369 Batches berücksichtigt das neue 2:1-Verhältnis nicht; C
+   -> 9 Fragen, davon 3 aus der Aussensicht
+
+### 1) Antwort auf eine Ankerfrage: /claude A1 ja, aber erst nach B211
+   ok: True | bekannt: ['A1']
+   Meldung: In die Queue gelegt. Beantwortet: A1 - die Frage(n) stehen jetzt als "beantwortet, wartet auf Review".
+   Anhang, der an die Nachricht geht:
+     A1 ja, aber erst nach B211
+     
+     [Antwort auf Frage(n) - Wortlaut zum Zeitpunkt der Antwort]
+     --- A1 (Ankerposten) ---
+     Frage: ENTSCHIEDEN (Nutzer, 2026-09-28):** In den B-Plan kommt ein eigener Schritt **"Kontrollfluss/Supervisor"** ZWISCHEN "Maschine" und "kHeads-Uebe
+
+### 2) /fragen danach (Auszug)
+   BEANTWORTET, WARTET AUF REVIEW
+     A1        ENTSCHIEDEN (Nutzer, 2026-09-28):** In den B-Plan kommt ein eigener Schritt **"Kontrollfluss/Supervisor"** ZWISCHEN "Maschine" und "kHeads
+   ANTWORTEN: /claude <Kennung> <Text>   (z. B. "/claude A2 ja" - Kennung am Anfang, dann der Text)
+
+### 3) Unbekannte Kennung
+   ok: False | unbekannt: ['A9']
+   Meldung: Unbekannte Kennung: A9. Die Nachricht wurde NICHT in die Queue gelegt. | Gueltige Kennungen: A1, A2, A3, R209-1, R209-2, R209-3, M208-1, M208-3, M208-5
+
+### 4) Nach dem Review (das Gate hat die Nachricht gelesen)
+   Status A1 = aufgenommen
+   Zeile in /fragen: ['aufgenommen (nicht mehr offen): A1']
+
+### 5) Geteilter Befund (Entscheidungstraeger) an einem echten Befund
+   -> Nutzer    geteilt=False Die Hochrechnung von 369 Batches berücksichtigt das neue 2:1-Verhältnis nicht; C bekommt nur noch je
+   (Befunde mit beiden Anteilen werden geteilt - belegt in tests/test_r13y_fixes.py::TestEntscheidungstraeger und ::TestVerteilung)

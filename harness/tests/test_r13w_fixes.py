@@ -58,6 +58,12 @@ Aussage: Eine Zahl im Anhang hat keine Quelle.
 Empfehlung: Zahl streichen oder belegen.
 </BEFUND>
 
+<BEFUND n="4" gewicht="mittel" empfaenger="Reviewer">
+Beleg: readme.md:640-642
+Aussage: Der Zielsatz in readme.md nennt kein Budget fuer den Rest des Vorhabens.
+Empfehlung: Das Budget im Zielsatz der readme nachtragen.
+</BEFUND>
+
 <BEFUND n="4" gewicht="hoch" empfaenger="Reviewer">
 Aussage: Dieser Befund hat gar keinen Beleg.
 Empfehlung: Wird verworfen.
@@ -72,12 +78,16 @@ class TestParser(unittest.TestCase):
     def test_befunde_gewichte_empfaenger_und_deckel(self):
         summary, befunde, verworfen, pruefungen = aussensicht.parse(BEISPIEL, 7)
         self.assertIn("Stichproben", summary)
-        # Befund 4 hat keinen Beleg -> verworfen, nicht verschwiegen.
-        self.assertEqual(len(befunde), 3)
+        # Befund 5 hat keinen Beleg -> verworfen, nicht verschwiegen.
+        self.assertEqual(len(befunde), 4)
         self.assertEqual(len(verworfen), 1)
-        # Sortierung nach Gewicht: hoch, hoch, mittel, niedrig
-        self.assertEqual([b["gewicht"] for b in befunde], ["hoch", "mittel", "niedrig"])
-        self.assertEqual([b["empfaenger"] for b in befunde], ["Reviewer", "Reviewer", "Nutzer"])
+        # Sortierung nach Gewicht: hoch, mittel, mittel, niedrig
+        self.assertEqual([b["gewicht"] for b in befunde],
+                         ["hoch", "mittel", "mittel", "niedrig"])
+        # Der Empfaenger kommt aus dem Modell; die Aufteilung nach Entscheidungstraeger
+        # passiert erst beim Verteilen (`entscheidungstraeger`, R13y).
+        self.assertEqual([b["empfaenger"] for b in befunde],
+                         ["Reviewer", "Reviewer", "Reviewer", "Nutzer"])
         self.assertEqual([p["id"] for p in pruefungen], ["M207-1", "M207-2"])
         self.assertEqual([p["status"] for p in pruefungen], ["erledigt", "offen"])
 
@@ -377,17 +387,40 @@ class TestLedgerUndVerteilung(unittest.TestCase):
         res = self._ergebnis()
         v = aussensicht.verteile(self.cfg, self.state, res.summary, res.befunde,
                                  res.pruefungen, 208, self.log)
-        self.assertEqual(v["ids"], ["M208-1", "M208-2", "M208-3"])
+        self.assertEqual(v["ids"], ["M208-1", "M208-2", "M208-3", "M208-4"])
         self.assertIn("M207-1 -> erledigt", v["verdikte"])
         alle = {b["id"]: b for b in aussensicht.ledger(self.cfg)}
         self.assertEqual(alle["M207-1"]["status"], "erledigt")
         self.assertEqual(alle["M207-2"]["status"], "offen")
         self.assertEqual(alle["M208-1"]["status"], "offen")
         self.assertEqual(alle["M208-1"]["empfaenger"], "Reviewer")
+        # R13y: der Empfaenger folgt dem Entscheidungstraeger, nicht der Modellangabe.
+        # Befund 4 nennt den Zielsatz/readme -> Nutzer; Befund 1 (Anfragenzahl) und
+        # Befund 3 (Zahl ohne Quelle) sind Orchestrator-Sache -> Reviewer.
         self.assertEqual(alle["M208-3"]["empfaenger"], "Nutzer")
+        self.assertEqual(alle["M208-4"]["empfaenger"], "Reviewer")
+        # Befund 1 der Antwort (niedrig) wollte "Nutzer", ist aber Orchestrator-Sache.
+        self.assertTrue(any("Nutzer -> Reviewer" in u for u in v["umgeleitet"]),
+                        f"Umleitung fehlt: {v['umgeleitet']}")
+        self.assertEqual(v["geteilt"], [])
         self.assertEqual(sorted(v["offen_alt"]), ["M207-2"])
 
-    def test_zeile_und_fragen_zeilen(self):
+    def test_geteilter_befund_bekommt_zwei_kennungen(self):
+        """Ein Befund mit beiden Anteilen wird geteilt (`M208-1a`/`M208-1b`)."""
+        teile = aussensicht.entscheidungstraeger({
+            "aussage": "Der Zielsatz der readme nennt kein Budget. Der Kern springt nicht "
+                       "zurueck und kennt keinen Interrupt.",
+            "empfehlung": "Den Zielsatz in der readme ergaenzen."})
+        self.assertEqual([t["empfaenger"] for t in teile], ["Nutzer", "Reviewer"])
+        self.assertEqual([t.get("teil") for t in teile], ["a", "b"])
+        self.assertIn("Budget", teile[0]["aussage"])
+        self.assertNotIn("Interrupt", teile[0]["aussage"])
+        self.assertIn("Interrupt", teile[1]["aussage"])
+        self.assertEqual(teile[0]["empfehlung"], "Den Zielsatz in der readme ergaenzen.")
+        self.assertEqual(teile[1]["empfehlung"], "")
+
+    def test_zeile_und_fragen_mit_kennungen(self):
+        from hx import fragen as fragenmod
         self.assertEqual(aussensicht.zeile(self.cfg), "")
         res = self._ergebnis()
         v = aussensicht.verteile(self.cfg, self.state, res.summary, res.befunde,
@@ -395,11 +428,17 @@ class TestLedgerUndVerteilung(unittest.TestCase):
         aussensicht.bericht_schreiben(self.cfg, 208, "Test", res, v, ["Testgrund"])
         zeile = aussensicht.zeile(self.cfg)
         self.assertIn("Batch 208", zeile)
-        self.assertIn("3 Befunde", zeile)
-        self.assertIn("3 offen", zeile)
-        fragen = aussensicht.fragen_zeilen(self.cfg)
-        self.assertIn("M208-3", fragen)          # Empfaenger Nutzer
-        self.assertNotIn("M208-1", fragen)       # Empfaenger Reviewer
+        self.assertIn("4 Befunde", zeile)
+        self.assertIn("4 offen", zeile)
+        # R13y: die Nutzer-Befunde stehen mit Kennung in /fragen, die Reviewer-Befunde nicht.
+        fragen = fragenmod.fragen_text(self.cfg)
+        self.assertIn("M208-3", fragen)
+        self.assertIn("AUSSENSICHT", fragen)
+        self.assertNotIn("M208-1 ", fragen)
+        anhang = fragenmod.anhang([fragenmod.nachschlagen(self.cfg, "M208-3")])
+        self.assertIn("M208-3", anhang)
+        self.assertIn("Frage:", anhang)
+        self.assertIn("Empfehlung:", anhang)
 
     def test_antworten_uebernehmen(self):
         res = self._ergebnis()
@@ -415,7 +454,7 @@ class TestLedgerUndVerteilung(unittest.TestCase):
         self.assertEqual(alle["M208-2"]["antwort_batch"], 209)
         # Unbeantwortet bleibt offen und erscheint weiter in der Zeile.
         self.assertTrue(any(b["id"] == "M208-3" for b in aussensicht.offene(self.cfg)))
-        self.assertIn("1 offen", aussensicht.zeile(self.cfg))
+        self.assertIn("2 offen", aussensicht.zeile(self.cfg))
 
 
 class TestOrchestratorAblauf(unittest.TestCase):
@@ -499,8 +538,8 @@ class TestOrchestratorAblauf(unittest.TestCase):
         self.assertIn("Batch 208", self.orch.meta_zeile())
         self.orch._do_fragen()
         text = "\n".join(self.gesagt)
-        self.assertTrue("AUSSENSICHT" in text or "offene Punkte" in text
-                        or "FRAGEN" in text)
+        self.assertIn("FRAGEN AN DICH", text)
+        self.assertIn("ANTWORTEN: /claude", text)
 
 
 class TestBilanzZeile(unittest.TestCase):

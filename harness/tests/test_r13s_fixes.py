@@ -298,12 +298,18 @@ class TestStand(Basis):
                                                  "tools": {"source": "user"}})
         self.assertIn("FRAGEN AN DICH (Anker: BATCH 101)", text)
         self.assertIn("NAECHSTER SCHRITT", text)
-        self.assertIn("(5) soll `prof` je Kopf MEHRERE MEM-Varianten fahren?", text)
+        # R13y: jede Frage traegt eine Kennung (`A5` fuer den Ankerposten `(5)`).
+        self.assertIn("A5", text)
+        self.assertIn("ANKERPOSTEN (5): soll `prof` je Kopf MEHRERE MEM-Varianten fahren?",
+                      text)
         self.assertIn("Empfehlung: ja", text)
-        self.assertIn("(6) UNKLAR FORMULIERT", text)
+        self.assertIn("A6", text)
+        self.assertIn("UNKLAR FORMULIERT", text)
         self.assertIn("2 Posten hat der Reviewer selbst geschlossen", text)
-        self.assertIn("Wartet auf Live-Aufnahme: 0x40B/0x40E/0x40F", text)
+        self.assertIn("WARTET AUF LIVE-AUFNAHME: 0x40B/0x40E/0x40F", text)
         self.assertIn("OFFENER AUFTRAG (VOM NUTZER)", text)
+        self.assertIn("ANTWORTEN: /claude <Kennung>", text)
+        self.assertIn('/claude A5 ja', text)
 
     def test_fragen_ohne_anker(self):
         text = stand.fragen_text(self.cfg)
@@ -402,7 +408,8 @@ class TestBefehl(Basis):
         text, mono = self.gesagt[-1]
         self.assertTrue(mono)
         self.assertIn("FRAGEN AN DICH", text)
-        self.assertIn("(5) soll `prof`", text)
+        self.assertIn("ANKERPOSTEN (5): soll `prof`", text)   # R13y: mit Kennung A5
+        self.assertIn("A5", text)
 
     def test_fragen_alias(self):
         self.anker()

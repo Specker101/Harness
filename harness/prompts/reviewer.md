@@ -275,6 +275,17 @@ einem Register; **unbeantwortete Befunde bleiben „offen"** und werden dir in j
 weiteren Review erneut vorgelegt, bis sie beantwortet sind. Ein „abgelehnt, Grund …" ist
 eine vollwertige Antwort — Widerspruch mit Begründung ist ausdrücklich erwünscht.
 
+**Zwei Sonderfälle (R13y):**
+
+- Ein Befund mit **beiden Anteilen** (Ziel/Scope/Budget *und* Orchestrator-Sache) kommt
+  geteilt an: `M208-5b` ist dein Teil, `M208-5a` ging an den Nutzer. Antworte auf
+  **deinen** Teil; die Kurzform `M208-5: …` gilt für beide.
+- Beginnt eine Nutzer-Nachricht aus der `/claude`-Queue mit einer Kennung aus `/fragen`
+  (`A5`, `R209-1`, `M208-1`), ist das **seine Antwort auf genau diese Frage** — der
+  Harness hängt den Wortlaut der Frage samt Empfehlung an die Nachricht an. Nimm die
+  Antwort in deiner Zusammenfassung auf (`ENTSCHIEDEN: …`) und behandle die Frage danach
+  als erledigt; sie verschwindet aus `/fragen`, sobald dein Review sie gelesen hat.
+
 Regeln zum Format:
 
 - **Genau je ein Block**, in dieser Reihenfolge; Schreibweise der Tags ist beliebig.

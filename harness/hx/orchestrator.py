@@ -18,7 +18,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from . import aufraeumen, control, envs, pricing, protocol, queue, retention, reviewer as rv, secrets, state as st, streamjson, worker as wk
+from . import aufraeumen, control, envs, fragen as fragenmod, pricing, protocol, queue, retention, reviewer as rv, secrets, state as st, streamjson, worker as wk
 from . import aussensicht
 from . import ask as askmod
 from . import bilanz as bilanzmod
@@ -591,24 +591,20 @@ class Orchestrator:
         """`/fragen` - was gerade an den Nutzer offen ist, je Frage EINE Zeile (R13s).
 
         Quellen (alle nur lesend): der Ankerkopf (`**Naechster Schritt:**`,
-        `**Offene Entscheidung:**`), das letzte Review (Marker-Zeilen des Reviewers)
-        und ein offenes Gate. Was sich nicht als Ja/Nein-Frage mit Empfehlung und
-        Folgen formulieren laesst, wird als `UNKLAR FORMULIERT` markiert - nichts wird
-        still umgedeutet (Nutzerentscheid 2026-09-28).
+        `**Offene Entscheidung:**`), das letzte Review (Marker-Zeilen des Reviewers),
+        die offenen Aussensicht-Befunde mit Empfaenger "Nutzer" und die Queue
+        (Antwortstatus). Jede Frage traegt eine **Kennung** (R13y) - mit ihr wird per
+        `/claude <Kennung> <Text>` geantwortet. Was sich nicht als Ja/Nein-Frage mit
+        Empfehlung und Folgen formulieren laesst, wird als `UNKLAR FORMULIERT` markiert
+        - nichts wird still umgedeutet (Nutzerentscheid 2026-09-28).
         """
         try:
-            text = standmod.fragen_text(self.cfg, gate=self.state.gate)
+            text = fragenmod.fragen_text(self.cfg, gate=self.state.gate)
         except Exception as exc:                                # noqa: BLE001
             self.log.error("Fragen fehlgeschlagen", fehler=str(exc)[:250])
             self.say("FRAGEN FEHLGESCHLAGEN: " + str(exc)[:300])
             return
-        # R13w: offene Befunde der Aussensicht mit Empfaenger "Nutzer" gehoeren hierher.
-        try:
-            zusatz = aussensicht.fragen_zeilen(self.cfg)
-        except Exception as exc:                                # noqa: BLE001
-            zusatz = ""
-            self.log.warn("Aussensicht-Befunde nicht lesbar", fehler=str(exc)[:150])
-        self.say(text + ("\n" + zusatz if zusatz else ""), mono=True)
+        self.say(text, mono=True)
 
     # ------------------------------------------------------- Aussensicht (R13w)
     def meta_zeile(self) -> str:
@@ -844,10 +840,26 @@ class Orchestrator:
                 self.say(f"In die Queue gelegt ({p.name}). Wird am naechsten Batch-Uebergang zugestellt.")
         elif cmd == "claude":
             if not rest:
-                self.say("Nutzung: /claude <Text>")
+                self.say("Nutzung: /claude <Text>\nBeginnt der Text mit einer Kennung "
+                         "aus /fragen (A5, R209-1, M208-1), gilt er als Antwort darauf; "
+                         "Wortlaut und Empfehlung werden angehaengt.")
             else:
-                p = queue.enqueue(self.qroot, "claude", rest, "telegram")
-                self.say(f"In die Queue gelegt ({p.name}). Wird beim naechsten Review zugestellt.")
+                try:
+                    vor = fragenmod.nachricht_vorbereiten(self.cfg, rest, gate=self.state.gate)
+                except Exception as exc:                        # noqa: BLE001
+                    self.log.warn("Kennungen nicht pruefbar", fehler=str(exc)[:150])
+                    vor = {"ok": True, "text": rest, "bekannt": [], "unbekannt": [],
+                           "meldung": ""}
+                if not vor.get("ok"):
+                    # Unbekannte Kennung: NICHT einreihen, sondern die gueltigen nennen.
+                    self.say(vor.get("meldung") or "Unbekannte Kennung.")
+                    self.log.info("claude-Nachricht verworfen (unbekannte Kennung)",
+                                  unbekannt=vor.get("unbekannt"))
+                else:
+                    p = queue.enqueue(self.qroot, "claude", vor["text"], "telegram")
+                    zusatz = (" " + vor["meldung"]) if vor.get("bekannt") else \
+                             " Wird beim naechsten Review zugestellt."
+                    self.say(f"In die Queue gelegt ({p.name})." + zusatz)
         elif cmd == "ask":
             self._do_ask(rest)
         elif cmd in ("ask-neu", "ask_neu", "askneu"):
@@ -1012,6 +1024,11 @@ class Orchestrator:
             f"Phase: {self.phase_text()}",
             f"Letzte Entscheidung: {rev.get('last_decision') or '-'}",
         ]
+        # R13y: welche Fragen mit welcher Kennung offen sind ("/claude <Kennung> <Text>").
+        try:
+            lines += fragenmod.status_zeilen(self.cfg, gate=s.gate)
+        except Exception as exc:                                # noqa: BLE001
+            lines.append("Fragen an dich: nicht ermittelbar (" + str(exc)[:80] + ")")
         gate = s.gate
         if gate:
             quelle = (gate.get("tools") or {}).get("source") or "reviewer"
