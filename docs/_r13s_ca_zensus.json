@@ -1,0 +1,325 @@
+{
+ "koepfe": 78,
+ "insn": 2052,
+ "betroffen": [
+  {
+   "tag": "10E9C",
+   "head": "0x80010E9C",
+   "insn": 8,
+   "treffer": {
+    "addc": 3
+   },
+   "summe": 3
+  },
+  {
+   "tag": "3C17C",
+   "head": "0x8003C17C",
+   "insn": 23,
+   "treffer": {
+    "addc": 3,
+    "subfc": 3
+   },
+   "summe": 6
+  },
+  {
+   "tag": "622AC",
+   "head": "0x800622AC",
+   "insn": 30,
+   "treffer": {
+    "subfc": 1
+   },
+   "summe": 1
+  },
+  {
+   "tag": "62C78",
+   "head": "0x80062C78",
+   "insn": 55,
+   "treffer": {
+    "subfc": 2
+   },
+   "summe": 2
+  },
+  {
+   "tag": "10A20",
+   "head": "0x80010A20",
+   "insn": 68,
+   "treffer": {
+    "addc": 20
+   },
+   "summe": 20
+  },
+  {
+   "tag": "62124",
+   "head": "0x80062124",
+   "insn": 62,
+   "treffer": {
+    "addc": 2,
+    "subfc": 1
+   },
+   "summe": 3
+  },
+  {
+   "tag": "0F7E4",
+   "head": "0x8000F7E4",
+   "insn": 63,
+   "treffer": {
+    "addc": 3,
+    "subfc": 1
+   },
+   "summe": 4
+  },
+  {
+   "tag": "21148",
+   "head": "0x80021148",
+   "insn": 6,
+   "treffer": {
+    "addc": 1
+   },
+   "summe": 1
+  },
+  {
+   "tag": "1DAB4",
+   "head": "0x8001DAB4",
+   "insn": 10,
+   "treffer": {
+    "subfc": 1
+   },
+   "summe": 1
+  },
+  {
+   "tag": "159B0",
+   "head": "0x800159B0",
+   "insn": 11,
+   "treffer": {
+    "subfc": 2,
+    "addc": 1
+   },
+   "summe": 3
+  },
+  {
+   "tag": "156CC",
+   "head": "0x800156CC",
+   "insn": 13,
+   "treffer": {
+    "subfc": 2,
+    "addc": 2
+   },
+   "summe": 4
+  },
+  {
+   "tag": "29E48",
+   "head": "0x80029E48",
+   "insn": 16,
+   "treffer": {
+    "addc": 1
+   },
+   "summe": 1
+  },
+  {
+   "tag": "662E8",
+   "head": "0x800662E8",
+   "insn": 17,
+   "treffer": {
+    "addc": 1,
+    "subfc": 3
+   },
+   "summe": 4
+  },
+  {
+   "tag": "3C12C",
+   "head": "0x8003C12C",
+   "insn": 19,
+   "treffer": {
+    "subfc": 3
+   },
+   "summe": 3
+  },
+  {
+   "tag": "5C040",
+   "head": "0x8005C040",
+   "insn": 19,
+   "treffer": {
+    "subfc": 3
+   },
+   "summe": 3
+  },
+  {
+   "tag": "5C090",
+   "head": "0x8005C090",
+   "insn": 19,
+   "treffer": {
+    "subfc": 3
+   },
+   "summe": 3
+  },
+  {
+   "tag": "57320",
+   "head": "0x80057320",
+   "insn": 23,
+   "treffer": {
+    "addc": 2
+   },
+   "summe": 2
+  },
+  {
+   "tag": "0DDD4",
+   "head": "0x8000DDD4",
+   "insn": 26,
+   "treffer": {
+    "addc": 3,
+    "subfc": 1
+   },
+   "summe": 4
+  },
+  {
+   "tag": "10690",
+   "head": "0x80010690",
+   "insn": 29,
+   "treffer": {
+    "addc": 3
+   },
+   "summe": 3
+  },
+  {
+   "tag": "5BEFC",
+   "head": "0x8005BEFC",
+   "insn": 30,
+   "treffer": {
+    "subfc": 4
+   },
+   "summe": 4
+  },
+  {
+   "tag": "5B2A8",
+   "head": "0x8005B2A8",
+   "insn": 37,
+   "treffer": {
+    "addc": 1
+   },
+   "summe": 1
+  },
+  {
+   "tag": "82BA0",
+   "head": "0x80082BA0",
+   "insn": 37,
+   "treffer": {
+    "addc": 2
+   },
+   "summe": 2
+  },
+  {
+   "tag": "833B8",
+   "head": "0x800833B8",
+   "insn": 37,
+   "treffer": {
+    "addc": 2
+   },
+   "summe": 2
+  },
+  {
+   "tag": "5BC90",
+   "head": "0x8005BC90",
+   "insn": 35,
+   "treffer": {
+    "subfc": 2,
+    "addc": 1
+   },
+   "summe": 3
+  },
+  {
+   "tag": "0CE14",
+   "head": "0x8000CE14",
+   "insn": 38,
+   "treffer": {
+    "subfc": 1,
+    "addc": 6
+   },
+   "summe": 7
+  },
+  {
+   "tag": "3B808",
+   "head": "0x8003B808",
+   "insn": 39,
+   "treffer": {
+    "subfc": 3,
+    "addc": 1
+   },
+   "summe": 4
+  },
+  {
+   "tag": "4721C",
+   "head": "0x8004721C",
+   "insn": 50,
+   "treffer": {
+    "addc": 2
+   },
+   "summe": 2
+  },
+  {
+   "tag": "564D4",
+   "head": "0x800564D4",
+   "insn": 53,
+   "treffer": {
+    "addc": 1
+   },
+   "summe": 1
+  },
+  {
+   "tag": "431D4",
+   "head": "0x800431D4",
+   "insn": 55,
+   "treffer": {
+    "addc": 1
+   },
+   "summe": 1
+  },
+  {
+   "tag": "5BF74",
+   "head": "0x8005BF74",
+   "insn": 51,
+   "treffer": {
+    "subfc": 1,
+    "addc": 1
+   },
+   "summe": 2
+  },
+  {
+   "tag": "55DA8",
+   "head": "0x80055DA8",
+   "insn": 71,
+   "treffer": {
+    "addc": 3
+   },
+   "summe": 3
+  },
+  {
+   "tag": "5873C",
+   "head": "0x8005873C",
+   "insn": 67,
+   "treffer": {
+    "subfc": 2,
+    "addc": 4
+   },
+   "summe": 6
+  },
+  {
+   "tag": "17A8C",
+   "head": "0x80017A8C",
+   "insn": 76,
+   "treffer": {
+    "addc": 3
+   },
+   "summe": 3
+  },
+  {
+   "tag": "65898",
+   "head": "0x80065898",
+   "insn": 86,
+   "treffer": {
+    "addc": 19,
+    "subfc": 3
+   },
+   "summe": 22
+  }
+ ]
+}

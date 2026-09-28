@@ -29,6 +29,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from . import stand
 from . import streamjson
 from .util import read_json, read_text
 
@@ -166,12 +167,14 @@ def _delta(alt: float | None, neu: float | None, prozent: bool) -> str:
     return f"{d:+.1f} pp" if prozent else f"{d:+.0f}"
 
 
-def ast_zeilen(alt_rows: dict, neu_rows: dict) -> tuple[list[str], int]:
+def ast_zeilen(alt_rows: dict, neu_rows: dict,
+               nur_prozent: bool = False) -> tuple[list[str], int]:
     """Die feste Ast-Tabelle (Reihenfolge = Reihenfolge im Schnappschuss).
 
     Gezaehlt wird ein Ast als geaendert, wenn sich die Hauptzahl ODER eine Nebenzahl
     bewegt hat - sonst wuerde ein Ast, dessen Nachzuegler sich verschieben, als
-    unveraendert erscheinen.
+    unveraendert erscheinen. `nur_prozent=True` (R13s, Nutzerentscheid) laesst Zeilen
+    OHNE Prozentzahl weg - deren Inhalt steht im Aenderungsblock.
     """
     namen = list(neu_rows.keys())
     breite = max((len(n) for n in namen), default=12) + 2
@@ -186,6 +189,8 @@ def ast_zeilen(alt_rows: dict, neu_rows: dict) -> tuple[list[str], int]:
         det_alt, det_neu = detail(alt), detail(neu)
         if d != "=" or det_alt != det_neu:
             geaendert += 1
+        if nur_prozent and fortschritt(neu)[0] is None:
+            continue
         zeilen.append(f"{name:<{breite}} {_kuerzen(a_txt):<{WERTE}} -> "
                       f"{_kuerzen(n_txt):<{WERTE}} {d}")
         if det_neu:
@@ -193,6 +198,154 @@ def ast_zeilen(alt_rows: dict, neu_rows: dict) -> tuple[list[str], int]:
         if det_alt and det_alt != det_neu:
             zeilen.append(f"{'':<{breite}} vorher: {det_alt}")
     return zeilen, geaendert
+
+
+# ------------------------------------------------- Fortschritt in Prozent (R13s)
+# Nutzerauftrag 2026-09-28: "ganz oben in der Liste brauche ich das, was sich geaendert
+# hat, und das am besten in Prozent, sofern im Vergleich zum Batch davor". Viele Aeste
+# haben im Schnappschuss KEINE Prozentzahl, aber eine Gesamtheit - die wird hier
+# gerechnet (Nutzerentscheid: selbst rechnen, wo eine Gesamtheit existiert).
+OFFEN_ZEILEN = ("Unterbau (B)",)          # Zeilen, die den OFFENEN Rest messen
+
+
+def fortschritt(row: dict | None) -> tuple[float | None, str]:
+    """(Prozent 0..100 oder None, Basis-Text) einer Ast-Zeile.
+
+    Regel (in `docs/bedienung.md` dokumentiert):
+      * `pct` vorhanden      -> direkt (327er-Pool, Programm-Inventar)
+      * `insn_gebaut`        -> Insn gebaut / Insn gesamt (Audio)
+      * `gebaut` + `offen`   -> gebaut / (gebaut + offen)
+      * `gebaut` + `total`   -> gebaut / total (Platte B129_PLATE)
+      * `gebaut` + `named`   -> gebaut / benannt (R207 rueckwerts)
+      * `a_knoten`/`b_knoten`-> (a+b) / (a+b+offen_a+offen_b) (Strang A / B)
+      * sonst                -> None (Modi, Unterbau (A)/(B), offene Reste)
+    """
+    if not row:
+        return None, ""
+    if row.get("pct") is not None:
+        von = row.get("s1", row.get("gelesen", row.get("gebaut")))
+        return float(row["pct"]), f"{von}/{row.get('total', '?')}"
+    if row.get("insn_gebaut") is not None and row.get("insn_gesamt"):
+        g, t = int(row["insn_gebaut"]), int(row["insn_gesamt"])
+        return (100.0 * g / t if t else None), f"{g}/{t} Insn"
+    if row.get("gebaut") is not None and row.get("offen") is not None:
+        g = int(row["gebaut"])
+        t = g + int(row["offen"])
+        return (100.0 * g / t if t else None), f"{g}/{t}"
+    if row.get("gebaut") is not None and row.get("named"):
+        g, t = int(row["gebaut"]), int(row["named"])
+        return (100.0 * g / t if t else None), f"{g}/{t} benannt"
+    if row.get("gebaut") is not None and row.get("total"):
+        g, t = int(row["gebaut"]), int(row["total"])
+        return (100.0 * g / t if t else None), f"{g}/{t}"
+    if row.get("a_knoten") is not None and row.get("b_knoten") is not None:
+        g = int(row["a_knoten"]) + int(row["b_knoten"])
+        t = g + int(row.get("a_offen") or 0) + int(row.get("b_offen") or 0)
+        return (100.0 * g / t if t else None), f"{g}/{t}"
+    return None, ""
+
+
+def _absolut(row: dict | None, einheit: bool = True) -> tuple[int | None, str]:
+    """Die Hauptzahl einer Zeile fuer den absoluten Vergleich (None, wenn es keine gibt)."""
+    if not row:
+        return None, ""
+    for schluessel in ("insn_gebaut", "gebaut", "gelesen", "s1", "knoten", "modi"):
+        if row.get(schluessel) is not None:
+            return int(row[schluessel]), schluessel
+    return None, ""
+
+
+def aenderungen(alt_rows: dict, neu_rows: dict) -> list[dict]:
+    """Die BEWEGTEN Aeste, groesste Aenderung zuerst.
+
+    Je Eintrag: Name, Prozent vorher/jetzt, Delta in Prozentpunkten, absolute Zahl
+    vorher/jetzt und ihre Einheit. Sortiert nach |pp| (ohne pp: nach |absolut|).
+    """
+    out: list[dict] = []
+    for name in list(neu_rows.keys()) + [n for n in alt_rows if n not in neu_rows]:
+        alt, neu = alt_rows.get(name), neu_rows.get(name)
+        p_alt, basis_alt = fortschritt(alt)
+        p_neu, basis_neu = fortschritt(neu)
+        z_alt, _s_alt = _absolut(alt)
+        z_neu, _s_neu = _absolut(neu)
+        pp = (p_neu - p_alt) if (p_alt is not None and p_neu is not None) else None
+        absolut = (z_neu - z_alt) if (z_alt is not None and z_neu is not None) else None
+        offen_zeile = name in OFFEN_ZEILEN
+        if offen_zeile:
+            # Offene Reste: die Insn-Zahl ist das Mass (kleiner ist besser).
+            i_alt = (alt or {}).get("insn") or (alt or {}).get("offen_insn")
+            i_neu = (neu or {}).get("insn") or (neu or {}).get("offen_insn")
+            if i_alt is not None and i_neu is not None:
+                absolut = int(i_neu) - int(i_alt)
+                z_alt, z_neu = int(i_alt), int(i_neu)
+        bewegt = ((pp is not None and abs(pp) >= 0.005)
+                  or (absolut is not None and absolut != 0)
+                  or (alt is None) != (neu is None))
+        if not bewegt:
+            continue
+        out.append({"name": name, "pp": pp, "p_alt": p_alt, "p_neu": p_neu,
+                    "basis_alt": basis_alt, "basis_neu": basis_neu,
+                    "z_alt": z_alt, "z_neu": z_neu, "absolut": absolut,
+                    "offen": offen_zeile, "neu": alt is None, "weg": neu is None})
+    out.sort(key=lambda e: (-(abs(e["pp"]) if e["pp"] is not None else -1.0),
+                            -(abs(e["absolut"]) if e["absolut"] is not None else 0)))
+    return out
+
+
+def _bewegt_zeile(e: dict) -> str:
+    """Eine Zeile des Aenderungsblocks."""
+    name = e["name"]
+    if e["neu"]:
+        return f"  {name:<18} NEU in diesem Batch"
+    if e["weg"]:
+        return f"  {name:<18} entfallen (davor {e['basis_alt'] or _z(e['z_alt'])})"
+    if e["offen"]:
+        d = e["absolut"]
+        return (f"  {name:<18} offen {e['z_alt']} -> {e['z_neu']} Insn"
+                + (f"   {d:+d}" if d else "   ="))
+    if e["pp"] is not None:
+        return (f"  {name:<18} {e['p_alt']:5.1f} % -> {e['p_neu']:5.1f} %"
+                f"   {e['pp']:+.2f} pp   ({e['basis_alt']} -> {e['basis_neu']})")
+    d = e["absolut"]
+    return (f"  {name:<18} {e['z_alt']} -> {e['z_neu']}"
+            + (f"   {d:+d}" if d else "   ="))
+
+
+def _z(wert_: int | None) -> str:
+    return "?" if wert_ is None else str(wert_)
+
+
+def aenderungs_block(cfg, alt_rows: dict, neu_rows: dict, batch: int,
+                     alt: int | None) -> list[str]:
+    """`WAS SICH GEAENDERT HAT` - nur Bewegtes, in Prozent, zuerst die Kernzahlen.
+
+    Vorangestellt sind die Zahlen, die den Batch wirklich ausmachen: die verifizierten
+    C-Koepfe (`C Koepfe`) und der gebaute Paket-E-Vorrat. Danach die bewegten Aeste.
+    """
+    kopf = "WAS SICH GEAENDERT HAT" + (f" ({alt} -> {batch})" if alt else f" (Batch {batch})")
+    zeilen = [kopf]
+    jetzt = stand.stand_zahlen(cfg)
+    if jetzt.get("c_koepfe") is not None and jetzt.get("c_koepfe_vorher") is not None:
+        zeilen.append(f"  verifiziert  : +{jetzt['c_koepfe'] - jetzt['c_koepfe_vorher']} "
+                      f"Koepfe ({jetzt['c_koepfe_vorher']} -> {jetzt['c_koepfe']}), "
+                      f"{jetzt.get('c_abweichungen', 0)} Abweichungen")
+    if (jetzt.get("paket_e_koepfe") is not None
+            and jetzt.get("paket_e_koepfe_vorher") is not None):
+        dk = jetzt["paket_e_koepfe_vorher"] - jetzt["paket_e_koepfe"]
+        di = jetzt.get("paket_e_insn_vorher", 0) - jetzt.get("paket_e_insn", 0)
+        zeilen.append(f"  Paket E      : {dk} Koepfe / {di} Insn gebaut "
+                      f"(offen {jetzt['paket_e_koepfe_vorher']} -> "
+                      f"{jetzt['paket_e_koepfe']})")
+    bewegt = aenderungen(alt_rows, neu_rows)
+    if not bewegt:
+        zeilen.append("  Aeste        : keine Zahl bewegt")
+        return zeilen
+    for e in bewegt:
+        zeilen.append(_bewegt_zeile(e))
+    prozent_zeilen = sum(1 for e in bewegt if e["pp"] is not None)
+    zeilen.append(f"  Aeste        : {len(bewegt)} von {len(neu_rows)} bewegt"
+                  + (f", davon {prozent_zeilen} mit Prozentzahl" if prozent_zeilen else ""))
+    return zeilen
 
 
 def zusatz_zeile(neu: dict) -> str:
@@ -206,85 +359,118 @@ def zusatz_zeile(neu: dict) -> str:
 
 
 # ------------------------------------------------------- Projektstand (Teil C)
-# Die Zahlen stehen als Prosa in den Belegdateien (Batch-Dokument + Ankerkopf) und
-# sind dort FETT gesetzt ("**591 Koepfe / 28858 Insn** in der Bau-Liste"). Die Muster
-# lassen die Fettmarken und Zeilenumbrueche zu - im ersten Anlauf scheiterten sie
-# daran und die Bilanz zeigte "offen: 2072 Koepfe" (die Inventarzeile, falsch).
-_INV = re.compile(r"(\d+)\s*Koepfe\s*/\s*(\d+)\s*Insn\s*\**\s*im Programm-Inventar")
-_BAU = re.compile(r"(\d+)\s*Koepfe\s*/\s*(\d+)\s*Insn\s*\**\s*in der Bau-Liste")
-_OFFEN = re.compile(r"OFFEN:?[^\d]{0,12}(\d+)\s*Koepfe\s*/\s*\**\s*(\d+)\s*Insn")
-_BLATT = re.compile(r"(\d+)\s*Koepfe\s*/\s*\**\s*(\d+)\s*Insn\s*\**\s*keinen offenen Ruf")
+# R13s: Die Muster und die Dokumentauswahl liegen jetzt in `hx/stand.py` (eine Quelle
+# fuer `/bilanz`, `/fragen` und die PLAN/IST-Tafel des Reviews). Hier bleibt nur der
+# duenne Verweis, damit die oeffentlichen Namen erhalten bleiben.
+_INV = stand._RE_INV
+_BAU = stand._RE_BAU
+_OFFEN = stand._RE_OFFEN
+_BLATT = stand._RE_BLATT
 
 
 def c_stand(cfg) -> dict:
-    """Zahlen fuer den Projektstand aus den Belegdateien des Decomp-Repos.
+    """Zahlen fuer den Projektstand aus den Belegdateien des Decomp-Repos (R13q/R13s).
 
-    Gesucht wird in der NEUESTEN Batch-Datei (`analysis/port-batch<N>-*.md`) und, wenn
-    sie nichts hergibt, im Ankerkopf. Nichts wird geschaetzt: was nicht dasteht, bleibt
-    leer und wird als "nicht ermittelbar" ausgewiesen.
+    Gesucht wird in den Batch-Dokumenten `analysis/port-batch<N>-*.md` (Nummer aus dem
+    Dateinamen, neuestes zuerst) und, wenn sie nichts hergeben, im Ankerkopf. Nichts
+    wird geschaetzt: was nicht dasteht, bleibt leer und wird als "nicht ermittelbar"
+    ausgewiesen.
     """
-    texte: list[tuple[str, str]] = []
-    try:
-        adir = Path(cfg.decomp) / "analysis"
-        docs = sorted(adir.glob("port-batch*.md"),
-                      key=lambda p: p.stat().st_mtime, reverse=True)[:2]
-        for p in docs:
-            texte.append((f"analysis/{p.name}", read_text(p)[:200000]))
-    except OSError:
-        pass
-    try:
-        texte.append((str(Path(cfg.anchor_file).name), read_text(cfg.anchor_file)[:80000]))
-    except OSError:
-        pass
+    return stand.stand_zahlen(cfg)
 
-    out: dict = {}
-    for quelle, text in texte:
-        m = _INV.search(text)
-        if m and "inventar" not in out:
-            out["inventar"] = (int(m.group(1)), int(m.group(2)))
-            out["quelle"] = quelle
-        m = _BAU.search(text)
-        if m and "baut" not in out:
-            out["baut"] = (int(m.group(1)), int(m.group(2)))
-        m = _OFFEN.search(text)
-        if m and "offen" not in out:
-            out["offen"] = (int(m.group(1)), int(m.group(2)))
-        m = _BLATT.search(text)
-        if m and "blatt" not in out:
-            out["blatt"] = (int(m.group(1)), int(m.group(2)))
-        if {"inventar", "offen", "baut"} <= set(out):
-            break
-    return out
+
+def _pct_teil(ist: int, gesamt: int) -> str:
+    return f"{100.0 * ist / gesamt:.1f} %" if gesamt else "?"
+
+
+def _delta_pp(alt: float | None, neu: float | None) -> str:
+    if alt is None or neu is None:
+        return ""
+    d = neu - alt
+    return "=" if abs(d) < 0.05 else f"{d:+.1f} pp"
+
+
+def _stand_reihe(cfg) -> tuple[dict, dict]:
+    """(neuestes, vorheriges) Zahlen-Dokument aus `stand.c_zahlen`."""
+    reihe = [e for e in stand.c_zahlen(cfg, 8) if "baut" in e or "c_koepfe" in e]
+    if not reihe:
+        return {}, {}
+    return reihe[-1], (reihe[-2] if len(reihe) > 1 else {})
+
+
+def gesamt_block(cfg) -> list[str]:
+    """`GESAMT` - Projektstand in Prozent, mit Delta zum Vorbatch und Durchsatz.
+
+    Quellen: die Zeilen `C Koepfe` (verifizierte Koepfe/Faelle) und `Paket E offen`
+    aus den Batch-Dokumenten (`stand.c_zahlen`), die Bau-Liste/offen-Zahlen, wo ein
+    Dokument sie (noch) als Prosa traegt, das Programm-Inventar aus dem
+    Bilanz-Schnappschuss und der Durchsatz aus `stand.durchsatz`. Nichts wird
+    geschaetzt - was fehlt, steht als "nicht ermittelbar" da.
+    """
+    jetzt, vorher = _stand_reihe(cfg)
+    zeilen = ["GESAMT (Teil C - der systematische Durchgang)"]
+    if jetzt.get("c_koepfe") is not None:
+        delta = ""
+        if jetzt.get("c_koepfe_vorher") is not None:
+            dk = jetzt["c_koepfe"] - jetzt["c_koepfe_vorher"]
+            df = (jetzt.get("c_faelle", 0) - jetzt.get("c_faelle_vorher", 0))
+            delta = f"   ({dk:+d} Koepfe / {df:+d} Faelle in diesem Batch)"
+        zeilen.append(f"  C verifiziert: {jetzt['c_koepfe']} Koepfe / "
+                      f"{jetzt.get('c_faelle', '?')} Faelle / "
+                      f"{jetzt.get('c_abweichungen', 0)} Abweichungen" + delta)
+    if jetzt.get("paket_e_koepfe") is not None:
+        k, i = jetzt["paket_e_koepfe"], jetzt.get("paket_e_insn", 0)
+        bl, bl_i = jetzt.get("paket_e_blatt"), jetzt.get("paket_e_insn_blatt")
+        delta = ""
+        if jetzt.get("paket_e_koepfe_vorher") is not None:
+            dk = jetzt["paket_e_koepfe_vorher"] - k
+            di = jetzt.get("paket_e_insn_vorher", 0) - i
+            delta = f"   (in diesem Batch: {dk} Koepfe / {di} Insn gebaut)"
+        zeilen.append(f"  Paket E offen: {k} Koepfe / {i} Insn"
+                      + (f" (Bl {bl} / {bl_i})" if bl is not None else "") + delta)
+    else:
+        zeilen.append("  Paket E offen: nicht ermittelbar (keine Zeile "
+                      "'Paket E offen')")
+    inv = jetzt.get("inventar") or vorher.get("inventar")
+    baut, baut_alt = jetzt.get("baut"), vorher.get("baut")
+    offen, offen_alt = jetzt.get("offen"), vorher.get("offen")
+    if inv:
+        zeilen.append(f"  Inventar     : {inv[0]:>5} Koepfe / {inv[1]:>6} Insn"
+                      "   (Nenner der Prozente, aus dem Batch-Dokument)")
+    if baut:
+        p_alt = (100.0 * baut_alt[1] / inv[1]) if (baut_alt and inv) else None
+        p_neu = (100.0 * baut[1] / inv[1]) if inv else None
+        delta = ""
+        if baut_alt:
+            delta = (f"   {baut[0] - baut_alt[0]:+d} Koepfe / "
+                     f"{baut[1] - baut_alt[1]:+d} Insn   {_delta_pp(p_alt, p_neu)}")
+        zeilen.append(f"  Bau-Liste    : {baut[0]:>5} Koepfe / {baut[1]:>6} Insn"
+                      + (f"  ({_pct_teil(baut[0], inv[0])} / "
+                         f"{_pct_teil(baut[1], inv[1])})" if inv else "") + delta)
+    if offen:
+        p_alt = (100.0 * offen_alt[1] / inv[1]) if (offen_alt and inv) else None
+        p_neu = (100.0 * offen[1] / inv[1]) if inv else None
+        delta = ""
+        if offen_alt:
+            delta = (f"   {offen[0] - offen_alt[0]:+d} Koepfe / "
+                     f"{offen[1] - offen_alt[1]:+d} Insn   {_delta_pp(p_alt, p_neu)}")
+        zeilen.append(f"  offen        : {offen[0]:>5} Koepfe / {offen[1]:>6} Insn"
+                      + (f"  ({_pct_teil(offen[0], inv[0])} / "
+                         f"{_pct_teil(offen[1], inv[1])})" if inv else "") + delta)
+    if jetzt.get("blatt"):
+        zeilen.append(f"  davon Blaetter (kein offener Ruf): {jetzt['blatt'][0]} Koepfe / "
+                      f"{jetzt['blatt'][1]} Insn")
+    zeilen.append(f"  Programm-Inventar (S1-Doku): {inventar_prozent(cfg)}")
+    zeilen += stand.durchsatz_zeilen(cfg)
+    if jetzt.get("dokument"):
+        zeilen.append(f"  Quelle: analysis/{jetzt['dokument']}"
+                      + (f" (davor {vorher['dokument']})" if vorher.get("dokument") else ""))
+    return zeilen
 
 
 def projekt_block(cfg) -> list[str]:
-    st = c_stand(cfg)
-    inv, offen, baut = st.get("inventar"), st.get("offen"), st.get("baut")
-    zeilen = ["PROJEKTSTAND (Teil C - der systematische Durchgang)"]
-    if not inv:
-        zeilen.append("  Koepfe/Insn: nicht ermittelbar (kein Beleg gefunden)")
-    if inv and offen:
-        keb, insb = None, None
-        if baut:
-            keb, insb = baut
-        else:                                   # selbst rechnen statt raten
-            keb, insb = inv[0] - offen[0], inv[1] - offen[1]
-        def pct(v, g):
-            return f"{100.0 * v / g:.1f} %" if g else "?"
-        zeilen.append(f"  Inventar : {inv[0]:>5} Koepfe / {inv[1]:>6} Insn")
-        zeilen.append(f"  gebaut   : {keb:>5} Koepfe / {insb:>6} Insn  "
-                      f"({pct(keb, inv[0])} / {pct(insb, inv[1])})")
-        zeilen.append(f"  offen    : {offen[0]:>5} Koepfe / {offen[1]:>6} Insn  "
-                      f"({pct(offen[0], inv[0])} / {pct(offen[1], inv[1])})")
-        if st.get("blatt"):
-            zeilen.append(f"  davon Blaetter (kein offener Ruf): "
-                          f"{st['blatt'][0]} Koepfe / {st['blatt'][1]} Insn")
-    doc = inventar_prozent(cfg)
-    zeilen.append(f"  Programm-Inventar (S1-Doku): {doc}")
-    if st.get("quelle"):
-        zeilen.append(f"  Quelle: {st['quelle']}"
-                      + (" und Ankerkopf" if "port-batch" in str(st.get("quelle")) else ""))
-    return zeilen
+    """Alter Name fuer `gesamt_block` (R13q-Aufrufer bleiben gueltig)."""
+    return gesamt_block(cfg)
 
 
 def inventar_prozent(cfg) -> str:
@@ -407,43 +593,70 @@ def batch_betreffe(cfg, anzahl: int = 10) -> list[str]:
     return out
 
 
+def _kurz_satz(text: str, grenze: int = 200) -> str:
+    """Ersten Satz/Anfang kuerzen, ohne mitten im Wort zu enden."""
+    txt = " ".join(str(text or "").split())
+    if len(txt) <= grenze:
+        return txt
+    schnitt = txt[:grenze]
+    leer = schnitt.rfind(" ")
+    return (schnitt[:leer] if leer > grenze * 0.6 else schnitt) + " ..."
+
+
 # ------------------------------------------------------------------ Gesamtbericht
-def bericht(cfg, n: int = 1, batch: int | None = None, jetzt: datetime | None = None) -> str:
-    """Der komplette Bilanz-Bericht (festes Format, Telegram-tauglich)."""
+def bericht(cfg, n: int = 1, batch: int | None = None, jetzt: datetime | None = None,
+            voll: bool = False) -> str:
+    """Der komplette Bilanz-Bericht (festes Format, Telegram-tauglich, R13s).
+
+    Reihenfolge (Nutzerauftrag 2026-09-28):
+      1. Kopf + `ZULETZT` (was der Batch laut Anker geschafft hat)
+      2. `WAS SICH GEAENDERT HAT` - nur Bewegtes, in Prozent, gegen den Batch davor
+      3. `GESAMT` - Bau-Liste/Paket E/Inventar in Prozent + DURCHSATZ (HYPOTHESIS)
+      4. Aeste-Tabelle (nur Zeilen MIT Prozentzahl; `voll=True` zeigt alle)
+      5. Zusatzzahlen, Kosten/Abo, Aufgaben
+    """
     jetzt_dt = jetzt or datetime.now(timezone.utc)
     daten = snapshot(cfg)
     alle = batch_nummern(daten)
     letzte = int(batch) if batch else (alle[-1] if alle else 0)
     vor = vergleichs_batch(alle, letzte, max(1, int(n)))
-    zeilen: list[str] = []
-
+    kopfzeilen: list[str] = []
     if not alle:
-        zeilen.append("BILANZ: kein Bilanz-Schnappschuss gefunden "
-                      f"({snapshot_pfad(cfg)}).")
-    else:
-        neu_rows = ((daten["batches"].get(str(letzte)) or {}).get("rows") or {})
-        alt_rows = ((daten["batches"].get(str(vor)) or {}).get("rows") or {}) if vor else {}
-        kopf = f"BILANZ Batch {letzte}"
-        if vor:
-            kopf += f"   Vergleich: {vor} -> {letzte}   (Abstand {letzte - vor})"
-        else:
-            kopf += "   Vergleich: kein frueherer Batch vorhanden"
-        zeilen.append(kopf)
-        stand = snapshot_stand(cfg)
-        zeilen.append("Quelle: analysis/" + SNAPSHOT
-                      + (f", Stand {stand}" if stand else " (Zeit unbekannt)"))
-        zeilen.append("")
-        tabelle, geaendert = ast_zeilen(alt_rows, neu_rows)
-        zeilen += tabelle
-        zeilen.append(f"Geaendert: {geaendert} von {len(neu_rows)} Aesten")
-        if n != 1:
-            zeilen.append(f"(Vergleichsabstand {n} - '/bilanz 1' zeigt den direkten "
-                          "Vorgaenger)")
-        zeilen.append("")
-        zeilen.append(zusatz_zeile(daten["batches"].get(str(letzte)) or {}))
+        kopfzeilen.append("BILANZ: kein Bilanz-Schnappschuss gefunden "
+                          f"({snapshot_pfad(cfg)}).")
+        return "\n".join(kopfzeilen + [""] + gesamt_block(cfg) + [""]
+                         + kosten_block(cfg, jetzt=jetzt_dt))
 
+    neu_rows = ((daten["batches"].get(str(letzte)) or {}).get("rows") or {})
+    alt_rows = ((daten["batches"].get(str(vor)) or {}).get("rows") or {}) if vor else {}
+    kopf = f"BILANZ Batch {letzte}"
+    if vor:
+        kopf += f" gegen {vor}   (Abstand {letzte - vor})"
+    else:
+        kopf += "   (kein frueherer Batch vorhanden)"
+    kopfzeilen.append(kopf)
+    kopf = stand.anchor_bloecke(cfg)
+    anker_batch = stand._batch_aus_anker(kopf)
+    kopfzeilen.append(f"Anker: BATCH {anker_batch or '?'} | Bilanz: {letzte}"
+                      + ("   ACHTUNG: Anker und Bilanz sind verschiedene Batches"
+                         if anker_batch and anker_batch != letzte else ""))
+    if kopf.get("Fertig"):
+        kopfzeilen.append("ZULETZT: " + _kurz_satz(kopf["Fertig"], 220))
+
+    zeilen = kopfzeilen + [""]
+    zeilen += aenderungs_block(cfg, alt_rows, neu_rows, letzte, vor)
     zeilen.append("")
-    zeilen += projekt_block(cfg)
+    zeilen += gesamt_block(cfg)
+    zeilen.append("")
+    tabelle, geaendert = ast_zeilen(alt_rows, neu_rows, nur_prozent=not voll)
+    zeilen += tabelle
+    zeilen.append(f"Geaendert: {geaendert} von {len(neu_rows)} Aesten"
+                  + ("   (volle Tabelle: /bilanz voll)" if not voll else ""))
+    if n != 1:
+        zeilen.append(f"(Vergleichsabstand {n} - '/bilanz 1' zeigt den direkten "
+                      "Vorgaenger)")
+    zeilen.append("")
+    zeilen.append(zusatz_zeile(daten["batches"].get(str(letzte)) or {}))
     zeilen.append("")
     zeilen += kosten_block(cfg, jetzt=jetzt_dt)
     zeilen.append("")

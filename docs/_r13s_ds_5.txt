@@ -1,0 +1,7 @@
+NUTZERENTSCHEIDUNG (5) vom 2026-09-28: JA.
+
+prof soll je Kopf MEHRERE MEM-Varianten fahren (eigener kleiner Werkzeugschritt).
+Damit ist die offene Entscheidung (5) aus dem Anker ENTSCHIEDEN (NUTZER) - bitte im
+Ankerkopf so vermerken: "(5) ENTSCHIEDEN (Nutzer, 2026-09-28): ja - prof faehrt je Kopf
+mehrere MEM-Varianten". Die zwei Blaetter, deren Fallfabrik je eine Bahn nicht erreicht
+(80017A8C nur die byte!=0-Bahn, 80065898 nur die r4<2-Bahn), sind damit abgedeckt.

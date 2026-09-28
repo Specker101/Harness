@@ -634,25 +634,36 @@ Gibt es noch gar keine Zahlen: `Laufender Batch: keiner (noch keine Live-Zahlen)
 
 ### 14b. `/bilanz [N]` — Telegram und Konsole
 
-`/bilanz` (Telegram) und `python -m hx.cli bilanz [--n N]` zeigen **dieselbe** Ausgabe,
-als **festes Format**:
+`/bilanz` (Telegram) und `python -m hx.cli bilanz [--n N] [voll]` zeigen **dieselbe**
+Ausgabe, als **festes Format**. Reihenfolge (R13s, Nutzerauftrag 2026-09-28):
 
-1. **Ast-Tabelle.** Alle Aeste in der Reihenfolge des Schnappschusses, je Zeile
-   `vorher -> jetzt` und ein Delta (`=`, `+3`, `+0.4 pp`). Was sich bewegt hat, wird
-   als Nebenzeile mit `vorher: …` gezeigt. Gezählt werden beide: Hauptzahl **und**
-   Nebenzahlen — sonst gälte ein Ast, dessen Nachzügler wandern, als unverändert.
-2. **Projektstand (Teil C).** Köpfe/Insn gebaut und offen, je in Prozent, dazu die
-   Zahl der Blätter (Köpfe ohne offenen Ruf) und der Stand des **Programm-Inventars**.
-   Quelle sind die Belegdateien (`analysis/port-batch<N>-*.md` und der Ankerkopf);
-   die Zahlen stehen dort als Prosa mit Fettmarken. Was nicht dasteht, wird **nicht**
-   geschätzt, sondern als „nicht ermittelbar" ausgewiesen.
-3. **Kosten und Abo.** DeepSeek-Kosten der letzten 24 h mit Anzahl der Batches,
-   die Tageskosten aus dem Zustand samt Tagesbudget, und die **Abo-Auslastung**
-   (Sitzung 5 h / Woche 7 Tage mit Rücksetzzeit) aus `logs\rate-limit.json`.
-   Fehlt die Datei (kein Review seit R13p gelaufen), wird der neueste vorhandene
-   Review-Mitschnitt ausgewertet — der Worker-Mitschnitt bleibt unangetastet.
-4. **Aufgaben.** „Stand"-Zeile des Ankers, offener Auftrag, die letzten
-   Batch-Betreffe aus `git log`.
+1. **Kopf:** `BILANZ Batch 206 gegen 205 (Abstand 1)`, darunter `Anker: BATCH 206 |
+   Bilanz: 206` (weicht der Anker ab, steht dort eine ausdrückliche Warnung) und
+   `ZULETZT: …` — der Anfang der Anker-`Fertig:`-Zeile, also was der Batch geschafft hat.
+2. **`WAS SICH GEAENDERT HAT`** (das Wichtigste zuerst): die verifizierten C-Köpfe und
+   der gebaute Paket-E-Vorrat des Batches, danach **nur die bewegten Äste** — sortiert
+   nach Größe der Änderung, je Zeile `davor % -> jetzt %`, Delta in **Prozentpunkten**
+   und die absolute Zahl in Klammern. Zeilen, die den *offenen Rest* messen
+   (`Unterbau (B)`), stehen als `offen 569 -> 465 Insn  -104`. Gibt es keine Bewegung,
+   steht dort `keine Zahl bewegt`.
+3. **`GESAMT`:** Inventar (Nenner), Bau-Liste und offener Rest **in Prozent** mit
+   Delta zum Vorbatch, Blätter, **Paket E offen**, Programm-Inventar, und der
+   **DURCHSATZ** (siehe 14c). Fehlt eine Zahl in den Belegdateien, steht dort
+   „nicht ermittelbar" — es wird **nie** geschätzt.
+4. **Äste-Tabelle:** nur noch Zeilen **mit Prozentzahl** (`/bilanz voll` zeigt alle).
+   Je Zeile `vorher -> jetzt` und ein Delta (`=`, `+3`, `+0.4 pp`); bewegte Nebenzahlen
+   als `vorher: …`. Gezählt werden Hauptzahl **und** Nebenzahlen — sonst gälte ein Ast,
+   dessen Nachzügler wandern, als unverändert.
+5. **Zusatzzahlen** (Fälle, R216 a–d, reg_a/reg_f), **Kosten und Abo** (letzte 24 h,
+   Tageskosten, Abo-Auslastung aus `logs\rate-limit.json`; fehlt die Datei, wird der
+   neueste Review-Mitschnitt ausgewertet), **Aufgaben** (Anker-Stand, offener Auftrag,
+   letzte Batch-Betreffe aus `git log`).
+
+**Prozent-Regel** (R13s, Nutzerentscheid „selbst rechnen, wo eine Gesamtheit existiert"):
+`pct` aus dem Schnappschuss, sonst `insn_gebaut/insn_gesamt`, `gebaut/(gebaut+offen)`,
+`gebaut/total`, `gebaut/benannt` (R207) oder `(a+b)/(a+b+offen_a+offen_b)` (Strang A/B).
+Äste ohne Gesamtheit (z. B. `Modi`) bekommen keine Prozentzahl — sie erscheinen nur im
+Änderungsblock, wenn sie sich absolut bewegt haben.
 
 Der Vergleichsabstand ist der **erste** Parameter: `/bilanz 5` vergleicht mit dem
 nächsten **vorhandenen** Batch ≤ `jetzt − 5` (Batch 154 fehlt im Schnappschuss), und
@@ -663,6 +674,31 @@ Versendet wird die Bilanz als **Monospace-Block**. Geteilt wird **vor** dem Umfa
 der Zäune (sonst zerreißt eine Teilung den Block und Telegram lehnt die Nachricht ab),
 und Backticks im Text werden entschärft — ein einzelnes ``` ` ``` würde den Block
 sonst beenden.
+
+### 14c. DURCHSATZ — Quelle und Rechenweg (R13s)
+
+Der Block steht in `GESAMT` und rechnet **nur aus Belegdateien**, nichts wird geschätzt:
+
+| Zeile | Quelle | Rechnung |
+|---|---|---|
+| `Koepfe (R207 gebaut)` | `analysis/_m<N>/_bilanz*.txt`, Zeile **`R207 rueckwaerts`** (maschinengeschrieben von `scripts/m149_bilanz.py`) | Spalte „heute" minus Spalte „Vorbatch" = was **dieser** Batch verifiziert hat |
+| `Mittel der letzten N` | dieselbe Reihe (bis zu 5 belegte Batches) | arithmetisches Mittel der Differenzen; die Batches stehen in Klammern dahinter |
+| `Insn (nur wo belegt)` | Zeile **`Paket E offen`** der Batch-Dokumente (`analysis/port-batch<N>-*.md`) | Insn offen (Vorbatch) minus Insn offen (heute) |
+| `offen (Paket E, C-Arbeitsvorrat)` | dieselbe Tabellenzeile, Spalte „heute" | Köpfe/Insn, die in Paket E noch offen sind |
+| `HYPOTHESIS: noch ca. N Batches` | offen ÷ Mittel | **Schätzung**, ausdrücklich als HYPOTHESIS markiert — sie gilt nur, solange die Rate gleich bleibt |
+
+Warum die Insn nicht durchgängig da sind: die kanonische Bilanzdatei führt nur Köpfe
+(nach dem Rumpf gemessen), und die Paket-E-Zeile gibt es erst in neueren Dokumenten.
+Fehlt sie, steht das ausdrücklich da, statt eine Zahl zu erfinden.
+
+Dieselbe Reihe (plus PLAN-Spalte und Laufzeit/Abbruchgrund) steht als **PLAN/IST-Tafel**
+im Review-Prompt: der Reviewer sieht dort je Batch, was die Instruktion an Köpfen
+genannt hat (`runs/b<N>/auftrag.md`, Abschnitt `TEIL 3`: genannte Kopfadressen und die
+Insn in Klammern), was tatsächlich verifiziert wurde, wie lange der Batch lief und
+warum er endete. Dazu gilt im Reviewer-Prompt die **Median-Regel**: das Ziel des
+nächsten Batches darf höchstens ca. das **1,3-fache des Medians** der letzten Batches
+sein — Abweichungen begründet der Reviewer in einem Satz.
+
 
 ---
 
@@ -702,3 +738,44 @@ Mehr: /thinking 20   Ungekuerzt: /thinking 10 voll
   Ausgabe; ohne `--batch` der neueste Batch, `env-proof` und `ghidra-smoke` zählen nicht
   als Batch). Zeichen, die die Windows-Konsole nicht kennt (`✓`, `—`), werden dort durch
   `?` ersetzt — in Telegram kommen sie korrekt an.
+
+---
+
+## 16. Offene Fragen an dich (`/fragen`, R13s)
+
+`/fragen` (Telegram) und `python -m hx.cli fragen` zeigen, was gerade **an dir** offen
+ist — je Frage als **eine entscheidbare Zeile**:
+
+```
+FRAGEN AN DICH (Anker: BATCH 206)
+
+NAECHSTER SCHRITT
+  (a) R535 (NEU, GEMESSEN, OFFEN): addc addiert das EINGEHENDE CA NICHT - eine Probe ...
+
+OFFENE FRAGEN AN DICH
+  (5) soll prof je Kopf MEHRERE MEM-Varianten fahren?
+      Empfehlung: ja | bei ja: - / bei nein: -
+  (6) UNKLAR FORMULIERT: offen bleiben: R330, M60_NO_EVID, NEG_IMM_LO, ...
+  (4 Posten hat der Reviewer selbst geschlossen - Veto per /claude)
+
+AUS DEM LETZTEN REVIEW
+  Entschieden (Reviewer, Widerspruch per /claude): ...
+  Wartet auf Live-Aufnahme: 0x40B/0x40E/0x40F
+```
+
+Quellen (alle nur lesend): der Ankerkopf (`**Naechster Schritt:**`,
+`**Offene Entscheidung:**`), das letzte Review (`runs/b<N>/review.md`, ausgewertet mit
+`protocol.parse_offene_punkte`) und ein offenes Gate.
+
+**Wie eine Frage „entscheidbar" wird:** Der Harness zerlegt die Ankerzeile in ihre
+`(n) …`-Posten und sucht darin drei Teile — eine **Ja/Nein-Frage** (Satz, der mit
+`soll/ist/bleibt/wird/kann/darf/muss/gibt` beginnt und mit `?` endet), eine
+**Empfehlung** (`Vorschlag:` / `Empfehlung:`) und die **Folgen** (`bei ja:` / `bei nein:`).
+Fehlt einer der Teile, steht der Posten als **`UNKLAR FORMULIERT`** mit dem
+Originaltext — nichts wird umgedeutet (Nutzerentscheid 2026-09-28). Die Folgen stehen
+als `-`, wenn sie in der Prosa nicht genannt sind; der Harness erfindet sie nicht.
+
+**Antworten** laufen über die gewohnten Wege: `/ds <Text>` schickt die Antwort als
+Nutzer-Nachricht in den nächsten Batch (dort wird sie als „vom Nutzer" ausgewiesen),
+`/claude <Text>` geht an den Reviewer. Posten, die der Reviewer selbst entschieden hat,
+brauchen keine Antwort — sie stehen nur zur Information da (Widerspruch per `/claude`).

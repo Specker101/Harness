@@ -247,7 +247,8 @@ class TestBilanz(Basis):
         self.fixture()
         text = bilanz.bericht(self.cfg, n=1)
         self.assertIn("BILANZ Batch 101", text)
-        self.assertIn("Vergleich: 100 -> 101   (Abstand 1)", text)
+        self.assertIn("BILANZ Batch 101 gegen 100", text)
+        self.assertIn("(Abstand 1)", text)
         # Ast-Tabelle mit Vorher/Jetzt und Delta
         self.assertIn("Ast", text)
         self.assertIn("R207 rueckwaerts", text)
@@ -292,7 +293,7 @@ class TestBilanz(Basis):
     def test_ohne_schnappschuss_keine_ausnahme(self):
         text = bilanz.bericht(self.cfg, n=1)
         self.assertIn("kein Bilanz-Schnappschuss gefunden", text)
-        self.assertIn("PROJEKTSTAND", text)
+        self.assertIn("GESAMT", text)
         self.assertIn("KOSTEN", text)
 
     def test_prozentzeile_kommt_aus_dem_schnappschuss(self):

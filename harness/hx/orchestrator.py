@@ -22,6 +22,7 @@ from . import control, envs, pricing, protocol, queue, retention, reviewer as rv
 from . import ask as askmod
 from . import bilanz as bilanzmod
 from . import denken as denkenmod
+from . import stand as standmod
 from .gitsafe import Git
 from .telegram import HELP, Telegram, TelegramError
 from .util import ensure_dir, now_iso, read_json, read_text, secs_human, write_text_atomic
@@ -530,6 +531,23 @@ class Orchestrator:
                          f"${float(live.get('cost_usd') or 0):.4f}")
         return " | ".join(teile)
 
+    def _do_fragen(self, rest: str = "") -> None:
+        """`/fragen` - was gerade an den Nutzer offen ist, je Frage EINE Zeile (R13s).
+
+        Quellen (alle nur lesend): der Ankerkopf (`**Naechster Schritt:**`,
+        `**Offene Entscheidung:**`), das letzte Review (Marker-Zeilen des Reviewers)
+        und ein offenes Gate. Was sich nicht als Ja/Nein-Frage mit Empfehlung und
+        Folgen formulieren laesst, wird als `UNKLAR FORMULIERT` markiert - nichts wird
+        still umgedeutet (Nutzerentscheid 2026-09-28).
+        """
+        try:
+            text = standmod.fragen_text(self.cfg, gate=self.state.gate)
+        except Exception as exc:                                # noqa: BLE001
+            self.log.error("Fragen fehlgeschlagen", fehler=str(exc)[:250])
+            self.say("FRAGEN FEHLGESCHLAGEN: " + str(exc)[:300])
+            return
+        self.say(text, mono=True)
+
     def _ask_arbeiter(self) -> None:
         """Die Warteschlange der Fragen abarbeiten - eine nach der anderen (R13o)."""
         while True:
@@ -686,6 +704,8 @@ class Orchestrator:
             self._do_bilanz(rest)
         elif cmd in ("thinking", "denken"):
             self._do_thinking(rest)
+        elif cmd in ("fragen", "frage"):
+            self._do_fragen(rest)
         elif cmd == "approve":
             self._do_approve(rest)
         elif cmd == "autonom":
@@ -1790,6 +1810,8 @@ class Orchestrator:
             "worker_report": report,
             "diff": self.batch_diff_text(),
             "historie": self.historie_text(),
+            # R13s: PLAN/IST der letzten Batches (rein lesend aus den Belegdateien)
+            "plan_ist": standmod.plan_ist_text(self.cfg),
             "markers": "\n".join(marker_lines),
             "queue_block": reviewer_note,
             "anchor": anchor,

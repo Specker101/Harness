@@ -5,6 +5,7 @@
   python -m hx.cli budget
   python -m hx.cli bilanz         [--n <Abstand in Batches>]
   python -m hx.cli thinking       [--n N] [--batch B] [--voll]
+  python -m hx.cli fragen
   python -m hx.cli profiles
   python -m hx.cli probe-telegram
   python -m hx.cli allowlist-add <USER_ID>
@@ -25,7 +26,7 @@ import sys
 from pathlib import Path
 
 from .config import load_config
-from .util import Log, ensure_dir, now_iso, read_text, write_text_atomic
+from .util import Log, ensure_dir, now_iso, read_json, read_text, write_text_atomic
 
 
 def _log(cfg, name: str = "harness") -> Log:
@@ -77,10 +78,11 @@ def cmd_budget(args) -> int:
 
 
 def _druck(text: str) -> None:
-    """Ausgabe, die auch in einer cp1252-Konsole nicht abbricht.
+    """Ausgabe, die auch in einer Konsolen-Codepage nicht abbricht (R13r/R13s).
 
     R13r: Denkbloecke enthalten Pfeile/Umlaute (`→`); `print` starb daran mit
-    `UnicodeEncodeError`. Telegram ist davon nicht betroffen (UTF-8), die Konsole schon.
+    `UnicodeEncodeError`. Telegram ist davon nicht betroffen (UTF-8), die Konsole schon:
+    nicht darstellbare Zeichen werden dort durch `?` ersetzt.
     """
     try:
         print(text)
@@ -98,6 +100,15 @@ def cmd_bilanz(args) -> int:
     from . import bilanz as bilanzmod
     cfg = load_config(args.config)
     _druck(bilanzmod.bericht(cfg, n=max(1, int(getattr(args, "n", 1) or 1))))
+    return 0
+
+
+def cmd_fragen(args) -> int:
+    """Offene Fragen an den Nutzer auf der Konsole (R13s) - wie Telegram `/fragen`."""
+    from . import stand as standmod
+    cfg = load_config(args.config)
+    gate = (read_json(Path(cfg.sub("state")) / "run.json", {}) or {}).get("gate")
+    _druck(standmod.fragen_text(cfg, gate=gate))
     return 0
 
 
@@ -1219,6 +1230,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="bestimmter Batch (sonst der neueste bzw. der laufende)")
     th.add_argument("--voll", action="store_true",
                     help="Denkbloecke ungekuerzt (sonst je 200 Zeichen)")
+    sub.add_parser("fragen", help="offene Fragen an den Nutzer (Anker + letztes Review)")
     sub.add_parser("profiles")
     sub.add_parser("probe-telegram")
 
@@ -1275,6 +1287,7 @@ def main(argv: list[str] | None = None) -> int:
         "run": cmd_run, "status": cmd_status, "budget": cmd_budget, "profiles": cmd_profiles,
         "bilanz": cmd_bilanz,
         "thinking": cmd_thinking,
+        "fragen": cmd_fragen,
         "probe-telegram": cmd_probe, "allowlist-add": cmd_allowlist, "demo": cmd_demo,
         "show-prompts": cmd_show_prompts,
         "env-proof": cmd_env_proof, "rebuild": cmd_rebuild, "ghidra-smoke": cmd_ghidra_smoke,

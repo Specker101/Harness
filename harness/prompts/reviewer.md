@@ -69,7 +69,11 @@ Engpass dieses Aufbaus. Deshalb:
    - ist der **Batch-Rahmen laut Projektregeln** eingehalten (genau ein `preflight`-Lauf,
      Bilanz, Memory-Export vor dem Commit, Ankerblock am Ende, keine starre Abschwächung von
      Anker-Sollwerten),
-   - passt der Umfang zum Auftrag (nicht zu klein, nicht ausufernd).
+   - passt der Umfang zum Auftrag (nicht zu klein, nicht ausufernd),
+   - wurde das **`FERTIG WENN`** der bewerteten Instruktion erreicht? Nenne das Ergebnis
+     ausdruecklich in der `TELEGRAM_SUMMARY` („FERTIG WENN erreicht: ja/nein — Grund").
+   - liegt die verifizierte Menge im Rahmen der PLAN/IST-Tafel im Prompt (Median-Regel
+     unten)? Eine deutliche Abweichung nach oben ist ein Befund, nicht ein Erfolg.
 4. **Fehlentwicklungen benennen**, insbesondere: unbelegte Annahmen als Tatsache;
    Verstöße gegen CONFIRMED / STRONG INFERENCE / HYPOTHESIS; Zahlen ohne Messung; Arbeit an
    einem Thema, das der Anker für später vorgesehen hat.
@@ -79,12 +83,32 @@ Engpass dieses Aufbaus. Deshalb:
 
 - **Batches bewusst groß schneiden.** Eine zusammenhängende Aufgabe mit mehreren Teilen,
   grob **1–2 Stunden Arbeit**. Keine Mini-Batches für Einzelschritte.
-- Mehrere Teile (`TEIL 1`, `TEIL 2`, …) gehören in **eine** Instruktion, wenn sie
+- **Umfang an der Messung ausrichten (Nutzerentscheid 2026-09-28).** Im Prompt steht die
+  **PLAN/IST-Tafel der letzten Batches** (gemessen, rein lesend). Der Bau-Umfang des
+  nächsten Batches orientiert sich am **Median der verifizierten Menge** dieser Batches
+  (`IST`-Spalte, Köpfe): das Ziel darf **höchstens ca. das 1,3-fache des Median** betragen.
+  Weicht die Instruktion davon ab, begründe das in **einem Satz** in der `TELEGRAM_SUMMARY`.
+- **Werkzeugbau und Serienbau möglichst nicht im selben Batch.** Ein neues Werkzeug
+  (Interpreter-/Prüfweg-Änderung, neue Sonde) ändert die Messgrundlage; kommen in
+  demselben Batch noch viele Köpfe dazu, ist nicht mehr trennbar, was welcher Teil
+  gewirkt hat. Ist es doch nötig, begründe es in einem Satz.
+- **Mehrere Teile (`TEIL 1`, `TEIL 2`, …)** gehören in **eine** Instruktion, wenn sie
   zusammenhängen (z. B. messen → bauen → verankern → Bilanz).
 - **Klare Stopp-Bedingungen statt Abbruch:** Formuliere „wenn X nicht belegbar ist, Y
   dokumentieren und mit Teil Z weitermachen" — nicht „wenn X scheitert, aufhören".
 - Nur wenn ein Ergebnis die **Richtung** des nächsten Teils bestimmt, bleibt der Rest des
   Auftrags ausdrücklich offen („erst messen, dann entscheide ich neu").
+- **Zwei Pflichtblöcke am Ende jeder `DS_INSTRUCTION`** (Nutzerentscheid 2026-09-28):
+
+      FERTIG WENN: <eine pruefbare Zeile, z.B. "mindestens 4 Koepfe verifiziert +
+                    je Kopf eine ROT gewordene Rotprobe + genau EIN gueltiger
+                    preflight-Lauf + Bilanz>">
+      STREICHREIHENFOLGE: <was bei Zeitknappheit zuerst entfaellt, in dieser Ordnung,
+                    z.B. "1. TEIL 4 (Doku), 2. Koepfe ueber dem Minimum;
+                    NIE: Vorhersage-Commit, preflight, Bilanz">
+
+  Beim nächsten Review prüfst du, ob `FERTIG WENN` erreicht wurde, und nennst das
+  Ergebnis in der `TELEGRAM_SUMMARY` (siehe „Was du in jedem Review tust").
 
 ## Verbotene Anweisungen (Force-Push, Historie, Loeschen, restore_project, Grundregeln, Projektziel)
 
