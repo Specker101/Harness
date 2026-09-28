@@ -417,9 +417,25 @@ Reine Anzeige: `watch` liest nur Dateien — kein Einfluss auf Harness, Kosten o
   **`abstuerze.md`**. Beim nächsten Start nennt `recover()` den harten Tod und zitiert
   den verbotenen Befehl aus `runs/b<N>/stream.jsonl`.
 
-**Queue erst nach gültigem Review.** `/claude`-Nachrichten gelten erst als zugestellt, wenn
-der Review einen gültigen Protokollblock geliefert hat — sonst bleiben sie unverändert in
-`inbox/claude` (und werden beim nächsten Review wieder mitgeschickt).
+**Queue erst nach gültigem Review — und `/claude` erst mit der FREIGABE (R13u).**
+`/claude`-Nachrichten gelten erst als zugestellt, wenn
+1. der Review einen gültigen Protokollblock geliefert hat **und**
+2. das daraus entstandene Gate **freigegeben** ist (der Worker also wirklich startet).
+Bis dahin bleiben sie unverändert in `inbox/claude` und werden beim nächsten Review wieder
+mitgeschickt. Die Nachrichten-IDs reisen dafür im Gate (`claude_queue_ids`); erst der
+Worker-Start verbucht sie als zugestellt und legt sie nach `inbox/done/`.
+
+**Warum (gemessen):** bis R13u buchte der Harness sie schon nach dem gültigen Review als
+zugestellt (`orchestrator.py` R13b-Fassung). Ein `/review` verwirft aber den ganzen Auftrag
+(`discard_gate`) — die Nachricht lag dann bereits in `done/` und wurde nie wieder gelesen:
+deine Anweisung war weg, ohne dass sie je eine freigegebene Instruktion erreicht hätte.
+Jetzt gilt: ein verworfenes Gate lässt die Nachricht liegen (nichts wird zurückbewegt, also
+auch nichts doppelt). Scheitert der Review zweimal, bleibt sie ohnehin liegen.
+
+**`/ds` (an den Worker)** wird beim **Worker-Start** zugestellt und archiviert (nicht erst
+am Batch-Ende). Ein verworfenes Gate lässt sie ebenfalls liegen — sie wird ja erst beim
+Start gelesen. Erst nach dem Start ist sie in `done/`, auch wenn der Batch danach
+scheitert (gewollt: der Worker hat den Text gesehen).
 
 ---
 

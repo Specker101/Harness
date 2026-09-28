@@ -480,8 +480,12 @@ def cmd_demo(args) -> int:
           (orch.state.gate or {}).get("tools", {}).get("batch") == orch.expected_batch(),
           str((orch.state.gate or {}).get("tools")))
     check("Belege bleiben in runs/b159", (rd159 / "antwort.md").is_file())
-    check("Queue nach gueltigem Review zugestellt",
-          not p_a.is_file() and (Path(cfg.root) / "inbox" / "done" / p_a.name).is_file())
+    check("Nachricht A bleibt nach dem Review liegen (R13u)",
+          p_a.is_file() and (Path(cfg.root) / "inbox" / "claude" / p_a.name).is_file())
+    check("Nachricht A (noch) nicht als zugestellt verbucht",
+          queue.pending(cfg.root, "claude")[0].id not in (orch.state.data.get("delivered") or []))
+    check("Nachricht A reist im Gate mit",
+          (orch.state.gate or {}).get("claude_queue_ids") == [p_a.stem])
     check("Wiederholung wurde angekuendigt",
           any("EINMAL" in s.upper() or "WIEDERHOL" in s.upper() for s in gesagt))
     neuer_stand = orch.state.data["reviewer"]
@@ -492,6 +496,8 @@ def cmd_demo(args) -> int:
 
     # Zweiter Durchlauf: Review scheitert zweimal -> Pause, kein Gate, Queue bleibt liegen.
     orch.discard_gate("Demo: Gate verwerfen")
+    check("verworfenes Gate frisst die Nachricht NICHT (R13u)", p_a.is_file())
+    queue.archive(cfg.root, [p_a.stem], "claude")     # A wegraeumen, sonst ist B nicht [0]
     p_b = queue.enqueue(cfg.root, "claude", "Demo-Nachricht B: bleibt liegen.", "demo")
     gesagt2, _, _ = ein_durchlauf("parser_error")
     check("kein Gate nach zwei Fehlversuchen", orch.state.gate is None)

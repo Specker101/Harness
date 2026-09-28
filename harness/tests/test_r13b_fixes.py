@@ -270,10 +270,14 @@ class TestReviewOhneProtokollblock(Base):
                          "der erste Versuch bleibt als Beleg")
         self.assertEqual(int((st.data["reviewer"] or {}).get("reviews", 0)), 5,
                          "genau ein gueltiger Review")
-        # Queue: jetzt zugestellt und archiviert.
-        self.assertFalse(p.is_file())
-        self.assertTrue((self.root / "inbox" / "done" / p.name).is_file())
-        self.assertTrue(st.data.get("delivered"))
+        # R13u (2026-09-28): die Nachricht ist mit dem gueltigen Review noch NICHT
+        # zugestellt - sie reist im Gate und wird erst bei dessen Freigabe archiviert
+        # (bis R13t wurde sie hier schon nach `done/` gelegt und war bei einem
+        # verworfenen Gate verloren). Beleg: tests/test_r13u_fixes.py.
+        self.assertTrue(p.is_file(), "R13u: Nachricht bleibt bis zur Freigabe liegen")
+        self.assertEqual((st.gate or {}).get("claude_queue_ids"), [p.stem])
+        self.assertFalse((self.root / "inbox" / "done" / p.name).is_file())
+        self.assertNotIn(p.stem, st.data.get("delivered") or [])
 
     def test_gate_und_verzeichnis_tragen_die_anker_nummer(self):
         self._startzustand()

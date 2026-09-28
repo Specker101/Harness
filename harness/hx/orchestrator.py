@@ -1488,8 +1488,12 @@ class Orchestrator:
             txt += f" - ACHTUNG: der Anker nennt im 'Naechster Schritt' B{hint}; ich rechne mit {nxt}"
         return txt
 
-    def gate_from_review(self, p, raw_path: str) -> str:
+    def gate_from_review(self, p, raw_path: str, claude_ids: list[str] | None = None) -> str:
         """Uebernimmt die Reviewer-Antwort als offenen Auftrag (Gate).
+
+        `claude_ids` (R13u) sind die /claude-Nachrichten, die DIESER Review gelesen hat.
+        Sie reisen im Gate mit und werden erst bei seiner Freigabe zugestellt
+        (`commit_queue` beim Worker-Start) - ein verworfenes Gate laesst sie liegen.
 
         Rueckgabe: "ok" | "number_missing" | "number_mismatch".
         Bei unklarer oder abweichender Nummer wird NICHTS gestartet: der Auftrag
@@ -1521,7 +1525,8 @@ class Orchestrator:
         self.state.set_gate(st.new_review_id(), p.summary, instr,
                             {"profile": profile, "program": program, "batch": batch_no,
                              "expected": expected, "source": "reviewer"},
-                            raw_path, extra={"offene_punkte": dict(getattr(p, "offene", {}) or {})})
+                            raw_path, extra={"offene_punkte": dict(getattr(p, "offene", {}) or {}),
+                                             "claude_queue_ids": list(claude_ids or [])})
         if status == "ok":
             return "ok"
         self.say("\n".join(hinweise) + "\n\nIch starte diesen Auftrag NICHT.")
@@ -1584,10 +1589,26 @@ class Orchestrator:
         return protocol.offene_punkte_kurz(punkte or {})
 
     def discard_gate(self, reason: str) -> None:
-        """Offenen Auftrag verwerfen - aber nachvollziehbar ablegen."""
+        """Offenen Auftrag verwerfen - aber nachvollziehbar ablegen.
+
+        R13u: die /claude-Nachrichten dieses Reviews bleiben UNVERAENDERT in
+        `inbox/claude` liegen - sie wurden nie als zugestellt gebucht, also gibt es
+        nichts zurueckzubewegen und keine Doppelten. Nur der Zustand `delivered` der
+        alten Fassung konnte sie schon verschluckt haben; das wird gemeldet.
+        """
         gate = self.state.gate
         if not gate:
             return
+        ids = list(gate.get("claude_queue_ids") or [])
+        if ids:
+            fehlend = [i for i in ids
+                       if not (Path(self.qroot) / "inbox" / "claude" / f"{i}.md").is_file()]
+            if fehlend:
+                self.log.warn("Verworfener Auftrag: /claude-Nachricht lag schon in done/",
+                              ids=fehlend)
+            else:
+                self.log.info("Verworfener Auftrag: /claude-Nachrichten bleiben liegen",
+                              anzahl=len(ids))
         try:
             write_text_atomic(Path(self.cfg.sub("logs")) / f"verworfen-{gate.get('id')}.json",
                               json.dumps({"reason": reason, "gate": gate}, ensure_ascii=False,
@@ -2056,13 +2077,18 @@ class Orchestrator:
                         self.review_failed([res, res2], kind, note_ids)
                         continue
                     res = res2
-                # Ab hier ist der Review gueltig: jetzt ist die Queue zugestellt.
-                self.commit_queue("claude", note_ids)
+                # R13u: /claude-Nachrichten sind NICHT hier zugestellt. Sie bleiben in
+                # `inbox/claude` liegen, bis das Gate IHRES Reviews freigegeben ist -
+                # sonst frisst ein verworfenes Gate (/review) den Text, ohne dass ihn je
+                # eine gueltige Instruktion gesehen haette (R13b buchte ihn hier als
+                # zugestellt und archivierte ihn). Nur ein gescheiterter Review behaelt
+                # die Queue ebenfalls (`review_failed`); der Unterschied war der Fall
+                # "gueltiger Review, danach Gate verworfen".
                 p = res.parsed
                 if p.issues:
                     self.say("Review unvollstaendig: " + "; ".join(p.issues) +
                              "\nBitte pruefen; ich starte NICHT automatisch.")
-                status = self.gate_from_review(p, str(res.raw_path))
+                status = self.gate_from_review(p, str(res.raw_path), claude_ids=note_ids)
                 tools = (self.state.gate or {}).get("tools") or {}
                 profile = tools.get("profile") or "none"
                 warten = self.gate_wait_decision()
@@ -2147,6 +2173,10 @@ class Orchestrator:
             # Checkpoint) kann den Start verhindern, ohne die Instruktion zu entwerten.
             self.approved_gate = None
             s.clear_gate()
+            # R13u: JETZT sind die /claude-Nachrichten dieses Reviews zugestellt - das
+            # Gate ist freigegeben und die Git-Vorpruefung hat gehalten. Bei einem
+            # Git-Halt (`continue` oben) bleibt beides stehen: Auftrag UND Nachricht.
+            self.commit_queue("claude", list(gate.get("claude_queue_ids") or []))
 
             note_block, _ = self.read_queue_block("ds")
             s.data["last_batch_number"] = batch_no
