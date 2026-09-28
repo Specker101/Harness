@@ -391,6 +391,10 @@ def build_prompt(cfg, kind: str, ctx: dict) -> str:
         "du in der TELEGRAM_SUMMARY und traegst es in die naechste DS_INSTRUCTION "
         "(oder als Marker), damit es nicht untergeht.",
         "",
+        # R13v3 (Nutzerauftrag 2026-09-28): ein abgebrochener Lauf ist kein normaler Lauf.
+        "=== ABBRUCH DES BEWERTETEN LAUFS (nur wenn zutreffend) ===",
+        (ctx.get("abbruch") or "kein Abbruch - der Lauf ist regulaer zu Ende gegangen").strip(),
+        "",
         "=== ANKERDATEI analysis/r1b-workstream.md (Kopf) ===",
         (ctx.get("anchor") or "(nicht lesbar)").strip(),
         "",

@@ -18,7 +18,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from . import control, envs, pricing, protocol, queue, retention, reviewer as rv, secrets, state as st, streamjson, worker as wk
+from . import aufraeumen, control, envs, pricing, protocol, queue, retention, reviewer as rv, secrets, state as st, streamjson, worker as wk
 from . import ask as askmod
 from . import bilanz as bilanzmod
 from . import denken as denkenmod
@@ -1167,6 +1167,12 @@ class Orchestrator:
                            queue_block=queue_block, notify=self.say,
                            tick=lambda: self.poll(fast=True), cancel=self.cancel_check,
                            mock=self.mock, remote_hinweis=self.remote_work_hinweis())
+        # R13v3: nach einem Abbruch (Waechter, Zeitgrenze, Kill-Switch) sofort den halben
+        # Stand sichern. Ohne das findet der naechste Batch einen unsauberen Arbeitsbaum
+        # vor: die Git-Vorpruefung verlangt keinen sauberen Baum, die Aenderungen bleiben
+        # also liegen, ohne dass sie jemand als "halb" kennzeichnet.
+        if res.killed_reason:
+            self.wip_nach_abbruch(res)
         self.state.worker_finished()
         self.state.data["last_profile"] = profile
         gs = res.ghidra_save or {}
@@ -1204,6 +1210,100 @@ class Orchestrator:
                       "\nIch pausiere - Push und Review unterbleiben."))
         self.log.info("Batch beendet", info=res.describe())
         return res
+
+    # ------------------------------------------------- Aufraeumen nach Abbruch (R13v3)
+    def wip_nach_abbruch(self, res) -> dict:
+        """Nach einem Abbruch sofort den halben Stand sichern (R13v3, Nutzerauftrag).
+
+        Ablauf wie beim Stoppen (`wip_rescue`): `git status` + `git diff HEAD` als
+        Belegdatei nach `logs/` und (Konfiguration `git.wip_stash`, Vorgabe an) ein
+        `git stash push -m harness-wip-b<N>`. Der Eintrag landet im Zustand, in der
+        Batch-Meldung und im Messdatenblock des Reviews - damit der naechste Batch
+        einen SAUBEREN Baum vorfindet und niemand den halben Stand fuer fertig haelt.
+        """
+        batch = int(self.state.data.get("last_batch_number") or self.state.batch or 0)
+        info: dict = {}
+        try:
+            info = self.git.wip_rescue(batch, Path(self.cfg.sub("logs"))) or {}
+        except Exception as exc:                                     # noqa: BLE001
+            self.log.error("WIP-Sicherung nach Abbruch fehlgeschlagen", fehler=str(exc)[:200])
+            info = {"dirty": None, "status": [], "fehler": str(exc)[:200]}
+        eintrag = {
+            "batch": batch,
+            "grund": str(res.killed_reason or "unbekannt"),
+            "ts": now_iso(),
+            "dirty": bool(info.get("dirty")),
+            "dateien": len(info.get("status") or []),
+            "ref": info.get("ref") or "",
+            "patch": info.get("patch") or "",
+            "stash": info.get("stash") or "",
+            "fehler": info.get("fehler") or "",
+        }
+        self.state.data["letzter_abbruch"] = eintrag
+        self.state.save()
+        if eintrag["fehler"]:
+            self.say(f"ABBRUCH {eintrag['grund']} - WIP-Sicherung FEHLGESCHLAGEN: "
+                     f"{eintrag['fehler']}\nDer Arbeitsbaum kann unfertige Aenderungen "
+                     "enthalten - bitte vor dem Start pruefen (git status).")
+        elif eintrag["dirty"]:
+            self.say(f"ABBRUCH {eintrag['grund']}: {eintrag['dateien']} Aenderung(en) "
+                     f"gesichert (Stash {eintrag['ref'] or 'ohne Stash'}, "
+                     f"Patch {eintrag['patch'] or '-'}). Der Arbeitsbaum ist jetzt sauber.")
+        else:
+            self.say(f"ABBRUCH {eintrag['grund']}: Arbeitsbaum war sauber - nichts zu sichern.")
+        self.log.warn("Nach Abbruch gesichert", grund=eintrag["grund"], batch=batch,
+                      dateien=eintrag["dateien"], ref=eintrag["ref"],
+                      patch=eintrag["patch"])
+        return eintrag
+
+    def aufraeumen_zeile(self, res) -> str:
+        """Was mit Prozessresten des Laufs geschah (R13v3)."""
+        auf = (res or {}).get("aufraeumen") or (res or {}).get("stats", {}).get("aufraeumen") or {}
+        if not auf:
+            return "kein Abbruch - nicht noetig"
+        return (f"{aufraeumen.zeile(auf)} (Anlass: {auf.get('anlass') or '-'}; "
+                f"{auf.get('job') or 'ohne Job-Objekt'})")
+
+    def abbruch_zeile(self) -> str:
+        """Eine Zeile fuer den Messdatenblock des Reviews (R13v3)."""
+        a = self.state.data.get("letzter_abbruch") or {}
+        if not a:
+            return "kein Abbruch"
+        anker = self.anchor_batch()
+        nummer = (f"der Ankerkopf steht auf {anker}, der naechste Lauf bekommt also "
+                  f"{self.expected_batch()} - dieselbe Nummer wie der abgebrochene Lauf "
+                  f"{a.get('batch')}" if anker is not None else
+                  "der Ankerkopf nennt keine Nummer")
+        if a.get("fehler"):
+            stand = f"WIP-Sicherung FEHLGESCHLAGEN ({a['fehler']})"
+        elif a.get("dirty"):
+            stand = (f"{a.get('dateien')} Aenderung gesichert unter "
+                     f"{a.get('ref') or a.get('stash') or 'Stash'} "
+                     f"(Patch {a.get('patch') or '-'})")
+        else:
+            stand = "Arbeitsbaum war sauber, nichts zu sichern"
+        return (f"Batch {a.get('batch')} ABGEBROCHEN ({a.get('grund')}, {a.get('ts')}): "
+                f"{stand}. Die Nummer des abgebrochenen Laufs wird NICHT uebersprungen - "
+                f"{nummer}.")
+
+    def abbruch_block(self) -> str:
+        """Block fuer den Review-Prompt: was der Reviewer ueber den Abbruch wissen MUSS."""
+        a = self.state.data.get("letzter_abbruch") or {}
+        if not a:
+            return ""
+        return "\n".join([
+            self.abbruch_zeile(),
+            "REGEL (Nutzerauftrag 2026-09-28): Der bewertete Lauf ist ABGEBROCHEN, es gibt "
+            "deshalb keinen vollstaendigen Worker-Bericht. Beurteile nur, was wirklich "
+            "belegt ist, und nenne den Abbruchgrund. Der halbe Stand liegt NICHT mehr im "
+            "Arbeitsbaum (siehe Stash/Patch oben) - wenn er gebraucht wird, muss die "
+            "naechste Instruktion ihn ausdruecklich wieder aufgreifen (der Worker kann "
+            "`git stash list` lesen); sonst beginnt der naechste Lauf auf dem letzten "
+            "Commit. Ein wiederholter Lauf bekommt DIESELBE Batch-Nummer, solange der "
+            "Ankerkopf nicht fortgeschrieben wurde; seine Belege liegen dann neben den "
+            "gesicherten Belegen des abgebrochenen Laufs (`*-v1.*`, u. a. "
+            "`stream-v1.jsonl`).",
+        ])
 
     def ask_handover(self, session_id: str, rdir: Path) -> str:
         """Die alte Reviewer-Session um eine Uebergabe bitten (R13-2).
@@ -1707,6 +1807,8 @@ class Orchestrator:
             f"- Exit-Code: {res.get('rc')} | Laufzeit: {self.dauer_line(res)} "
             f"| Abbruchgrund: {res.get('killed_reason') or 'kein Abbruch'}",
             f"- Alarmmeldungen: {'; '.join(res.get('alarms') or []) or 'keine'}",
+            f"- Aufraeumen nach dem Lauf (R13v3): {self.aufraeumen_zeile(res)}",
+            f"- Letzter Abbruch (R13v3): {self.abbruch_zeile()}",
             f"- SECRET-ZUGRIFF (Ueberwachung): {self.secret_zeile(batch)}",
             f"- Remote-Stand (R13n): {self.remote_work_zeile(batch)}",
             f"- Laufzeit-Profil: {self.laufzeit_zeile(res, st)}",
@@ -1843,6 +1945,8 @@ class Orchestrator:
             "plan_ist": standmod.plan_ist_text(self.cfg),
             # R13t: die /ds-Nachrichten, die DIESER Batch im Auftrag hatte
             "ds_queue": standmod.ds_nachrichten(self.cfg, batch),
+            # R13v3: wurde der Lauf abgebrochen, gehoert das ausdruecklich in den Review
+            "abbruch": self.abbruch_block(),
             "markers": "\n".join(marker_lines),
             "queue_block": reviewer_note,
             "anchor": anchor,

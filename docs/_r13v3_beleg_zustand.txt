@@ -1,0 +1,43 @@
+# R13v3-Nachprobe: /autonom-Haltbarkeit und Batch-Nummer
+# erzeugt von tools/r13v3_zustand_probe.py
+# Harness: g:\Harness\harness
+
+======== 1. Wo wird `autonomous` geschrieben? (hx/) ========
+(Der einzige Nutzerpfad ist der Telegram-Zweig in orchestrator.handle_command;
+ cli.py schreibt nur in der Attrappe auf IHREN eigenen Zustand.)
+  harness\hx\cli.py:518: orch.state.data["autonomous"] = True
+  harness\hx\cli.py:539: orch.state.data["autonomous"] = False
+  harness\hx\orchestrator.py:718: self.state.data["autonomous"] = new
+  harness\hx\state.py:22: DEFAULTS = {
+  harness\hx\state.py:26: "autonomous": False,
+
+======== 2. Ist-Wert in jeder Zustandsdatei ========
+  harness\state\_demo_ok\state\run.demo-ok.json: autonomous = False
+  harness\state\_demo_parser_error\state\run.demo-parser_error.json: autonomous = False
+  harness\state\run.demo-ok.json: autonomous = False
+  harness\state\run.json: autonomous = False
+
+======== 3. Probelauf: Befehl -> Stop -> Neustart ========
+  Ausgangswert (absichtlich AN): True
+  Telegram-Antwort: Dauerbetrieb: AUS
+  SOFORT auf der Platte:        False
+  nach Neustart (frisch gelesen): False
+  nach STOPPEN:                 False (Zustand STOPPED, stopped=True)
+  Gegenrichtung (/autonom an):  True
+  Vorgabe fuer eine fehlende Datei: False (also AUS)
+
+======== 4. Batch-Nummer nach einem Abbruch ========
+  Ankerkopf im Decomp-Repo nennt: BATCH 207
+  expected_batch() = Anker + 1  : 208
+  Der Zustand selbst zaehlt NICHT mit (kein zweiter Zaehler):
+    state['batch'] auf 999 gesetzt -> expected_batch() bleibt 208
+  Folge: Wird ein Lauf abgebrochen, OHNE dass der Worker den Ankerkopf
+  fortschreibt, bekommt der naechste Lauf DIESELBE Nummer; sein Review liegt
+  wieder in runs/b<derselben Zahl> (die neue Fassung ueberschreibt dort
+  auftrag.md/stream.jsonl - der Vorgaenger steht als stream-v1.jsonl im ZIP-Schutz).
+
+======== Regeln ========
+ * `/autonom off|on` schreibt SOFORT in den Zustand (orchestrator.handle_command).
+ * Beim Laden werden fehlende Felder aus DEFAULTS ergaenzt - ein gespeichertes
+   False bleibt False, ein True bleibt True. Weder Stop noch Neustart fassen es an.
+ * Eine fehlende Zustandsdatei ergibt AUS (Vorgabe).

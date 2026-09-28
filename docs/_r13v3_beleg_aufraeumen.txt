@@ -1,0 +1,50 @@
+# R13v3-Nachprobe: Aufraeumen nach einem Abbruch
+# erzeugt 2026-09-28 17:53:07 von tools/r13v3_aufraeumen_probe.py
+# Decomp-Wurzel (Filterkriterium): g:\Silent Scope Decomp
+# Herzschlag: G:\Harness\tools\r13v_herzschlag.py (schreibt alle 0,5 s)
+
+======== Fall JOB-DIREKT: echtes Kind, Job VOR dem Kind zugewiesen ========
+Job-Zuweisung SOFORT nach dem Start: True (Job r13v3-direkt: 1 Prozessbaum/Prozessbaeume)
+vor dem Schliessen:  Shell PID 8516 lebt: True | Kind  0.4s seit der letzten Schreibung
+17:53:14.557  Job wird geschlossen (KILL_ON_JOB_CLOSE)
+17:53:16.558  t+ 2.0s  Shell lebt: False | Kind  2.4s seit der letzten Schreibung
+17:53:18.559  t+ 4.0s  Shell lebt: False | Kind  4.4s seit der letzten Schreibung
+17:53:20.560  t+ 6.0s  Shell lebt: False | Kind  6.4s seit der letzten Schreibung
+17:53:22.560  t+ 8.0s  Shell lebt: False | Kind  8.4s seit der letzten Schreibung
+Erwartung: das Kind stirbt mit dem Job (Alter waechst monoton).
+
+======== Fall JOB-STARTPROCESS: Kind per Start-Process (Muster Worker) ========
+Job-Zuweisung SOFORT nach dem Start: True (Job r13v3-startprocess: 1 Prozessbaum/Prozessbaeume)
+vor dem Schliessen:  Shell PID 3440 lebt: True | Kind  0.2s seit der letzten Schreibung
+17:53:29.959  Job wird geschlossen (KILL_ON_JOB_CLOSE)
+17:53:31.960  t+ 2.0s  Shell lebt: False | Kind  2.2s seit der letzten Schreibung
+17:53:33.961  t+ 4.0s  Shell lebt: False | Kind  4.2s seit der letzten Schreibung
+17:53:35.962  t+ 6.0s  Shell lebt: False | Kind  6.2s seit der letzten Schreibung
+17:53:37.962  t+ 8.0s  Shell lebt: False | Kind  8.2s seit der letzten Schreibung
+Erwartung: dito - Start-Process-Kinder erben den Job (gemessen, siehe Beleg).
+
+======== Fall NACHSUCHE-WMI: ohne Elternbezug, Wurzel in der Kommandozeile ========
+Waise (WMI): PID 20708 | Fremdprozess: PID 11584
+vor der Nachsuche:  Waise  0.2s seit der letzten Schreibung | Fremdprozess  0.2s seit der letzten Schreibung
+Nachsuche: ok=True gefunden=[('python.exe', 20708, 'Kommandozeile nennt die Decomp-Wurzel')] beendet=[20708] Dauer=1.17s
+ausgenommen (eigener PID-Kreis, R13i): [6780, 8844, 10664, 11288, 11392, 19400]
+nach der Nachsuche: Waise  4.3s seit der letzten Schreibung | Fremdprozess  0.4s seit der letzten Schreibung
+Erwartung: Waise beendet (Alter waechst), Fremdprozess laeuft (Alter ~0,4 s).
+
+======== Fall NACHSUCHE-B207: Hintergrundlauf ohne Pfad, Shell danach tot ========
+waehrend des Laufs gesehene Nachfahren des Shells PID 9828: [10428, 17420]
+Hintergrundlauf jetzt: PID 10428 (Shell PID 9828 ist tot: True)
+vor der Nachsuche:  0.4s seit der letzten Schreibung
+Nachsuche OHNE PID-Nachweis (auch ohne Elternkette): gefunden=[]
+Nachsuche MIT PID-Nachweis:  gefunden=[('python.exe', 10428, 'waehrend des Laufs als Nachfahre des Workers gesehen')] beendet=[10428]
+nach der Nachsuche:  4.4s seit der letzten Schreibung
+Erwartung: der Pfad fehlt in der Kommandozeile und die Elternkette ist tot -
+nur der PID-Nachweis aus der Aufnahme waehrend des Laufs findet ihn.
+
+======== Zusammenfassung (gemessen 2026-09-28) ========
+JOB (direkt + Start-Process)  Kind stirbt mit dem Job - aber NUR, wenn der Job
+                              vor dem Kind zugewiesen wurde (Reihenfolge!).
+NACHSUCHE-WMI                 Prozess ohne Elternbezug mit Wurzel in der
+                              Kommandozeile wird beendet; Fremdprozess bleibt.
+NACHSUCHE-B207                nur der PID-Nachweis findet den Rest.
+R13i                          der Harness-Kreis steht unter 'ausgenommen'.

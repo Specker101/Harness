@@ -19,7 +19,14 @@ import time
 import uuid
 from pathlib import Path
 
-from . import envs, pricing, retention, secrets, streamjson
+from . import aufraeumen, envs, pricing, retention, secrets, streamjson
+
+# R13v3: Wie oft werden die Nachfahren des Workers aufgenommen? Der Nachweis "dieser
+# Prozess gehoerte zu diesem Lauf" ist nur zu fuehren, SOLANGE die Kette lebt - ein per
+# `Start-Process` gestarteter Hintergrundlauf verliert seinen Elternprozess mit dem
+# naechsten Werkzeugaufruf (B207: PID 4996). Deshalb alle 60 s eine kurze Aufnahme in
+# einem Daemon-Thread (der Leser des Mitschnitts darf dafuer nie warten).
+PID_AUFNAHME_S = 60.0
 from .ghidra import Ghidra
 from .proc import run_stream
 from .profiles import builtin_args, load_profile
@@ -52,6 +59,8 @@ class WorkerResult:
         self.secret_hits: list[dict] = []    # R13g: Schluessel-Zugriffe/Werte im Mitschnitt
         self.abbau: list[dict] = []          # R13i: Muster-Prozessabbau (Harness-Gefahr)
         self.warteschleifen: list[dict] = []  # R13v: Warteschleifen (vermeidbare Zeit)
+        self.aufraeumen: dict | None = None   # R13v3: Job-Objekt + Nachsuche nach Resten
+        self.vorgaenger: list[str] = []       # R13v3: gesicherte Belege der Vor-Fassung
 
     def describe(self) -> str:
         return (f"rc={self.rc} dauer={self.duration_s:.0f}s grenze={self.killed_reason or '-'} "
@@ -129,6 +138,42 @@ def save_ghidra_after_batch(cfg, log, state, profile_name: str, mock: bool = Fal
 def run_dir(cfg, batch: int) -> Path:
     p = ensure_dir(Path(cfg.root) / "runs" / f"b{batch:03d}")
     return p
+
+
+# R13v3: Belege, die eine VORIGE Fassung desselben Batches hinterlassen hat.
+# Reihenfolge = Umbenennung in `<name>-v1.<endung>`.
+VORGAENGER_BELEGE = ("stream.jsonl", "stream.err.txt", "auftrag.md", "result.json",
+                     "antwort.md", "harness-facts.md")
+
+
+def sichere_vorgaenger(rd: Path, log=None) -> list[str]:
+    """Belege der vorigen Fassung desselben Batches wegsichern (R13v3).
+
+    Anlass: die Nummer des naechsten Laufs kommt aus dem ANKERKOPF. Schreibt ein
+    abgebrochener Worker den Anker nicht fort, laeuft der naechste Batch mit DERSELBEN
+    Nummer und damit in DENSELBEN Ordner - ohne diese Sicherung ueberschreibt er den
+    Mitschnitt des abgebrochenen Laufs. `retention.MIT_ZIP` kennt `stream-v1.jsonl`
+    ohnehin schon; hier entsteht die Datei.
+    """
+    if not (Path(rd) / "stream.jsonl").is_file():
+        return []
+    umbenannt: list[str] = []
+    for name in VORGAENGER_BELEGE:
+        quelle = Path(rd) / name
+        if not quelle.is_file():
+            continue
+        ziel = quelle.with_name(quelle.stem + "-v1" + quelle.suffix)
+        try:
+            quelle.replace(ziel)
+            umbenannt.append(ziel.name)
+        except OSError as exc:                                       # noqa: BLE001
+            if log:
+                log.warn("Beleg der vorigen Fassung nicht gesichert", datei=name,
+                         fehler=str(exc)[:120])
+    if umbenannt and log:
+        log.warn("Belege der vorigen Fassung gesichert (gleiche Batch-Nummer)",
+                 ordner=str(rd), dateien=umbenannt)
+    return umbenannt
 
 
 def write_mcp_config(cfg, run_path: Path, profile) -> str | None:
@@ -220,6 +265,9 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
     batch = state.batch
     rd = run_dir(cfg, batch)
     res.run_dir = str(rd)
+    # R13v3: Belege einer vorigen Fassung DIESES Batchordners wegsichern, bevor der neue
+    # Lauf etwas schreibt (gleiche Nummer = gleicher Ordner, siehe `sichere_vorgaenger`).
+    res.vorgaenger = sichere_vorgaenger(rd, log)
     if profile.mcp:
         # R13-1/R13e: ab jetzt koennen Aenderungen im Server-Speicher stehen, die noch
         # nicht in der Projektdatei sind - auch bei Nur-Lese-Profilen, weil der
@@ -321,6 +369,17 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
         takt = streamjson.TaktGeber(TICK_MIN_INTERVAL_S)
         takt_lock = threading.Lock()        # R13h: Takt-Thread und Leser duerfen nicht doppelt takten
         live_stand = [0.0]                  # R13q: Zeitpunkt der letzten Live-Schreibung
+        bekannte_pids: list[int] = []       # R13v3: waehrend des Laufs gesehene Nachfahren
+        letzte_aufnahme = [0.0]
+
+        def pid_aufnahme(pid: int) -> None:
+            """Nachfahren des Workers aufnehmen (laeuft in einem eigenen Thread)."""
+            try:
+                for p in aufraeumen.nachfahren_pids(pid):
+                    if p not in bekannte_pids:
+                        bekannte_pids.append(p)
+            except Exception as exc:                                 # noqa: BLE001
+                log.warn("PID-Aufnahme fehlgeschlagen", fehler=str(exc)[:150])
 
         def live_schreiben(t: dict, cost: float) -> None:
             """Live-Zahlen des laufenden Batches ablegen (R13q), hoechstens alle 15 s.
@@ -429,6 +488,14 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
             # Ausgabe-Ende noch die Gnade aus R13j pruefen - der Batch kam nie zum Ende.
             # Das Ticken macht jetzt AUSSCHLIESSLICH der Takt-Thread (R13h), der dafuer da
             # ist. Hier bleiben nur lokale, billige Pruefungen (Alarme, harte Grenzen).
+            # R13v3: Die PID-Aufnahme der Nachfahren sitzt VOR dem Takt-Riegel: sie
+            # braucht keinen Takt und darf nicht davon abhaengen, ob gerade getickt wird.
+            jetzt = time.monotonic()
+            if jetzt - letzte_aufnahme[0] > PID_AUFNAHME_S:
+                letzte_aufnahme[0] = jetzt
+                pid = int(((state.data.get("worker") or {}).get("pid") or 0))
+                if pid:
+                    threading.Thread(target=pid_aufnahme, args=(pid,), daemon=True).start()
             if not takt.faellig():
                 return None
             t = stats.totals()
@@ -459,20 +526,40 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
         # Der Takt-Thread schliesst diese Luecke und endet mit dem Lauf.
         ticker = (streamjson.TaktThread(takt_jetzt, TICK_MIN_INTERVAL_S, log=log).start()
                   if tick is not None else None)
+        # R13v3: Der Worker-Prozess kommt in ein Job-Objekt. Beim Schliessen des Jobs
+        # beendet Windows alles, was dann noch darin laeuft - auch Enkel, die der
+        # Worker per `Start-Process` entkoppelt hat. Gemessen (docs/_r13v_waise.txt):
+        # `taskkill /T /F` trifft nur den Baum, ein entkoppelter Hintergrundlauf
+        # ueberlebt ihn. Der Job schliesst diese Luecke, `nachsuche` den Rest (WMI).
+        job = aufraeumen.Job(log=log, name=f"harness-worker-b{batch}-{int(time.time())}")
+        if not job.create():
+            log.warn("Job-Objekt nicht eingerichtet - nur Nachsuche moeglich",
+                     grund=job.grund)
+            res.alarms.append(f"HINWEIS: Job-Objekt nicht verfuegbar ({job.grund}); "
+                              "Prozessreste werden nur nachgesucht.")
+        batch_start = time.time()
         try:
             run = run_stream(cmd, env, cwd=str(cfg.decomp), out_path=stream_path,
                              on_event=on_event, hard_wall_s=lim["hard_wall"], log=log,
                              cancel=cancel, stdin_text=prompt, stderr_path=rd / "stream.err.txt",
+                             job=job,
                              on_start=lambda pid: state.worker_started(pid, str(stream_path),
                                                                        session_id))
         finally:
             if ticker is not None:
                 ticker.stop()
                 log.info("Takt-Thread beendet", aufrufe=ticker.aufrufe)
+            # Job schliessen = alle Reste darin beenden (KILL_ON_JOB_CLOSE). Das gilt
+            # fuer JEDEN Ausgang: ein nach dem Worker-Ende weiterlaufender Hintergrund-
+            # prozess wuerde sonst in den naechsten Batch hineinschreiben.
+            if job.zugewiesen:
+                log.info("Job-Objekt geschlossen", zugewiesen=job.zugewiesen)
+            job.close()
         # R13p: Abo-Auslastung mitschreiben, WENN dieser Lauf sie geliefert hat. Der
         # DeepSeek-Worker hat kein Claude-Kontingent - dann passiert hier nichts.
         streamjson.schreibe_rate_limit(cfg, stats.rate_limit, f"Worker b{batch}")
-        # R13j: Das Kind war fertig, die Pipe blieb offen (Enkelprozess). Das ist kein        # Abbruch, aber es gehoert in die Batch-Meldung - sonst sieht es aus, als haette
+        # R13j: Das Kind war fertig, die Pipe blieb offen (Enkelprozess). Das ist kein
+        # Abbruch, aber es gehoert in die Batch-Meldung - sonst sieht es aus, als haette
         # der Worker gehaengt.
         if getattr(run, "eof_offen_s", None):
             res.alarms.append(
@@ -507,6 +594,25 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
                 f"{run.duration_s:.0f}s aus Harness-Sicht) - Ausgabe-Rueckstau pruefen")
         if res.duration_s >= lim["alarm_wall"]:
             res.alarms.append(f"ALARM: Laufzeit {res.duration_s:.0f}s (Alarmgrenze {lim['alarm_wall']:.0f}s)")
+
+        # R13v3: Prozessreste nachsuchen. Der Job hat den Baum schon beendet; die
+        # Nachsuche findet, was NICHT im Baum haengt (per WMI gestartete Hintergrund-
+        # laeufe, Muster B207-PID 4996). Sie laeuft nach JEDEM Abbruch und immer dann,
+        # wenn das Job-Objekt nicht greifen konnte.
+        grund = res.killed_reason or ("" if job.ok or job.zugewiesen else "job-objekt-nicht-verfuegbar")
+        if grund:
+            auf = aufraeumen.nachsuche(cfg.decomp, seit=batch_start, wurzeln_pids={run.pid},
+                                       bekannte_pids=bekannte_pids, log=log)
+            auf["anlass"] = grund
+            auf["job"] = job.beschreibung()
+            res.aufraeumen = auf
+            zeile = aufraeumen.zeile(auf)
+            if auf.get("gefunden"):
+                res.alarms.append(f"PROZESSRESTE des Laufs ({grund}): {zeile}")
+                if notify:
+                    notify(f"Nachsuche: {zeile}")
+            log.info("Nachsuche nach Prozessresten", anlass=grund, ergebnis=zeile,
+                     dauer_s=auf.get("dauer_s"))
 
     # --- 6. Nachher-Pruefung + Snapshot ------------------------------------------------
     return _finish_run(cfg, state, res, stats, batch, profile_name, log, mock=mock)
@@ -564,6 +670,8 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
     res.stats["secret_hits"] = list(stats.secret_hits)[:10]
     res.stats["abbau"] = list(stats.abbau)[:5]
     res.stats["warteschleifen"] = list(stats.warteschleifen)[:5]
+    res.stats["aufraeumen"] = res.aufraeumen or {}
+    res.stats["vorgaenger"] = list(res.vorgaenger or [])
     # R13h: Laufzeit-Profil (Werkzeuge / Modell / Warten) - damit der Reviewer und der
     # Nutzer sehen, WOHIN die Zeit ging, statt nur wie lange es dauerte.
     res.stats["laufzeit"] = stats.laufzeit_profil()
@@ -590,6 +698,7 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
         "alarms": res.alarms, "stats": res.stats, "cost_usd": res.cost_usd,
         "secret_hits": list(stats.secret_hits)[:10],
         "warteschleifen": list(stats.warteschleifen)[:5],
+        "aufraeumen": res.aufraeumen or {},
         "laufzeit": res.stats.get("laufzeit") or {},
         "cost_naive_usd": res.cost_naive_usd, "model_seen": res.model_seen,
         "model_ok": res.model_ok, "finished_at": now_iso(),

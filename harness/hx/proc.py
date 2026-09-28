@@ -55,7 +55,7 @@ def run_stream(cmd: list[str], env: dict, cwd: str, out_path: str | Path,
                on_event=None, hard_wall_s: float | None = None,
                cancel=None, log=None, stdin_text: str | None = None,
                stderr_path: str | Path | None = None, on_start=None,
-               eof_gnade_s: float = 60.0) -> StreamRun:
+               eof_gnade_s: float = 60.0, job=None) -> StreamRun:
     """Startet den Prozess, liest stdout zeilenweise (UTF-8) und ruft on_event(line).
 
     on_event(line) darf "kill" zurueckgeben -> Prozessbaum wird beendet und
@@ -68,6 +68,10 @@ def run_stream(cmd: list[str], env: dict, cwd: str, out_path: str | Path,
     Enkelprozess erbt das Schreibende der Pipe und haelt sie offen, auch wenn der
     Worker fertig ist. Ohne diese Bremse wartet der Harness unbegrenzt - der Batch
     wurde nie abgeschlossen, kein `result.json`, kein Push, kein Review.
+
+    `job` (R13v3): ein `aufraeumen.Job`. Der frisch gestartete Kindprozess wird ihm
+    sofort zugewiesen; beim Schliessen des Jobs beendet Windows alles, was dann noch
+    darin laeuft (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`).
     """
     res = StreamRun()
     out_path = Path(out_path)
@@ -93,6 +97,16 @@ def run_stream(cmd: list[str], env: dict, cwd: str, out_path: str | Path,
                 on_start(proc.pid)
             except Exception:
                 pass
+        if job is not None:
+            # R13v3: sofort in den Job - danach gibt es kein Entkommen mehr,
+            # auch fuer Enkel, die der Worker per Start-Process entkoppelt.
+            try:
+                if not job.assign(proc.pid) and log:
+                    log.warn("Prozess nicht in den Job aufgenommen - Nachsuche uebernimmt",
+                             pid=proc.pid, grund=str(getattr(job, "grund", ""))[:160])
+            except Exception as exc:
+                if log:
+                    log.warn("Job-Zuweisung fehlgeschlagen", fehler=str(exc)[:160])
 
         q: "queue.Queue[bytes | None]" = queue.Queue()
 
@@ -161,7 +175,7 @@ def run_stream(cmd: list[str], env: dict, cwd: str, out_path: str | Path,
             now = time.time()
             if hard_wall_s and not res.killed_reason and (now - start) > hard_wall_s:
                 kill_tree(proc.pid)
-                res.killed_reason = self_reason = "wall"
+                res.killed_reason = "wall"
                 drain_deadline = now + 10
             if cancel is not None and not res.killed_reason and (now - last_cancel_check) > 1.0:
                 last_cancel_check = now

@@ -123,6 +123,14 @@ der laufende Batch merkt nichts davon. Gesperrt sind `secrets`, `backups` und je
 werden automatisch aufgeteilt; unter der Antwort steht die Zeile mit Modell, Anfragen,
 **Token-Zahlen** (statt Dollar — der Lauf geht über das Abo), Chat und Dauer.
 
+**`/autonom on|off` ist dauerhaft (R13v3, gemessen):** der Befehl schreibt den Wert
+sofort in `state/run.json` (`orchestrator.handle_command`); beim Start werden fehlende
+Felder nur aus den Vorgaben ergänzt, gespeicherte Werte bleiben. Weder `/stop` noch ein
+Neustart fassen das Feld an — nur `/autonom` selbst (und die Attrappe `hx.cli demo`, die
+in einen eigenen Zustand schreibt) ändert es. Eine fehlende Zustandsdatei bedeutet **AUS**
+(so war es auch hier: `state/run.json` steht auf `false`). Beleg:
+`docs\_r13v3_beleg_zustand.txt`, Tests `tests/test_r13v3_fixes.TestAutonomHaelt`.
+
 **Frage-Chat (`/ask`, R13o):** Die erste Frage öffnet einen Chat, weitere Fragen laufen
 darin weiter — Rückfragen („und warum?“) kennen also die vorige Antwort. Ein neuer Chat
 beginnt, wenn eine der drei Grenzen aus `[ask]` reißt (30 min ohne Frage, mehr als
@@ -625,6 +633,31 @@ Weiter steht nach einem Abbruch:
   die Git-Vorprüfung des nächsten Batches verlangt **keinen sauberen Baum**
   (`orchestrator.py:996`), sie holt nur den Remote-Stand. Gesichert werden sie erst,
   wenn der **Harness** gestoppt wird (`wip_rescue`, `orchestrator.py:1126/2026/2281`).
+
+### 12d. Aufräumen nach einem Abbruch (R13v3, 2026-09-28)
+
+Der Abbruch selbst (`kill_tree` = `taskkill /PID <claude> /T /F`) beendet nur den Baum.
+Seit R13v3 hängt am Worker-Lauf ein **Job-Objekt**; nach dem Lauf wird zusätzlich
+**nachgesucht** und der **halbe Stand gesichert**. Alles gemessen, nicht behauptet:
+`docs/_r13v3_beleg_aufraeumen.txt` (Sonde `tools/r13v3_aufraeumen_probe.py`,
+Herzschlag-Dateien) und `docs/_r13v3_beleg_zustand.txt`.
+
+| Ebene | Was | Wo | Gemessen |
+|---|---|---|---|
+| **Job-Objekt** | Der Worker-Prozess wird **sofort nach dem Start** in einen Job mit `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` aufgenommen; beim Schließen (Ende **jedes** Laufs, auch normal) beendet Windows alles darin | `hx/aufraeumen.py::Job`, `hx/proc.py::run_stream(job=)`, `hx/worker.py` | Kind stirbt mit dem Job — **auch** ein per `Start-Process` gestarteter Hintergrundlauf. **Die Reihenfolge ist tragend:** wird der Job erst zugewiesen, wenn das Kind schon existiert, erbt es ihn nicht (erster Messanlauf war genau deswegen wertlos) |
+| **Nachsuche** | Prozessliste per WMI, dann genau benannte Arbeitsprozesse (python, g++, gcc, make, mingw32-make, cmake, ninja, ppc_poc, port_selftest, port_gl), die **jünger als der Batch-Start** sind und **belegt** zu diesem Lauf gehören: Wurzel in der Kommandozeile **oder** während des Laufs als Nachfahre gesehen **oder** direkter Nachfahre eines Lauf-Prozesses. Beendet wird gezielt (`Stop-Process -Id …`) | `hx/aufraeumen.py::nachsuche`/`kandidaten`, `hx/worker.py` | Waisen ohne Elternbezug (per WMI gestartet, Muster B207) werden gefunden; ein fremder Prozess außerhalb der Wurzel bleibt unangetastet |
+| **PID-Nachweis** | Alle 60 s werden die **lebenden Nachfahren** des Workers aufgenommen (`nachfahren_pids`, Daemon-Thread, der Leser wartet nie). Nötig, weil ein Hintergrundlauf wie in B207 **keinen Pfad** nennt (`scripts/c_kopf.py`) und sein startendes Shell längst tot ist | `hx/worker.py` (`PID_AUFNAHME_S`) | ohne diesen Nachweis: 0 Treffer; mit Nachweis: gefunden und beendet |
+| **R13i-Schutz** | Der eigene PID-Kreis (Harness + Vorfahren) und Prozesse mit `hx.cli`/`harness\hx`/`ghidra` in der Kommandozeile werden **nie** angefasst | `aufraeumen.vorfahren`, `NIE_ANFASSEN` | der Harness stand im Beleg unter „ausgenommen" |
+| **Halber Stand** | Direkt nach dem Abbruch läuft `wip_rescue` (wie beim Stoppen): `git status` + `git diff HEAD` als Belegdateien nach `logs/` **und** `git stash push -m harness-wip-b<N>` mit Referenz | `orchestrator.wip_nach_abbruch`, `gitsafe.wip_rescue` | Meldung nennt Dateizahl + Stash-Referenz; scheitert die Sicherung, wird das **laut** gemeldet (nicht still) |
+| **Meldung im Review** | Der nächste Review bekommt den Block „ABBRUCH DES BEWERTETEN LAUFS" mit Grund, Sicherung (`git stash apply <ref>`) und dem Hinweis, dass die Nummer **nicht** übersprungen wird | `orchestrator.abbruch_zeile/abbruch_block`, `reviewer.build_prompt` | Block steht im Prompt; Messdatenzeile `Letzter Abbruch (R13v3): …` |
+| **Belege der Vor-Fassung** | Weil die Nummer aus dem Ankerkopf kommt, läuft der nächste Batch ggf. in **denselben** Ordner. Vorher werden `stream.jsonl`, `stream.err.txt`, `auftrag.md`, `result.json`, `antwort.md`, `harness-facts.md` nach `*-v1.*` umbenannt | `worker.sichere_vorgaenger` | `stream-v1.jsonl` bleibt neben dem neuen `stream.jsonl` stehen (Test) |
+
+**Warum die Nummer gleich bleibt:** `expected_batch()` = **Ankerkopf + 1**
+(`orchestrator.py:1460`) — es gibt bewusst keinen zweiten Zähler. Schreibt ein
+abgebrochener Worker den Anker nicht fort, bekommt der nächste Lauf dieselbe Nummer;
+das Review liegt wieder in `runs/b<N>`, die Belege des abgebrochenen Laufs liegen als
+`*-v1.*` daneben. Gemessen am echten Anker: Kopf BATCH 207 → nächster Lauf 208, und
+`state["batch"] = 999` ändert daran nichts (`docs/_r13v3_beleg_zustand.txt`).
 
 ### 12b. Was der Nutzer selbst entscheiden muss
 

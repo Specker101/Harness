@@ -255,6 +255,11 @@ class Git:
             rc, so, se = self.run("stash", "push", "-m", f"harness-wip-b{batch}")
             if rc == 0:
                 res["stash"] = (so or se).strip()[:200]
+                # R13v3: die Referenz mitgeben, damit die Sicherung im Review und in
+                # der Batch-Meldung WIEDERFINDbar ist (`git stash apply <ref>`).
+                rc2, so2, _se2 = self.run("rev-parse", "stash@{0}")
+                if rc2 == 0 and (so2 or "").strip():
+                    res["ref"] = (so2 or "").strip()
                 if self.log:
-                    self.log.info("WIP im Stash gesichert", batch=batch)
+                    self.log.info("WIP im Stash gesichert", batch=batch, ref=res.get("ref"))
         return res
