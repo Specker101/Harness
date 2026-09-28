@@ -457,6 +457,9 @@ class Orchestrator:
             txt = control.take(self.cfg, "meta")
             if txt is not None:
                 self._do_aussensicht("Befehl /meta (lokal)")
+            txt = control.take(self.cfg, "rotate")
+            if txt is not None:
+                self._do_rotate(txt or "lokal angefordert")
             obj = control.take_instruction(self.cfg)
             if obj:
                 self._take_user_instruction(obj)
@@ -464,6 +467,25 @@ class Orchestrator:
             self.log.warn("lokaler Steuerbefehl fehlgeschlagen", fehler=str(exc)[:200])
 
     # ------------------------------------------------------------------ /ask
+    def _do_rotate(self, grund: str = "") -> None:
+        """`state/ctl/rotate` bzw. `hx.cli rotate`: Reviewer-Session beim naechsten
+        Review wechseln (R13ab).
+
+        Das Flag steht im Zustand (`reviewer.force_rotate`) und wird in `do_review`
+        zusammen mit der Hash-Pruefung ausgewertet. Nur der Harness schreibt den Zustand -
+        deshalb der Umweg ueber die Steuerdatei.
+        """
+        rev = self.state.data.setdefault("reviewer", {})
+        if not rev.get("session_id"):
+            self.say("Es laeuft noch keine Reviewer-Session - der naechste Review "
+                     "beginnt ohnehin frisch.")
+            return
+        rev["force_rotate"] = True
+        self.state.save()
+        self.log.info("Reviewer-Session-Wechsel vorgemerkt", grund=grund[:120],
+                      session=rev.get("session_id"))
+        self.say("Reviewer-Session wechselt beim naechsten Review (" + grund[:80] + ").")
+
     def _do_ask(self, frage: str = "", neu: bool = False) -> None:
         """Freie Frage an Claude - eigener Lauf im EIGENEN THREAD (R13f/R13o).
 
@@ -1531,6 +1553,13 @@ class Orchestrator:
         count = int(rev_state.get("reviews", 0))
         rot = int(self.cfg.get("reviewer", "rotation_after", 10))
         force = bool(rev_state.get("force_rotate"))
+        # R13ab: die CLI liest `--append-system-prompt-file` bei `--resume` NICHT neu
+        # (gemessen, docs/_r13ab_probe.txt). Eine Aenderung an prompts/reviewer.md erreicht
+        # eine laufende Session deshalb nur ueber eine NEUE Session - der Hash der Fassung,
+        # mit der die Session angelegt wurde, steht im Zustand.
+        prompt_neu = rv.prompt_hash(self.cfg)
+        prompt_alt = str(rev_state.get("prompt_hash") or "")
+        wechsel_prompt = prompt_alt != prompt_neu
         evidence = int(self.state.batch or 0)
         target = self.expected_batch() or evidence or 0
         rdir = ensure_dir(Path(self.cfg.sub("runs")) / f"b{target:03d}")
@@ -1544,8 +1573,15 @@ class Orchestrator:
 
         if attempt > 1:
             handover = handover or str((rev_state.get("pending_handover") or {}).get("text") or "")
-        elif force or (not session_id) or (count >= rot):
-            grund = "auf Wunsch (frische Session)" if force else f"Rotation nach {count} Reviews"
+        elif force or wechsel_prompt or (not session_id) or (count >= rot):
+            if wechsel_prompt:
+                grund = ("Systemprompt geaendert (prompts/reviewer.md)"
+                         if prompt_alt else
+                         "Systemprompt-Hash fehlt (Session aus einer aelteren Fassung)")
+            elif force:
+                grund = "auf Wunsch (frische Session)"
+            else:
+                grund = f"Rotation nach {count} Reviews"
             alt = session_id
             merker = rev_state.get("pending_handover") or {}
             if alt and merker.get("from_session") == alt and merker.get("text"):
@@ -1560,7 +1596,8 @@ class Orchestrator:
             neu = str(uuid.uuid4())
             if neu == alt:                       # Sicherheitsnetz: nie die alte Kennung erben
                 neu = str(uuid.uuid4())
-            self.state.reviewer_new_session(neu, handover=handover, from_session=alt or "")
+            self.state.reviewer_new_session(neu, handover=handover, from_session=alt or "",
+                                            prompt_hash=prompt_neu)
             self.state.save()
             sp = Path(self.cfg.sub("sessions"))
             write_text_atomic(sp / f"claude-{neu}.md", handover or "(keine Uebergabe erhalten)")

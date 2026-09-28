@@ -163,7 +163,8 @@ class TestFrischeReviewerSession(Base):
         return aufzeichnung
 
     def test_force_rotate_startet_neue_session_mit_uebergabe(self):
-        self.orch.state.data["reviewer"] = {"session_id": "alte-session-123", "reviews": 2}
+        self.orch.state.data["reviewer"] = {"session_id": "alte-session-123", "reviews": 2,
+                                            "prompt_hash": rvmod.prompt_hash(self.cfg)}
         self.orch.state.data["reviewer"]["force_rotate"] = True
         self.orch.state.save()
         auf = self._review_mit_aufzeichnung()
@@ -188,7 +189,11 @@ class TestFrischeReviewerSession(Base):
                         "die Uebergabe liegt schon VOR dem Review auf der Platte")
 
     def test_ohne_rotation_wird_die_session_fortgesetzt(self):
-        self.orch.state.data["reviewer"] = {"session_id": "laufende-session-999", "reviews": 2}
+        # R13ab: prompt_hash auf den AKTUELLEN Stand - sonst rotiert der Harness wegen
+        # des geaenderten/fehlenden Systemprompts und dieser Test prueft das Falsche.
+        self.orch.state.data["reviewer"] = {"session_id": "laufende-session-999",
+                                            "reviews": 2,
+                                            "prompt_hash": rvmod.prompt_hash(self.cfg)}
         self.orch.state.save()
         auf = self._review_mit_aufzeichnung()
         self.assertFalse(auf["new_session"], "ohne Rotation wird fortgesetzt")
@@ -197,7 +202,8 @@ class TestFrischeReviewerSession(Base):
         self.assertEqual(self.orch.state.data["reviewer"]["session_id"], "laufende-session-999")
 
     def test_rotation_nach_zehn_reviews(self):
-        self.orch.state.data["reviewer"] = {"session_id": "volle-session", "reviews": 10}
+        self.orch.state.data["reviewer"] = {"session_id": "volle-session", "reviews": 10,
+                                            "prompt_hash": rvmod.prompt_hash(self.cfg)}
         self.orch.state.save()
         auf = self._review_mit_aufzeichnung()
         self.assertTrue(auf["new_session"])

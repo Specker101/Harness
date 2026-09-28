@@ -1,0 +1,17 @@
+R13ab-Sonde: wirkt --append-system-prompt-file bei --resume?
+Zeitpunkt: 2026-09-28T22:29:47+02:00
+Modell und Umgebung: wie ein echter Review (reviewer_env, cc-reviewer).
+
+### 1) neue Session mit MARKER: PROBE-A
+   C:/Users/Benji/.local/bin/claude.exe -p --output-format … --session-id bfd87c65-a4a3-4105-ba60-50731fb7845f --append-system-prompt-file probe_systemprompt.md
+   Antwort: 'PROBE-A'
+   Dateiinhalt jetzt: 'MARKER: PROBE-A'
+
+### 2) dieselbe Session per --resume, Datei auf MARKER: PROBE-B geaendert
+   C:/Users/Benji/.local/bin/claude.exe -p --output-format … --resume bfd87c65-a4a3-4105-ba60-50731fb7845f --append-system-prompt-file probe_systemprompt.md
+   Antwort: 'PROBE-A'
+
+### Verdikt
+   Die geaenderte Datei kommt bei --resume NICHT an (Antwort PROBE-A bleibt).
+   -> Aenderungen an prompts/reviewer.md erreichen eine LAUFENDE Session
+      nicht; sie brauchen eine neue Session (Rotation).

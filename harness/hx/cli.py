@@ -116,6 +116,26 @@ def cmd_fragen(args) -> int:
     return 0
 
 
+def cmd_rotate(args) -> int:
+    """Reviewer-Session beim naechsten Review wechseln (R13ab).
+
+    Grund (gemessen, docs/_r13ab_probe.txt): die Claude-CLI liest den angehaengten
+    Systemprompt (`--append-system-prompt-file`) bei `--resume` NICHT neu. Ein geaenderter
+    `prompts/reviewer.md` erreicht eine laufende Reviewer-Session deshalb nur ueber eine
+    neue Session. Der Harness erkennt das selbst am Hash - dieser Befehl ist fuer den
+    Fall, dass ohne Prompt-Aenderung gewechselt werden soll.
+    """
+    from . import control
+    cfg = load_config(args.config)
+    pid = control.read_pid(cfg)
+    if pid:
+        control.put(cfg, "rotate", "cli")
+        print(f"Session-Wechsel vorgemerkt (Harness laeuft, PID {pid}) - beim naechsten Review.")
+        return 0
+    print("Kein laufender Harness - es gibt keine Session zu wechseln.")
+    return 1
+
+
 def cmd_meta(args) -> int:
     """Aussensicht (Meta-Review) starten - wie Telegram `/meta` (R13w).
 
@@ -1289,6 +1309,7 @@ def build_parser() -> argparse.ArgumentParser:
     mt = sub.add_parser("meta", help="Aussensicht (Meta-Review) starten bzw. vormerken")
     mt.add_argument("--grund", default="", help="Anlass im Bericht (Vorgabe: Befehl)")
     mt.add_argument("--mock", action="store_true", help="Attrappe ohne API-Kosten")
+    sub.add_parser("rotate", help="Reviewer-Session beim naechsten Review wechseln")
     sub.add_parser("profiles")
     sub.add_parser("probe-telegram")
 
@@ -1347,6 +1368,7 @@ def main(argv: list[str] | None = None) -> int:
         "thinking": cmd_thinking,
         "fragen": cmd_fragen,
         "meta": cmd_meta,
+        "rotate": cmd_rotate,
         "probe-telegram": cmd_probe, "allowlist-add": cmd_allowlist, "demo": cmd_demo,
         "show-prompts": cmd_show_prompts,
         "env-proof": cmd_env_proof, "rebuild": cmd_rebuild, "ghidra-smoke": cmd_ghidra_smoke,

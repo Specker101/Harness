@@ -20,7 +20,7 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from hx import protocol, state as st, streamjson, worker            # noqa: E402
+from hx import protocol, reviewer as rvmod, state as st, streamjson, worker  # noqa: E402
 from hx.config import load_config                                   # noqa: E402
 from hx.orchestrator import Orchestrator                            # noqa: E402
 from hx.profiles import load_profile                                # noqa: E402
@@ -126,8 +126,11 @@ class TestWatchReviewDir(Base):
         self.orch.state.data["batch"] = 161
         self.orch.state.data["last_batch_number"] = 161
         # Kennung setzen, damit keine Rotation/Uebergabe ausgeloest wird.
-        self.orch.state.data["reviewer"] = {"session_id": "s-test", "reviews": 1,
-                                            "force_rotate": False}
+        # R13ab: dazu gehoert der Hash des Systemprompts - fehlt er, rotiert der Harness
+        # einmal (Session aus einer aelteren Fassung).
+        self.orch.state.data["reviewer"] = {
+            "session_id": "s-test", "reviews": 1, "force_rotate": False,
+            "prompt_hash": rvmod.prompt_hash(self.cfg)}
         rv = _ReviewStub()
         with mock.patch("hx.orchestrator.rv.run_review", return_value=rv), \
              mock.patch.object(self.orch, "expected_batch", return_value=162):

@@ -151,7 +151,8 @@ class TestSessionKennung(Base):
 # --------------------------------------------- 2) Rotation + Uebergabe + Review
 class TestRotationUndUebergabe(Base):
     def _rotation_mit_uebergabe(self, handover_im_zustand: bool):
-        rev = {"session_id": "alte-session-123", "reviews": 2, "force_rotate": True}
+        rev = {"session_id": "alte-session-123", "reviews": 2, "force_rotate": True,
+               "prompt_hash": rvmod.prompt_hash(self.cfg)}
         if handover_im_zustand:
             rev["pending_handover"] = {"from_session": "alte-session-123",
                                        "text": "UEBERGABE AUS DEM ZUSTAND: B159 fertig.",
@@ -209,7 +210,12 @@ class TestRotationUndUebergabe(Base):
 # ------------------------------------- 3) Review ohne Protokollblock -> kein Gate
 class TestReviewOhneProtokollblock(Base):
     def _startzustand(self):
-        self.orch.state.data["reviewer"] = {"session_id": "laufende-999", "reviews": 4}
+        # R13ab: der Zustand fuehrt den Hash des Systemprompts; fehlt er, rotiert der
+        # Harness einmal (Session aus einer aelteren Fassung). Hier wird der AKTUELLE
+        # Hash gesetzt - geprueft wird die Zaehlung, nicht die Rotation.
+        self.orch.state.data["reviewer"] = {
+            "session_id": "laufende-999", "reviews": 4,
+            "prompt_hash": rvmod.prompt_hash(self.cfg)}
         self.orch.state.save()
 
     def test_zwei_versuche_dann_pause_ohne_gate(self):

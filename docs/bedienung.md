@@ -87,6 +87,7 @@ Immer aus `g:\Harness\harness` aufrufen (`python -m hx.cli …`).
 | `stop` | laufenden Batch abbrechen: WIP wird gesichert (Status + Patch + Stash); danach **beendet sich der Harness** |
 | `approve [--text "…"]` | wartenden Batch freigeben; optionaler Text geht als ds-Nachricht mit |
 | `number <N>` | Batch-Nummer des **offenen** Auftrags setzen (z. B. wenn der Reviewer eine andere nennt) |
+| `rotate` | **Reviewer-Session beim naechsten Review wechseln** (R13ab). Der Harness merkt sich den Hash von `prompts/reviewer.md` in dem Moment, in dem die Session angelegt wurde, und rotiert **selbst**, wenn sich die Datei geaendert hat - der Befehl ist fuer den Fall, dass ohne Prompt-Aenderung gewechselt werden soll (Details §9b) |
 | `send ds "Text"` / `send ds --file auftrag.md` | Nachricht an den **Worker** in die Queue (Zustellung am nächsten Batch-Übergang) |
 | `send claude "Text"` / `send claude --file ziele.md` | Nachricht an den **Reviewer** in die Queue (Zustellung am nächsten Review) |
 | `ask "Frage"` / `ask --file frage.md` / `ask --neu "Frage"` | **freie Frage an Claude** (eigener Lauf, Modell des Reviewers, **nur lesend**). Antwort kommt direkt zurück; Belegdatei unter `logs\ask\`. Läuft **auch während eines Batches** und beeinflusst ihn nicht. Fragen laufen **nacheinander** und im **selben Chat** weiter (Gedächtnis); `--neu` beginnt einen neuen Chat. |
@@ -320,6 +321,43 @@ Schritte stehen im Log (`Reviewer-Session-Wechsel`, `Uebergabe erhalten`,
 Erzwungen wird die Rotation mit `"force_rotate": true` im Abschnitt `reviewer` von
 `state/run.json` — der Merker wird beim nächsten Review verbraucht und danach gelöscht.
 Der Session-Mitschnitt der neuen Session: `sessions/claude-<neue-id>.md`.
+
+### 9b. Wie `prompts/reviewer.md` beim Reviewer ankommt (R13ab, gemessen 2026-09-28)
+
+**Der Befund, der die Prüfung ausgelöst hat:** die Pflichtzeile `B-SCHRITT:` fehlte in den
+Reviews B209/B210, obwohl die Regel seit R13w in `prompts/reviewer.md` steht. Zwei Messungen
+erklären das:
+
+**1. Der gesendete Prompt enthält die Rollenanweisung NICHT.** Was der Harness je Review
+mitschreibt, ist der **Nutzer-Prompt** (`logs/review-prompt-<ts>.md`: Messdaten, Diff,
+Historie, PLAN/IST, Anker, Snapshot). Die Rollenanweisung geht als
+`--append-system-prompt-file prompts/reviewer.md` daneben (`hx/reviewer.py:96-98`, ebenso
+`ask.py`/`aussensicht.py`/`worker.py`). Am echten Beleg: im Prompt der Reviews B209
+(`logs/review-prompt-2026-09-28T172525+0000.md`) und B210 (`…T181337+0000.md`) kommt das
+Wort `B-SCHRITT` nur **zitiert** vor (Commit-Betreffe, Ankerzeilen); die Regel selbst steht
+in `prompts/reviewer.md:275/287/290`.
+
+**2. Bei `--resume` liest die CLI die Datei NICHT neu.** Gemessen mit zwei Mini-Aufrufen
+(`tools/r13ab_probe_systemprompt.py`, Beleg `docs/_r13ab_probe.txt`): neue Session mit
+`MARKER: PROBE-A` → Antwort `PROBE-A`; danach dieselbe Session per `--resume`, Datei auf
+`MARKER: PROBE-B` geändert → Antwort **weiterhin `PROBE-A`**. Der Harness hängt die Datei
+zwar bei jedem Aufruf an (auch beim Fortsetzen), sie kommt aber nicht an.
+
+Die laufende Reviewer-Session war älter als die Regel: Session angelegt **2026-09-27
+22:02:56Z**, die Regel kam mit **R13w am 2026-09-28 16:32:52Z**. Sie hat sie nie gesehen —
+der Reviewer hat sie also nicht ignoriert; er konnte sie nicht kennen.
+
+**Was der Harness jetzt tut.** `reviewer.prompt_hash` bildet einen Hash von
+`prompts/reviewer.md`; `state.reviewer_new_session` speichert den Hash der Fassung, mit der
+die Session **angelegt** wurde. `orchestrator.do_review` vergleicht ihn vor jedem Review und
+**rotiert bei Abweichung** (neue Session mit Übergabe, `Sessions-Wechsel`-Grund im Log und
+in Telegram). Eine Session aus einer älteren Fassung hat noch keinen Hash — sie rotiert
+**einmal**, danach ist der Zustand vollständig. Manuell geht es mit `hx.cli rotate`
+(bzw. `state/ctl/rotate`), was `reviewer.force_rotate` setzt.
+
+> Für `prompts/ask.md` und `prompts/aussensicht.md` gilt derselbe Mechanismus nicht: die
+> Aussensicht startet **immer** eine frische Session (R13w), und `/ask` beginnt bei
+> `--neu`/abgelaufener Chatgrenze neu. Betroffen ist nur die langlebige Reviewer-Session.
 
 ---
 
@@ -1128,16 +1166,20 @@ Mehr: /thinking 20   Ungekuerzt: /thinking 10 voll
 
 ---
 
-## 16. Offene Fragen an dich (`/fragen`, R13s/R13y)
+## 16. Offene Fragen an dich (`/fragen`, R13s/R13y/R13ab)
 
 `/fragen` (Telegram) und `python -m hx.cli fragen` zeigen, was gerade **an dir** offen
-ist — jede Frage mit **Kennung**, je Frage als **eine entscheidbare Zeile**:
+ist — jede Frage mit **Kennung**, je Frage als **eine entscheidbare Zeile**. Seit R13ab
+(Punkt 4) gibt es **zwei** Listen: unter „OFFENE FRAGEN AN DICH" steht nur, was wirklich
+eine **Entscheidung von dir** braucht; die `ENTSCHIEDEN`-Zeilen des Reviewers (er hat den
+Regelfall selbst entschieden, du kannst nur ein Veto einlegen) stehen in einem eigenen
+Abschnitt **„ZUR KENNTNIS"**:
 
 ```
 FRAGEN AN DICH (Anker: BATCH 206)
 
 NAECHSTER SCHRITT
-  (a) R535 (NEU, GEMESSEN, OFFEN): addc addiert das EINGEHENDE CA NICHT - eine Probe ...
+  (a) R535 (NEU, GEMESSEN, OFTEN): addc addiert das EINGEHENDE CA NICHT - eine Probe ...
 
 OFFENE FRAGEN AN DICH
   A5        ANKERPOSTEN (5): soll prof je Kopf MEHRERE MEM-Varianten fahren?
@@ -1147,14 +1189,29 @@ OFFENE FRAGEN AN DICH
   R209-1    ENTSCHEIDUNG NOETIG (bremst): Soll der Hybrid-Kern gegen Unicorn geprueft ...
   R209-2    OFFENE FRAGE: Du nennst 21 Referenzstroeme, gezaehlt sind 20. Welcher fehlt?
   R209-3    WARTET AUF LIVE-AUFNAHME: 0x40B/0x40E/0x40F
-  R209-4    ENTSCHIEDEN (Veto per /claude moeglich): Zuerst wird der Interpreter streng ...
   M208-1    AUSSENSICHT (Gewicht mittel): Der Zielsatz in readme.md nennt kein Budget ...
             Empfehlung: Das Budget im Zielsatz der readme nachtragen.
             Beleg: readme.md:640-642
   (4 Posten hat der Reviewer selbst geschlossen - Veto per /claude)
 
+ZUR KENNTNIS (Veto per /claude <Kennung> moeglich)
+  R209-4    ENTSCHIEDEN: Zuerst wird der Interpreter streng gemacht.
+            Quelle: b210/review.md
+
 ANTWORTEN: /claude <Kennung> <Text>   (z. B. "/claude A5 ja" oder "/claude M208-1: abgelehnt, weil ...")
 ```
+
+Was wohin gehört:
+
+| Quelle | Abschnitt |
+|---|---|
+| Ankerposten `A<n>`, Aussensicht-Befund `M<batch>-n` (Empfänger du), verworfener Befund `M<batch>-v<n>` | OFFENE FRAGEN |
+| `ENTSCHEIDUNG NOETIG:` (bremst), `OFFENE FRAGE:`, `WARTET AUF LIVE-AUFNAHME:` | OFFENE FRAGEN |
+| `ENTSCHIEDEN:` des Reviewers | **ZUR KENNTNIS** (Veto per `/claude`) |
+
+`/status` zählt dieselben Töpfe getrennt: `Fragen an dich: 4 offen, 2 zur Kenntnis
+(offen: A1, R210-1, …) (zur Kenntnis: R210-4, R210-5)`. Beide Listen sind über die Kennung
+antwortbar — auch ein Kenntnis-Punkt („`/claude R209-4 Widerspruch: bitte anders`").
 
 ### 16a. Die Kennungen (R13y, 2026-09-28)
 

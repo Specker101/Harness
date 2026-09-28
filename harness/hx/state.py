@@ -150,12 +150,16 @@ class State:
         return int(rev["reviews"])
 
     def reviewer_new_session(self, session_id: str, handover: str = "",
-                             from_session: str = "") -> None:
+                             from_session: str = "", prompt_hash: str = "") -> None:
         """Neue Reviewer-Session verbuchen (R13b).
 
         Die Uebergabe der alten Session wird MITGESPEICHERT. Scheitert der Review oder
         bricht der Harness ab, ist sie nicht verloren: `do_review` verwendet sie wieder,
         statt die alte Session ein zweites Mal zu fragen.
+
+        R13ab: `prompt_hash` ist der Hash von `prompts/reviewer.md` in dem Moment, in dem
+        die Session angelegt wurde. Die CLI liest die Datei bei `--resume` nicht neu
+        (gemessen) - nur so laesst sich erkennen, dass der Systemprompt veraltet ist.
         """
         self.data["reviewer"] = {
             "session_id": session_id,
@@ -163,6 +167,7 @@ class State:
             "started_at": now_iso(),
             "last_decision": None,
             "force_rotate": False,
+            "prompt_hash": str(prompt_hash or ""),
             "pending_handover": ({"from_session": from_session, "text": handover,
                                   "at": now_iso()} if handover else {}),
         }

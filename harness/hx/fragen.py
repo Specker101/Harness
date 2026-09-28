@@ -155,6 +155,8 @@ def _anker_posten(cfg) -> list[dict]:
                     "label": "ANKERPOSTEN " + (nr or ""),
                     "quelle": "Ankerkopf r1b-workstream.md",
                     "bremst": False,
+                    # R13ab: ein Ankerposten ist eine echte Frage an den Nutzer.
+                    "zur_kenntnis": False,
                     "frage": (e or {}).get("frage") or "",
                     "rohtext": " ".join(str(txt).split()),
                     "empfehlung": (e or {}).get("empfehlung") or "",
@@ -183,6 +185,10 @@ def _review_posten(cfg, review_text: str | None = None) -> list[dict]:
                         "quelle": f"{ordner.name}/review.md"
                                   if ordner.name.startswith("b") else "letztes Review",
                         "bremst": key == "entscheidung",
+                        # R13ab (Punkt 4): eine ENTSCHIEDEN-Zeile ist KEINE offene Frage -
+                        # der Reviewer hat selbst entschieden, der Nutzer kann nur ein
+                        # Veto einlegen. Sie steht deshalb unter "ZUR KENNTNIS".
+                        "zur_kenntnis": key == "entschieden",
                         "frage": satz, "rohtext": satz, "empfehlung": "",
                         "bei_ja": "", "bei_nein": "", "bei_a": "", "bei_b": "",
                         "entscheidbar": False,
@@ -203,6 +209,7 @@ def _aussensicht_posten(cfg) -> list[dict]:
                     "label": f"AUSSENSICHT (Gewicht {b.get('gewicht')})",
                     "quelle": f"runs/meta-{int(b.get('batch') or 0):03d}.md",
                     "bremst": False,
+                    "zur_kenntnis": False,
                     "frage": str(b.get("aussage") or ""), "rohtext": "",
                     "empfehlung": str(b.get("empfehlung") or ""),
                     "bei_ja": "", "bei_nein": "", "bei_a": "", "bei_b": "",
@@ -244,6 +251,7 @@ def _verworfene_posten(cfg) -> list[dict]:
                     "label": "AUSSENSICHT (verworfen - pruefen?)",
                     "quelle": f"runs/meta-{letzte:03d}.md (Rohantwort dort)",
                     "bremst": False,
+                    "zur_kenntnis": False,
                     "frage": str(b.get("aussage") or ""), "rohtext": "",
                     "empfehlung": str(b.get("empfehlung") or ""),
                     "bei_ja": "", "bei_nein": "", "bei_a": "", "bei_b": "",
@@ -309,17 +317,29 @@ def _status(cfg, kennung: str, aufgenommen: set[str]) -> str:
 
 
 def status_zeilen(cfg, gate: dict | None = None) -> list[str]:
-    """Kurze Statuszeilen fuer `/status` (je Status eine Zahl, dann die Kennungen)."""
+    """Kurze Statuszeile fuer `/status` (je Status eine Zahl, dann die offenen Kennungen).
+
+    R13ab (Punkt 4): ENTSCHIEDEN-Eintraege sind keine offenen Fragen - sie werden als
+    eigene Zahl "zur Kenntnis" gefuehrt, damit `/status` und `/fragen` dasselbe sagen.
+    """
     posten = fragen_posten(cfg, gate=gate)
     if not posten:
         return ["Fragen an dich: keine"]
+    fragen = [p for p in posten if not p.get("zur_kenntnis")]
+    kenntnis = [p for p in posten if p.get("zur_kenntnis")]
     zaehler: dict[str, int] = {}
-    for p in posten:
+    for p in fragen:
         zaehler[str(p.get("status"))] = zaehler.get(str(p.get("status")), 0) + 1
     teile = [f"{n} {k}" for k, n in sorted(zaehler.items())]
-    offen_ids = [p["id"] for p in posten if p.get("status") == "offen"]
+    offen_ids = [p["id"] for p in fragen if p.get("status") == "offen"]
+    kenntnis_offen = [p["id"] for p in kenntnis if p.get("status") == "offen"]
+    if kenntnis_offen:
+        teile.append(f"{len(kenntnis_offen)} zur Kenntnis")
     ids = ", ".join(offen_ids) if offen_ids else "-"
-    return ["Fragen an dich: " + ", ".join(teile) + f"  (offen: {ids})"]
+    zeile = ("Fragen an dich: " + ", ".join(teile) + f"  (offen: {ids})")
+    if kenntnis_offen:
+        zeile += "  (zur Kenntnis: " + ", ".join(kenntnis_offen) + ")"
+    return [zeile]
 
 
 # ------------------------------------------------------------------ Nachricht
@@ -397,12 +417,19 @@ def fragen_text(cfg, gate: dict | None = None, review_text: str | None = None) -
     Was hier steht, ist aus den Belegdateien abgeleitet (siehe Modulkopf) - nichts wird
     gespeichert und nichts wird geschaetzt. `UNKLAR FORMULIERT` bleibt stehen, statt eine
     Frage still umzudeuten (Nutzerentscheid 2026-09-28).
+
+    R13ab (Punkt 4): **ENTSCHIEDEN**-Zeilen des Reviewers sind keine offenen Fragen -
+    sie stehen in einem eigenen Abschnitt
+    "ZUR KENNTNIS (Veto per /claude <Kennung> moeglich)". Unter "OFFENE FRAGEN AN DICH"
+    bleibt nur, was wirklich eine Entscheidung braucht (Ankerposten, Marker
+    ENTSCHEIDUNG NOETIG / OFFENE FRAGE / WARTET AUF LIVE-AUFNAHME, Aussensicht-Befunde).
     """
     kopf = stand.anchor_bloecke(cfg)
     batch = stand._batch_aus_anker(kopf)
     _offen, geschlossen = stand.offene_entscheidungen(kopf.get("Offene Entscheidung", ""))
     posten = fragen_posten(cfg, review_text=review_text, gate=gate)
-    offen = [p for p in posten if p.get("status") == "offen"]
+    offen = [p for p in posten if p.get("status") == "offen" and not p.get("zur_kenntnis")]
+    kenntnis = [p for p in posten if p.get("status") == "offen" and p.get("zur_kenntnis")]
     beantwortet = [p for p in posten if p.get("status") == "beantwortet"]
     aufgenommen = [p for p in posten if p.get("status") == "aufgenommen"]
 
@@ -413,23 +440,13 @@ def fragen_text(cfg, gate: dict | None = None, review_text: str | None = None) -
     zeilen += ["", "OFFENE FRAGEN AN DICH"]
     if not offen:
         zeilen.append("  keine - der Reviewer entscheidet den Regelfall selbst (R13f)")
-    for p in offen:
-        if p.get("frage"):
-            zeilen.append(f"  {p['id']:<9} {str(p.get('label') or '').strip()}: "
-                          + stand._kurz(p["frage"], 150))
-            zeilen.append("            " + stand._kurz(_empfehlung_zeile(p), 165))
-        else:
-            zeilen.append(f"  {p['id']:<9} UNKLAR FORMULIERT: "
-                          + stand._kurz(p.get("rohtext", ""), 145))
-            zeilen.append("            (so nicht entscheidbar - bitte in /claude den "
-                          "Wortlaut nennen)")
-        if p.get("beleg"):
-            zeilen.append("            Beleg: " + stand._kurz(str(p["beleg"]), 150))
-        if p.get("quelle"):
-            zeilen.append("            Quelle: " + stand._kurz(str(p["quelle"]), 150))
+    zeilen += _liste_zeilen(offen)
     if geschlossen:
         zeilen.append(f"  ({geschlossen} Posten hat der Reviewer selbst geschlossen - "
                       "Veto per /claude)")
+    if kenntnis:
+        zeilen += ["", "ZUR KENNTNIS (Veto per /claude <Kennung> moeglich)"]
+        zeilen += _liste_zeilen(kenntnis)
     if beantwortet:
         zeilen += ["", "BEANTWORTET, WARTET AUF REVIEW"]
         for p in beantwortet:
@@ -438,7 +455,8 @@ def fragen_text(cfg, gate: dict | None = None, review_text: str | None = None) -
     if aufgenommen:
         zeilen.append("  aufgenommen (nicht mehr offen): "
                       + ", ".join(p["id"] for p in aufgenommen))
-    kandidaten = offen or beantwortet
+    # Beispielkennung: lieber eine echte Frage als ein Kenntnis-Punkt (R13ab).
+    kandidaten = offen or beantwortet or kenntnis
     beispiel = (f'   (z. B. "/claude {kandidaten[0]["id"]} ja" - Kennung am Anfang, '
                 "dann der Text)") if kandidaten else ""
     zeilen += ["", "ANTWORTEN: /claude <Kennung> <Text>" + beispiel]
@@ -460,6 +478,30 @@ def _folgen(p: dict) -> list[str]:
                              ("A", "bei_a"), ("B", "bei_b")):
         if p.get(schluessel):
             out.append(f"bei {wort}: " + str(p[schluessel]))
+    return out
+
+
+def _liste_zeilen(liste: list[dict]) -> list[str]:
+    """Eine Postenliste als Zeilen (Kennung, Label, Text; Empfehlung/Beleg/Quelle darunter).
+
+    R13ab: dieselbe Darstellung fuer "OFFENE FRAGEN AN DICH" und
+    "ZUR KENNTNIS (Veto per /claude <Kennung> moeglich)".
+    """
+    out: list[str] = []
+    for p in liste:
+        if p.get("frage"):
+            out.append(f"  {p['id']:<9} {str(p.get('label') or '').strip()}: "
+                       + stand._kurz(p["frage"], 150))
+            out.append("            " + stand._kurz(_empfehlung_zeile(p), 165))
+        else:
+            out.append(f"  {p['id']:<9} UNKLAR FORMULIERT: "
+                       + stand._kurz(p.get("rohtext", ""), 145))
+            out.append("            (so nicht entscheidbar - bitte in /claude den "
+                       "Wortlaut nennen)")
+        if p.get("beleg"):
+            out.append("            Beleg: " + stand._kurz(str(p["beleg"]), 150))
+        if p.get("quelle"):
+            out.append("            Quelle: " + stand._kurz(str(p["quelle"]), 150))
     return out
 
 

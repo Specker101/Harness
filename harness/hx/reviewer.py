@@ -46,6 +46,26 @@ class ReviewResult:
         return base
 
 
+def prompt_hash(cfg) -> str:
+    """Hash des Systemprompts `prompts/reviewer.md` (12 Hexzeichen; '' wenn unlesbar).
+
+    R13ab (gemessen, Beleg `docs/_r13ab_probe.txt`): die Claude-CLI liest
+    `--append-system-prompt-file` bei **`--resume` NICHT neu** - eine Aenderung an
+    `prompts/reviewer.md` erreicht eine LAUFENDE Session also nicht. Der Harness haengt die
+    Datei zwar bei jedem Aufruf an (`build_command`), aber das genuegt nicht.
+
+    Deshalb merkt sich der Zustand den Hash der Fassung, mit der die Session angelegt
+    wurde (`state.reviewer_new_session(prompt_hash=…)`); `orchestrator.do_review`
+    vergleicht ihn vor jedem Review und rotiert, wenn er sich geaendert hat.
+    """
+    import hashlib
+    try:
+        roh = (Path(cfg.prompts_dir) / "reviewer.md").read_bytes()
+    except OSError:
+        return ""
+    return hashlib.sha256(roh).hexdigest()[:12]
+
+
 def build_command(cfg, session_id: str | None, new_session: bool) -> list[str]:
     """Kommandozeile OHNE Prompt - der Prompt geht über stdin (UTF-8).
 

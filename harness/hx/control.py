@@ -17,7 +17,11 @@ from pathlib import Path
 
 from .util import ensure_dir, now_iso, read_text, write_text_atomic
 
-NAMES = ("pause", "resume", "stop", "approve", "number", "meta")
+# R13ab: `rotate` erzwingt beim naechsten Review eine frische Reviewer-Session
+# (`state.reviewer.force_rotate`). Grund: die Claude-CLI liest den angehaengten
+# Systemprompt bei `--resume` nicht neu (gemessen) - ein geaenderter
+# `prompts/reviewer.md` kommt nur ueber eine neue Session an.
+NAMES = ("pause", "resume", "stop", "approve", "number", "meta", "rotate")
 
 
 def ctl_dir(root: str | Path) -> Path:
