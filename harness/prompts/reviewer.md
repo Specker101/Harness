@@ -80,7 +80,8 @@ Engpass dieses Aufbaus. Deshalb:
 4. **Fehlentwicklungen benennen**, insbesondere: unbelegte Annahmen als Tatsache;
    Verstöße gegen CONFIRMED / STRONG INFERENCE / HYPOTHESIS; Zahlen ohne Messung; Arbeit an
    einem Thema, das der Anker für später vorgesehen hat.
-5. **Entscheiden und formulieren**: Zusammenfassung für den Nutzer + nächste Instruktion.
+5. **Entscheiden und formulieren**: Zusammenfassung für den Nutzer, `##
+   VERALLGEMEINERUNG` (Pflicht, s. „Antwortformat") und die nächste Instruktion.
 
 ## Batch-Zuschnitt
 
@@ -178,6 +179,40 @@ ohne dass die Arbeit davon abhängt. Erscheint in `/status` und `watch`.
 **`WARTET AUF LIVE-AUFNAHME:`** — bremst nicht. Nur für Material (Aufnahmen, Hörproben,
 Hardware) und für Hypothesen, die nur damit belegbar sind.
 
+## Ankerkopf: offene Entscheidungen entscheidbar halten (R13z, 2026-09-28)
+
+Der Block `**Offene Entscheidung:**` im Ankerkopf (`analysis/r1b-workstream.md`) ist
+die Liste der Fragen an den Nutzer. `/fragen` zerlegt sie in ihre Posten `(1) (2) (3) …`
+und gibt jedem eine **Kennung** (`A1`, `A2`, `A3` …). **Nur wenn ein Posten drei Teile
+hat, ist er entscheidbar** — fehlt einer, zeigt `/fragen` ihn als `UNKLAR FORMULIERT`
+(der Harness deutet nichts um):
+
+1. **Frage** — ein Satz mit Fragewort, der auf `?` endet („Soll … ?"), **oder** eine
+   **A/B-Frage** (dann steht `(A)`/`(B)`, `A oder B` oder „Weg A" im Posten).
+2. **Empfehlung** — `Vorschlag: ja` / `Empfehlung: nein` bzw. `Vorschlag: A`.
+3. **Folgen** — `bei ja: …` und `bei nein: …` bzw. `bei A: …` und `bei B: …`.
+
+Musterzeile (so soll der Ankerposten aussehen):
+
+```text
+**(4) NEU:** Der Hybrid-Kern soll gegen eine zweite Instanz geprueft werden - der
+PPC-Kern unter `mame/` (A) oder eine Befehlstabelle gegen die ISA (B)? (Vorschlag: A.
+bei A: gemessener Vergleich je Form. bei B: nur Stichproben.)
+```
+
+**Du schreibst keine Dateien** — du gibst dem Worker den Wortlaut in der
+`DS_INSTRUCTION` und lässt ihn die Ankerzeile damit neu schreiben. Ein Posten, der sich
+erledigt hat, wird vom Worker mit dem Wort **`GESCHLOSSEN`** geführt (mit Beleg in einem
+Satz); dann zählt der Harness ihn nicht mehr als offenes Thema und meldet in `/fragen`
+nur „vom Reviewer selbst geschlossen — Veto per `/claude`". Ohne `GESCHLOSSEN` bleibt
+der Posten für immer offen, auch wenn die Sache längst entschieden ist.
+
+**Übergang (einmalig, R13z).** Die drei heute offenen Posten `A1`–`A3` sind **nicht**
+entscheidbar formuliert (zwei von ihnen sind gar keine Fragen mehr). In **deinem
+nächsten Review** formulierst du sie in der Form oben neu — Wortlaut in die Instruktion,
+der Worker trägt ihn in den Ankerkopf ein — oder du schließt einen Posten mit einer
+Begründung in einem Satz, wenn er erledigt ist.
+
 ## Eskalationsregel
 
 **Zwei aufeinanderfolgende Batches ohne verwertbaren Fortschritt** oder **zweimal derselbe
@@ -204,6 +239,11 @@ Sammle sie und melde sie in `<TELEGRAM_SUMMARY>` unter der Zeile
 profile: ghidra-read
 program: /830d01.27p.main.bin
 </DS_TOOLS>
+
+## VERALLGEMEINERUNG
+(a) Fehlerklasse je Befund dieses Reviews
+(b) verwandte Faelle mit derselben Ursache + wie die Instruktion sie mitprueft
+(c) was die Instruktion ausdruecklich NICHT prueft
 
 <DS_INSTRUCTION>
 Batch <N> - Silent Scope Decomp
@@ -286,9 +326,32 @@ eine vollwertige Antwort — Widerspruch mit Begründung ist ausdrücklich erwü
   Antwort in deiner Zusammenfassung auf (`ENTSCHIEDEN: …`) und behandle die Frage danach
   als erledigt; sie verschwindet aus `/fragen`, sobald dein Review sie gelesen hat.
 
-Regeln zum Format:
+### `## VERALLGEMEINERUNG` — Pflichtabschnitt vor der `DS_INSTRUCTION` (R13z, 2026-09-28)
+
+Dein Review enthält **zwischen** `<DS_TOOLS>` und `<DS_INSTRUCTION>` einen Abschnitt, der
+mit der Zeile `## VERALLGEMEINERUNG` beginnt. Er gehört ins **review.md** (dort liest ihn
+der nächste Reviewer) und **nicht** in `<TELEGRAM_SUMMARY>` — die bleibt bei ca. 1500
+Zeichen. Je Befund dieses Reviews beantwortest du darin drei Fragen:
+
+| | Frage | Beispiel (F1: `slw` mit vertauschten Feldern) |
+|---|---|---|
+| (a) | **Welche Fehlerklasse** steckt dahinter? (nicht der Einzelfall, sondern die Ursache) | Feldvertauschung `rS`/`rA` in den Formen 6–10 |
+| (b) | **Welche verwandten Fälle** haben dieselbe Ursache, und **wie prüft die Instruktion sie mit**? Nenne die Prüfung beim Namen (Werkzeug, Menge, Sollwert) — „ich habe darauf geachtet" zählt nicht | **alle Formen mit `rS` in Feld 6–10 und `rA` in Feld 11–15**; die Instruktion lässt den Formenprüfer genau diese Menge zählen und je Form eine ROT gewordene Rotprobe vorlegen |
+| (c) | **Was prüft die Instruktion ausdrücklich NICHT** — welche Lücke bleibt offen (und bis wann)? | nur die **Feldlage**, nicht die Zulässigkeit der Kombinationen; das bleibt offen bis zum ISA-Vergleich |
+
+Kurz halten: je Befund 1–3 Zeilen. Ohne diesen Abschnitt ist das Review unvollständig.
+Schreibst du „nichts zu verallgemeinern", dann **mit Begründung** (z. B. „Einmal-Sache:
+fehlende Zahl in einer Belegzeile, keine Fehlerklasse").
+
+Warum das Pflicht ist: die Aussensicht findet **wiederkehrende** Ursachen. Der Review ist
+die Stelle, an der aus **einem** gefundenen Fehler eine **Prüfung für die Klasse** wird.
+Ein Befund, den die Instruktion nur für den Einzelfall behebt, kommt als derselbe Fehler
+wieder.
+
+### Regeln zum Format
 
 - **Genau je ein Block**, in dieser Reihenfolge; Schreibweise der Tags ist beliebig.
+  `## VERALLGEMEINERUNG` steht dazwischen als eigener, ungetaggter Abschnitt.
 - `profile` ∈ `none` | `ghidra-read` | `ghidra-standard` | `ghidra-full`:
   - `none` = kein Ghidra-Zugriff (Doku-/Port-Arbeit),
   - `ghidra-read` = lesen/dekompilieren (Standard),

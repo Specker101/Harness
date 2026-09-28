@@ -445,6 +445,31 @@ am Batch-Ende). Ein verworfenes Gate lässt sie ebenfalls liegen — sie wird ja
 Start gelesen. Erst nach dem Start ist sie in `done/`, auch wenn der Batch danach
 scheitert (gewollt: der Worker hat den Text gesehen).
 
+### 10d. `## VERALLGEMEINERUNG` — Pflichtabschnitt im Review (R13z, 2026-09-28)
+
+Jeder Review trägt **zwischen** `<DS_TOOLS>` und `<DS_INSTRUCTION>` einen Abschnitt, der
+mit `## VERALLGEMEINERUNG` beginnt (`prompts/reviewer.md`). Er gehört ins **`review.md`**
+(der nächste Reviewer liest ihn dort) und **nicht** in die `<TELEGRAM_SUMMARY>` — die
+bleibt bei ca. 1500 Zeichen. Je Befund dieses Reviews beantwortet er drei Fragen:
+
+| | Frage |
+|---|---|
+| (a) | **Welche Fehlerklasse** steckt dahinter (Ursache, nicht der Einzelfall)? |
+| (b) | **Welche verwandten Fälle** haben dieselbe Ursache, und **wie prüft die Instruktion sie mit** (Werkzeug, Menge, Sollwert)? |
+| (c) | **Was prüft die Instruktion ausdrücklich NICHT** — welche Lücke bleibt offen (und bis wann)? |
+
+Beispiel für (b): F1 (`slw` mit vertauschten Feldern) → **alle Formen mit `rS` in Feld
+6–10 und `rA` in Feld 11–15**; die Instruktion lässt den Formenprüfer genau diese Menge
+zählen und je Form eine ROT gewordene Rotprobe vorlegen.
+
+Der Abschnitt ist **kein Bewertungstext**, sondern die Brücke von einem gefundenen Fehler
+zur Prüfung seiner **Klasse**: ein Befund, den die Instruktion nur für den Einzelfall
+behebt, kommt im nächsten Batch als derselbe Fehler wieder. Der Harness wertet den
+Abschnitt **nicht** maschinell aus (er ist Prosa im `review.md`, die Blockprüfung
+`review_ok` bleibt unberührt) — die Pflicht steht im Reviewer-Prompt, nicht im Parser.
+Schreibst du „nichts zu verallgemeinern", dann mit Begründung (z. B. „Einmal-Sache:
+fehlende Zahl in einer Belegzeile").
+
 ---
 
 ## 11. Schlüssel, Überwachung, Bereinigung (R13g, 2026-09-26)
@@ -677,14 +702,14 @@ Session** (kein Verlauf) mit dem Reviewer-Modell über das Abo.
 |---|---|
 | **Start** | `/meta` (Telegram, jederzeit) oder `python -m hx.cli meta [--grund …] [--mock]`; zusätzlich automatisch (s. u.) |
 | **läuft gerade ein Worker** | `/meta` wird nur **vorgemerkt** (Antwort: „vorgemerkt, laeuft nach Batch N") und läuft **direkt nach dem Batch-Ende, VOR dem Review** — so stehen Befunde für den Reviewer schon in dessen Review. Mehrfaches Vormerken zählt **einmal**. In Pause/Gate/Leerlauf läuft sie sofort; während einer Pause lösen **Automatik**-Auslöser nicht aus |
-| **Automatik** | (a) alle `[meta] every_batches` = 10 Batches (die **erste** Aussensicht löst du per `/meta` aus, damit der erste Start nicht sofort einen Lauf kostet), (b) Worker-Abbruch (`letzter_abbruch` aus R13v3), (c) Zeile `MEILENSTEIN ERREICHT:` bzw. `ABBRUCHKRITERIUM ERREICHT:` in der neuesten Review-Zusammenfassung, (d) **B-Schritt** über zwei B-Batches unverändert (Pflichtzeile `B-SCHRITT: <n>/5 …`), (e) eine **C-Kernzahl** über die letzten zwei **C-Batches** unverändert. Je Batch wird höchstens **einmal** entschieden |
+| **Automatik** | (a) alle `[meta] every_batches` Batches (**seit R13z vorläufig 3** — Begründung unten; die **erste** Aussensicht löst du per `/meta` aus, damit der erste Start nicht sofort einen Lauf kostet), (b) Worker-Abbruch (`letzter_abbruch` aus R13v3), (c) Zeile `MEILENSTEIN ERREICHT:` bzw. `ABBRUCHKRITERIUM ERREICHT:` in der neuesten Review-Zusammenfassung, (d) **B-Schritt** über zwei B-Batches unverändert (Pflichtzeile `B-SCHRITT: <n>/5 …`), (e) eine **C-Kernzahl** über die letzten zwei **C-Batches** unverändert. Je Batch wird höchstens **einmal** entschieden |
 | **Eingaben** | Bilanz-Trend der letzten 12 Batches, PLAN/IST-Tafel, die letzten 10 `TELEGRAM_SUMMARY`, Ankerkopf, Ziel-/Scope-Abschnitte aus `readme.md`/`AGENTS.md`, `/fragen`, Kosten/Laufzeiten je Batch, die noch offene `/ds`-Queue und die **Befundliste der letzten Aussensicht** |
 | **Stichprobenpflicht** | mindestens zwei Aussagen aus den Zusammenfassungen gegen die Rohbelege des Batches (`runs/b<N>/result.json`, `antwort.md`, `review.md`) prüfen **und** für mindestens einen Batch die Denkblöcke `snapshots/b<N>/reasoning.jsonl` lesen — damit nicht dieselben aufbereiteten Zahlen die einzige Quelle sind. **Achtung:** `runs/b<N>/harness-facts.md` gehört zu Batch N−1 (siehe §14e) |
 | **Ausgabe** | `<AUSSENSICHT>` (2–4 Zeilen, inkl. Stichprobenergebnisse) + je Befund `<BEFUND n gewicht empfaenger>Beleg/Aussage/Empfehlung</BEFUND>` + `<PRUEFUNG id status/>` zu früheren Befunden. **Höchstens 7** Befunde, sortiert nach Gewicht (`hoch`/`mittel`/`niedrig`), Empfänger `Reviewer` oder `Nutzer` |
 | **Belegpflicht (gelockert)** | gültig ist `Datei:Zeile` **oder** eine Zahl mit Quelldatei **oder** `Fehlstelle: gesucht in <Ort>, nicht gefunden`. Nur Befunde **ganz ohne** Beleg werden verworfen — und im Bericht als verworfen **genannt** |
 | **Verteilung** | Empfänger `Reviewer` → **eine `/claude`-Nachricht je Befund** in die Queue; Empfänger `Nutzer` → Telegram **und** unter `/fragen` |
 | **Ablage** | Bericht `runs/meta-<batch>.md` (mit Rohantwort), Maschinenfassung `runs/meta-<batch>.json`, Mitschnitt `runs/meta-<batch>.jsonl`, Register `state/meta_befunde.json` |
-| **Anzeige** | `/bilanz` zeigt `letzte Aussensicht: Batch N, k Befunde, davon m offen`; `/status` zeigt `Aussensicht: …` |
+| **Anzeige** | `/bilanz` zeigt die **Quote** des Registers: `Aussensicht: n Befunde, davon u uebernommen, a abgelehnt, o offen   (letzte Aussensicht: Batch N; k Befunde in diesem Lauf; Takt: alle 3 Batches)`; `/status` zeigt dieselbe Zeile (hinter dem Vorgemerkten) |
 | **Grenzen** | harte Zeitgrenze `[meta] wall_s` (Vorgabe 900 s); schlägt der Lauf fehl, wird das gemeldet und der Betrieb läuft weiter. Die Aussensicht blockiert **ihren eigenen** Lauf (synchron wie der Review) |
 
 **Antwortpflicht des Reviewers (R13w).** Jede `/claude`-Nachricht trägt eine ID
@@ -696,6 +721,41 @@ eine vollwertige Antwort.
 
 **Einstellungen** (`harness.toml`, Abschnitt `[meta]`): `every_batches`, `wall_s`,
 `max_turns`, `max_befunde`, `summaries`, `bilanz_zeitfenster`.
+
+**Takt auf 3 statt 10 (R13z, 2026-09-28 — vorläufig, Nutzerentscheidung).** Zwei Gründe:
+
+1. Es läuft ein **neuer B-Strang** (Hybrid-Kern, Kontrollfluss). Dort kippen
+   **Plan-Annahmen** schneller als in der C-Serienarbeit: ob „Maschine = Speicherkarte"
+   trägt, ob der Kern die ISA trifft, ob der Plan-Zuschnitt noch stimmt — das sind
+   Aussagen, die nach wenigen Batches schon falsch sein können. Der Meta-Review ist
+   genau dafür da, und alle 10 Batches ist bei einem Drei-Batch-Vorsprung zu spät.
+   Ausserdem melden die Aussensicht-Auslöser (b)–(e) neben dem Takt weiter: die 3 ist ein
+   **Grundtakt**, kein Ersatz für die anderen Auslöser.
+2. Der Takt kostet Abo-Kontingent (ein Opus-Lauf je Aussensicht). Deshalb ist 3 nicht
+   endgültig: **nach einer Woche** wird anhand der **Quote** im Register
+   `state/meta_befunde.json` entschieden, ob es so bleibt. Gelesen wird sie in
+   `/bilanz`/`/status`:
+
+   ```
+   Aussensicht: 7 Befunde, davon 4 uebernommen, 1 abgelehnt, 2 offen   (letzte Aussensicht: Batch 208; 7 Befunde in diesem Lauf; Takt: alle 3 Batches)
+   ```
+
+   Gelesen wird die **Übernahmequote** (`uebernommen ÷ Befunde`):
+
+   | Quote | Was das heißt | Folge |
+   |---|---|---|
+   | über ~⅓ | die kurzen Abstände finden echte, umsetzbare Punkte | Takt bleibt bei 3 (oder noch kürzer, wenn ein Batch-Zuschnitt es verlangt) |
+   | darunter, meist `abgelehnt` | die Befunde zielen am Betrieb vorbei | Takt zurück auf 10 und im nächsten Review klären, warum |
+   | viele `offen` | der **Reviewer** antwortet nicht (die Quote misst auch ihn) | Takt unverändert; die unbeantworteten Befunde kommen als `/claude`-Nachricht wieder |
+
+   Gezählt wird **je Kennung**: ein geteilter Befund (`M208-5a` Nutzer / `M208-5b`
+   Reviewer, §16a) zählt zweimal, weil beide Teile einzeln beantwortet werden. Spiegelt
+   das Register ein Verdikt, steht das Wort **so** darin, wie der Reviewer es geschrieben
+   hat (`uebernommen`, `abgelehnt`, `erledigt`, `verworfen`). In der Quote zählt
+   `beantwortet` (das Wort aus R13w, steht noch in älteren Einträgen) und `erledigt`
+   (die Aussensicht hat selbst nachgeprüft) als **übernommen**, `verworfen` als
+   **abgelehnt**; alles Unbekannte gilt weiter als **offen**. Ein falsch geschriebener
+   Status lässt einen Befund also nicht stillschweigend verschwinden.
 
 ### 12b. Was der Nutzer selbst entscheiden muss
 
@@ -1062,15 +1122,24 @@ den vorhandenen Belegen abgeleitet (Ankerkopf, letztes Review, Aussensicht-Regis
 Queue-Dateien). Deshalb bleiben sie auch nach einem Harness-Neustart oder einem
 abgebrochenen Batch gültig.
 
-**Wie eine Frage „entscheidbar" wird** (unverändert seit R13s): Der Harness zerlegt die
-Ankerzeile in ihre `(n) …`-Posten und sucht darin drei Teile — eine **Ja/Nein-Frage**
-(Satz, der mit `soll/ist/bleibt/wird/kann/darf/muss/gibt` beginnt und mit `?` endet), eine
-**Empfehlung** (`Vorschlag:` / `Empfehlung:`) und die **Folgen** (`bei ja:` / `bei nein:`).
+**Wie eine Frage „entscheidbar" wird** (R13s, erweitert R13z): Der Harness zerlegt die
+Ankerzeile in ihre `(n) …`-Posten und sucht darin drei Teile — eine **Frage**, eine
+**Empfehlung** (`Vorschlag:` / `Empfehlung:`) und die **Folgen**:
+
+| Teil | Form | Beispiel |
+|---|---|---|
+| Frage | **Ja/Nein**: Satz, der mit `soll/ist/bleibt/wird/kann/darf/muss/gibt` beginnt und mit `?` endet. **A/B** (R13z): derselbe Satz, wenn im Posten `(A)`/`(B)`, `A oder B` oder „Weg A" steht — dann genügt auch ein Fragesatz ohne Fragewort | „Soll der Kern gegen `mame/` geprüft werden (A) oder gegen die ISA (B)?" |
+| Empfehlung | `Vorschlag:` / `Empfehlung:` + `ja` / `nein` / `kein…` / `A` / `B` | `(Vorschlag: A)` |
+| Folgen | `bei ja:` / `bei nein:` bzw. `bei A:` / `bei B:` | `bei A: gemessener Vergleich je Form. bei B: nur Stichproben.` |
+
 Fehlt einer der Teile, steht der Posten als **`UNKLAR FORMULIERT`** mit dem Originaltext —
 nichts wird umgedeutet (Nutzerentscheid 2026-09-28); er bekommt aber trotzdem seine
 Kennung, damit auch eine unklare Frage beantwortbar ist (dann am besten den Wortlaut
-nennen). Die Marker-Zeilen des Reviewers tragen keine Empfehlung — sie wird nicht
-erfunden.
+nennen). Der Ankerposten gehört dem **Reviewer**: seit R13z ist im Reviewer-Prompt
+festgehalten, dass jeder Posten diese drei Teile haben **muss** (Wortlaut in der
+Instruktion, der Worker trägt ihn in den Ankerkopf ein) und dass erledigte Posten mit dem
+Wort `GESCHLOSSEN` geführt werden — sonst bleiben sie für immer offen. Die Marker-Zeilen
+des Reviewers tragen keine Empfehlung — sie wird nicht erfunden.
 
 Ein geteilter Aussensicht-Befund (Ziel/Scope-Anteil beim Nutzer, Sachanteil beim
 Reviewer) trägt zwei Kennungen: `M208-5a` (du) und `M208-5b` (Reviewer). Die Kurzform

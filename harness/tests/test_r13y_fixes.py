@@ -381,8 +381,10 @@ class TestVerteilung(Basis):
             self.cfg, "M208-1: uebernommen (Zielsatz angepasst)", 209)
         self.assertEqual(sorted(geaendert), ["M208-1a", "M208-1b"])
         alle = {b["id"]: b for b in aussensicht.ledger(self.cfg)}
-        self.assertEqual(alle["M208-1a"]["status"], "beantwortet")
-        self.assertEqual(alle["M208-1b"]["status"], "beantwortet")
+        # R13z: das Verdiktwort bleibt stehen ("uebernommen"), es wird nicht mehr in
+        # "beantwortet" umgeschrieben.
+        self.assertEqual(alle["M208-1a"]["status"], "uebernommen")
+        self.assertEqual(alle["M208-1b"]["status"], "uebernommen")
 
     def test_teilform_beantwortet_nur_einen_teil(self):
         res = self._ergebnis(

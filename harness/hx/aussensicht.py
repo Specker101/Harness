@@ -25,6 +25,12 @@ Review-Zusammenfassung, ein stehengebliebener B-Schritt (Weg B) bzw. eine C-Kern
 Bewegung ueber die letzten **C-Batches**. Je Batch wird hoechstens einmal entschieden
 (`geprueft_batch`).
 
+R13z (2026-09-28): die **Quote** des Registers steht in `/bilanz` und `/status`
+(`zeile`/`quote`): "Aussensicht: n Befunde, davon u uebernommen, a abgelehnt, o offen".
+Gezaehlt wird je Kennung; die Zuordnung der Statusworte zu den Klassen macht `klasse`
+(s. dort) - der Reviewer schreibt das Verdikt, das Wort wird so gespeichert, wie er es
+geschrieben hat.
+
 Belege/Regeln dieser Datei: `docs/_r13w_belege.md`, Doku `docs/bedienung.md`.
 """
 
@@ -43,7 +49,10 @@ from .profiles import credential_verbote, git_schreib_verbote, nur_lese_git_rege
 from .util import ensure_dir, now_iso, read_text, write_json_atomic, write_text_atomic
 
 # ------------------------------------------------------------------ Vorgaben
-STANDARD = {"every_batches": 10, "wall_s": 900, "max_turns": 30, "max_befunde": 7,
+# `every_batches` ist die Vorgabe, falls der Schluessel in `harness.toml` fehlt; die
+# eingestellte Zahl steht dort (`[meta]`, seit R13z = 3, Begruendung in
+# docs/bedienung.md Paragraph 12e).
+STANDARD = {"every_batches": 3, "wall_s": 900, "max_turns": 30, "max_befunde": 7,
             "summaries": 10, "bilanz_zeitfenster": 12}
 
 # Alles Sperrende - dieselbe Haltung wie beim Reviewer, nur ohne MCP.
@@ -105,11 +114,56 @@ def ledger_schreiben(cfg, befunde: list[dict]) -> None:
 
 def offene(cfg) -> list[dict]:
     """Befunde, die noch nicht beantwortet/geprueft sind."""
-    return [b for b in ledger(cfg) if str(b.get("status") or "offen") == "offen"]
+    return [b for b in ledger(cfg) if klasse(b) == "offen"]
+
+
+# ------------------------------------------------- Quote des Registers (R13z)
+# Der Reviewer schreibt "M208-3: uebernommen (…)" oder "M208-3: abgelehnt, Grund …"
+# (`antworten_uebernehmen`), die Aussensicht selbst schreibt in `<PRUEFUNG …>` "erledigt"
+# bzw. "verworfen". Fuer die Quote zaehlen diese Woerter in zwei Klassen zusammen:
+#
+#   uebernommen  uebernommen | beantwortet (das alte Wort aus R13w, noch in aelteren
+#                Registereintraegen) | erledigt (die Aussensicht hat es nachgeprueft)
+#   abgelehnt    abgelehnt | verworfen
+#   offen        alles Uebrige - auch ein UNBEKANNTES Wort. Ein Befund verschwindet
+#                nicht dadurch aus der offenen Liste, dass ein Status falsch geschrieben
+#                ist (dieselbe Haltung wie beim Ankerposten: nichts still umdeuten).
+UEBERNOMMEN_WORTE = ("uebernommen", "beantwortet", "erledigt")
+ABGELEHNT_WORTE = ("abgelehnt", "verworfen")
+
+
+def klasse(befund: dict) -> str:
+    """`uebernommen` | `abgelehnt` | `offen` - die Klasse, in die ein Befund zaehlt."""
+    wert = str((befund or {}).get("status") or "offen").strip().lower()
+    if wert in UEBERNOMMEN_WORTE:
+        return "uebernommen"
+    if wert in ABGELEHNT_WORTE:
+        return "abgelehnt"
+    return "offen"
+
+
+def quote(cfg) -> dict:
+    """Das Register nach Klassen gezaehlt: {"gesamt", "uebernommen", "abgelehnt", "offen"}.
+
+    Gezaehlt wird **je Kennung** (jeder Registereintrag): ein geteilter Befund
+    (`M208-5a` Nutzer / `M208-5b` Reviewer) zaehlt zweimal, weil beide Teile einzeln
+    beantwortet werden.
+    """
+    q = {"gesamt": 0, "uebernommen": 0, "abgelehnt": 0, "offen": 0}
+    for b in ledger(cfg):
+        q["gesamt"] += 1
+        q[klasse(b)] += 1
+    return q
 
 
 def zeile(cfg) -> str:
-    """Eine Zeile fuer `/bilanz` und `/status` ('' = es gab noch keine Aussensicht)."""
+    """Eine Zeile fuer `/bilanz` und `/status` ('' = es gab noch keine Aussensicht).
+
+    Aufbau (R13z, Nutzerauftrag): `Aussensicht: n Befunde, davon u uebernommen,
+    a abgelehnt, o offen` - dahinter in Klammern die letzte Aussensicht (Batch und Zahl
+    der Befunde des Laufs) und der eingestellte **Takt** (`harness.toml`,
+    `[meta] every_batches`). Die Quote ist die Grundlage der Auswertung nach einer Woche.
+    """
     alle = ledger(cfg)
     berichte = sorted((Path(cfg.root) / "runs").glob("meta-*.json"),
                       key=lambda p: p.stat().st_mtime) if (Path(cfg.root) / "runs").is_dir() else []
@@ -124,8 +178,19 @@ def zeile(cfg) -> str:
             anzahl = len(d.get("befunde") or []) or anzahl
         except (OSError, ValueError):
             batch = 0
-    offen = len(offene(cfg))
-    return (f"letzte Aussensicht: Batch {batch or '?'}, {anzahl} Befunde, davon {offen} offen")
+    q = quote(cfg)
+    kopf = (f"Aussensicht: {q['gesamt']} Befunde, davon {q['uebernommen']} uebernommen, "
+            f"{q['abgelehnt']} abgelehnt, {q['offen']} offen")
+    herkunft = [f"letzte Aussensicht: Batch {batch or '?'}"]
+    if berichte and anzahl:
+        herkunft.append(f"{anzahl} Befunde in diesem Lauf")
+    try:
+        takt = int(grenzen(cfg).get("every_batches") or 0)
+    except (TypeError, ValueError):
+        takt = 0
+    if takt:
+        herkunft.append(f"Takt: alle {takt} Batches")
+    return kopf + "   (" + "; ".join(herkunft) + ")"
 
 
 # ------------------------------------------- Entscheidungstraeger (R13y)
@@ -620,7 +685,12 @@ def antworten_uebernehmen(cfg, summary: str, batch: int) -> list[str]:
     for m in _RE_ANTWORT.finditer(summary or ""):
         bid = f"M{m.group(1)}-{m.group(2)}{m.group(3) or ''}"
         wort = m.group(4).lower()
-        status = {"übernommen": "beantwortet", "uebernommen": "beantwortet"}.get(wort, wort)
+        # R13z: das Wort des Reviewers wird SO gespeichert, wie er es geschrieben hat
+        # ("uebernommen"/"abgelehnt"/"erledigt"/"verworfen"), nur die Umlautschreibweise
+        # wird vereinheitlicht. Vorher wurde "uebernommen" zu "beantwortet" umgeschrieben -
+        # dann stand in der Quote (R13z) ein Wort, das der Reviewer nie benutzt hat. Alte
+        # Eintraege mit "beantwortet" zaehlen ueber `klasse` weiter als uebernommen.
+        status = "uebernommen" if wort == "übernommen" else wort
         for eintrag in finde_eintraege(index, bid):
             eintrag["status"] = status
             eintrag["antwort"] = (str(m.group(5) or "").strip()[:400]

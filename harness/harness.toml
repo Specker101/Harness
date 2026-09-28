@@ -73,7 +73,12 @@ max_turns     = 25
 # "stimmen Messgroessen, Plan und Annahmen noch?" Sie entscheidet und aendert NICHTS;
 # sie liefert Befunde (Empfaenger Reviewer -> /claude-Queue, Nutzer -> Telegram+fragen).
 # Laeuft immer in einer FRISCHEN Session mit dem Reviewer-Modell (Abo-Kontingent).
-every_batches    = 10    # zusaetzlich automatisch alle N Batches (erste loest /meta aus)
+# R13z (2026-09-28): 10 -> 3. VORLAEUFIG - Grund und Auswertung stehen in
+# docs/bedienung.md Paragraph 12e: es laeuft ein NEUER B-Strang, in dem Plan-Annahmen
+# schneller kippen als alle 10 Batches; nach einer Woche wird anhand der Quote in
+# state/meta_befunde.json entschieden, ob es bei 3 bleibt (`/bilanz` zeigt sie:
+# "Aussensicht: n Befunde, davon u uebernommen, a abgelehnt, o offen").
+every_batches    = 3     # zusaetzlich automatisch alle N Batches (erste loest /meta aus)
 wall_s           = 900   # harte Zeitgrenze je Lauf (danach bricht der Lauf ab)
 max_turns        = 30    # Werkzeugrunden; Stichproben brauchen mehr als ein Review
 max_befunde      = 7     # mehr wird nicht in den Ledger uebernommen

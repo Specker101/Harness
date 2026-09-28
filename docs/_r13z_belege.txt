@@ -1,0 +1,57 @@
+### 1) Takt: harness.toml [meta] every_batches (die eine Wahrheit)
+   # state/meta_befunde.json entschieden, ob es bei 3 bleibt (`/bilanz` zeigt sie:
+   # "Aussensicht: n Befunde, davon u uebernommen, a abgelehnt, o offen").
+   every_batches    = 3     # zusaetzlich automatisch alle N Batches (erste loest /meta aus)
+   -> grenzen(cfg)['every_batches'] = 3   (Vorgabe im Code, falls der Schluessel fehlt: 3)
+
+### 2) Die Quote in /bilanz und /status - mit dem ECHTEN Register
+   Eintrag M208-1   status=offen        antwort=
+   Eintrag M208-2   status=beantwortet  antwort=(Unicorn als unabhängige dritte Welt, Ersatzwe
+   Eintrag M208-3   status=offen        antwort=
+   Eintrag M208-4   status=beantwortet  antwort=(Zensus nur über die Coverage-Adressen aus `pp
+   Eintrag M208-5   status=offen        antwort=
+   quote(): {'gesamt': 5, 'uebernommen': 2, 'abgelehnt': 0, 'offen': 3}
+   aussensicht.zeile(): Aussensicht: 5 Befunde, davon 2 uebernommen, 0 abgelehnt, 3 offen   (letzte Aussensicht: Batch 208; 5 Befunde in diesem Lauf; Takt: alle 3 Batches)
+   im echten /bilanz-Bericht (74 Zeilen): Aussensicht: 5 Befunde, davon 2 uebernommen, 0 abgelehnt, 3 offen   (letzte Aussensicht: Batch 208; 5 Befunde in diesem Lauf; Takt: alle 3 Batches)
+   -> M208-2 und M208-4 stehen als 'beantwortet' im Register: das ist das Wort
+      aus R13w (der laufende Harness hatte noch den alten Code und hat
+      'uebernommen' umgeschrieben). Die Quote zaehlt es als uebernommen; neue
+      Verdikte werden so gespeichert, wie der Reviewer sie schreibt.
+
+### 3) Statusworte -> Klassen (Antwort des Reviewers wird SO gespeichert)
+   uebernommen->uebernommen | beantwortet->uebernommen | erledigt->uebernommen | abgelehnt->abgelehnt | verworfen->abgelehnt | offen->offen | Quatsch->offen
+   Register aus 6 Verdikten -> {'gesamt': 6, 'uebernommen': 2, 'abgelehnt': 2, 'offen': 2}
+   Zeile: Aussensicht: 6 Befunde, davon 2 uebernommen, 2 abgelehnt, 2 offen   (letzte Aussensicht: Batch ?; Takt: alle 3 Batches)
+   'übernommen' im Register: status='uebernommen' -> 1 uebernommen
+
+### 4) Die ECHTEN Ankerposten A1-A3 - und wie sie entscheidbar werden
+   A1   entscheidbar=False ENTSCHIEDEN (Nutzer, 2026-09-28):** In den B-Plan kommt ein eigener Schritt **"Kontrollfluss/Su...
+   A2   entscheidbar=False NEU/offen:** F1/F2 sind **gemeinsame** Referenzfehler - die Korrektur gehoert in EINEN Schritt ...
+   A3   entscheidbar=False offen bleiben: die `nachzuegler`-Sonde "toter Betriebsweg" (B194/B195), die per-Batch-Anker-Wer...
+   -> so (und nur so) bleiben sie in /fragen als 'UNKLAR FORMULIERT' stehen
+
+   Fassung (ja/nein), an A1 angelehnt:
+     Frage      : Soll der Kontrollfluss/Supervisor als eigener Schritt ZWISCHEN Maschine und kHeads in den B-Plan?
+     Empfehlung : ja | bei ja: eigener Schritt mit eigenem FERTIG WENN | bei nein: bleibt Teil der Maschine
+   Fassung (A/B):
+     Frage      : Soll der Hybrid-Kern gegen den PPC-Kern unter `mame/` (A) oder gegen eine Befehlstabelle der ISA (B) geprueft werden?
+     Empfehlung : A | bei A: Vergleich je Form | bei B: nur Stichproben
+   A/B ohne Empfehlung bleibt unklar: None
+
+### 5) Pflichtabschnitt im Reviewer-Prompt: Position und Inhalt
+   </DS_TOOLS> Zeile 241 < ## VERALLGEMEINERUNG Zeile 243 < <DS_INSTRUCTION> Zeile 248
+   ## VERALLGEMEINERUNG
+   (a) Fehlerklasse je Befund dieses Reviews
+   (b) verwandte Faelle mit derselben Ursache + wie die Instruktion sie mitprueft
+   (c) was die Instruktion ausdruecklich NICHT prueft
+   
+   | (a) | **Welche Fehlerklasse** steckt dahinter? (nicht der Einzelfall, sondern die Ursache) | Feldvertauschung `rS`/`
+   | (b) | **Welche verwandten Fälle** haben dieselbe Ursache, und **wie prüft die Instruktion sie mit**? Nenne die Prüfu
+   | (c) | **Was prüft die Instruktion ausdrücklich NICHT** — welche Lücke bleibt offen (und bis wann)? | nur die **Feldl
+   Steht der Abschnitt in der TELEGRAM_SUMMARY? NEIN (Geruest-Block, 1 Zeilen)
+   Uebergangsregel A1-A3 im Prompt: JA
+   Wort GESCHLOSSEN im Prompt: JA
+
+### 6) Wo die Takt-Begruendung steht
+   docs/bedienung.md 12e, ab Zeichen 47919: **Takt auf 3 statt 10 (R13z, 2026-09-28 — vorläufig, Nutzerentscheidung).** Zwei Gründe: 1. Es läuft ein **neuer B-Strang** (Hybrid-Kern, Kontrollflu...
+   Beispielzeile der Quote in der Doku: Aussensicht: 7 Befunde, davon 4 uebernommen, 1 abgelehnt, 2 offen (letzte Aussensicht: Batch 208; 7 Befunde in diesem

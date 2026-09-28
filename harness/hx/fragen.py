@@ -158,6 +158,9 @@ def _anker_posten(cfg) -> list[dict]:
                     "empfehlung": (e or {}).get("empfehlung") or "",
                     "bei_ja": (e or {}).get("bei_ja") or "",
                     "bei_nein": (e or {}).get("bei_nein") or "",
+                    # R13z: A/B-Fragen haben ihre Folgen unter "bei A:"/"bei B:".
+                    "bei_a": (e or {}).get("bei_a") or "",
+                    "bei_b": (e or {}).get("bei_b") or "",
                     "entscheidbar": bool(e)})
     return out
 
@@ -179,7 +182,8 @@ def _review_posten(cfg, review_text: str | None = None) -> list[dict]:
                                   if ordner.name.startswith("b") else "letztes Review",
                         "bremst": key == "entscheidung",
                         "frage": satz, "rohtext": satz, "empfehlung": "",
-                        "bei_ja": "", "bei_nein": "", "entscheidbar": False,
+                        "bei_ja": "", "bei_nein": "", "bei_a": "", "bei_b": "",
+                        "entscheidbar": False,
                         "review_batch": batch, "marker": key})
     return out
 
@@ -199,7 +203,8 @@ def _aussensicht_posten(cfg) -> list[dict]:
                     "bremst": False,
                     "frage": str(b.get("aussage") or ""), "rohtext": "",
                     "empfehlung": str(b.get("empfehlung") or ""),
-                    "bei_ja": "", "bei_nein": "", "entscheidbar": False,
+                    "bei_ja": "", "bei_nein": "", "bei_a": "", "bei_b": "",
+                    "entscheidbar": False,
                     "beleg": str(b.get("beleg") or "")})
     return out
 
@@ -297,11 +302,7 @@ def anhang(posten: list[dict]) -> str:
         bloecke.append("Frage: " + (p.get("frage") or p.get("rohtext") or "(kein Text)"))
         if p.get("empfehlung"):
             zeile = "Empfehlung: " + str(p["empfehlung"])
-            folgen = []
-            if p.get("bei_ja"):
-                folgen.append("bei ja: " + str(p["bei_ja"]))
-            if p.get("bei_nein"):
-                folgen.append("bei nein: " + str(p["bei_nein"]))
+            folgen = _folgen(p)
             if folgen:
                 zeile += " | " + " / ".join(folgen)
             bloecke.append(zeile)
@@ -399,15 +400,25 @@ def fragen_text(cfg, gate: dict | None = None, review_text: str | None = None) -
     return "\n".join(zeilen)
 
 
+def _folgen(p: dict) -> list[str]:
+    """Die Folgen einer Frage als `["bei ja: …", "bei nein: …"]`.
+
+    R13z: eine Frage darf auch zwischen zwei Wegen waehlen (A/B) - dann stehen die Folgen
+    unter `bei A:`/`bei B:`. Was dasteht, wird gezeigt; was fehlt, wird nicht erfunden.
+    """
+    out: list[str] = []
+    for wort, schluessel in (("ja", "bei_ja"), ("nein", "bei_nein"),
+                             ("A", "bei_a"), ("B", "bei_b")):
+        if p.get(schluessel):
+            out.append(f"bei {wort}: " + str(p[schluessel]))
+    return out
+
+
 def _empfehlung_zeile(p: dict) -> str:
     teile = []
     if p.get("empfehlung"):
         teile.append("Empfehlung: " + str(p["empfehlung"]))
-    folgen = []
-    if p.get("bei_ja"):
-        folgen.append("bei ja: " + str(p["bei_ja"]))
-    if p.get("bei_nein"):
-        folgen.append("bei nein: " + str(p["bei_nein"]))
+    folgen = _folgen(p)
     if folgen:
         teile.append(" / ".join(folgen))
     if not teile:

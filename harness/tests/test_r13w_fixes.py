@@ -1,7 +1,8 @@
 """Tests fuer R13w (2026-09-28): Aussensicht (Meta-Review).
 
 Auftrag (Nutzer): eigener Baustein "Aussensicht" mit anderem Auftrag als der Reviewer
-("stimmen Messgroessen, Plan und Annahmen noch?"), Ausloesern (alle 10 Batches, /meta,
+("stimmen Messgroessen, Plan und Annahmen noch?"), Ausloesern (Takt `[meta]
+every_batches` - seit R13z 3, vorher 10 -, /meta,
 Ereignisse), frischer Session, Befundliste mit Gewicht/Empfaenger, Verteilung
 (Reviewer -> /claude-Queue, Nutzer -> Telegram+/fragen), Ablage `runs/meta-<batch>.md`
 und einer Zeile in `/bilanz`. Entscheidungen des Nutzers vom 2026-09-28:
@@ -259,19 +260,21 @@ class TestAusloeser(unittest.TestCase):
         self.assertTrue(any("vorgemerkt" in g
                             for g in aussensicht.faellig(self.cfg, self.state)))
 
-    # ------------------------------------------------------------ 10er-Regel
-    def test_zehn_batches_erst_nach_der_ersten_aussensicht(self):
+    # ------------------------------------------------- Takt-Regel (R13z: 3 Batches)
+    def test_takt_erst_nach_der_ersten_aussensicht(self):
         # Nie gelaufen -> KEIN automatischer Lauf (die erste loest der Nutzer aus).
         self.state.data["meta"] = {}
         self.assertEqual([g for g in aussensicht.faellig(self.cfg, self.state)
                           if "Batches" in g], [])
-        # Nach der ersten Aussensicht in Batch 199 greift die Regel in 209.
+        # Nach der ersten Aussensicht greift der Takt aus `[meta] every_batches`.
+        # Die Zahl steht NICHT im Test (R13z: 10 -> 3) - sie kommt aus der Konfiguration.
+        takt = int(aussensicht.grenzen(self.cfg)["every_batches"])
         self.state.data["meta"] = {"letzter_lauf_batch": 199}
-        self.state.data["batch"] = 208
+        self.state.data["batch"] = 199 + takt - 1
         self.assertEqual([g for g in aussensicht.faellig(self.cfg, self.state)
                           if "Batches" in g], [])
-        self.state.data["batch"] = 209
-        self.assertTrue(any("alle 10 Batches" in g
+        self.state.data["batch"] = 199 + takt
+        self.assertTrue(any(f"alle {takt} Batches" in g
                             for g in aussensicht.faellig(self.cfg, self.state)))
 
     def test_worker_abbruch_loest_aus(self):
@@ -449,7 +452,9 @@ class TestLedgerUndVerteilung(unittest.TestCase):
                       "die Zahl ist belegt\nM208-9: uebernommen", 209)
         self.assertEqual(sorted(geaendert), ["M208-1", "M208-2"])
         alle = {b["id"]: b for b in aussensicht.ledger(self.cfg)}
-        self.assertEqual(alle["M208-1"]["status"], "beantwortet")
+        # R13z: das Wort wird SO gespeichert, wie der Reviewer es geschrieben hat
+        # (vorher schrieb der Harness "uebernommen" in "beantwortet" um).
+        self.assertEqual(alle["M208-1"]["status"], "uebernommen")
         self.assertEqual(alle["M208-2"]["status"], "abgelehnt")
         self.assertEqual(alle["M208-2"]["antwort_batch"], 209)
         # Unbeantwortet bleibt offen und erscheint weiter in der Zeile.

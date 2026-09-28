@@ -91,50 +91,72 @@ def offene_entscheidungen(text: str) -> tuple[list[tuple[str, str]], int]:
 
 
 # --------------------------------------------------- entscheidbare Frage (R13s)
-_EMPFEHLUNG = re.compile(r"(?:Vorschlag|Empfehlung)\s*:?\s*\**\s*(ja|nein|kein\w*)\b",
+# R13z (Nutzerauftrag 2026-09-28): eine Frage darf auch zwischen **zwei Wegen** waehlen
+# (A/B) - dann heissen die Folgen "bei A:" / "bei B:" und die Empfehlung ist der
+# Buchstabe. Die Frageform bleibt dieselbe (Satz mit Fragewort, endet auf "?"); steht in
+# ihr ausdruecklich eine Alternative (`(A) … (B)` oder `A oder B`), genuegt auch das.
+_EMPFEHLUNG = re.compile(r"(?:Vorschlag|Empfehlung)\s*:?\s*\**\s*(ja|nein|kein\w*|[ab])\b",
                          re.IGNORECASE)
-_JA_NEIN = re.compile(r"^(?:soll|sollen|ist|sind|bleibt|bleiben|wird|werden|kann|darf|"
-                      r"muessen|muss|gibt)\b", re.IGNORECASE)
-_BEI = re.compile(r"bei\s+(ja|nein)\s*[:=]\s*([^|;.\n]+)", re.IGNORECASE)
+_BEI = re.compile(r"bei\s+(ja|nein|a|b)\s*[:=]\s*([^|;.\n]+)", re.IGNORECASE)
+_FRAGEWORT = (r"(?:soll|sollen|ist|sind|bleibt|bleiben|wird|werden|kann|kannst|darf|muss|"
+              r"muessen|gibt)\b")
+_ALTERNATIVEN = re.compile(r"\((?:A|B)\)|\bA\s*(?:oder|/)\s*B\b|\b(?:Weg|Variante)\s+[AB]\b")
 
 
 def entscheidbar(text: str) -> dict | None:
     """Versucht aus einem Ankerposten EINE entscheidbare Zeile zu machen.
 
-    Gebraucht werden drei Teile: eine **Ja/Nein-Frage**, eine **Empfehlung** und die
-    **Folgen** (bei ja / bei nein). Nur wenn die Prosa sie hergibt, ist der Posten
-    entscheidbar - sonst meldet die Anzeige "UNKLAR FORMULIERT" (Nutzerentscheid
+    Gebraucht werden drei Teile: eine **Frage**, eine **Empfehlung** und die **Folgen**.
+    Die Frage ist entweder eine **Ja/Nein-Frage** (Satz, der mit einem Fragewort beginnt
+    und auf `?` endet) oder eine **A/B-Frage** (R13z); die Folgen heissen dann
+    `bei ja:`/`bei nein:` bzw. `bei A:`/`bei B:`. Nur wenn die Prosa sie hergibt, ist der
+    Posten entscheidbar - sonst meldet die Anzeige "UNKLAR FORMULIERT" (Nutzerentscheid
     2026-09-28: nichts still umdeuten).
 
     Die Frage wird NICHT am Zeilenanfang gesucht: die Ankerposten haben oft eine lange
     Vorrede ("die Fallfabrik erreicht … NICHT - **soll** `prof` … fahren?"). Gesucht
-    wird also der letzte Satz, der mit einem Ja/Nein-Wort beginnt und mit `?` endet.
+    wird der letzte Satz, der mit einem Ja/Nein-Wort beginnt und mit `?` endet.
     """
     txt = " ".join(str(text or "").split())
     if not txt:
         return None
-    treffer = re.search(r"(?P<frage>(?:soll|sollen|ist|sind|bleibt|bleiben|wird|werden|"
-                        r"kann|kannst|darf|muss|muessen|gibt)\b[^?]*\?)", txt,
-                        re.IGNORECASE)
-    if not treffer:
-        return None
-    frage = treffer.group("frage").strip(" *.")
-    # Der Vorschlag steht meist in Klammern IN der Frage - er gehoert zur Empfehlung.
-    # Achtung: das Fragezeichen steht HINTER der Klammer und geht beim Abschneiden
-    # verloren - es wird deshalb wieder angehaengt.
-    frage = re.split(r"\((?:Vorschlag|Empfehlung)", frage)[0].strip(" *.,;")
-    if not frage:
-        return None
-    if not frage.endswith("?"):
-        frage += "?"
     m = _EMPFEHLUNG.search(txt)
     if not m:
         return None
+    frage = _fragesatz(txt, alternativen=bool(_ALTERNATIVEN.search(txt)))
+    if not frage:
+        return None
     folgen = {k.lower(): " ".join(v.split()) for k, v in _BEI.findall(txt)}
+    wert = m.group(1).lower()
     return {"frage": frage,
-            "empfehlung": m.group(1).lower(),
+            "empfehlung": wert.upper() if wert in ("a", "b") else wert,
             "bei_ja": folgen.get("ja", ""),
-            "bei_nein": folgen.get("nein", "")}
+            "bei_nein": folgen.get("nein", ""),
+            "bei_a": folgen.get("a", ""),
+            "bei_b": folgen.get("b", "")}
+
+
+def _fragesatz(txt: str, alternativen: bool) -> str:
+    """Der Fragesatz aus dem Posten ('' = keiner gefunden).
+
+    Regel zuerst: der Satz, der mit einem Fragewort beginnt und mit `?` endet - alles
+    nach dem `?` interessiert nicht. Nur wenn in dem Posten eine **A/B-Alternative**
+    steht (`(A)`/`(B)`, `A oder B`, `Weg A`), genuegt auch ein Fragesatz ohne Fragewort
+    ("…: (A) Wähler oder (B) Nahtliste?") - dann wird der LETZTE Fragesatz genommen.
+    """
+    treffer = re.search(r"(?P<frage>" + _FRAGEWORT + r"[^?]*\?)", txt, re.IGNORECASE)
+    roh = treffer.group("frage") if treffer else ""
+    if not roh and alternativen:
+        saetze = re.findall(r"[^?]*\?", txt)
+        roh = saetze[-1] if saetze else ""
+    roh = roh.strip(" *.")
+    # Der Vorschlag steht meist in Klammern IN der Frage - er gehoert zur Empfehlung.
+    # Achtung: das Fragezeichen steht HINTER der Klammer und geht beim Abschneiden
+    # verloren - es wird deshalb wieder angehaengt.
+    roh = re.split(r"\((?:Vorschlag|Empfehlung)", roh)[0].strip(" *.,;")
+    if not roh:
+        return ""
+    return roh if roh.endswith("?") else roh + "?"
 
 
 # ------------------------------------------------------------ Batch-Dokumente

@@ -608,7 +608,12 @@ class Orchestrator:
 
     # ------------------------------------------------------- Aussensicht (R13w)
     def meta_zeile(self) -> str:
-        """Was der Nutzer ueber die Aussensicht wissen muss (fuer /status)."""
+        """Was der Nutzer ueber die Aussensicht wissen muss (fuer /status).
+
+        R13z: `aussensicht.zeile` bringt die Quote MIT dem Wort "Aussensicht:" - hier
+        wird deshalb kein zweites davorgesetzt (sonst stuende "Aussensicht: Aussensicht:
+        …" in `/status`).
+        """
         meta = dict(self.state.data.get("meta") or {})
         teile: list[str] = []
         if meta.get("vorgemerkt"):
@@ -617,8 +622,8 @@ class Orchestrator:
             z = aussensicht.zeile(self.cfg)
         except Exception:                                                # noqa: BLE001
             z = ""
-        teile.append(z or "noch keine Aussensicht")
-        return "Aussensicht: " + " | ".join(teile)
+        teile.append(z or "Aussensicht: noch keine")
+        return " | ".join(teile)
 
     def _do_aussensicht(self, grund: str, gruende: list[str] | None = None) -> None:
         """Die Aussensicht fahren - SYNCHRON (Nutzerentscheid 1, R13w).
