@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import sys
 import unittest
 from contextlib import redirect_stdout
@@ -58,6 +59,10 @@ STREICHREIHENFOLGE: 1. Doku, 2. Koepfe ueber dem Minimum.
 """
 
 # Soll/Ist-Tafel eines Batch-Dokuments (so schreibt der Worker sie wirklich).
+# R13x: Ein echtes Dokument fuehrt ZWEI Tafeln - Paragraph 5 die VORHERSAGE (Soll) und
+# Paragraph 6 die Soll/Ist-Tafel (Messung). Der Harness muss die Ist-Spalte lesen; die
+# Attrappe hat deshalb beide, und die Vorhersagewerte duerfen abweichen
+# (`ck_soll`/`pek_soll`), damit die Verwechslung auffaellt.
 DOKU = """# Batch {n}
 
 **1. Inventar (GEMESSEN).** {inv_k} Koepfe / {inv_i} Insn im Programm-Inventar,
@@ -65,10 +70,19 @@ davon **{baut_k} Koepfe / {baut_i} Insn** in der
 Bau-Liste. **OFFEN: {off_k} Koepfe /
 {off_i} Insn.** Davon haben **{bl_k} Koepfe / {bl_i} Insn** keinen offenen Ruf.
 
-| Bilanzzeile | Vorbatch (B{vm}) | **Soll B{n}** | Zaehlerdefinition |
+## 5. TEIL 3a - VORHERSAGE (Soll je Bilanzzeile)
+
+| Bilanzzeile | Zaehlerdefinition | Soll B{n} |
+|---|---|---|
+| C Koepfe | registrierte Koepfe / Faelle / Abweichungen (`c_kopf_check.py`) | **{ck_soll} / {cf_soll} / 0** |
+| Paket E offen | `c_kopf.py paket_e` (keine Preflight-Zeile) | **{pek_soll} / {pei_soll} (Blaetter {pbl} / {pbi})** |
+
+## 6. Abweichungen Soll/Ist
+
+| Zeile | Soll | Ist | Abweichung |
 |---|---|---|---|
-| **C Koepfe** | {ck_v} / {cf_v} / 0 | **{ck} / {cf} / 0** | `c_kopf.py vergl alle` |
-| Paket E offen | {pek_v} Koepfe / {pei_v} Insn (Bl {pbl_v} / {pbi_v}) | **{pek} / {pei} (Bl {pbl} / {pbi})** | `c_kopf.py paket_e` |
+| **C Koepfe** | {ck_v} / {cf_v} / 0 | **{ck} / {cf} / 0** | keine |
+| Paket E offen | {pek_v} / {pei_v} (Bl {pbl_v} / {pbi_v}) | **{pek} / {pei} (Bl {pbl} / {pbi})** | keine |
 """
 
 BILANZDATEI = """## PFLICHT-BILANZ ALLER GETRACKTEN AESTE (Stand: **Batch {n}**)
@@ -113,24 +127,58 @@ class Basis(unittest.TestCase):
         write_text_atomic(self.ana / "r1b-workstream.md", text)
 
     def dokument(self, n: int, ck: int, cf: int, pek: int, pei: int,
-                 vm: int | None = None) -> None:
+                 vm: int | None = None, ck_soll: int | None = None,
+                 cf_soll: int | None = None, pek_soll: int | None = None,
+                 pei_soll: int | None = None) -> None:
         write_text_atomic(self.ana / f"port-batch{n}-beispiel-2026-09-28.md", DOKU.format(
             n=n, vm=vm if vm is not None else n - 1, inv_k=2072, inv_i=123771,
             baut_k=600 + n, baut_i=29000 + n, off_k=1400, off_i=94000,
             bl_k=664, bl_i=31690, ck=ck, cf=cf, ck_v=ck - 5, cf_v=cf - 120,
+            ck_soll=ck if ck_soll is None else ck_soll,
+            cf_soll=cf if cf_soll is None else cf_soll,
             pek=pek, pei=pei, pek_v=pek + 5, pei_v=pei + 351,
+            pek_soll=pek if pek_soll is None else pek_soll,
+            pei_soll=pei if pei_soll is None else pei_soll,
             pbl=15, pbi=1083, pbl_v=20, pbi_v=1434))
 
     def bilanzdatei(self, n: int, v: int, h: int) -> None:
         d = ensure_dir(self.ana / f"_m{n}")
         write_text_atomic(d / f"_bilanz{n}.txt", BILANZDATEI.format(n=n, vm=n - 1, v=v, h=h))
 
+    def preflight(self, n: int, ck: int, cf: int) -> None:
+        """Die maschinengeschriebene Messzeile des Batches (`analysis/_preflight_<N>.txt`)."""
+        write_text_atomic(self.ana / f"_preflight_{n}.txt",
+                          "=== PREFLIGHT (before) ===\n"
+                          "Pruefung           Ergebnis                          Urteil\n"
+                          f"C Koepfe           {ck} / {cf} / 0                    OK\n"
+                          "=> BEFORE SAUBER\n")
+
     def lauf(self, n: int, auftrag: str = "", dauer: str = "30m07s",
-             abbruch: str = "kein Abbruch") -> None:
+             abbruch: str = "kein Abbruch", ohne_result: bool = False,
+             fakten_nach: int | None = None) -> None:
+        """Ein Lauf: `result.json` in `runs/b<N>` und die Fakten-Datei in `runs/b<N+1>`.
+
+        R13x: genau die Ablage des Harness - `orchestrator.review` schreibt die
+        `harness-facts.md` in den Ordner des NAECHSTEN Batches (`ziel=rdir`), ihr Kopf
+        nennt den bewerteten Batch.
+        """
         d = ensure_dir(self.root / "runs" / f"b{n}")
         write_text_atomic(d / "auftrag.md", auftrag or "# Prompt\n")
-        write_text_atomic(d / "harness-facts.md",
-                          f"- Laufzeit: {dauer} (Wanduhr) | Abbruchgrund: {abbruch}\n")
+        m = re.fullmatch(r"(?:(\d+)h)?(\d+)m(\d+)s", dauer or "")
+        sekunden = (int(m.group(1) or 0) * 3600 + int(m.group(2)) * 60 + int(m.group(3))
+                    if m else 0)
+        if not ohne_result:
+            write_json_atomic(d / "result.json",
+                              {"batch": n, "rc": 0, "duration_s": float(sekunden),
+                               "killed_reason": None if abbruch == "kein Abbruch" else abbruch,
+                               "cost_usd": 0.1, "stats": {"requests": 10, "output": 5000},
+                               "finished_at": "2026-09-28T17:21:31+00:00"})
+        ziel = ensure_dir(self.root / "runs" / f"b{(fakten_nach or n + 1):03d}")
+        write_text_atomic(ziel / "harness-facts.md",
+                          f"- Review: bewertet wird Batch {n}; die Instruktion gilt fuer "
+                          f"Batch {n + 1}\n"
+                          f"- Exit-Code: 0 | Laufzeit: {dauer} (Wanduhr) | "
+                          f"Abbruchgrund: {abbruch}\n")
 
     def snapshot(self, batches=(100, 101)) -> None:
         rows100 = {"2a-Kern": {"gebaut": 1, "offen": 0},
@@ -311,7 +359,8 @@ class TestBilanzNeu(Basis):
         self.snapshot()
         for n, v, h in ((100, 670, 675), (101, 675, 681)):
             self.bilanzdatei(n, v, h)
-            self.dokument(n, ck=73, cf=1752, pek=43, pei=3025)
+            self.dokument(n, ck=73 if n == 100 else 78, cf=1752 if n == 100 else 1872,
+                          pek=43 if n == 100 else 38, pei=3025 if n == 100 else 2674)
         text = bilanz.bericht(self.cfg, n=1)
         i_kopf = text.index("ZULETZT:")
         i_delta = text.index("WAS SICH GEAENDERT HAT")
@@ -322,7 +371,7 @@ class TestBilanzNeu(Basis):
         self.assertLess(i_gesamt, i_tabelle)
         self.assertIn("verifiziert  : +5 Koepfe", text)
         self.assertIn("Paket E      : 5 Koepfe / 351 Insn gebaut", text)
-        self.assertIn("C verifiziert: 73 Koepfe / 1752 Faelle", text)
+        self.assertIn("C verifiziert: 78 Koepfe / 1872 Faelle", text)
         self.assertIn("Durchsatz", text)
         self.assertIn("HYPOTHESIS", text)
         self.assertIn("R207 rueckwaerts", text)          # hat eine Prozentzahl

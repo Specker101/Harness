@@ -679,7 +679,7 @@ Session** (kein Verlauf) mit dem Reviewer-Modell über das Abo.
 | **läuft gerade ein Worker** | `/meta` wird nur **vorgemerkt** (Antwort: „vorgemerkt, laeuft nach Batch N") und läuft **direkt nach dem Batch-Ende, VOR dem Review** — so stehen Befunde für den Reviewer schon in dessen Review. Mehrfaches Vormerken zählt **einmal**. In Pause/Gate/Leerlauf läuft sie sofort; während einer Pause lösen **Automatik**-Auslöser nicht aus |
 | **Automatik** | (a) alle `[meta] every_batches` = 10 Batches (die **erste** Aussensicht löst du per `/meta` aus, damit der erste Start nicht sofort einen Lauf kostet), (b) Worker-Abbruch (`letzter_abbruch` aus R13v3), (c) Zeile `MEILENSTEIN ERREICHT:` bzw. `ABBRUCHKRITERIUM ERREICHT:` in der neuesten Review-Zusammenfassung, (d) **B-Schritt** über zwei B-Batches unverändert (Pflichtzeile `B-SCHRITT: <n>/5 …`), (e) eine **C-Kernzahl** über die letzten zwei **C-Batches** unverändert. Je Batch wird höchstens **einmal** entschieden |
 | **Eingaben** | Bilanz-Trend der letzten 12 Batches, PLAN/IST-Tafel, die letzten 10 `TELEGRAM_SUMMARY`, Ankerkopf, Ziel-/Scope-Abschnitte aus `readme.md`/`AGENTS.md`, `/fragen`, Kosten/Laufzeiten je Batch, die noch offene `/ds`-Queue und die **Befundliste der letzten Aussensicht** |
-| **Stichprobenpflicht** | mindestens zwei Aussagen aus den Zusammenfassungen gegen die Rohbelege des Batches (`result.json`, `harness-facts.md`, `antwort.md`) prüfen **und** für mindestens einen Batch die Denkblöcke `snapshots/b<N>/reasoning.jsonl` lesen — damit nicht dieselben aufbereiteten Zahlen die einzige Quelle sind |
+| **Stichprobenpflicht** | mindestens zwei Aussagen aus den Zusammenfassungen gegen die Rohbelege des Batches (`runs/b<N>/result.json`, `antwort.md`, `review.md`) prüfen **und** für mindestens einen Batch die Denkblöcke `snapshots/b<N>/reasoning.jsonl` lesen — damit nicht dieselben aufbereiteten Zahlen die einzige Quelle sind. **Achtung:** `runs/b<N>/harness-facts.md` gehört zu Batch N−1 (siehe §14e) |
 | **Ausgabe** | `<AUSSENSICHT>` (2–4 Zeilen, inkl. Stichprobenergebnisse) + je Befund `<BEFUND n gewicht empfaenger>Beleg/Aussage/Empfehlung</BEFUND>` + `<PRUEFUNG id status/>` zu früheren Befunden. **Höchstens 7** Befunde, sortiert nach Gewicht (`hoch`/`mittel`/`niedrig`), Empfänger `Reviewer` oder `Nutzer` |
 | **Belegpflicht (gelockert)** | gültig ist `Datei:Zeile` **oder** eine Zahl mit Quelldatei **oder** `Fehlstelle: gesucht in <Ort>, nicht gefunden`. Nur Befunde **ganz ohne** Beleg werden verworfen — und im Bericht als verworfen **genannt** |
 | **Verteilung** | Empfänger `Reviewer` → **eine `/claude`-Nachricht je Befund** in die Queue; Empfänger `Nutzer` → Telegram **und** unter `/fragen` |
@@ -722,8 +722,8 @@ nur nach 14 Tagen gepackt (13c).
 | `runs/b<N>/stream.jsonl` | **Der vollständige Mitschnitt des Worker-Laufs**: jede Zeile der DeepSeek-Ausgabe — Antworttexte, Denkblöcke, jeder Werkzeugaufruf **und dessen Ergebnis**. Das ist die Quelle für `rebuild`, `watch` und alle Token-/Kostenzahlen. (Testläufe: `stream-v1.jsonl` beim zweiten Anlauf.) |
 | `runs/b<N>/reviewer.jsonl` | Mitschnitt des Reviews (Prompt-Ereignisse, Antwort, Nutzerlimit-Werte) |
 | `runs/b<N>/auftrag.md` | Der vollständige Prompt des Workers (Vorspann + Auftrag + Queue) |
-| `runs/b<N>/result.json` | Kennzahlen des Laufs: Exit-Code, Dauer, Anfragen, Token, Kosten, Abbruchgrund |
-| `runs/b<N>/harness-facts.md` | Der Messdatenblock, den der Review bekam |
+| `runs/b<N>/result.json` | Kennzahlen des Laufs: Exit-Code, Dauer, Anfragen, Token, Kosten, Abbruchgrund — **die** Quelle für Laufzeit und Kosten des Batches |
+| `runs/b<N>/harness-facts.md` | Der Messdatenblock, den der Review bekam — gehört zu Batch **N−1** (der Review von N−1 liegt in `runs/b<N>/`) |
 | `runs/b<N>/antwort.md` | Abschlussbericht des Workers (wortgleich im Review) |
 | `runs/b<N>/review.md`, `review-prompt-*.md` | Bewertung und der Prompt, mit dem sie entstand |
 | `snapshots/b<N>/snapshot.md`, `tools.tsv`, `reasoning.jsonl` | Kennzahlen-Snapshot, Werkzeugzählung, Denkblöcke separat |
@@ -812,8 +812,23 @@ bis zu **32 MB** groß (b180), und der Harness müsste ihn bei jeder `/status`-A
 lesen. Stattdessen schreibt der Worker die Zahlen **selbst** — gedrosselt auf alle 15 s
 (`LIVE_SEKUNDEN`, im Takt-Block von `run_batch`, nach `state.data["live"]`).
 
-Nach dem Lauf bleibt der letzte Stand stehen (`live_letzte`), `/status` zeigt dann
-`Laufender Batch: keiner (letzter Batch 196: 184 Anfragen, $0.2747, Stand 15:29)`.
+Nach dem Lauf bleibt der letzte Stand als `live_letzte` stehen. **`/status` zeigt dann aber
+nicht mehr die Live-Zahl**, sondern das Ergebnis `runs\b<N>\result.json` (R13x, Befund
+M208-3d):
+
+```
+Laufender Batch: keiner (letzter Batch 208: 19m20s, $0.1232, 77 Anfragen, 118786 Ausgabe-Tokens, fertig 19:21 - aus runs/b208/result.json)
+```
+
+**Warum das noetig war:** die Live-Zahlen enthalten die **Ausgabe-Tokens nicht**. DeepSeek
+liefert Eingabe und Cache in den `assistant`-Ereignissen exakt, die Ausgabe aber erst im
+abschliessenden `result`-Ereignis - waehrend des Laufs steht dort also 0 und die
+Live-Kosten sind zu niedrig (gemessen B207: Live `$0.0903` gegen echt `$0.1727`; B208:
+`$0.0512` gegen `$0.1232`). Solange ein Batch **laeuft**, steht die Einschraenkung
+deshalb ausdrücklich in der Zeile (`[Live-Zahlen OHNE Ausgabe-Tokens ...]`). Fehlt die
+`result.json`, bleiben die Live-Zahlen stehen - mit demselben Vermerk und dem Hinweis,
+dass die Datei fehlt.
+
 Gibt es noch gar keine Zahlen: `Laufender Batch: keiner (noch keine Live-Zahlen)`.
 
 ### 14b. `/bilanz [N]` — Telegram und Konsole
@@ -867,8 +882,8 @@ Der Block steht in `GESAMT` und rechnet **nur aus Belegdateien**, nichts wird ge
 |---|---|---|
 | `Koepfe (R207 gebaut)` | `analysis/_m<N>/_bilanz*.txt`, Zeile **`R207 rueckwaerts`** (maschinengeschrieben von `scripts/m149_bilanz.py`) | Spalte „heute" minus Spalte „Vorbatch" = was **dieser** Batch verifiziert hat |
 | `Mittel der letzten N` | dieselbe Reihe (bis zu 5 belegte Batches) | arithmetisches Mittel der Differenzen; die Batches stehen in Klammern dahinter |
-| `Insn (nur wo belegt)` | Zeile **`Paket E offen`** der Batch-Dokumente (`analysis/port-batch<N>-*.md`) | Insn offen (Vorbatch) minus Insn offen (heute) |
-| `offen (Paket E, C-Arbeitsvorrat)` | dieselbe Tabellenzeile, Spalte „heute" | Köpfe/Insn, die in Paket E noch offen sind |
+| `Insn (nur wo belegt)` | Zeile **`Paket E offen`**, **Ist-Spalte** der Soll/Ist-Tafel des Batch-Dokuments (`analysis/port-batch<N>-*.md`) | Insn offen (letzter belegter Wert) minus Insn offen (heute) |
+| `offen (Paket E, C-Arbeitsvorrat)` | dieselbe Tabellenzeile, **Ist-Spalte** | Köpfe/Insn, die in Paket E noch offen sind |
 | `HYPOTHESIS (Paket E, Arbeitsvorrat)` | offen ÷ Mittel | **Schätzung**, ausdrücklich als HYPOTHESIS markiert — sie gilt nur, solange die Rate gleich bleibt |
 | `HYPOTHESIS (C gesamt, ABGELEITET)` | Planungsdokument mit der Zeile `OFFEN: <K> Koepfe / <I> Insn` (z. B. B196 §6.1, Quelle `analysis/_m196/_plan_c.txt`) | `<K> - (R207 heute - Bau-Liste damals)`; die Insn über den damaligen **Insn-je-Kopf-Schnitt** fortgeschrieben (deshalb „~" und „Schaetzung") |
 | `-> ca. M Batches` | offen ÷ Mittel | **Schätzung** — dieselbe Rate wie oben |
@@ -919,10 +934,35 @@ Fehlt sie, steht das ausdrücklich da, statt eine Zahl zu erfinden.
 Dieselbe Reihe (plus PLAN-Spalte und Laufzeit/Abbruchgrund) steht als **PLAN/IST-Tafel**
 im Review-Prompt: der Reviewer sieht dort je Batch, was die Instruktion an Köpfen
 genannt hat (`runs/b<N>/auftrag.md`, Abschnitt `TEIL 3`: genannte Kopfadressen und die
-Insn in Klammern), was tatsächlich verifiziert wurde, wie lange der Batch lief und
-warum er endete. Dazu gilt im Reviewer-Prompt die **Median-Regel**: das Ziel des
-nächsten Batches darf höchstens ca. das **1,3-fache des Medians** der letzten Batches
-sein — Abweichungen begründet der Reviewer in einem Satz.
+Insn in Klammern), was tatsächlich verifiziert wurde, wie lange der Batch lief
+(`runs/b<N>/result.json` des **eigenen** Ordners) und warum er endete. Dazu gilt im
+Reviewer-Prompt die **Median-Regel**: das Ziel des nächsten Batches darf höchstens ca.
+das **1,3-fache des Medians** der letzten Batches sein — Abweichungen begründet der
+Reviewer in einem Satz.
+
+### 14e. Woher die C-Zahlen kommen (R13x, Befund M208-3)
+
+Die Aussensicht hat vier Stellen gefunden, an denen eine **Vorhersage oder eine fremde
+Zeile als Messwert** weitergetragen wurde. Die Regel ist seit R13x:
+
+| Anzeige | Quelle | Warum nicht anders |
+|---|---|---|
+| `C verifiziert` (`/bilanz`), `verifiziert` im Änderungsblock, Kernzahlen der Aussensicht | **Preflight-Zeile** `analysis/_preflight_<N>.txt` (Zeile `C Koepfe`, maschinengeschrieben) | Das Batch-Dokument trägt die Zahl nicht immer richtig weiter (B202/B203 nennen 53/1272, gemessen sind 45/1080 bzw. 59/1416). Fehlt die Preflight-Datei (vor dem C-Strang), gilt die **Ist-Spalte** des Dokuments. |
+| `Paket E offen`, `Insn (nur wo belegt)` | **Ist-Spalte** der Soll/Ist-Tafel (§6) des neuesten Batch-Dokuments | Eine Preflight-Zeile gibt es dafür nicht; die Vorhersagetafel (§5) nennt einen **Sollwert** (B206: `Bl 15 / 1083` vorhergesagt, gemessen `Bl 17 / 1202`). |
+| Laufzeit/Abbruch in der PLAN/IST-Tafel | `runs/b<N>/result.json` | `runs/b<N>/harness-facts.md` gehört zu Batch **N−1**: der Harness legt sie in den Ordner des nächsten Batches (`orchestrator.review`, `ziel=rdir`). Gemessen: `runs/b208/harness-facts.md` nennt `47m26s` (b207), `runs/b208/result.json` `1160,907 s = 19m20s`. |
+| `letzter Batch …` in `/status` | `runs/b<N>/result.json` desselben Batches | Die Live-Zahlen haben keine Ausgabe-Tokens (s. 14a). |
+
+**Wie das Dokument gelesen wird** (`hx/stand.py`, `ist_wert`): von allen
+Markdown-Tabellenzeilen, deren **erste Zelle** das Etikett ist (`C Koepfe`,
+`Paket E offen` — Markup wie `**`, Backticks wird entfernt), zählt die **letzte**
+Zeile, und darin die **letzte Zelle, die mit dem Zahlenmuster beginnt**. Damit gewinnt
+die Soll/Ist-Tafel gegen die Vorhersagetafel (§5 steht immer davor), und die
+Spalte „Abweichung/Quelle“ am Zeilenende kann nicht als Wert gelesen werden. Jede
+Delta-Zeile nennt die verglichenen Batches (`(B207 -> B208)`), weil ein Vergleich auch
+über eine Lücke laufen kann (Paket E: B206 -> B208, B207 führt die Zeile nicht).
+
+Belege: `docs/_r13x_belege.md` (vorher/nachher an den echten Dateien von B206–B208),
+Tests `tests/test_r13x_fixes.py`.
 
 ### 14d. `/ds`-Nachrichten im Review (R13t)
 

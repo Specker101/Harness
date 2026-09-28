@@ -50,7 +50,8 @@ GIT_TOOL = "PowerShell"
 GEWICHT_REIHENFOLGE = ("hoch", "mittel", "niedrig")
 EMPFAENGER = ("Reviewer", "Nutzer")
 
-# Kernzahlen des C-Strangs aus den Batch-Dokumenten (`stand.c_zahlen`) - Befund Nr. 2:
+# Kernzahlen des C-Strangs aus `stand.kernzahlen` (R13x: C Koepfe = Preflight-Zeile,
+# Paket E = Ist-Spalte der Soll/Ist-Tafel) - Befund Nr. 2:
 # sie werden NUR ueber die letzten C-Batches verglichen, nie ueber einen B-Batch hinweg.
 KERNZAHLEN = (("c_koepfe", "C Koepfe"), ("c_faelle", "C Faelle"),
               ("c_abweichungen", "C Abweichungen"),
@@ -229,7 +230,7 @@ def kernzahl_stillstand(cfg) -> list[str]:
     Ausloeser nicht in jedem B-Batch feuern. Deshalb werden B-Batches ausgelassen und
     nur die C-Batches verglichen.
     """
-    fenster = stand.c_zahlen(cfg, int(grenzen(cfg)["bilanz_zeitfenster"]))
+    fenster = stand.kernzahlen(cfg, int(grenzen(cfg)["bilanz_zeitfenster"]))
     c_batches = [e for e in fenster if not ist_b_batch(cfg, int(e.get("batch") or 0))]
     if len(c_batches) < 2:
         return []
@@ -375,9 +376,11 @@ Fuer JEDEN noch offenen frueheren Befund eine Zeile:
 
 === STICHPROBEN (PFLICHT, im Abschnitt <AUSSENSICHT> nennen) ===
 1. Pruefe mindestens ZWEI Aussagen aus den Review-Zusammenfassungen gegen die ROHBELEGE
-   des jeweiligen Batches: `runs/b<N>/result.json`, `runs/b<N>/harness-facts.md`,
-   `runs/b<N>/antwort.md`, `runs/b<N>/review.md`. Nenne je Stichprobe das Ergebnis
-   ("bestatigt" / "widerspricht: ...").
+   des jeweiligen Batches: `runs/b<N>/result.json`, `runs/b<N>/antwort.md`,
+   `runs/b<N>/review.md`. ACHTUNG (R13x, gemessen): `runs/b<N>/harness-facts.md` gehoert
+   NICHT zu Batch N - der Harness legt sie in den Ordner des NAECHSTEN Batches
+   (`runs/b<N+1>/harness-facts.md`, Kopfzeile "Review: bewertet wird Batch N").
+   Nenne je Stichprobe das Ergebnis ("bestatigt" / "widerspricht: ...").
 2. Lies fuer mindestens EINEN Batch die Denkbloecke des Workers
    `snapshots/b<N>/reasoning.jsonl` (read/grep) und sage, was dort steht, was in den
    aufbereiteten Zahlen NICHT steht.

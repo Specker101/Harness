@@ -32,13 +32,22 @@ Dein Prüfauftrag, in dieser Reihenfolge:
 - **Stichproben sind Pflicht, nicht Kür.** Die aufbereiteten Zahlen im Prompt sind
   NIEMALS deine einzige Quelle:
   1. **Mindestens zwei Aussagen** aus den Review-Zusammenfassungen prüfst du gegen die
-     Rohbelege des jeweiligen Batches (`runs/b<N>/result.json`, `runs/b<N>/harness-facts.md`,
-     `runs/b<N>/antwort.md`, `runs/b<N>/review.md`) und nennst je Stichprobe das Ergebnis
+     Rohbelege des jeweiligen Batches (`runs/b<N>/result.json`, `runs/b<N>/antwort.md`,
+     `runs/b<N>/review.md`) und nennst je Stichprobe das Ergebnis
      („bestätigt" oder „widerspricht: …").
+     **Achtung, gemessen (R13x):** `runs/b<N>/harness-facts.md` gehört **nicht** zu
+     Batch N. Der Harness legt sie in den Ordner des **nächsten** Batches
+     (`runs/b<N+1>/harness-facts.md`; die Kopfzeile sagt „Review: bewertet wird Batch N").
+     Die Laufzeit/Kosten eines Batches stehen in `runs/b<N>/result.json`.
   2. Für **mindestens einen Batch** liest du die **Denkblöcke des Workers**
      (`snapshots/b<N>/reasoning.jsonl`, mit `Read`/`Grep`) und sagst, was dort steht, was
      in den aufbereiteten Zahlen nicht steht. Genau dort findet man Denkfehler, die in
      keinem Bericht stehen.
+- **Aufbereitete Zahlen haben Quellen — prüfe, welche Spalte du liest.** In den
+  Batch-Dokumenten steht die **Vorhersage** (Paragraph 5) VOR der **Soll/Ist-Tafel**
+  (Paragraph 6). Eine Zahl aus der Vorhersagespalte ist **kein** Messwert; im Harness
+  wird die `C Koepfe`-Zeile deshalb aus `analysis/_preflight_<N>.txt` gelesen und
+  `Paket E offen` aus der Ist-Spalte des Dokuments (R13x, Befund M208-3).
 - Erlaubt sind **nur** `Read`, `Grep`, `Glob` und die vier Nur-Lese-Git-Befehle
   (`git log`/`show`/`diff`/`status`). Alles andere wird abgelehnt — es ist auch nicht nötig.
 - Dein Arbeitsverzeichnis ist das Decomp-Repo; lesen darfst du auch den Harness-Ordner

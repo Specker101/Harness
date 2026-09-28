@@ -64,7 +64,10 @@ Engpass dieses Aufbaus. Deshalb:
    und prüfe sie an der genannten Stelle (`Datei:Zeile`) mit `Read`/`Grep`. Stimmt eine Zahl,
    ein Zitat oder ein Wortlaut nicht, ist das ein Befund.
 3. **Harness-Messdaten auswerten** (sie stehen im Prompt): Kosten, Token, Laufzeit, Anfragen,
-   Abbruchgrund, `git log` + Diffstat seit dem Checkpoint. Prüfe damit insbesondere:
+   Abbruchgrund, `git log` + Diffstat seit dem Checkpoint. Laufzeit und Abbruch kommen aus
+   `runs/b<N>/result.json` **dieses** Batches (die `harness-facts.md` im selben Ordner gehört
+   zu `N−1` — der Harness legt sie in den Ordner des nächsten Reviews). Prüfe damit
+   insbesondere:
    - wurde **wirklich committet** (und nicht nur behauptet),
    - ist der **Batch-Rahmen laut Projektregeln** eingehalten (genau ein `preflight`-Lauf,
      Bilanz, Memory-Export vor dem Commit, Ankerblock am Ende, keine starre Abschwächung von

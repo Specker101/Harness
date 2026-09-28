@@ -13,6 +13,9 @@ Datenquellen (alle nur LESEND, keine Messung, kein Ghidra, kein Netz):
     (`scripts/m149_bilanz.py`), hier wird er nur gelesen.
   * die neueste Batch-Datei `analysis/port-batch<N>-*.md` und der Ankerkopf fuer die
     C-Zahlen (Inventar/gebaut/offen) - sie stehen dort ausdruecklich und gemessen.
+    Die Zeile **`C Koepfe`** kommt seit R13x aus der **Preflight-Datei** des Batches
+    (`analysis/_preflight_<N>.txt`, maschinengeschrieben), die Zeile **`Paket E offen`**
+    aus der **Ist-Spalte** der Soll/Ist-Tafel des Dokuments (Befund M208-3).
   * `runs/b*/result.json` fuer die Kosten der letzten 24 Stunden (bleibt laut R13p
     IMMER unkomprimiert).
   * `logs/rate-limit.json` fuer die Abo-Auslastung (R13p).
@@ -390,47 +393,106 @@ def _delta_pp(alt: float | None, neu: float | None) -> str:
     return "=" if abs(d) < 0.05 else f"{d:+.1f} pp"
 
 
-def _stand_reihe(cfg) -> tuple[dict, dict]:
-    """(neuestes, vorheriges) Zahlen-Dokument aus `stand.c_zahlen`."""
-    reihe = [e for e in stand.c_zahlen(cfg, 8) if "baut" in e or "c_koepfe" in e]
-    if not reihe:
-        return {}, {}
-    return reihe[-1], (reihe[-2] if len(reihe) > 1 else {})
+def _stand_reihe(cfg) -> list[dict]:
+    """Die Zahlen-Reihe aus `stand.kernzahlen` (aufsteigend, nur Eintraege mit Zahlen).
+
+    R13x (M208-3): die Reihe kommt aus `stand.kernzahlen` - dort ist die Zeile
+    `C Koepfe` die **Preflight-Zeile** (`analysis/_preflight_<N>.txt`) des Batches und
+    erst in zweiter Linie die Ist-Spalte des Batch-Dokuments. Vorher las diese Funktion
+    `stand.c_zahlen`, also das Dokument mit dem ERSTEN Treffer - und das war die
+    Vorhersagetafel; weil B207/B208 die Zeile anders schreiben, fiel sie still auf B206
+    zurueck und die Anzeige trug `78 / 1872` und `Bl 15 / 1083` als Messwert weiter.
+
+    Je Zeile wird der **neueste Eintrag MIT Wert** genommen (`_letzter_mit`): ein gerade
+    laufender Batch schreibt sein Dokument, bevor er die Preflight-Zeile hat - dann fehlt
+    dort `C Koepfe`, und die Anzeige darf die Zeile nicht ersatzlos streichen.
+    """
+    return [e for e in stand.kernzahlen(cfg, 8)
+            if "baut" in e or "c_koepfe" in e or "paket_e_koepfe" in e]
+
+
+def _letzter_mit(reihe: list[dict], schluessel: str) -> dict:
+    """Der neueste Eintrag MIT diesem Wert (`{}` = keiner hat ihn)."""
+    for e in reversed(reihe or []):
+        if e.get(schluessel) is not None:
+            return e
+    return {}
+
+
+def _vorheriger_mit(reihe: list[dict], schluessel: str, batch: int) -> dict:
+    """Der naechstaeltere Eintrag VOR `batch`, der diesen Wert fuehrt."""
+    for e in reversed(reihe or []):
+        try:
+            aelter = int(e.get("batch") or 0) < int(batch or 0)
+        except (TypeError, ValueError):
+            continue
+        if aelter and e.get(schluessel) is not None:
+            return e
+    return {}
+
+
+def _delta_batch(jetzt: dict, schluessel: str = "c_koepfe") -> str:
+    """`(B207 -> B208)` fuer die Delta-Zeilen - nennt die verglichenen Batches.
+
+    R13x: hiess vorher "in diesem Batch" und war damit auch dann falsch beschriftet, wenn
+    der Vergleich ueber eine Luecke lief (Paket E: B206 -> B208, weil B207 die Zeile nicht
+    fuehrt). `vorher_batch` steht bereit, wenn der Vorgaenger NICHT der direkte Vorbatch ist.
+    """
+    alt = jetzt.get("vorher_batch")
+    if isinstance(alt, dict):
+        alt = alt.get(schluessel)
+    vorgaenger = int(alt) if isinstance(alt, int) else int(jetzt.get("batch") or 0) - 1
+    return f"(B{vorgaenger} -> B{jetzt.get('batch')})"
 
 
 def gesamt_block(cfg) -> list[str]:
     """`GESAMT` - Projektstand in Prozent, mit Delta zum Vorbatch und Durchsatz.
 
-    Quellen: die Zeilen `C Koepfe` (verifizierte Koepfe/Faelle) und `Paket E offen`
-    aus den Batch-Dokumenten (`stand.c_zahlen`), die Bau-Liste/offen-Zahlen, wo ein
-    Dokument sie (noch) als Prosa traegt, das Programm-Inventar aus dem
-    Bilanz-Schnappschuss und der Durchsatz aus `stand.durchsatz`. Nichts wird
-    geschaetzt - was fehlt, steht als "nicht ermittelbar" da.
+    Quellen: die Zeile `C Koepfe` (verifizierte Koepfe/Faelle) aus der **Preflight-Datei**
+    des Batches (`stand.kernzahlen`), die Zeile `Paket E offen` aus der **Ist-Spalte** der
+    Soll/Ist-Tafel des Batch-Dokuments, die Bau-Liste/offen-Zahlen, wo ein Dokument sie
+    (noch) als Prosa traegt, das Programm-Inventar aus dem Bilanz-Schnappschuss und der
+    Durchsatz aus `stand.durchsatz`. Nichts wird geschaetzt - was fehlt, steht als
+    "nicht ermittelbar" da, und jede Delta-Zeile nennt die verglichenen Batches.
     """
-    jetzt, vorher = _stand_reihe(cfg)
+    reihe = _stand_reihe(cfg)
     zeilen = ["GESAMT (Teil C - der systematische Durchgang)"]
-    if jetzt.get("c_koepfe") is not None:
+    c_zeile = _letzter_mit(reihe, "c_koepfe")
+    if c_zeile.get("c_koepfe") is not None:
         delta = ""
-        if jetzt.get("c_koepfe_vorher") is not None:
-            dk = jetzt["c_koepfe"] - jetzt["c_koepfe_vorher"]
-            df = (jetzt.get("c_faelle", 0) - jetzt.get("c_faelle_vorher", 0))
-            delta = f"   ({dk:+d} Koepfe / {df:+d} Faelle in diesem Batch)"
-        zeilen.append(f"  C verifiziert: {jetzt['c_koepfe']} Koepfe / "
-                      f"{jetzt.get('c_faelle', '?')} Faelle / "
-                      f"{jetzt.get('c_abweichungen', 0)} Abweichungen" + delta)
-    if jetzt.get("paket_e_koepfe") is not None:
-        k, i = jetzt["paket_e_koepfe"], jetzt.get("paket_e_insn", 0)
-        bl, bl_i = jetzt.get("paket_e_blatt"), jetzt.get("paket_e_insn_blatt")
+        if c_zeile.get("c_koepfe_vorher") is not None:
+            dk = c_zeile["c_koepfe"] - c_zeile["c_koepfe_vorher"]
+            df = (c_zeile.get("c_faelle", 0) - c_zeile.get("c_faelle_vorher", 0))
+            delta = f"   ({dk:+d} Koepfe / {df:+d} Faelle {_delta_batch(c_zeile)})"
+        quelle = c_zeile.get("c_quelle") or ""
+        zeilen.append(f"  C verifiziert: {c_zeile['c_koepfe']} Koepfe / "
+                      f"{c_zeile.get('c_faelle', '?')} Faelle / "
+                      f"{c_zeile.get('c_abweichungen', 0)} Abweichungen" + delta
+                      + (f"   [B{c_zeile.get('batch')}, {quelle}]" if quelle else ""))
+    else:
+        zeilen.append("  C verifiziert: nicht ermittelbar (keine Preflight-Zeile "
+                      "'C Koepfe' und keine Ist-Spalte im Batch-Dokument)")
+    e_zeile = _letzter_mit(reihe, "paket_e_koepfe")
+    if e_zeile.get("paket_e_koepfe") is not None:
+        k, i = e_zeile["paket_e_koepfe"], e_zeile.get("paket_e_insn", 0)
+        bl, bl_i = e_zeile.get("paket_e_blatt"), e_zeile.get("paket_e_insn_blatt")
         delta = ""
-        if jetzt.get("paket_e_koepfe_vorher") is not None:
-            dk = jetzt["paket_e_koepfe_vorher"] - k
-            di = jetzt.get("paket_e_insn_vorher", 0) - i
-            delta = f"   (in diesem Batch: {dk} Koepfe / {di} Insn gebaut)"
+        if e_zeile.get("paket_e_koepfe_vorher") is not None:
+            dk = e_zeile["paket_e_koepfe_vorher"] - k
+            di = e_zeile.get("paket_e_insn_vorher", 0) - i
+            delta = (f"   ({_delta_batch(e_zeile, 'paket_e_koepfe')}: {dk} Koepfe / "
+                     f"{di} Insn gebaut)")
         zeilen.append(f"  Paket E offen: {k} Koepfe / {i} Insn"
-                      + (f" (Bl {bl} / {bl_i})" if bl is not None else "") + delta)
+                      + (f" (Bl {bl} / {bl_i})" if bl is not None else "") + delta
+                      + (f"   [Ist-Spalte {e_zeile.get('dokument')}]"
+                         if e_zeile.get("dokument") else ""))
     else:
         zeilen.append("  Paket E offen: nicht ermittelbar (keine Zeile "
                       "'Paket E offen')")
+    # Bau-Liste/Vorrat/Inventar stehen als Prosa im Batch-Dokument: dafuer der neueste
+    # Eintrag MIT diesen Zahlen und dessen Vorgaenger (die Deltas in Klammern).
+    jetzt = _letzter_mit(reihe, "baut") or (reihe[-1] if reihe else {})
+    vorher = _vorheriger_mit(reihe, "baut", jetzt.get("batch") or 0)
     inv = jetzt.get("inventar") or vorher.get("inventar")
     baut, baut_alt = jetzt.get("baut"), vorher.get("baut")
     offen, offen_alt = jetzt.get("offen"), vorher.get("offen")
@@ -463,8 +525,17 @@ def gesamt_block(cfg) -> list[str]:
     zeilen.append(f"  Programm-Inventar (S1-Doku): {inventar_prozent(cfg)}")
     zeilen += stand.durchsatz_zeilen(cfg)
     if jetzt.get("dokument"):
-        zeilen.append(f"  Quelle: analysis/{jetzt['dokument']}"
-                      + (f" (davor {vorher['dokument']})" if vorher.get("dokument") else ""))
+        if jetzt.get("baut") or jetzt.get("offen") or jetzt.get("inventar"):
+            zeilen.append(f"  Quelle: analysis/{jetzt['dokument']}"
+                          + (f" (davor {vorher['dokument']})"
+                             if vorher.get("dokument") else ""))
+        else:
+            # R13x: die Zeilen Bau-Liste/Vorrat/Inventar kommen aus der PROSA des
+            # Dokuments. Fehlt sie dort, wird das gesagt - statt die Zeilen still
+            # wegzulassen und ein fremdes Dokument als Quelle zu nennen.
+            zeilen.append(f"  Quelle: analysis/{jetzt['dokument']} "
+                          f"(B{jetzt.get('batch')}) - Bau-Liste/Vorrat/Inventar "
+                          "fuehrt es nicht")
     return zeilen
 
 

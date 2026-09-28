@@ -31,6 +31,58 @@ from .util import ensure_dir, now_iso, read_json, read_text, secs_human, write_t
 IDLE_SLEEP = 3.0
 
 
+def letzter_batch_zeile(cfg, letzte: dict, stand: str = "") -> str:
+    """`/status`-Zeile fuer den zuletzt GELAUFENEN Batch (R13x, Befund M208-3d).
+
+    Vorher wurden hier die letzten **Live**-Zahlen gezeigt (`state.data["live_letzte"]`).
+    Die enthalten die **Ausgabe-Tokens nicht**: DeepSeek traegt Eingabe und Cache in den
+    `assistant`-Ereignissen exakt ein, die Ausgabe aber erst im abschliessenden
+    `result`-Ereignis - waehrend des Laufs sind also alle Ausgabe-Tokens 0 und die
+    Live-Kosten zu niedrig. Gemessen an B207: Live `$0.0903` gegen echt `$0.1727`
+    (`runs/b207/result.json`); B208: `$0.0512` gegen `$0.1232`.
+
+    Ist der Lauf fertig, steht das Ergebnis in `runs/b<N>/result.json` (derselbe Batch -
+    der Lauf schreibt es in seinen eigenen Ordner). Genau daraus wird die Zeile gebaut;
+    nur wenn die Datei fehlt, bleiben die Live-Zahlen stehen - dann mit dem ausdruecklichen
+    Vermerk, dass die Ausgabe-Tokens fehlen.
+    """
+    batch = int((letzte or {}).get("batch") or 0)
+    res = read_json(Path(cfg.sub("runs")) / f"b{batch:03d}" / "result.json", {}) or {}
+    stats = res.get("stats") or {}
+    teile: list[str] = []
+    if res.get("duration_s") is not None:
+        try:
+            teile.append(secs_human(float(res.get("duration_s") or 0)))
+        except (TypeError, ValueError):
+            pass
+    if res.get("cost_usd") is not None:
+        teile.append(f"${float(res.get('cost_usd') or 0):.4f}")
+    if stats:
+        teile.append(f"{stats.get('requests')} Anfragen")
+        if stats.get("output") is not None:
+            teile.append(f"{stats.get('output')} Ausgabe-Tokens")
+    if not teile:
+        return (f"Laufender Batch: keiner (letzter Batch {batch}: "
+                f"{letzte.get('requests')} Anfragen, "
+                f"${float(letzte.get('cost_usd') or 0):.4f}"
+                + (f", Stand {stand}" if stand else "")
+                + ")  [Live-Zahlen OHNE Ausgabe-Tokens und OHNE Laufzeit - "
+                  f"runs/b{batch:03d}/result.json fehlt]")
+    fertig = str(res.get("finished_at") or "")
+    if fertig:
+        try:
+            zeit = datetime.fromisoformat(fertig.replace("Z", "+00:00")).astimezone()
+            teile.append("fertig " + zeit.strftime("%H:%M"))
+        except (TypeError, ValueError):
+            pass
+    elif stand:
+        teile.append(f"Stand {stand}")
+    if res.get("killed_reason"):
+        teile.append(f"Abbruch: {res['killed_reason']}")
+    return (f"Laufender Batch: keiner (letzter Batch {batch}: " + ", ".join(teile)
+            + f" - aus runs/b{batch:03d}/result.json)")
+
+
 class Orchestrator:
     def __init__(self, cfg, log, mock: bool = False, state_file=None):
         self.cfg = cfg
@@ -906,6 +958,12 @@ class Orchestrator:
         ausdruecklich NICHT angefasst: der Mitschnitt ist bis zu 32 MB gross (b180),
         und /status muss sofort antworten. Nach dem Lauf bleibt der letzte Stand als
         `state.data["live_letzte"]` stehen.
+
+        R13x (Befund M208-3d): ist der Batch FERTIG, wird nicht mehr die Live-Zahl
+        gezeigt, sondern das Ergebnis `runs/b<N>/result.json` - die Live-Zahl enthaelt
+        die **Ausgabe-Tokens nicht** (DeepSeek liefert sie erst im `result`-Ereignis,
+        gemessen: B207 Live $0.0903 gegen echt $0.1727; B208 Live $0.0512 gegen
+        $0.1232). Waehrend des Laufs steht die Einschraenkung ausdruecklich dabei.
         """
         live = self.state.data.get("live") or {}
         if live:
@@ -920,19 +978,20 @@ class Orchestrator:
             except (TypeError, ValueError):
                 pass
             stand = self._lokale_zeit(live.get("ts"))
-            return (f"Laufender Batch {live.get('batch')}: {dauer}| "
-                    f"{live.get('requests')} Anfragen | "
-                    f"${float(live.get('cost_usd') or 0):.4f} | "
-                    f"({live.get('input_miss')} ein / {live.get('cache_read')} cache / "
-                    f"{live.get('output')} aus)"
-                    + (f" | Stand {stand}" if stand else ""))
+            zeile = (f"Laufender Batch {live.get('batch')}: {dauer}| "
+                     f"{live.get('requests')} Anfragen | "
+                     f"${float(live.get('cost_usd') or 0):.4f} | "
+                     f"({live.get('input_miss')} ein / {live.get('cache_read')} cache / "
+                     f"{live.get('output')} aus)"
+                     + (f" | Stand {stand}" if stand else ""))
+            if not live.get("output"):
+                zeile += ("  [Live-Zahlen OHNE Ausgabe-Tokens - sie kommen erst mit dem "
+                          "Laufende; die Kosten sind bis dahin zu niedrig]")
+            return zeile
         letzte = self.state.data.get("live_letzte") or {}
         if letzte:
-            stand = self._lokale_zeit(letzte.get("ts"))
-            return (f"Laufender Batch: keiner (letzter Batch {letzte.get('batch')}: "
-                    f"{letzte.get('requests')} Anfragen, "
-                    f"${float(letzte.get('cost_usd') or 0):.4f}"
-                    + (f", Stand {stand}" if stand else "") + ")")
+            return letzter_batch_zeile(self.cfg, letzte,
+                                       stand=self._lokale_zeit(letzte.get("ts")))
         return "Laufender Batch: keiner (noch keine Live-Zahlen)"
 
     def status_text(self) -> str:
