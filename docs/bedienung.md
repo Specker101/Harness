@@ -742,13 +742,37 @@ Session** (kein Verlauf) mit dem Reviewer-Modell über das Abo.
 | **läuft gerade ein Worker** | `/meta` wird nur **vorgemerkt** (Antwort: „vorgemerkt, laeuft nach Batch N") und läuft **direkt nach dem Batch-Ende, VOR dem Review** — so stehen Befunde für den Reviewer schon in dessen Review. Mehrfaches Vormerken zählt **einmal**. In Pause/Gate/Leerlauf läuft sie sofort; während einer Pause lösen **Automatik**-Auslöser nicht aus |
 | **Automatik** | (a) alle `[meta] every_batches` Batches (**seit R13z vorläufig 3** — Begründung unten; die **erste** Aussensicht löst du per `/meta` aus, damit der erste Start nicht sofort einen Lauf kostet), (b) Worker-Abbruch (`letzter_abbruch` aus R13v3), (c) Zeile `MEILENSTEIN ERREICHT:` bzw. `ABBRUCHKRITERIUM ERREICHT:` in der neuesten Review-Zusammenfassung, (d) **B-Schritt** über zwei B-Batches unverändert (Pflichtzeile `B-SCHRITT: <n>/5 …`), (e) eine **C-Kernzahl** über die letzten zwei **C-Batches** unverändert. Je Batch wird höchstens **einmal** entschieden. **Welcher Batch ein B-Batch ist**, liest der Harness aus mehreren Belegen (Pflichtzeile im Review, Marker im Auftrag `runs/b<N>/auftrag.md`, Zeile `Mischverhaeltnis …` in `analysis/hybrid-plan.md`) — vorher hing das allein an der Pflichtzeile, die seit B205 in jedem Review fehlte, und (e) hielt B208/B209 fälschlich für C-Batches (R13aa) |
 | **Eingaben** | Bilanz-Trend der letzten 12 Batches, PLAN/IST-Tafel, die letzten 10 `TELEGRAM_SUMMARY`, Ankerkopf, Ziel-/Scope-Abschnitte aus `readme.md`/`AGENTS.md`, `/fragen`, Kosten/Laufzeiten je Batch, die noch offene `/ds`-Queue und die **Befundliste der letzten Aussensicht** |
-| **Stichprobenpflicht** | mindestens zwei Aussagen aus den Zusammenfassungen gegen die Rohbelege des Batches (`runs/b<N>/result.json`, `antwort.md`, `review.md`) prüfen **und** für mindestens einen Batch die Denkblöcke `snapshots/b<N>/reasoning.jsonl` lesen — damit nicht dieselben aufbereiteten Zahlen die einzige Quelle sind. **Achtung:** `runs/b<N>/harness-facts.md` gehört zu Batch N−1 (siehe §14e) |
+| **Stichprobenpflicht** | (1) mindestens zwei Aussagen aus den Zusammenfassungen gegen die Rohbelege des Batches (`runs/b<N>/result.json`, `antwort.md`, `review.md`) prüfen, (2) für mindestens einen Batch die Denkblöcke `snapshots/b<N>/reasoning.jsonl` lesen **und (3) die TIEFENPROBE** (R13ac3, s. u.) — damit nicht dieselben aufbereiteten Zahlen die einzige Quelle sind. **Achtung:** `runs/b<N>/harness-facts.md` gehört zu Batch N−1 (siehe §14e) |
 | **Ausgabe** | `<AUSSENSICHT>` (2–4 Zeilen, inkl. Stichprobenergebnisse) + je Befund `<BEFUND n gewicht empfaenger>Beleg/Aussage/Empfehlung</BEFUND>` + `<PRUEFUNG id status/>` zu früheren Befunden. **Höchstens 7** Befunde, sortiert nach Gewicht (`hoch`/`mittel`/`niedrig`), Empfänger `Reviewer` oder `Nutzer` |
 | **Belegpflicht** | gültig ist `Datei:Zeile` **oder** eine Zahl mit Quelldatei **oder** `Eingabe <Abschnitt>` (ein Eingabeblock beim Namen genannt) **oder** ein Lauf-/Belegordner (`runs/b<N>`, `runs/b<N>/result.json`) **oder** `Fehlstelle: gesucht in <Ort>, nicht gefunden`. Nur Befunde **ganz ohne** Beleg werden verworfen — und im Bericht als verworfen **genannt** und unter `/fragen` als „verworfen — prüfen?" gezeigt (R13aa, s. u.) |
 | **Verteilung** | Empfänger `Reviewer` → **eine `/claude`-Nachricht je Befund** in die Queue; Empfänger `Nutzer` → Telegram **und** unter `/fragen` |
 | **Ablage** | Bericht `runs/meta-<batch>.md` (mit Rohantwort), Maschinenfassung `runs/meta-<batch>.json`, Mitschnitt `runs/meta-<batch>.jsonl`, Register `state/meta_befunde.json` |
 | **Anzeige** | `/bilanz` zeigt die **Quote** des Registers: `Aussensicht: n Befunde, davon u uebernommen, a abgelehnt, o offen   (letzte Aussensicht: Batch N; k Befunde in diesem Lauf; Takt: alle 3 Batches)`; `/status` zeigt dieselbe Zeile (hinter dem Vorgemerkten) |
 | **Grenzen** | harte Zeitgrenze `[meta] wall_s` (Vorgabe 900 s); schlägt der Lauf fehl, wird das gemeldet und der Betrieb läuft weiter. Die Aussensicht blockiert **ihren eigenen** Lauf (synchron wie der Review) |
+
+**Tiefenprobe — ein zufälliger Batch je Lauf (R13ac3, 2026-09-29).** Zusätzlich zur
+Stichprobe des neuesten Batches zieht der Harness **vor** jedem Lauf **einen** Batch aus den
+letzten **zehn gelaufenen** (Ordner mit `runs/b<N>/result.json`) und nennt ihn im
+Eingabeblock `=== TIEFENPROBE (Pflicht): BATCH <N> ===` samt seiner Rohbelege (Auftrag,
+`antwort.md`, `result.json`, `snapshots/b<N>/reasoning.jsonl`, Mitschnitt). Geprüft wird
+**in der Tiefe**: die Denkblöcke, die Belege und jede prüfbare Behauptung des
+Abschlussberichts gegen die Rohdaten. Die Nummer steht im Bericht
+(`- Tiefenprobe: Batch N aus dem Fenster B…B…`) — auch dann, wenn das Modell sie nicht
+nennt; zusätzlich trägt `runs/meta-<batch>.json` den Schlüssel `tiefenprobe`.
+
+**Rotation.** Die gezogenen Nummern stehen im Register (`state/meta_befunde.json` →
+`tiefenprobe.gezogen`); **derselbe Batch kommt erst wieder, wenn alle anderen des Fensters
+dran waren** — dann beginnt ein neuer Zyklus (im Bericht als „neuer Zyklus" benannt).
+Fällt ein Batch aus dem Fenster (zehn Läufe später), zählt er nicht mehr zur Rotation.
+Gemerkt wird die Ziehung erst, wenn der Lauf etwas geliefert hat — ein abgebrochener Lauf
+verbrennt keinen Batch.
+
+**Pflicht bei Funden aus älteren Batches.** Die Tiefenprobe greift in die Vergangenheit.
+Jeder solche Fund wird gegen den **aktuellen** Stand geprüft (`git log -1`/`git show`,
+Ankerkopf, heutige Belegdateien): gilt er **heute noch** oder kehrt er als Muster wieder,
+wird er ein **Befund**; ist er **behoben**, steht er nur als eine Zeile in `<AUSSENSICHT>`:
+`geprueft: <Fund>, behoben in B<N> (Beleg: <Datei:Zeile|Commit>)`. Die Befundliste soll
+zeigen, was **jetzt** zu tun ist.
 
 **Antwortpflicht des Reviewers (R13w).** Jede `/claude`-Nachricht trägt eine ID
 `M<batch>-<n>`. Der Reviewer antwortet in der nächsten `TELEGRAM_SUMMARY` mit

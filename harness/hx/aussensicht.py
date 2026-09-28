@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import re
 import time
 import uuid
@@ -110,7 +111,8 @@ def ledger(cfg) -> list[dict]:
 
 
 def ledger_schreiben(cfg, befunde: list[dict],
-                    verworfen: list[dict] | None = None) -> None:
+                    verworfen: list[dict] | None = None,
+                    tiefenprobe: dict | None = None) -> None:
     """Das Register schreiben.
 
     R13aa (Punkt 2): unter dem zweiten Schluessel `verworfen` stehen die Befunde, die
@@ -118,12 +120,22 @@ def ledger_schreiben(cfg, befunde: list[dict],
     sie als "verworfen - pruefen?", damit ein zu strenges Urteil auffaellt. Wird
     `verworfen` nicht mitgegeben, bleibt der vorhandene Stand stehen (sonst loeschte
     jeder Register-Schreibvorgang die Liste).
+
+    R13ac3: dasselbe gilt fuer den dritten Schluessel `tiefenprobe` (Rotationsstand der
+    Tiefenprobe, s. `tiefenprobe_waehlen`) - er darf bei keinem Schreibvorgang verloren
+    gehen.
     """
     daten: dict = {"updated_at": now_iso(), "befunde": list(befunde)}
+    alt = read_json(ledger_pfad(cfg), {}) or {}
+    if not isinstance(alt, dict):
+        alt = {}
     if verworfen is None:
-        alt = read_json(ledger_pfad(cfg), {}) or {}
-        verworfen = list(alt.get("verworfen") or []) if isinstance(alt, dict) else []
+        verworfen = list(alt.get("verworfen") or [])
     daten["verworfen"] = list(verworfen)
+    if tiefenprobe is None:
+        tiefenprobe = dict(alt.get(TIEFE_SCHLUESSEL) or {})
+    if tiefenprobe:
+        daten[TIEFE_SCHLUESSEL] = tiefenprobe
     write_json_atomic(ledger_pfad(cfg), daten)
 
 
@@ -198,6 +210,99 @@ def klasse(befund: dict) -> str:
     if wert in ABGELEHNT_WORTE:
         return "abgelehnt"
     return "offen"
+
+
+# ------------------------------------------------- Tiefenprobe (R13ac3, 2026-09-29)
+# Nutzerauftrag: zusaetzlich zur Stichprobe des neuesten Batches wird je Lauf EIN
+# zufaelliger Batch aus den letzten `TIEFE_FENSTER` gelaufenen Batches in der Tiefe
+# geprueft (Denkbloecke, Belege, Behauptungen des Abschlussberichts gegen die Rohdaten).
+# Der Rotationsstand liegt im Register (`state/meta_befunde.json` -> `tiefenprobe`):
+# "derselbe Batch wird erst wieder gezogen, wenn alle anderen des Fensters dran waren."
+TIEFE_FENSTER = 10
+TIEFE_SCHLUESSEL = "tiefenprobe"
+
+
+def gelaufene_batches(cfg) -> list[int]:
+    """Die Batches mit einem abgeschlossenen Lauf (`runs/b<N>/result.json`), aufsteigend.
+
+    Nur diese koennen tief geprueft werden - ein Batch ohne Ergebnis hat keine Rohdaten.
+    """
+    try:
+        ordner = list((Path(cfg.root) / "runs").glob("b*"))
+    except OSError:
+        return []
+    out: list[int] = []
+    for p in ordner:
+        m = re.fullmatch(r"b(\d+)", p.name)
+        if m and (p / "result.json").is_file():
+            out.append(int(m.group(1)))
+    return sorted(out)
+
+
+def tiefenprobe_stand(cfg) -> dict:
+    """Der gespeicherte Rotationsstand: `{"gezogen": [...], "letzte": int|None}`.
+
+    `gezogen` wird **gegen das aktuelle Fenster gelesen**: ein Batch, der aus den letzten
+    zehn herausgefallen ist, zaehlt nicht mehr zur Rotation (sonst blockierte er einen
+    Platz, ohne je wieder gezogen werden zu koennen).
+    """
+    fenster = gelaufene_batches(cfg)[-TIEFE_FENSTER:]
+    daten = read_json(ledger_pfad(cfg), {}) or {}
+    stand_daten = daten.get(TIEFE_SCHLUESSEL) if isinstance(daten, dict) else None
+    if not isinstance(stand_daten, dict):
+        return {"gezogen": [], "letzte": None, "fenster": fenster}
+    gezogen = [int(b) for b in (stand_daten.get("gezogen") or []) if str(b).isdigit()]
+    letzte = stand_daten.get("letzte")
+    return {"gezogen": [b for b in gezogen if b in fenster],
+            "letzte": int(letzte) if letzte else None, "fenster": fenster}
+
+
+def tiefenprobe_waehlen(cfg, zufall=None) -> dict:
+    """Einen Batch aus den letzten `TIEFE_FENSTER` ziehen, den noch keiner dran hatte.
+
+    Rueckgabe: `{batch, fenster, gezogen, kandidaten, neu_zyklus, grund}`.
+    `batch=None` heisst: kein abgeschlossener Lauf im Fenster - dann gibt es keine
+    Tiefenprobe (und der Prompt sagt das).
+
+    `zufall` ist ein Objekt mit `choice` (`random` als Vorgabe); Tests geben einen
+    `random.Random(<seed>)` mit, damit die Ziehung reproduzierbar ist.
+    """
+    alle = gelaufene_batches(cfg)
+    fenster = alle[-TIEFE_FENSTER:]
+    if not fenster:
+        return {"batch": None, "fenster": [], "gezogen": [], "kandidaten": [],
+                "neu_zyklus": False, "grund": "kein abgeschlossener Lauf gefunden"}
+    stand_daten = tiefenprobe_stand(cfg)
+    gezogen = list(stand_daten["gezogen"])
+    kandidaten = [b for b in fenster if b not in gezogen]
+    neu_zyklus = False
+    if not kandidaten:
+        # Alle des Fensters waren dran -> neuer Zyklus, das Fenster ist wieder voll.
+        neu_zyklus = True
+        gezogen = []
+        kandidaten = list(fenster)
+    wahl = int((zufall or random).choice(kandidaten))
+    return {"batch": wahl, "fenster": fenster, "gezogen": gezogen,
+            "kandidaten": kandidaten, "neu_zyklus": neu_zyklus,
+            "grund": ("alle anderen waren dran - neuer Zyklus" if neu_zyklus else "")}
+
+
+def tiefenprobe_merken(cfg, wahl: dict) -> dict:
+    """Die Ziehung in den Rotationsstand uebernehmen (Register bleibt vollstaendig)."""
+    batch = wahl.get("batch")
+    if batch is None:
+        return tiefenprobe_stand(cfg)
+    daten = read_json(ledger_pfad(cfg), {}) or {}
+    if not isinstance(daten, dict):
+        daten = {}
+    alt = daten.get(TIEFE_SCHLUESSEL) if isinstance(daten.get(TIEFE_SCHLUESSEL), dict) else {}
+    gezogen = [int(b) for b in (alt.get("gezogen") or []) if str(b).isdigit()]
+    gezogen = ([b for b in gezogen if b in wahl["fenster"]]
+               + ([int(batch)] if int(batch) not in gezogen else []))
+    stand_daten = {"gezogen": gezogen, "letzte": int(batch), "ts": now_iso(),
+                   "fenster": list(wahl["fenster"])}
+    ledger_schreiben(cfg, ledger(cfg), tiefenprobe=stand_daten)
+    return stand_daten
 
 
 def letzte_bericht_batches(cfg) -> list[int]:
@@ -483,11 +588,13 @@ def ziel_abschnitte(cfg) -> str:
     return "\n\n".join(teile) or "(weder readme.md noch AGENTS.md lesbar)"
 
 
-def eingaben(cfg, state) -> str:
+def eingaben(cfg, state, tiefe: dict | None = None) -> str:
     """Alle Eingabebloecke - was nicht da ist, wird als solches benannt, nie erfunden."""
     g = grenzen(cfg)
     batch = int(state.batch or 0)
     bloecke: list[str] = []
+    if tiefe:
+        bloecke.append(tiefenprobe_block(cfg, tiefe))
 
     bil = "(Bilanz nicht ermittelbar)"
     try:
@@ -596,7 +703,21 @@ Fuer JEDEN noch offenen frueheren Befund eine Zeile:
 2. Lies fuer mindestens EINEN Batch die Denkbloecke des Workers
    `snapshots/b<N>/reasoning.jsonl` (read/grep) und sage, was dort steht, was in den
    aufbereiteten Zahlen NICHT steht.
+3. TIEFENPROBE (R13ac3, Nutzerauftrag 2026-09-29): pruefe den Batch aus dem Block
+   "=== TIEFENPROBE (Pflicht): BATCH <N> ===" in der Tiefe - Denkbloecke, Belege,
+   jede pruefbare Behauptung seines Abschlussberichts gegen die Rohdaten. Nenne die
+   Nummer in <AUSSENSICHT> woertlich (`TIEFENPROBE B<N>`).
 Ziel: nicht dieselben aufbereiteten Zahlen als einzige Quelle nehmen.
+
+=== PFLICHT BEI FUNDEN AUS AELTEREN BATCHES (R13ac3) ===
+Jeder Fund aus einem FRUEHEREN Batch (auch aus der Tiefenprobe) wird gegen den AKTUELLEN
+Stand geprueft: HEAD (`git log -1` / `git show`), Ankerkopf (`analysis/r1b-workstream.md`),
+aktuelle Belegdateien des Decomp-Repos.
+  * Wirkt der Fund HEUTE noch - oder kehrt er als Muster wieder?  -> BEFUND.
+  * Ist er bereits behoben?  -> KEIN Befund. Stattdessen EINE Zeile in <AUSSENSICHT>:
+      geprueft: <Fund in einem Satz>, behoben in B<N> (Beleg: <Datei:Zeile|Commit>)
+  Ein Fund, der nur noch historisch ist, gehoert nicht in die Befundliste - die soll
+  zeigen, was JETZT zu tun ist.
 
 === GRENZEN ===
 - Du entscheidest NICHTS und aenderst NICHTS (kein Anker, kein Code, keine Queue).
@@ -605,7 +726,56 @@ Ziel: nicht dieselben aufbereiteten Zahlen als einzige Quelle nehmen.
 """
 
 
-def build_prompt(cfg, state, grund) -> str:
+def tiefenprobe_block(cfg, tiefe: dict) -> str:
+    """Der Eingabeblock `=== TIEFENPROBE: BATCH <N> ===` (R13ac3).
+
+    Der gezogene Batch und seine Rohbelege stehen ausdruecklich da - der Prompt nennt
+    die Nummer, damit der Bericht sie tragen kann (sie wird zusaetzlich vom Harness
+    hineingeschrieben, `bericht`).
+    """
+    nummer = tiefe.get("batch")
+    if nummer is None:
+        return ("=== TIEFENPROBE (Pflicht) ===\n"
+                "In diesem Lauf KEINE Tiefenprobe moeglich: "
+                + str(tiefe.get("grund") or "kein abgeschlossener Lauf im Fenster"))
+    runs = Path(cfg.root) / "runs"
+    snaps = Path(cfg.root) / "snapshots"
+    fenster = tiefe.get("fenster") or []
+    zeilen = [
+        f"=== TIEFENPROBE (Pflicht): BATCH {nummer} ===",
+        f"Gezogen aus dem Fenster der letzten {len(fenster)} gelaufenen Batches: "
+        f"B{fenster[0]}..B{fenster[-1]}" if fenster else "",
+        "Schon dran gewesen (nicht wieder gezogen): "
+        + (", ".join(f"B{b}" for b in (tiefe.get("gezogen") or [])) or "keiner")
+        + ("; dieser Lauf beginnt einen NEUEN Zyklus ("
+           + str(tiefe.get("grund")) + ")" if tiefe.get("neu_zyklus") else ""),
+        "",
+        f"Pruefe DIESEN Batch in der Tiefe (nicht nur ueber die aufbereiteten Zahlen):",
+        f"  * Auftrag     : runs/b{int(nummer):03d}/auftrag.md (die Forderungen)",
+        f"  * Abschluss   : runs/b{int(nummer):03d}/antwort.md (was der Worker behauptet)",
+        f"  * Ergebnis    : runs/b{int(nummer):03d}/result.json (rc, Dauer, Anfragen, "
+        "Abbruch)",
+        f"  * Denkbloecke : snapshots/b{int(nummer):03d}/reasoning.jsonl (was er sich "
+        "dabei dachte)",
+        f"  * Mitschnitt  : runs/b{int(nummer):03d}/stream.jsonl (Werkzeugaufrufe, "
+        "Wartezeiten)",
+        f"  * Belege      : die Dateien, die der Bericht als Beleg NENNT, jeweils "
+        "gegen den Rohinhalt",
+        "",
+        "Nimm JEDE Behauptung des Abschlussberichts, die du pruefen kannst, und halte "
+        "sie gegen die Rohdaten (Zahl, Datei:Zeile, Werkzeugausgabe). Was du NICHT "
+        "pruefen kannst, sagst du. Nenne die Nummer in <AUSSENSICHT> woertlich: "
+        f"`TIEFENPROBE B{nummer}`.",
+        "ABER: erhebe NUR dann einen Befund, wenn die Sache HEUTE noch gilt (s. PFLICHT "
+        "in den Stichproben).",
+        "Rohbelege dieses Batches:",
+        f"  {runs / f'b{int(nummer):03d}'}",
+        f"  {snaps / f'b{int(nummer):03d}'}",
+    ]
+    return "\n".join([z for z in zeilen if z != ""])
+
+
+def build_prompt(cfg, state, grund, tiefe: dict | None = None) -> str:
     g = grenzen(cfg)
     kopf = [
         "# AUSSENSICHT (Meta-Review) - Silent Scope Decomp",
@@ -625,7 +795,7 @@ def build_prompt(cfg, state, grund) -> str:
         "kein Beleg. Wenn du etwas nicht pruefen kannst, sage das ausdruecklich.",
         "",
     ]
-    return "\n".join(kopf) + "\n" + eingaben(cfg, state) + "\n\n" + \
+    return "\n".join(kopf) + "\n" + eingaben(cfg, state, tiefe=tiefe) + "\n\n" + \
         FORMAT_HINWEIS.format(max_befunde=int(g["max_befunde"])) + "\n"
 
 
@@ -896,10 +1066,14 @@ class Ergebnis:
         self.pruefungen: list[dict] = []
         self.modell: str = ""
         self.stream_path: str = ""
+        # R13ac3: die Ziehung dieses Laufs (`tiefenprobe_waehlen`).
+        self.tiefe: dict = {}
 
     def describe(self) -> str:
         return (f"rc={self.rc} dauer={self.dauer_s:.0f}s modell={self.modell or '-'} "
-                f"befunde={len(self.befunde)} verworfen={len(self.verworfen)}")
+                f"befunde={len(self.befunde)} verworfen={len(self.verworfen)}"
+                + (f" tiefenprobe=B{self.tiefe.get('batch')}"
+                   if self.tiefe.get("batch") else ""))
 
 
 MOCK_ANTWORT = """<AUSSENSICHT>
@@ -915,11 +1089,19 @@ Empfehlung: Die Quelle im Batch-Dokument mitnennen.
 """
 
 
-def run(cfg, log, state, grund: str, mock: bool = False) -> Ergebnis:
-    """Die Aussensicht fahren (synchron, begrenzt durch `[meta] wall_s`)."""
+def run(cfg, log, state, grund: str, mock: bool = False,
+        zufall=None) -> Ergebnis:
+    """Die Aussensicht fahren (synchron, begrenzt durch `[meta] wall_s`).
+
+    R13ac3: VOR dem Lauf wird die Tiefenprobe gezogen (`tiefenprobe_waehlen`) - der
+    Batch steht damit im Prompt und im Bericht. Gemerkt wird die Ziehung erst, wenn der
+    Lauf etwas geliefert hat (ein abgebrochener Lauf verbrennt keinen Batch).
+    `zufall` dient den Tests (reproduzierbare Ziehung).
+    """
     res = Ergebnis()
     batch = int(state.batch or 0)
-    prompt = build_prompt(cfg, state, grund)
+    res.tiefe = tiefenprobe_waehlen(cfg, zufall=zufall)
+    prompt = build_prompt(cfg, state, grund, tiefe=res.tiefe)
     ziel = ensure_dir(Path(cfg.root) / "runs") / f"meta-{batch:03d}.jsonl"
     res.stream_path = str(ziel)
     if mock:
@@ -948,6 +1130,12 @@ def run(cfg, log, state, grund: str, mock: bool = False) -> Ergebnis:
     g = grenzen(cfg)
     res.summary, res.befunde, res.verworfen, res.pruefungen = parse(res.text,
                                                                     int(g["max_befunde"]))
+    if res.tiefe.get("batch") and (res.summary or res.befunde):
+        tiefenprobe_merken(cfg, res.tiefe)
+        if log:
+            log.info("Tiefenprobe gezogen", batch=res.tiefe["batch"],
+                     fenster=f"{res.tiefe['fenster'][0]}..{res.tiefe['fenster'][-1]}",
+                     neu_zyklus=res.tiefe.get("neu_zyklus", False))
     return res
 
 
@@ -1000,6 +1188,22 @@ def bericht(cfg, batch: int, grund: str, res: Ergebnis, verteilung: dict,
         f"- Anlass: {grund}",
         f"- Ausloeser-Gruende: {'; '.join(gruende[:6]) or '-'}",
         f"- Lauf: {res.describe()}",
+    ]
+    # R13ac3: die gezogene Nummer steht im Bericht - auch wenn das Modell sie nicht nennt.
+    tiefe = dict(res.tiefe or {})
+    if tiefe.get("batch"):
+        fenster = tiefe.get("fenster") or []
+        zeilen.append(f"- Tiefenprobe: Batch {tiefe['batch']} aus dem Fenster "
+                      f"B{fenster[0]}..B{fenster[-1]}"
+                      + (" (neuer Zyklus: alle anderen waren dran)"
+                         if tiefe.get("neu_zyklus") else "")
+                      + ("; vorher gezogen: "
+                         + ", ".join(f"B{b}" for b in tiefe.get("gezogen") or [])
+                         if tiefe.get("gezogen") else ""))
+    else:
+        zeilen.append("- Tiefenprobe: keine - "
+                      + str(tiefe.get("grund") or "kein abgeschlossener Lauf"))
+    zeilen += [
         "",
         "## Zusammenfassung",
         res.summary or "(keine Zusammenfassung im Antwortformat)",
@@ -1041,5 +1245,7 @@ def bericht_schreiben(cfg, batch: int, grund: str, res: Ergebnis, verteilung: di
         "befunde": res.befunde, "verworfen": res.verworfen, "pruefungen": res.pruefungen,
         "ids": verteilung.get("ids") or [], "verdikte": verteilung.get("verdikte") or [],
         "offen_alt": verteilung.get("offen_alt") or [],
+        "tiefenprobe": dict(res.tiefe or {}),
+        "text": res.text,
     })
     return p

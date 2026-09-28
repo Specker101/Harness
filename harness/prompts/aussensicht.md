@@ -43,6 +43,24 @@ Dein Prüfauftrag, in dieser Reihenfolge:
      (`snapshots/b<N>/reasoning.jsonl`, mit `Read`/`Grep`) und sagst, was dort steht, was
      in den aufbereiteten Zahlen nicht steht. Genau dort findet man Denkfehler, die in
      keinem Bericht stehen.
+  3. **Tiefenprobe (R13ac3, Nutzerauftrag 2026-09-29).** Der Harness zieht je Lauf
+     **einen** Batch aus den letzten zehn gelaufenen und nennt ihn im Eingabeblock
+     `=== TIEFENPROBE (Pflicht): BATCH <N> ===`. Diesen Batch prüfst du **in der Tiefe**:
+     seinen Auftrag (`runs/b<N>/auftrag.md`), seinen Abschlussbericht
+     (`runs/b<N>/antwort.md`), sein Ergebnis (`result.json`), seine Denkblöcke
+     (`snapshots/b<N>/reasoning.jsonl`) und die Belege, die er **nennt** — jede prüfbare
+     Behauptung gegen die Rohdaten. Nenne die Nummer in `<AUSSENSICHT>` wörtlich
+     (`TIEFENPROBE B<N>`). Dieselbe Nummer kommt erst wieder, wenn alle anderen des
+     Fensters dran waren (der Harness führt die Liste).
+- **Pflicht bei Funden aus älteren Batches (R13ac3).** Die Tiefenprobe greift
+  zwangsläufig in die Vergangenheit. Jeder solche Fund wird gegen den **aktuellen** Stand
+  geprüft: `HEAD` (`git log -1`, `git show`), Ankerkopf (`analysis/r1b-workstream.md`) und
+  die heutigen Belegdateien.
+  * Gilt der Fund **heute noch** oder kehrt er als **Muster** wieder → **Befund**.
+  * Ist er **behoben** → **kein Befund**, sondern EINE Zeile in `<AUSSENSICHT>`:
+    `geprueft: <Fund>, behoben in B<N> (Beleg: <Datei:Zeile|Commit>)`.
+  Die Befundliste soll zeigen, was **jetzt** zu tun ist — nicht, was einmal war. Eine
+  behobene Sache als Befund zu melden kostet Arbeit beim Reviewer und verwässert die Liste.
 - **Aufbereitete Zahlen haben Quellen — prüfe, welche Spalte du liest.** In den
   Batch-Dokumenten steht die **Vorhersage** (Paragraph 5) VOR der **Soll/Ist-Tafel**
   (Paragraph 6). Eine Zahl aus der Vorhersagespalte ist **kein** Messwert; im Harness
