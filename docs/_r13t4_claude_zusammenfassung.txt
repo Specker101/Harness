@@ -1,0 +1,102 @@
+ZUSAMMENFASSUNG DES NUTZERS AN DEN REVIEWER (2026-09-28) - ersetzt ALLE /ds-Nachrichten
+dieser Sitzung. Sie ist der einzige neue Eingang; die alten /ds-Eintraege sind archiviert
+(`harness/inbox/done/`), damit nichts doppelt oder ueberholt zugestellt wird.
+
+## A) ENTSCHEIDUNGEN (so in den Ankerkopf, jeweils als ENTSCHIEDEN (Nutzer))
+
+1. **(5) ENTSCHIEDEN (Nutzer, 2026-09-28): ja** - `prof` faehrt je Kopf MEHRERE
+   MEM-Varianten (eigener kleiner Werkzeugschritt).
+2. **(6) ENTSCHIEDEN (Nutzer, 2026-09-28):** die sechs Altposten so:
+   R330 **ja**; `M60_NO_EVID` **ja**; `NEG_IMM_LO` **nein (jetzt nicht)**;
+   `setup_mesa.ps1` bei EINER DLL **ja**; die Pins (R381) **ja**; der "Later"-Abschnitt
+   **ja**. Wo ein Posten mehr als eine Zeile verlangt (R330 braucht eine Messung), kommt
+   er als eigener kleiner Schritt in die Instruktion - nicht als stiller Nachtrag und
+   nicht im selben Batch wie ein Werkzeugumbau.
+3. **(7) ENTSCHIEDEN (Nutzer, 2026-09-28): ja** - nach Paket E laeuft C in der
+   Reihenfolge "**ausgefuehrt zuerst, dann kleinste zuerst**". Die Kandidatenliste
+   bekommt die Spalte "ausgefuehrt (Aufnahmen)" (677 der 1403 nicht gebauten Koepfe,
+   28976 Insn; Harness-Beleg `docs/_r13t2_beleg_4.txt`), der Vorhersage-Commit nennt sie
+   je Kandidat. Danach wie bisher kleinste zuerst.
+   (Die alte Fassung "(7) als OFFENE FRAGE" ist damit erledigt und entfaellt.)
+4. **(8) ENTSCHIEDEN (Nutzer, 2026-09-28): ja** - Option **B (Hybrid-Laeufer als
+   Pruef-Fahrzeug)**, unter diesen Bedingungen:
+   * Erster Meilenstein ENG: "**ROM bootet bis zum ersten Attract-Bild, ohne Ton,
+     Eingabe als Attrappe**". Spielbarkeit ist NICHT Teil dieses Meilensteins.
+   * Budget **hoechstens 20 Batches** bis zum Meilenstein. **Abbruchkriterium:** nach
+     **10 Batches kein Boot bis zur Hauptschleife** -> stoppen, dokumentieren, dem
+     Nutzer als Entscheidungszeile vorlegen.
+   * Der C++-Kern uebernimmt die Semantik von `scripts/m114_matrix.py` (gleiche Formen,
+     **gleiche laute Ablehnung**); fehlende Formen werden in BEIDEN Welten nachgezogen.
+     **Keine zweite Befehlssemantik.**
+   * Hardware-Modelle nur so weit, wie der Boot sie verlangt, und gekennzeichnet als
+     "**Hybrid-Geruest, im Port zu ersetzen**".
+   * Static-Recompilation bleibt vertagt (`readme.md:661-673`).
+5. **R535 = WIDERLEGT (Fehlalarm).** `addc` liest das eingehende CA nicht (ISA: nur
+   `adde`/`addze`/`addme`/`subfe`/`subfze`/`subfme`); der Wortinterpreter rechnet richtig,
+   nur sein Kommentar war falsch, und die B206-Probe (`+ self.ca`) war die Fehlannahme -
+   ihr Zuruecknehmen war richtig. **Echt** bleibt der Portfund in 8005BF74 (Punkt B).
+
+## B) ARBEITSAUFTRAG (Inhalt des naechsten Aufraeum-Batches)
+
+1. `port/src/ckopf_leaves.cpp:1977` **korrigieren**: die CA-Addition streichen
+   (`if (r0 >= r10) r0 += 1u;`), Kommentar an der Stelle auf "`addc` liest CA nicht" setzen.
+   Das ROM-Wort ist `0x7C005014` = `addc` (XO 10, Rc = 0; Rohbeleg `docs/_r13t2_beleg_1b_rom.txt`).
+   Der Zensus ueber alle 34 CA-Koepfe (`tools/r13t2_port_ca_scan.py`,
+   `docs/_r13t2_beleg_1a.txt`) findet **genau diese eine** Stelle; alle uebrigen
+   CA-Nutzungen im Port sind legitim, weil das ROM dort CA wirklich liest (`addze` 382x,
+   `subfe` 18x).
+2. Den falschen Kommentar in `scripts/m114_matrix.py:395-397` berichtigen ("das Handbuch
+   verlangt rD = rA + rB + CA" ist falsch: `addc` liest CA nicht). Ebenso die R535-Regel
+   im Anker und §5 des B206-Dokuments auf "WIDERLEGT" umstellen.
+3. `c_kopf` haerten (der Kopf war gruen, weil die 24 Faelle den Rumpf hinter dem `bgt`
+   NIE betreten - Beleg `docs/_r13t2_beleg_1b_fall.txt`):
+   * feste **Grenzfaelle** in jede Fallfabrik (`scripts/c_kopf.py::_faelle`, Zeile 1472):
+     0, 1, 2, 3, 0x7FFFFFFF, 0x80000000, 0xFFFFFFFF, 0xFFFFFFF0, 0x10, **gleiche
+     Operanden**, **Vergleichsgrenze +-1**; fuer 8005BF74 zusaetzlich `r5` (= r10) aus
+     {0, 1, 0x10000, 0x10001} und Tabellenworte, die `r9 == r0` treffen.
+   * Standardmutation "**CA-Semantik vertauscht**" in `MUT` (`c_kopf.py:1943`) fuer JEDEN
+     Kopf mit CA-Formen: `if (r0 >= r10) r0 += 1u;` -> `if (r0 < r10) r0 += 1u;` bzw.
+     `+ self.ca` -> `+ (1 - self.ca)`. Gueltig ist nur eine ROT gewordene Rotprobe (R527).
+4. Danach **alle 78 Koepfe** neu profilieren und `vergl alle` fahren; Beleg vorher/nachher.
+5. **readme-Satz berichtigen** (`readme.md:640-642`, "the tone is the last missing piece of
+   a **runnable port**"): gemeint ist der Abschluss von Zweig B (letzte noch emulierte
+   Schicht nach Milestone 4), nicht ein lauffaehiger Port - es gibt kein Spiel-Binary,
+   Milestone 3 ist offen, Paket F (`readme.md:53`) unersetzt, kein Main-Loop. Wortlaut:
+   `docs/_r13t3_ds_readme.txt`.
+
+## C) BITTE AN DICH (Zuschnitt)
+
+* **B207 als eigener Aufraeum-Batch** schneiden, mit `FERTIG WENN` und
+  `STREICHREIHENFOLGE`: Punkte B1-B5 abarbeiten, keine neuen Koepfe bauen; die
+  Entscheidungen A1-A4 in den Anker, R535 als WIDERLEGT.
+* **B und C erst ab B208 planen** - B (Hybrid) und C (Hand-Port) ab dann mit
+  ausgewiesenem **Mischverhaeltnis** (wie viele Batches je Strang) und einem eigenen
+  Zuschnitt fuer B: **Kern -> Maschine -> kHeads-Uebernahme -> Boot -> erstes
+  Attract-Bild**, je Schritt ein eigenes `FERTIG WENN` und eine **Gegenprobe gegen
+  `capture/poc_ref_*.txt`** (21 Stroeme, 11995 Pakete, 34 distinkte Opcodes) **und gegen
+  die Coverage-Karten**. Kein Spielbarkeits-Ziel, kein Ton, Eingabe als Attrappe.
+* Fuer B gilt das Abbruchkriterium aus A4: nach 10 Batches ohne Boot bis zur
+  Hauptschleife -> stoppen, dokumentieren, Entscheidungszeile an den Nutzer.
+
+## D) BEFUND ZUR SCHNITTSTELLE (Frage des Nutzers, belegt)
+
+Die vorhandene SHARC-Loesung und die GL-Senke **arbeiten im Speicher, nicht auf Dateien** -
+ein Hybrid-Laeufer kann sie direkt ansprechen:
+
+* `port/include/port/render_sink.h`: die Kette endet in einer **Paket**-Schnittstelle
+  (`RenderSink` mit `draw_index()`/`draw_record()`/Draw-Auftraegen); sie schreibt
+  ausdruecklich KEINE Strombytes mehr. `port/include/port/render_sinks.h`: `DrawSink` =
+  **Produktionspfad** (Pakete -> Voodoo-Registersatz -> GL), `TransportRecorderSink` =
+  **Pruefpfad** (stellt den 16-Bit-Strom wieder her - nur zum Vergleich).
+* `port/include/port/sharc_consumer.h`: die SHARC-Seite laeuft einen **16-Bit-Strom im
+  Speicher** mit der belegten Wortverbrauchsgrammatik ab und uebergibt Bildkoordinaten an
+  die Senke - der Laeufer muss also nur den Strom/die Pakete in den emulierten RAM
+  schreiben bzw. die Kette aufrufen.
+* Dateien kommen NUR im Pruefpfad vor: `port/src/render_check.cpp:38`
+  (`ppc_poc_input_0.bin`) und `port/src/sharc_state.cpp:15/54` (Zustand laden).
+* **Der Einhaengepunkt fuer B existiert schon**: `port/include/port/host_registry.h` -
+  "Jede Implementierung wird unter ihrer PPC-Adresse registriert; das Trampolin findet sie
+  darueber wieder. **Nicht registrierte Adressen sind ein harter Fehler
+  (`UnimplementedFunction`) und werden gezaehlt**", mit `struct PpcContext { u32 gpr[32];
+  u32 lr, ctr, cr; }` und ABI-Helfern. Fuer B fehlt nur EINES: statt des harten Fehlers
+  muss der Kern die Funktion interpretieren (Rueckfall), damit der Prozess weiterlaeuft.
