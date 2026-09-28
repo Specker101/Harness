@@ -371,6 +371,7 @@ class TestVerworfene(Basis):
 class TestHochrechnung(Basis):
     def _d(self, **kw) -> dict:
         d = {"n": 5, "mittel_koepfe": 3.8, "mittel_c_koepfe": 4.8,
+             "mittel_c_quelle": "Preflight-Messung: C Koepfe je C-Batch B198..B210",
              "c_fenster": [{"batch": 207}, {"batch": 206}, {"batch": 205}, {"batch": 204}],
              "anteil_c": 1 / 3, "anteil_quelle": 'Regel hybrid-plan.md: "2 B : 1 C"',
              "anteil_gemessen": 0.8}
@@ -382,7 +383,8 @@ class TestHochrechnung(Basis):
         zeilen = stand.kalender_zeilen(self.cfg, 960, d)      # 960 Koepfe / +4.8 = 200
         self.assertIn("200 C-Batches", zeilen[0])
         self.assertIn("je C-Batch", zeilen[0])
-        self.assertIn("B207", zeilen[0])
+        # R13ac: die Grundlage der Zahl wird benannt (Preflight-Messung statt R207-Zaehler).
+        self.assertIn("Grundlage: Preflight-Messung", zeilen[0])
         self.assertIn("ca. 600 KALENDER-Batches", zeilen[1])  # 200 / (1/3)
         self.assertIn("33 %", zeilen[1])
         self.assertIn("2 B : 1 C", zeilen[1])

@@ -71,6 +71,13 @@ class Basis(unittest.TestCase):
         d = ensure_dir(self.ana / "_m206")
         write_text_atomic(d / "_bilanz206.txt", BILANZ)
         write_text_atomic(self.ana / "port-batch206-x-2026-09-28.md", DOKU)
+        # R13ac: die C-Koepfe-Zeilen aus der Preflight-Reihe (B205 -> B206: +5 je C-Batch).
+        for n, ck in ((205, 73), (206, 78)):
+            write_text_atomic(self.ana / f"_preflight_{n}.txt",
+                              "=== PREFLIGHT (before) ===\n"
+                              "Pruefung           Ergebnis            Urteil\n"
+                              f"C Koepfe           {ck} / 2795 / 0     OK\n"
+                              "=> BEFORE SAUBER\n")
 
     def tearDown(self):
         _weg(self.tmp)
@@ -100,8 +107,9 @@ class TestKlassen(Basis):
         self.assertIn("677 Koepfe /  28976 Insn", text)
         self.assertIn("(2) nicht ausgefuehrt, Paket E", text)
         self.assertIn("(3) nicht ausgefuehrt, sonstiger Rest", text)
-        # Hochrechnung mit dem Durchsatz JE C-BATCH aus der Bilanzdatei (hier +5 ->
-        # 677/5 = 135). R13aa: gerechnet wird in C-Batches, nicht in Kalender-Batches.
+        # Hochrechnung mit dem Durchsatz JE C-BATCH aus der PREFLIGHT-Reihe (hier
+        # B205 73 -> B206 78 = +5 -> 677/5 = 135). R13aa: gerechnet wird in C-Batches,
+        # R13ac: die Quelle ist die gemessene Preflight-Zeile, nicht der R207-Zaehler.
         self.assertIn("-> ca. 135 C-Batches", text)
 
     def test_klasse_3_wird_als_aufnahme_luecke_ausgewiesen(self):

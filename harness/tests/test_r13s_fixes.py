@@ -258,8 +258,15 @@ class TestStand(Basis):
             self.bilanzdatei(n, v, h)
             self.dokument(n, ck=73 + (n - 100), cf=1752, pek=43 - (n - 100),
                           pei=3025 - (n - 100) * 351)
+        # R13ac: die C-Zeilen kommen aus der Preflight-Reihe - ohne sie ist der
+        # Durchsatz "nicht gemessen" und es gibt keine Hochrechnung.
+        self.preflight(100, 73, 1752)
+        self.preflight(101, 78, 1776)
         text = "\n".join(stand.durchsatz_zeilen(self.cfg))
+        self.assertIn("C Koepfe (Preflight-Messung", text)
+        self.assertIn("Trend B100 73 -> B101 78 = +5 Koepfe", text)
         self.assertIn("Mittel der letzten 2", text)
+        self.assertIn("Zaehler R207 (gebaut", text)
         self.assertIn("offen (Paket E, C-Arbeitsvorrat)", text)
         self.assertIn("HYPOTHESIS", text)
         self.assertIn("_bilanz101.txt", text)
@@ -280,19 +287,30 @@ class TestStand(Basis):
         self.assertEqual(i, 51 + 71 + 76)
         self.assertIn("TEIL 3", quelle)
 
+    def test_soll_koepfe_aus_der_instruktion(self):
+        """R13ac (M210-4): PLAN kommt aus der ausdruecklichen Soll-Zeile, nicht aus Adressen."""
+        self.assertEqual(stand.soll_koepfe("TEIL 3\nSOLL-KOEPFE: 4\n"), 4)
+        self.assertIsNone(stand.soll_koepfe(REVIEW.split("<DS_INSTRUCTION>")[1]))
+
     def test_plan_ist_text_mit_median(self):
         self.anker()
+        auftrag = ("# Prompt\n=== AUFTRAG (vom Reviewer) ===\nTEIL 3\nSOLL-KOEPFE: 4\n"
+                   + REVIEW.split("<DS_INSTRUCTION>")[1])
         for n, v, h in ((100, 670, 675), (101, 675, 681)):
             self.bilanzdatei(n, v, h)
             self.dokument(n, ck=73, cf=1752, pek=43, pei=3025)
-            self.lauf(n, REVIEW.split("<DS_INSTRUCTION>")[1])
+            self.lauf(n, auftrag)
+            self.preflight(n, 73 + (n - 100) * 5, 1752)
         text = stand.plan_ist_text(self.cfg, 5)
         self.assertIn("B101", text)
-        self.assertIn("3 Koepfe", text)
-        self.assertIn("+6 Koepfe", text)
+        self.assertIn("4 Koepfe", text)          # PLAN: SOLL-KOEPFE der Instruktion
+        self.assertIn("+6 Koepfe", text)         # IST: R207-Zaehler
+        self.assertIn("78 (+5)", text)           # C Koepfe aus der Preflight-Datei
         self.assertIn("30m07s", text)
-        self.assertIn("MEDIAN", text)
-        self.assertIn("Ziel des naechsten Batches: hoechstens ca. 7", text)
+        # R13ac (M210-4): der MEDIAN steht auf C-Batches mit Soll > 0 und auf den
+        # gemessenen C Koepfen (73 -> 78: Median 75,5).
+        self.assertIn("MEDIAN der 2 C-Batches mit SOLL-KOEPFE > 0", text)
+        self.assertIn("Ziel des naechsten Batches: hoechstens ca.", text)
 
     def test_fragen_text_entscheidbar_und_unklar(self):
         self.anker()
@@ -379,9 +397,11 @@ class TestBilanzNeu(Basis):
         self.assertLess(i_kopf, i_delta)
         self.assertLess(i_delta, i_gesamt)
         self.assertLess(i_gesamt, i_tabelle)
-        self.assertIn("verifiziert  : +5 Koepfe", text)
+        self.assertIn("C Koepfe     : 78 referenzgleich", text)
+        self.assertIn("73 -> 78: +5", text)
+        self.assertIn("C-Trend      :", text)
         self.assertIn("Paket E      : 5 Koepfe / 351 Insn gebaut", text)
-        self.assertIn("C verifiziert: 78 Koepfe / 1872 Faelle", text)
+        self.assertIn("C Koepfe referenzgleich: 78 Koepfe / 1872 Faelle", text)
         self.assertIn("Durchsatz", text)
         self.assertIn("HYPOTHESIS", text)
         self.assertIn("R207 rueckwaerts", text)          # hat eine Prozentzahl

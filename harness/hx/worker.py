@@ -14,12 +14,14 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import threading
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
-from . import aufraeumen, envs, pricing, retention, secrets, streamjson
+from . import aufraeumen, envs, pricing, retention, secrets, streamjson, uhr
 
 # R13v3: Wie oft werden die Nachfahren des Workers aufgenommen? Der Nachweis "dieser
 # Prozess gehoerte zu diesem Lauf" ist nur zu fuehren, SOLANGE die Kette lebt - ein per
@@ -210,8 +212,50 @@ def write_mcp_config(cfg, run_path: Path, profile) -> str | None:
     return str(p)
 
 
+def write_worker_hooks(cfg, rd: Path, state_datei, log=None) -> str | None:
+    """PostToolUse-Hook "Batch-Uhr" als Einstellungsdatei fuer DIESEN Lauf (R13ac).
+
+    Anlass (Befund M210-1): der Worker schaetzte seine Laufzeit an der Zahl der
+    Werkzeugaufrufe (B210: "~180 min" geschaetzt, **46 min** gemessen) und strich mit
+    dieser falschen Zeitnot Pflichtteile. Die Zeile, die der Hook nach JEDEM
+    Werkzeugaufruf in den Kontext legt, ist die gemessene Wanduhr.
+
+    **Gemessen** (`tools/r13ac_probe_hook.py`, Beleg `docs/_r13ac_hook.txt`): mit einer
+    Einstellungsdatei nach diesem Muster nannte das Worker-Modell die BATCH-UHR-Zeile
+    woertlich - der Text kommt also beim Modell an (Claude-Doku "Hooks reference",
+    PostToolUse -> `hookSpecificOutput.additionalContext`).
+
+    Die Startzeit kommt aus `state/run.json` (`worker.started_at`) - derselben Quelle
+    wie die watch-Anzeige (R13ac, Punkt 5). Fehlt die Datei oder das Skript, wird kein
+    Hook gehaengt (der Lauf bleibt unberuehrt).
+    """
+    if not bool(cfg.get("claude", "worker_hooks", True)):
+        return None
+    skript = Path(__file__).resolve().parents[1] / "tools" / "batch_uhr.py"
+    if not skript.is_file():
+        if log:
+            log.warn("Batch-Uhr-Hook fehlt", pfad=str(skript))
+        return None
+    weich = float(cfg.get("limits", "alarm_wall_s", 5400)) / 60.0
+    hart = float(cfg.get("limits", "hard_wall_s", 10800)) / 60.0
+    daten = {"hooks": {"PostToolUse": [{"hooks": [{
+        "type": "command",
+        "timeout": 10,
+        "command": sys.executable,
+        "args": [str(skript), "--state", str(state_datei),
+                 "--weich", f"{weich:.0f}", "--hart", f"{hart:.0f}"],
+    }]}]}}
+    ziel = Path(rd) / "worker-hooks.json"
+    write_text_atomic(ziel, json.dumps(daten, indent=1) + "\n")
+    if log:
+        log.info("Batch-Uhr als PostToolUse-Hook gehaengt", datei=ziel.name,
+                 weich_min=f"{weich:.0f}", hart_min=f"{hart:.0f}")
+    return str(ziel)
+
+
 def build_command(cfg, profile, run_path: Path, session_id: str,
-                  system_prompt_file: str | None = None) -> tuple[list[str], str | None]:
+                  system_prompt_file: str | None = None,
+                  hooks_settings: str | None = None) -> tuple[list[str], str | None]:
     """Kommandozeile OHNE Prompt - der Prompt geht über stdin (UTF-8).
 
     Beleg (offizielle Doku, Seite "Run Claude Code programmatically"):
@@ -219,6 +263,9 @@ def build_command(cfg, profile, run_path: Path, session_id: str,
       "Piped stdin is capped at 10MB".
     Grund: die Windows-Kommandozeile ist bei ~32.000 Zeichen zu Ende; unsere
     Prompts (Vorspann + Auftrag + Queue) können deutlich größer werden.
+
+    `hooks_settings` (R13ac) ist die Einstellungsdatei mit dem Batch-Uhr-Hook
+    (`--settings <datei>`, s. `write_worker_hooks`).
     """
     exe = str(cfg.get("claude", "exe"))
     tools_value, allowed = builtin_args("worker")
@@ -252,6 +299,8 @@ def build_command(cfg, profile, run_path: Path, session_id: str,
     cmd += ["--disallowedTools", *denied]
     if system_prompt_file:
         cmd += ["--append-system-prompt-file", system_prompt_file]
+    if hooks_settings:
+        cmd += ["--settings", hooks_settings]
     return cmd, mcp_cfg
 
 
@@ -309,8 +358,14 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
         res.limits["ghidra_backup"] = bk.get("path")
 
     # --- Auftrag schreiben -------------------------------------------------------------
+    # R13ac: die Startzeit steht als ABSOLUTE Ortszeit im Vorspann (Punkt 5 der
+    # Nutzerpruefung: "die Batch-Uhr muss dieselbe, korrigierte Startzeit verwenden").
+    # Sie ist der Harness-Zeitstempel dieses Moments; die wenigen Sekunden bis zum
+    # Prozessstart sind in der Zeile benannt, und die BATCH-UHR-Zeile im Verlauf
+    # (worker.started_at) ist die exakte Messung.
+    start_zeit = datetime.now(timezone.utc)
     prompt = build_prompt(cfg, instruction, queue_block, res.program, profile_name,
-                          remote_hinweis=remote_hinweis)
+                          remote_hinweis=remote_hinweis, start_zeit=start_zeit)
     write_text_atomic(rd / "auftrag.md", prompt)
 
     # --- 4. Umgebung -------------------------------------------------------------------
@@ -347,7 +402,8 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
             res.killed_reason = "mock_crash"
     else:
         session_id = str(uuid.uuid4())   # --session-id verlangt eine echte UUID (mit Bindestrichen)
-        cmd, _mcp = build_command(cfg, profile, rd, session_id)
+        hooks = write_worker_hooks(cfg, rd, state.path, log)
+        cmd, _mcp = build_command(cfg, profile, rd, session_id, hooks_settings=hooks)
         if len(prompt.encode("utf-8")) > MAX_STDIN_BYTES:
             raise RuntimeError(f"Prompt zu groß für stdin ({len(prompt)} Zeichen)")
         stream_path = rd / "stream.jsonl"
@@ -826,6 +882,18 @@ RECHENZEIT (R13v, gemessen 2026-09-28 - bitte einhalten)
 - Fortschritt pruefen statt warten: Dateigroesse/mtime oder Prozess-CPU-Delta
   (`(Get-Process -Id N).CPU`) in EINEM kurzen Aufruf, ohne Schleife.
 
+ZEIT (R13ac - gemessen, nicht geschaetzt)
+- Der Harness MISST die Batch-Zeit mit der Wanduhr des Worker-Prozesses. Nach jedem
+  Werkzeugaufruf steht in deinem Kontext eine Zeile
+  `BATCH-UHR (Harness-Messung): <m> min von <weich> min seit Batch-Start <HH:MM:SS> …`.
+  Sie ist die gueltige Grundlage fuer "wie lange laeuft dieser Batch schon".
+- Die ZAHL DER WERKZEUGAUFRUFE sagt nichts ueber die Zeit. In B210 hielt sich der Worker
+  nach Aufrufzaehlung fuer "~180 min" und strich deshalb Pflichtteile - gemessen waren
+  es **46 min**. Die Startzeit dieses Laufs steht unten unter "UMFELD DIESES LAUFS".
+- Restzeit also NUR so rechnen: `Get-Date` minus dieser Startzeit (oder die letzte
+  BATCH-UHR-Zeile lesen). Eine Streichung von Pflichtteilen "aus Zeitgruenden" gilt nur
+  mit einer unmittelbar davor gemessenen `Get-Date`-Zeile im Batch-Dokument.
+
 ABSCHLUSSBERICHT (letzte Nachricht, Pflicht in dieser Gliederung)
 ## 1) Übernommener Stand (5 Sätze)
 ## 2) Was ich untersucht habe (Dateien/Belege)
@@ -854,10 +922,24 @@ LIVE_SEKUNDEN = 15.0
 
 
 def build_prompt(cfg, instruction: str, queue_block: str, program: str | None, profile: str,
-                 remote_hinweis: str = "") -> str:
-    """Vorspann + Auftrag + Queue. Der Worker bekommt KEINE Rückfragemöglichkeit."""
+                 remote_hinweis: str = "",
+                 start_zeit: datetime | None = None) -> str:
+    """Vorspann + Auftrag + Queue. Der Worker bekommt KEINE Rückfragemöglichkeit.
+
+    `start_zeit` (R13ac) ist der Harness-Zeitstempel unmittelbar vor dem Start des
+    Laufs; er erscheint als **absolute Ortszeit** im Umfeld-Block, damit "Restzeit" ohne
+    Zaehlung von Werkzeugaufrufen ausgerechnet werden kann. Ist er None (aeltere Aufrufer,
+    Tests), fehlt die Zeile - es wird nichts erfunden.
+    """
     parts = [WORKER_PREAMBLE]
     umfeld = [f"Ghidra-Profil dieses Laufs: {profile}"]
+    if start_zeit is not None:
+        umfeld.append(f"Batch-Start (Harness-Zeitstempel): "
+                      f"{uhr.ortszeit(start_zeit)} Ortszeit am "
+                      f"{start_zeit.astimezone().strftime('%Y-%m-%d')}")
+        umfeld.append("  - Die exakte Messung ist die BATCH-UHR-Zeile im Verlauf "
+                      "(Prozessstart des Workers); dieser Zeitstempel liegt wenige "
+                      "Sekunden davor.")
     if program:
         umfeld.append(f"Aktuelles Ghidra-Programm (vom Harness gestellt): {program}")
         # Punkt 10d: der Worker hat mehrfach be.bin angefordert, obwohl PPC-Arbeit

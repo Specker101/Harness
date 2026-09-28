@@ -1,0 +1,17 @@
+R13ac-Sonde: kommt ein PostToolUse-Hook-Text beim Worker an?
+Zeitpunkt: 2026-09-28T23:08:08+02:00
+Umgebung und Modell: wie ein echter Worker-Lauf (worker_env, cc-worker).
+
+### Aufbau
+   Zustand : g:\Harness\sandbox\sperrprobe\_r13ac\run.json (worker.started_at = jetzt - 42 min = 22:26:08 Ortszeit)
+   Hook    : PostToolUse (ohne Matcher) -> G:\Harness\harness\tools\batch_uhr.py
+   Grenzen : Weich 77 min / Hart 123 min (auffaellig gewaehlt)
+   Erwartete Zeile: BATCH-UHR (Harness-Messung): 42.0 min von 77 min seit Batch-Start 22:26:08 (Ortszeit). Weichgrenze 77 min, harte Grenze 123 min. Diese Zahl ist die Wa…
+
+### Aufruf
+   C:/Users/Benji/.local/bin/claude.exe -p --output-format … --session-id 20a7a1c1-3cad-4419-a781-7dcf18203215 --settings worker-hooks.json
+   Antwort: "BATCH-UHR (Harness-Messung): 42.1 min von 77 min seit Batch-Start 22:26:08 (Ortszeit). Weichgrenze 77 min, harte Grenze 123 min. Diese Zahl ist die Wanduhr des Worker-Prozesses (state/run.json:worker.started_at) - die Zahl der Werkzeugaufrufe sagt nichts ueber die Zeit (B210: '180 min' geschaetzt, 46 min gemessen)."
+
+### Verdikt
+   Der Hook-Text KOMMT BEIM MODELL AN (BATCH-UHR-Zeile mit 77/123 genannt).
+   -> Der PostToolUse-Weg ist belegt; die Batch-Uhr wird so eingebaut.

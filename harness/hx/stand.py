@@ -41,6 +41,10 @@ from .util import read_json, read_text
 BLOECKE = ("Stand", "Fertig", "Naechster Schritt", "Offene Entscheidung", "Fallstricke")
 STANDARD_FENSTER = 5
 MAX_DOKUMENTE = 12
+# R13ac (M210-2): Das Fenster der C-Koepfe-Trendzeile. Es ist dasselbe wie im
+# Aussensicht-Prompt ("BILANZ: TREND DER LETZTEN 12 BATCHES", aussensicht.grenzen) -
+# damit Reviewer, Aussensicht und Bilanz dieselbe Spanne nennen.
+TREND_FENSTER = 12
 
 # --------------------------------------------------------------- Ankerkopf
 _KOPFZEILE = re.compile(r"^\*\*(?P<name>[^:*]{2,30}):\*\*\s*(?P<text>.*)$")
@@ -319,8 +323,22 @@ def durchsatz(cfg, n: int = STANDARD_FENSTER) -> dict:
                  if strang_von_batch(cfg, int(e["batch"])).get("strang") != "B"]
     plan = plan_mischung(cfg)
     erg["c_fenster"] = c_fenster
-    erg["mittel_c_koepfe"] = (sum(e["koepfe"] for e in c_fenster) / len(c_fenster)
-                              if c_fenster else 0.0)
+    erg["mittel_c_koepfe_r207"] = (sum(e["koepfe"] for e in c_fenster) / len(c_fenster)
+                                    if c_fenster else 0.0)
+    # R13ac (M210-2): die C-Koepfe kommen aus der PREFLIGHT-Reihe - nicht aus dem
+    # R207-Zaehler (das war der Befund: "verifiziert: +0 (78 -> 78)", waehrend die
+    # Preflight-Datei B198 17 -> B210 78 zeigt). Ohne lueckenlose Quelle wird fuer die
+    # C-Zeile NICHTS gerechnet; der R207-Wert bleibt als eigener, benannter Zaehler.
+    trend = c_trend(cfg, TREND_FENSTER)
+    erg["c_trend"] = trend
+    if trend["gemessen"] and trend.get("mittel_je_c_batch") is not None:
+        erg["mittel_c_koepfe"] = trend["mittel_je_c_batch"]
+        erg["mittel_c_quelle"] = ("Preflight-Messung: C Koepfe je C-Batch "
+                                   f"B{trend['erst']['batch']}..B{trend['letzt']['batch']}")
+    else:
+        erg["mittel_c_koepfe"] = 0.0
+        erg["mittel_c_quelle"] = ("nicht gemessen (" +
+                                   (trend.get("grund") or "keine Preflight-Reihe") + ")")
     erg["anteil_gemessen"] = (len(c_fenster) / len(fenster)) if fenster else None
     erg["anteil_c"] = plan.get("anteil")
     erg["anteil_quelle"] = (f"Regel {plan['datei']}: \"{plan.get('regel') or ''}\""
@@ -347,7 +365,7 @@ def kalender_zeilen(cfg, offen: float, d: dict, einheit: str = "Koepfe",
     c_need = float(offen) / mittel_c
     reihe = ", ".join(f"B{e['batch']}" for e in (d.get("c_fenster") or []))
     zeilen = [f"{einzug}-> {c_need:.0f} C-Batches bei +{mittel_c:.1f} {einheit} je C-Batch"
-              + (f" (C-Batches im Fenster: {reihe})" if reihe else "")]
+              + (f" (Grundlage: {d['mittel_c_quelle']})" if d.get("mittel_c_quelle") else "")]
     anteil = d.get("anteil_c")
     if anteil:
         zeilen.append(f"{einzug}-> ca. {c_need / anteil:.0f} KALENDER-Batches "
@@ -483,6 +501,147 @@ def preflight_dateien(cfg, anzahl: int = 4) -> list[tuple[int, Path]]:
         return []
     gefunden.sort()
     return gefunden[-max(1, anzahl):]
+
+
+# ------------------------------------------------- Zeilen der Bahnabdeckung (R13ac)
+# Maschinengeschriebene Zeilen der Preflight-Datei (Beispiel B210):
+#   "Bahnabdeckung      55/78 | Bloecke 326/434 | verifiziert 55 | teilgeprueft 23 OK"
+# Ab B211 kommt laut Reviewer-Regel eine **Nachrueckliste 1** dazu (Format noch nicht
+# gesehen - deshalb wird die Zeile tolerant gesucht: Label `Nachrueckliste`, darin
+# `verifiziert <n>`). Ist sie da, hat SIE den Vorrang (Befund M210-3).
+_RE_BAHN_ZEILE = re.compile(r"^Bahnabdeckung\s+(\d+)\s*/\s*(\d+)\b(?P<rest>.*)$")
+_RE_NACHRUECK_ZEILE = re.compile(r"^Nachrueckliste\s*(\d+)?\b(?P<rest>.*)$")
+_RE_WORT_VERIFIZIERT = re.compile(r"verifiziert\s+(\d+)")
+_RE_WORT_TEILGEPRUEFT = re.compile(r"teilgeprueft\s+(\d+)")
+_RE_ZAHL_BLOECKE = re.compile(r"Bloecke\s+(\d+)\s*/\s*(\d+)")
+# Das Zahlenpaar der Zeile selbst: "55/78" (Bahnabdeckung) bzw. "62/80" (Nachrueckliste).
+_RE_ZAHL_PAAR = re.compile(r"(\d+)\s*/\s*(\d+)")
+
+
+def preflight_bahnabdeckung(cfg, anzahl: int = 4) -> list[dict]:
+    """`verifiziert`/`teilgeprueft` je Batch aus der Bahnabdeckungszeile (R13ac, M210-3).
+
+    Bis R13ac behauptete der Bilanz-Kopf "C verifiziert: 78 Koepfe" - das war die
+    **Kopfzahl** (C Koepfe, gleich zur Referenz), waehrend dieselbe Preflight-Datei
+    `verifiziert 55 | teilgeprueft 23` auswies. Zwei verschiedene Dinge mit einem Wort.
+
+    Rueckgabe je Batch: `{batch, datei, koepfe, bloecke, bloecke_gesamt, verifiziert,
+    teilgeprueft, quelle}`. `quelle` nennt die Zeile ("Nachrueckliste 1" oder
+    "Bahnabdeckung"). Fehlt beides, fehlt der Eintrag - es wird nichts geschaetzt.
+    """
+    out: list[dict] = []
+    for batch, pfad in preflight_dateien(cfg, anzahl):
+        try:
+            text = read_text(pfad)[:200000]
+        except OSError:
+            continue
+        bahn: dict | None = None
+        nach: dict | None = None
+        for zeile in text.splitlines():
+            m = _RE_BAHN_ZEILE.match(zeile)
+            if m and bahn is None:
+                bahn = {"koepfe": int(m.group(1)), "gesamt": int(m.group(2)),
+                        "rest": m.group("rest")}
+                continue
+            m = _RE_NACHRUECK_ZEILE.match(zeile)
+            if m and nach is None:
+                nach = {"nummer": int(m.group(1) or 1), "rest": m.group("rest")}
+                paar = _RE_ZAHL_PAAR.search(m.group("rest"))
+                if paar:
+                    nach["koepfe"] = int(paar.group(1))
+                    nach["gesamt"] = int(paar.group(2))
+        quelle = ""
+        quelle_zeile = bahn or nach
+        if nach is not None and _RE_WORT_VERIFIZIERT.search(nach["rest"]):
+            quelle = f"Nachrueckliste {nach['nummer']}"
+            quelle_zeile = nach
+        elif bahn is not None:
+            quelle = "Bahnabdeckung"
+        if quelle_zeile is None:
+            continue
+        rest = quelle_zeile["rest"]
+        v = _RE_WORT_VERIFIZIERT.search(rest)
+        t = _RE_WORT_TEILGEPRUEFT.search(rest)
+        b = _RE_ZAHL_BLOECKE.search(rest)
+        koepfe = quelle_zeile.get("koepfe")
+        gesamt = quelle_zeile.get("gesamt")
+        if koepfe is None:
+            koepfe = int(v.group(1)) if v else None
+        out.append({
+            "batch": batch, "datei": pfad.name, "quelle": quelle,
+            "koepfe": koepfe,
+            "gesamt": gesamt,
+            "bloecke": int(b.group(1)) if b else None,
+            "bloecke_gesamt": int(b.group(2)) if b else None,
+            "verifiziert": int(v.group(1)) if v else None,
+            "teilgeprueft": int(t.group(1)) if t else None,
+        })
+    return out
+
+
+def c_trend(cfg, n: int = 12) -> dict:
+    """Die C-Koepfe-Reihe aus den Preflight-Dateien - lueckenlos gemittelt (M210-2).
+
+    `n` ist die **Spanne in Batches** (die Zahl der Vergleichsschritte), nicht die Zahl
+    der Dateien: fuer "B198 -> B210" (Spanne 12) werden **13** Preflight-Dateien gelesen.
+    Genau diese Spanne nennt der Aussensicht-Prompt ("TREND DER LETZTEN 12 BATCHES").
+
+    Anlass (Aussensicht B210): die Trendzeile des Harness stand auf dem **R207-Zaehler**
+    ("verifiziert: +0 Koepfe (78 -> 78)") und im Durchsatzfenster fehlte B209 (die
+    kanonischen Bilanzdateien `analysis/_m209/_bilanz*.txt` gibt es nicht). Der Befund:
+    "tatsaechlich sind es +61 Koepfe seit B198, nicht +0".
+
+    Quelle ist deshalb die maschinengeschriebene Zeile `C Koepfe` **je**
+    `analysis/_preflight_<N>.txt` (dieselbe, die schon `kernzahlen` nimmt): eine Datei je
+    Batch, lueckenlos von B198 bis heute. Gemittelt wird nur ueber **benachbarte**
+    gemessene Batches; fehlt ein Batch im Fenster, wird er als **Luecke** benannt und
+    nicht als Null gezahlt.
+
+    Rueckgabe: `{gemessen, reihe:[{batch,koepfe,datei}], erst, letzt, delta,
+    anzahl_batches, luecken:[…], schritte:[…], mittel_je_batch, mittel_je_c_batch,
+    c_batches:[…], grund}`. `gemessen=False` heisst: keine Reihe -> "nicht gemessen".
+    """
+    spanne = max(1, int(n))
+    reihe = preflight_c_koepfe(cfg, spanne + 1)
+    leer = {"gemessen": False, "reihe": reihe, "erst": None, "letzt": None, "delta": None,
+            "anzahl_batches": 0, "luecken": [], "schritte": [], "mittel_je_batch": None,
+            "mittel_je_c_batch": None, "c_batches": [], "n_gemessen": len(reihe)}
+    if len(reihe) < 2:
+        leer["grund"] = (f"nur {len(reihe)} Preflight-Datei(en) mit der Zeile 'C Koepfe' "
+                         "im Fenster")
+        return leer
+    erst, letzt = reihe[0], reihe[-1]
+    haben = {e["batch"] for e in reihe}
+    luecken = [b for b in range(erst["batch"] + 1, letzt["batch"]) if b not in haben]
+    schritte: list[dict] = []
+    for a, b in zip(reihe, reihe[1:]):
+        schritte.append({"von": a["batch"], "bis": b["batch"], "delta": b["koepfe"] - a["koepfe"],
+                         "benachbart": b["batch"] - a["batch"] == 1})
+    c_batches = [e for e in reihe
+                 if strang_von_batch(cfg, int(e["batch"])).get("strang") != "B"]
+    c_nummern = {int(e["batch"]) for e in c_batches}
+    spanne = letzt["batch"] - erst["batch"]
+    delta = letzt["koepfe"] - erst["koepfe"]
+    # Der C-Durchsatz zaehlt nur die SCHRITTE, die in einem C-Batch enden (das sind die
+    # Uebergaenge, in denen C Koepfe dazugekommen sein koennen). Die Zahl der C-Batches
+    # waere der falsche Nenner: der erste Batch des Fensters hat keinen Vorgaenger im
+    # Fenster und wuerde den Durchsatz systematisch zu klein machen.
+    c_schritte = [s for s in schritte if s["benachbart"] and s["bis"] in c_nummern]
+    return {
+        "gemessen": True,
+        "reihe": reihe,
+        "erst": erst, "letzt": letzt, "delta": delta,
+        "anzahl_batches": spanne,
+        "n_gemessen": len(reihe),
+        "luecken": luecken,
+        "schritte": schritte,
+        "mittel_je_batch": (delta / spanne) if spanne else None,
+        "mittel_je_c_batch": (sum(s["delta"] for s in c_schritte) / len(c_schritte)
+                              if c_schritte else None),
+        "c_batches": c_batches,
+        "c_schritte": c_schritte,
+        "grund": "",
+    }
 
 
 def preflight_c_koepfe(cfg, anzahl: int = 4) -> list[dict]:
@@ -853,40 +1012,90 @@ def _mischung_zeile(cfg, d: dict) -> list[str]:
         teile[0] += f"; Anteil fuer die Rechnung: {regel * 100:.0f} % ({d['anteil_quelle']})"
     return teile
 
-
-# ------------------------------------------------------------ Durchsatz (R13s)
 def durchsatz_alt(cfg, n: int = STANDARD_FENSTER) -> dict:
     """(entfernt) - frueher aus den C-Koepfe-Zeilen der Batch-Dokumente."""
     return {}
 
 
 def durchsatz_zeilen(cfg, n: int = STANDARD_FENSTER) -> list[str]:
-    """Die Zeilen des Durchsatz-Blocks (HYPOTHESIS klar gekennzeichnet)."""
+    """Die Zeilen des Durchsatz-Blocks.
+
+    R13ac (M210-2): ZWEI Zaehler, klar getrennt und benannt -
+
+    * **C Koepfe** aus der maschinengeschriebenen Preflight-Zeile (`_preflight_<N>.txt`),
+      lueckenlos ueber das Trendfenster; fehlt die Quelle, steht dort "NICHT GEMESSEN".
+    * **R207** (gebaut, alle Straenge) aus den kanonischen Bilanzdateien - dieser Zaehler
+      hat in B209 keine Datei und wird deshalb als Fenster mit Luecke ausgewiesen.
+
+    Vorher stand unter "Durchsatz" nur der R207-Zaehler mit dem Wort "Koepfe", und die
+    Trendzahl daneben kam aus einer anderen Quelle als der Rest - genau das hat die
+    Aussensicht zu B210 als "mischt zwei Zaehler" beanstandet.
+    """
     d = durchsatz(cfg, n)
     if not d["fenster"]:
         return ["  Durchsatz    : nicht ermittelbar (keine Bilanzdatei gefunden)"]
     letzter = d["letzter"]
     pe = d.get("paket_e") or {}
     reihe = ", ".join(f"{e['batch']}: {e['koepfe']:+d}" for e in d["fenster"])
-    zeilen = [
-        f"  Durchsatz    : Koepfe (R207 gebaut) letzter Batch {letzter['batch']}: "
+    trend = d.get("c_trend") or {}
+    zeilen = ["  Durchsatz    : C Koepfe (Preflight-Messung, analysis/_preflight_<N>.txt "
+              "Zeile \"C Koepfe\")"]
+    if trend.get("gemessen"):
+        e, l = trend["erst"], trend["letzt"]
+        zeilen.append(f"                 letzter gemessener Batch B{l['batch']}: {l['koepfe']} "
+                      f"Koepfe ({trend['delta']:+d} seit B{e['batch']})")
+        spanne = (f"{trend['anzahl_batches']} Batches"
+                  + (", lueckenlos" if not trend["luecken"] else
+                     ", Luecken: " + ", ".join(f"B{b}" for b in trend["luecken"])))
+        zeilen.append(f"                 Trend B{e['batch']} {e['koepfe']} -> B{l['batch']} "
+                      f"{l['koepfe']} = {trend['delta']:+d} Koepfe ({spanne}, "
+                      f"{trend['n_gemessen']} Dateien)")
+        mittel = trend.get("mittel_je_batch")
+        if mittel is not None:
+            zeilen.append(f"                 Mittel: {mittel:+.1f} Koepfe je Batch"
+                          + (f" (B und C zusammen, ueber {trend['anzahl_batches']} "
+                             "Schritte)")
+                          + (f"; {trend['mittel_je_c_batch']:+.1f} je C-Batch "
+                             f"({len(trend['c_schritte'])} C-Batch-Schritte im Fenster)"
+                             if trend.get("mittel_je_c_batch") is not None else ""))
+        zeilen.append(f"                 Quelle dieser Zeilen: analysis/{e['datei']} bis "
+                      f"analysis/{l['datei']} (Zeile \"C Koepfe\", "
+                      f"{trend['n_gemessen']} Dateien)")
+    else:
+        zeilen.append("                 NICHT GEMESSEN: "
+                      + str(trend.get("grund") or "keine Preflight-Reihe gefunden"))
+    # Der zweite Zaehler bleibt - aber GETRENNT und benannt (M210-2: nicht mischen).
+    # Eine LUECKE wird aus den erwarteten Batchnummern bestimmt, nicht aus der Anzahl
+    # der Eintraege: das Fenster kann fuenf Eintraege haben und trotzdem einen Batch
+    # ueberspringen (genau der B210-Fall: B209 fehlt, B205 rueckt nach).
+    erwartet = {letzter["batch"] - i for i in range(1, d["n"])}
+    fehlend = sorted(erwartet - {x["batch"] for x in d["fenster"]})
+    zeilen += [
+        f"                 Zaehler R207 (gebaut, ALLE Straenge - nicht mit den C Koepfen "
+        f"mischen) letzter Batch {letzter['batch']}: "
         f"{letzter['r207_vorher']} -> {letzter['r207']} ({letzter['koepfe']:+d})",
-        f"                 Mittel der letzten {d['n']} (B+C gemischt): +{d['mittel_koepfe']:.1f} "
-        f"Koepfe je Batch   (Fenster: {reihe})",
+        f"                 Mittel der letzten {d['n']} nach R207 (B+C gemischt): "
+        f"+{d['mittel_koepfe']:.1f} Koepfe je Batch   (Fenster: {reihe}"
+        + ("   - LUECKENHAFT: die kanonischen Bilanzdateien fehlen fuer "
+           + ", ".join(f"B{b}" for b in fehlend) + ")" if fehlend else ")"),
     ]
     if d["mittel_insn"]:
-        zeilen.append(f"                 Insn (nur wo belegt, Paket-E-Zeile): letzter "
-                      f"Batch {letzter.get('insn')} / Mittel {d['mittel_insn']:.0f} Insn")
+        letzte_insn = next(((x["batch"], x["insn"]) for x in d["fenster"]
+                            if x.get("insn")), None)
+        zeilen.append(f"                 Insn (nur wo belegt, Paket-E-Zeile): "
+                      + (f"letzter belegter Batch B{letzte_insn[0]}: "
+                         f"{letzte_insn[1]} Insn / " if letzte_insn else "kein Einzelwert / ")
+                      + f"Mittel {d['mittel_insn']:.0f} Insn")
     else:
         zeilen.append("                 Insn: je Batch nicht durchgaengig belegt "
                       "(die Bilanzdatei fuehrt nur Koepfe)")
     # R13aa (Punkt 3): Durchsatz je C-Batch + Mischverhaeltnis GETRENNT nennen.
     c_batches = d.get("c_fenster") or []
-    if c_batches and d.get("mittel_c_koepfe"):
+    if c_batches:
         namen = ", ".join(f"B{e['batch']}" for e in c_batches)
-        zeilen.append(f"                 nur C-Batches: "
-                      f"+{d['mittel_c_koepfe']:.1f} Koepfe je C-Batch "
-                      f"({len(c_batches)} von {d['n']}: {namen})")
+        zeilen.append(f"                 C-Batches im R207-Fenster: "
+                      f"+{d.get('mittel_c_koepfe_r207', 0.0):.1f} Koepfe je C-Batch "
+                      f"(R207-Zaehler, {len(c_batches)} von {d['n']}: {namen})")
     zeilen += _mischung_zeile(cfg, d)
     if pe.get("paket_e_koepfe") is not None:
         zeilen.append(f"                 offen (Paket E, C-Arbeitsvorrat): "
@@ -1024,6 +1233,11 @@ _RE_KLAMMER = re.compile(r"\((\d{1,4})\)")
 _RE_DAUER = re.compile(r"Laufzeit:\s*(?:(\d+)h)?(\d+)m(\d+)s")
 _RE_ABBRUCH = re.compile(r"Abbruchgrund:\s*([^|\n]+)")
 _RE_TEIL = re.compile(r"^TEIL\s*3\b.*$", re.IGNORECASE | re.MULTILINE)
+# R13ac (M210-4): die ausdrueckliche Soll-Zeile der DS_INSTRUCTION. Sie ist die EINZIGE
+# PLAN-Quelle; B211 hat sie erstmals. Die alte Heuristik (gezaehlte Kopfadressen) wird
+# NICHT mehr als PLAN gezeigt - sie las in B210 "6 Koepfe", waehrend der Auftrag
+# "keine neuen Koepfe" sagte.
+_RE_SOLL = re.compile(r"SOLL-KOEPFE\s*:?\s*\**\s*(\d+)", re.IGNORECASE)
 
 
 def dauer_text(treffer) -> str:
@@ -1087,13 +1301,27 @@ def lauf_ist(cfg, batch: int) -> dict:
     return {"dauer": "", "quelle": "", "abbruch": ""}
 
 
-def geplante_koepfe(instruktion: str) -> tuple[int, int, str]:
-    """(Kopfzahl, Insn-Summe, Quelle) aus einer DS_INSTRUCTION.
+def soll_koepfe(instruktion: str) -> int | None:
+    """Die Zeile `SOLL-KOEPFE: <n>` der DS_INSTRUCTION - oder None (R13ac, M210-4).
 
-    Heuristik, in `bedienung.md` dokumentiert: gezaehlt werden die **genannten
-    Kopfadressen** (`0x80xxxxxx`) und die **Insn-Zahlen in Klammern** direkt dahinter.
-    Genommen wird der Abschnitt ab der Ueberschrift `TEIL 3` (dort steht die Bau-Liste);
-    fehlt sie, die ganze Instruktion - dann steht das in der Quelle.
+    Der Reviewer gibt die Sollzahl seit B211 mit dieser Zeile selbst vor. Steht sie
+    nicht da, bleibt PLAN leer ("-") - es wird NICHT aus Adressen geraten.
+    """
+    m = _RE_SOLL.search(instruktion or "")
+    return int(m.group(1)) if m else None
+
+
+def geplante_koepfe(instruktion: str) -> tuple[int, int, str]:
+    """(Kopfzahl, Insn-Summe, Quelle) aus einer DS_INSTRUCTION - **Heuristik**.
+
+    Gezaehlt werden die genannten **Kopfadressen** (`0x80xxxxxx`) und die Insn-Zahlen in
+    Klammern direkt dahinter; genommen wird der Abschnitt ab der Ueberschrift `TEIL 3`
+    (dort steht die Bau-Liste).
+
+    R13ac (M210-4): Diese Heuristik ist **nicht mehr die PLAN-Spalte** der Tafel (das ist
+    `soll_koepfe`). Sie bleibt als Zaehlhilfe erhalten, weil sie die im Auftrag GENANNTEN
+    Adressen beschreibt - als PLAN taugt sie nicht: in B210 zeigte sie "6 Koepfe",
+    waehrend der Auftrag ausdruecklich "keine neuen Koepfe" verlangte.
     """
     text = instruktion or ""
     m = _RE_TEIL.search(text)
@@ -1120,15 +1348,20 @@ def geplante_koepfe(instruktion: str) -> tuple[int, int, str]:
 def plan_ist(cfg, n: int = STANDARD_FENSTER) -> list[dict]:
     """PLAN/IST je Batch der letzten `n` (neueste zuerst).
 
-    PLAN  = die in der Instruktion genannten Koepfe/Insn (`runs/b<N>/auftrag.md`)
-    IST   = die Differenz der Zeile `R207 rueckwerts` (gebaute Koepfe) aus der
-            kanonischen Bilanzdatei; Insn aus der Paket-E-Zeile, wo es sie gibt
+    PLAN  = die Zeile `SOLL-KOEPFE: <n>` der DS_INSTRUCTION (`runs/b<N>/auftrag.md`);
+            fehlt sie, bleibt PLAN leer ("-") - R13ac (M210-4)
+    IST   = die Differenz der Zeile `R207 rueckwerts` (gebaut, ALLE Straenge) aus der
+            kanonischen Bilanzdatei
+    C-KOEPFE = die gemessene C-Koepfe-Zahl der Preflight-Datei (`_preflight_<N>.txt`),
+            als Delta gegenueber dem vorigen gemessenen Batch - der ZWEITE Zaehler,
+            bewusst getrennt von R207 (M210-2)
     LAUFZEIT/ABBRUCH = `runs/b<N>/result.json` DIESES Laufs (Rueckfall: die Fakten-Datei
             im Ordner des naechsten Batches - s. `lauf_ist`)
     """
     d = durchsatz(cfg, n)
     runs = Path(cfg.sub("runs"))
     reihe = {e["batch"]: e for e in kernzahlen(cfg, MAX_DOKUMENTE)}
+    c_reihe = {e["batch"]: e for e in preflight_c_koepfe(cfg, TREND_FENSTER)}
     out: list[dict] = []
     for e in d["fenster"]:
         batch = e["batch"]
@@ -1136,14 +1369,22 @@ def plan_ist(cfg, n: int = STANDARD_FENSTER) -> list[dict]:
         geplant_k, geplant_i, quelle = geplante_koepfe(auftrag)
         lauf = lauf_ist(cfg, batch)
         dok = reihe.get(batch) or {}
+        c_jetzt = c_reihe.get(batch)
+        c_vor = c_reihe.get(batch - 1)
         out.append({
             "batch": batch,
+            "soll_koepfe": soll_koepfe(auftrag),
+            "strang": strang_von_batch(cfg, batch).get("strang") or "?",
             "geplant_koepfe": geplant_k or None,
             "geplant_insn": geplant_i or None,
             "plan_quelle": quelle,
             "ist_koepfe": e["koepfe"],
             "ist_insn": e.get("insn"),
             "ist_faelle": dok.get("c_faelle"),
+            "c_koepfe": c_jetzt["koepfe"] if c_jetzt else None,
+            "c_delta": ((c_jetzt["koepfe"] - c_vor["koepfe"])
+                        if (c_jetzt and c_vor and batch - 1 in c_reihe) else None),
+            "c_quelle": c_jetzt["datei"] if c_jetzt else "",
             "dauer": lauf["dauer"],
             "dauer_quelle": lauf["quelle"],
             "abbruch": lauf["abbruch"],
@@ -1162,7 +1403,13 @@ def median(werte: list) -> float | None:
 
 
 def plan_ist_text(cfg, n: int = STANDARD_FENSTER) -> str:
-    """Tafel fuer den Review-Prompt: PLAN | IST | LAUFZEIT | ABBRUCH.
+    """Tafel fuer den Review-Prompt: PLAN | IST (R207) | C Koepfe | LAUFZEIT | ABBRUCH.
+
+    R13ac (M210-2/M210-4): PLAN kommt aus der Zeile `SOLL-KOEPFE:` der Instruktion
+    (sonst "-"), und die beiden Zaehler stehen in GETRENNTEN Spalten - der R207-Zaehler
+    (alle Straenge) und die gemessenen C Koepfe aus der Preflight-Datei. Der MEDIAN wird
+    nur ueber **C-Batches mit Soll > 0** gebildet (B- und Aufraeum-Batches zaehlten
+    vorher als Null-Batches mit und ergaben fuer den naechsten C-Batch die Obergrenze 0).
 
     Die Laufzeit kommt aus dem Ergebnis des jeweiligen Laufs (`runs/b<N>/result.json`);
     wird sie aus dem Rueckfall gelesen, steht ein `*` daran und die Herkunft darunter (R13x).
@@ -1170,23 +1417,36 @@ def plan_ist_text(cfg, n: int = STANDARD_FENSTER) -> str:
     reihen = plan_ist(cfg, n)
     if not reihen:
         return "(keine PLAN/IST-Daten - keine Soll/Ist-Tafel in den Batch-Dokumenten)"
-    zeilen = ["Batch | PLAN (Instruktion) | IST (verifiziert, C Koepfe) | "
-              "Laufzeit (result.json) | Abbruch"]
+    zeilen = ["Batch | PLAN (SOLL-KOEPFE der Instruktion) | IST (R207 gebaut, alle "
+              "Straenge) | C Koepfe (Preflight) | Laufzeit (result.json) | Abbruch"]
     rueckfall: list[str] = []
     for r in reihen:
-        plan = (f"{r['geplant_koepfe'] or '?'} Koepfe"
-                + (f" / {r['geplant_insn']} Insn" if r["geplant_insn"] else ""))
-        ist = (f"+{r['ist_koepfe']} Koepfe / +{r['ist_insn']} Insn"
+        plan = (f"{r['soll_koepfe']} Koepfe" if r.get("soll_koepfe") is not None else "-")
+        ist = (f"+{r['ist_koepfe']} Koepfe"
+               + (f" / +{r['ist_insn']} Insn" if r.get("ist_insn") else "")
                if r["ist_koepfe"] is not None else "nicht ermittelbar")
+        if r.get("c_koepfe") is None:
+            c_spalte = "nicht gemessen"
+        elif r.get("c_delta") is None:
+            c_spalte = f"{r['c_koepfe']} (Vorgaenger nicht gemessen)"
+        else:
+            c_spalte = f"{r['c_koepfe']} ({r['c_delta']:+d})"
         marke = ""
         if r["dauer"] and r.get("dauer_quelle") != "result.json":
             marke = "*"
             rueckfall.append(f"B{r['batch']}: {r.get('dauer_quelle')}")
-        zeilen.append(f"B{r['batch']} | {plan} | {ist} | {r['dauer'] or '?'}{marke} | "
-                      f"{r['abbruch'] or '?'}")
-    med = median([r["ist_koepfe"] for r in reihen])
-    if med is not None:
-        zeilen.append(f"MEDIAN der letzten {len(reihen)} Batches: {med:.0f} Koepfe "
+        zeilen.append(f"B{r['batch']} | {plan} | {ist} | {c_spalte} | "
+                      f"{r['dauer'] or '?'}{marke} | {r['abbruch'] or '?'}")
+    # R13ac (M210-4): der MEDIAN zaehlt nur C-Batches mit ausdruecklichem Soll > 0.
+    basis = [r for r in reihen
+             if (r.get("strang") or "?") != "B" and (r.get("soll_koepfe") or 0) > 0]
+    med = median([r["c_koepfe"] for r in basis if r.get("c_koepfe") is not None])
+    if med is None:
+        zeilen.append("MEDIAN: nicht gemessen (kein C-Batch im Fenster mit "
+                      "SOLL-KOEPFE > 0)")
+    else:
+        zeilen.append(f"MEDIAN der {len(basis)} C-Batches mit SOLL-KOEPFE > 0 "
+                      f"(gemessene C Koepfe aus der Preflight-Datei): {med:.0f} Koepfe "
                       f"(Ziel des naechsten Batches: hoechstens ca. {med * 1.3:.0f})")
     if rueckfall:
         zeilen.append("* Laufzeit NICHT aus runs/b<N>/result.json, sondern aus dem "

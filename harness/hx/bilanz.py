@@ -314,6 +314,63 @@ def _bewegt_zeile(e: dict) -> str:
             + (f"   {d:+d}" if d else "   ="))
 
 
+def _verifiziert_zeile(cfg) -> list[str]:
+    """`C verifiziert` - NUR aus der Bahnabdeckungszeile der Preflight-Datei (R13ac).
+
+    Befund M210-3: derselbe Preflight nennt 78 C-Koepfe "verifiziert" (Kopfzahl, gleich
+    zur Referenz) und zaehlt zugleich 23 davon als "teilgeprueft" - die Zahl 78 stand
+    also fuer etwas anderes als das Wort daneben. Jetzt gilt:
+
+    * `C Koepfe referenzgleich` = die Kopfzahl (Zeile darueber),
+    * `C verifiziert` = die Zahl aus `Bahnabdeckung … verifiziert <n> | teilgeprueft <m>`,
+      und sobald die Preflight-Datei eine **Nachrueckliste** mit eigener
+      `verifiziert`-Zahl liefert (ab B211 geplant), hat diese den Vorrang.
+
+    Fehlt beides, steht "nicht gemessen" - es wird nichts fortgeschrieben.
+    """
+    try:
+        reihe = [e for e in stand.preflight_bahnabdeckung(cfg, 4)
+                 if e.get("verifiziert") is not None]
+    except Exception:                                                      # noqa: BLE001
+        reihe = []
+    if not reihe:
+        return ["  C verifiziert: nicht gemessen (keine Zeile \"Bahnabdeckung\" oder "
+                "\"Nachrueckliste\" mit \"verifiziert\" in analysis/_preflight_*.txt)"]
+    e = reihe[-1]
+    extra: list[str] = []
+    if e.get("teilgeprueft") is not None:
+        extra.append(f"{e['teilgeprueft']} teilgeprueft")
+    if e.get("bloecke") is not None:
+        extra.append(f"Bloecke {e['bloecke']}/{e.get('bloecke_gesamt', '?')}")
+    return [f"  C verifiziert: {e['verifiziert']} von {e.get('gesamt', '?')} Koepfen "
+            f"({e['quelle']} B{e['batch']}"
+            + (", " + ", ".join(extra) if extra else "")
+            + f"; Quelle: analysis/{e['datei']})"]
+
+
+def _c_trend_zeile(cfg) -> list[str]:
+    """Die gemessene C-Koepfe-Reihe als eigene Zeile (R13ac, Befund M210-2).
+
+    Anlass: die Zeile darueber vergleicht nur die letzten ZWEI Batches mit einem
+    C-Messwert, stand aber unter der Ueberschrift "(198 -> 210)" - und die Aussensicht
+    las daraus "verifiziert: +0 Koepfe" fuer die ganze Spanne, waehrend die
+    Preflight-Dateien B198 mit 17 und B210 mit 78 Koepfen ausweisen (+61).
+    """
+    try:
+        t = stand.c_trend(cfg, stand.TREND_FENSTER)
+    except Exception:                                                    # noqa: BLE001
+        return []
+    if not t.get("gemessen"):
+        return ["  C-Trend      : nicht gemessen (" + str(t.get("grund") or "keine "
+                "Preflight-Reihe") + ")"]
+    e, l = t["erst"], t["letzt"]
+    luecken = ("lueckenlos" if not t["luecken"] else
+               "Luecken: " + ", ".join(f"B{b}" for b in t["luecken"]))
+    return [f"  C-Trend      : B{e['batch']} {e['koepfe']} -> B{l['batch']} {l['koepfe']} "
+            f"= {t['delta']:+d} Koepfe ({t['anzahl_batches']} Batches, {luecken}; "
+            f"Quelle: analysis/_preflight_*.txt Zeile \"C Koepfe\")"]
+
+
 def _z(wert_: int | None) -> str:
     return "?" if wert_ is None else str(wert_)
 
@@ -329,9 +386,14 @@ def aenderungs_block(cfg, alt_rows: dict, neu_rows: dict, batch: int,
     zeilen = [kopf]
     jetzt = stand.stand_zahlen(cfg)
     if jetzt.get("c_koepfe") is not None and jetzt.get("c_koepfe_vorher") is not None:
-        zeilen.append(f"  verifiziert  : +{jetzt['c_koepfe'] - jetzt['c_koepfe_vorher']} "
-                      f"Koepfe ({jetzt['c_koepfe_vorher']} -> {jetzt['c_koepfe']}), "
+        # R13ac (M210-3): das Wort "verifiziert" gehoert NICHT an diese Zahl. Sie ist die
+        # Kopfzahl des C-Strangs (gleich zur Referenz), nicht die Bahnabdeckung - die
+        # steht als eigene Zeile darunter (B210: 55 von 78).
+        zeilen.append(f"  C Koepfe     : {jetzt['c_koepfe']} referenzgleich "
+                      f"({jetzt['c_koepfe_vorher']} -> {jetzt['c_koepfe']}: "
+                      f"{jetzt['c_koepfe'] - jetzt['c_koepfe_vorher']:+d}), "
                       f"{jetzt.get('c_abweichungen', 0)} Abweichungen")
+        zeilen += _c_trend_zeile(cfg)
     if (jetzt.get("paket_e_koepfe") is not None
             and jetzt.get("paket_e_koepfe_vorher") is not None):
         dk = jetzt["paket_e_koepfe_vorher"] - jetzt["paket_e_koepfe"]
@@ -465,13 +527,16 @@ def gesamt_block(cfg) -> list[str]:
             df = (c_zeile.get("c_faelle", 0) - c_zeile.get("c_faelle_vorher", 0))
             delta = f"   ({dk:+d} Koepfe / {df:+d} Faelle {_delta_batch(c_zeile)})"
         quelle = c_zeile.get("c_quelle") or ""
-        zeilen.append(f"  C verifiziert: {c_zeile['c_koepfe']} Koepfe / "
+        # R13ac (M210-3): die Zahl heisst, was sie ist - die Kopfzahl des C-Strangs
+        # (gleich zur Referenz). "verifiziert" ist die Bahnabdeckung (Zeile darunter).
+        zeilen.append(f"  C Koepfe referenzgleich: {c_zeile['c_koepfe']} Koepfe / "
                       f"{c_zeile.get('c_faelle', '?')} Faelle / "
                       f"{c_zeile.get('c_abweichungen', 0)} Abweichungen" + delta
                       + (f"   [B{c_zeile.get('batch')}, {quelle}]" if quelle else ""))
     else:
-        zeilen.append("  C verifiziert: nicht ermittelbar (keine Preflight-Zeile "
+        zeilen.append("  C Koepfe referenzgleich: nicht ermittelbar (keine Preflight-Zeile "
                       "'C Koepfe' und keine Ist-Spalte im Batch-Dokument)")
+    zeilen += _verifiziert_zeile(cfg)
     e_zeile = _letzter_mit(reihe, "paket_e_koepfe")
     if e_zeile.get("paket_e_koepfe") is not None:
         k, i = e_zeile["paket_e_koepfe"], e_zeile.get("paket_e_insn", 0)

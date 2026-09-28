@@ -31,6 +31,12 @@ config_dir_worker   = "g:/Harness/harness/cc-worker"
 config_dir_reviewer = "g:/Harness/harness/cc-reviewer"
 # Nur ein grobes Sicherheitsnetz - die echten Grenzen sind [limits] (E6).
 max_turns_safety    = 800
+# R13ac: die Batch-Uhr als PostToolUse-Hook in die Worker-Sitzung haengen
+# (`--settings runs/b<N>/worker-hooks.json`). Die Zeile nennt nach JEDEM Werkzeugaufruf
+# die gemessenen Minuten seit dem Prozessstart (Befund M210-1: der Worker schaetzte
+# 180 min, gemessen waren 46). `false` schaltet sie ab, ohne die Vorspann-Regel zu
+# entfernen. Gemessen wirksam: tools/r13ac_probe_hook.py, docs/_r13ac_hook.txt.
+worker_hooks        = true
 
 [limits]
 # ALARM = Telegram-Hinweis, Lauf geht weiter. HARD = Prozess wird beendet.

@@ -16,7 +16,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import protocol, retention, streamjson
+from . import protocol, retention, streamjson, uhr
 from .util import read_json, read_text
 
 STYLES = {
@@ -238,6 +238,35 @@ class Watcher:
                 list(self.cfg.get("peak", "extra_offpeak_dates", []) or []))
             self.ges_batches += 1
 
+    def _uhr_teil(self) -> str:
+        """Der Laufzeit-Teil der Statuszeile - aus der Startzeit des LAUFENDEN Batches.
+
+        R13ac (Punkt 5 der Nutzerpruefung 2026-09-28): hier stand vorher
+        `time.time() - self.started`, also die Zeit **seit dem Start des Zuschauers**.
+        Gemessen wurde die Folge: um 22:11 zeigte watch "Batch 210 laufend: … 200.6 min",
+        waehrend B210 laut `runs/b210/result.json` 46 min lief (2771 s, Start 21:48);
+        watch war um ~18:50 gestartet. Die Zahl passte exakt zu "seit watch-Start".
+
+        Jetzt gilt genau EINE Quelle (`hx.uhr` -> `state/run.json:worker.started_at`,
+        Prozessstart des Workers) - dieselbe, die auch die BATCH-Uhr im Worker zeigt
+        (R13ac, Befund M210-1). Ist der Lauf beendet, steht die Laufzeit in
+        `runs/b<N>/result.json`; fehlt beides, wird das gesagt statt geraten.
+        """
+        stt = self._state()
+        d = uhr.start_zeit(stt)
+        if d["zeit"] is not None and not d["unplausibel"]:
+            return (f"{max(0.0, d['alter_s'] or 0) / 60:.1f} min seit Batch-Start "
+                    f"{uhr.ortszeit(d['zeit'])} (Harness-Messung)")
+        if d["zeit"] is not None:
+            return (f"Laufzeit nicht gemessen (Startzeit im Zustand unplausibel: "
+                    f"{uhr.ortszeit(d['zeit'])}, {uhr.hms(d['alter_s'])} alt)")
+        b = self.batch_nr or self._target_batch(stt)
+        res = read_json(Path(self.cfg.sub("runs")) / f"b{int(b):03d}" / "result.json", {}) or {}
+        if res.get("duration_s"):
+            return (f"Laufzeit {uhr.hms(res.get('duration_s'))} "
+                    f"(runs/b{int(b):03d}/result.json, Lauf beendet)")
+        return "Laufzeit nicht gemessen (kein worker.started_at im Harness-Zustand)"
+
     def _print_stats(self, force: bool = False):
         t = self.stats.totals()
         if not t["requests"]:
@@ -248,16 +277,18 @@ class Watcher:
         if not force and key == self._stats_key:
             return
         self._stats_key = key
-        up = time.time() - self.started
         gesamt = ""
         if self.ges_batches:
+            # R13ac: der watch-Minutenwert steht NUR noch hier - und heisst so, wie er
+            # gemessen ist ("seit watch-Start"), nicht "Laufzeit des Batches".
+            up = time.time() - self.started
             gesamt = (f"  |  seit watch-Start: {self.ges_batches} Batch(es), "
                       f"{self.ges_requests + t['requests']} Anfragen, "
-                      f"${self.ges_cost + cost:.4f}")
+                      f"${self.ges_cost + cost:.4f}, {up / 60:.1f} min")
         self._p(f"[{time.strftime('%H:%M:%S')}] Batch {self.batch_nr} laufend: "
                 f"{t['requests']} Anfragen · "
                 f"{t['input_miss']} ein / {t['cache_read']} cache / {t['output']} aus · "
-                f"${cost:.4f} · {up / 60:.1f} min" + gesamt, "dim")
+                f"${cost:.4f} · {self._uhr_teil()}" + gesamt, "dim")
 
     def _prompt_info(self):
         files = sorted(Path(self.cfg.sub("logs")).glob("review-prompt-*.md"))

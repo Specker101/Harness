@@ -93,6 +93,14 @@ class Basis(unittest.TestCase):
         write_text_atomic(self.ana / f"port-batch{n}-beispiel-2026-09-28.md",
                           DOKU.format(n=n, n1=n - 1, bau=bau, off=off, offi=offi))
 
+    def preflight(self, n: int, ck: int, cf: int = 1872) -> None:
+        """Die gemessene Zeile `C Koepfe` der Preflight-Datei (R13ac: C-Quelle)."""
+        write_text_atomic(self.ana / f"_preflight_{n}.txt",
+                          "=== PREFLIGHT (before) ===\n"
+                          "Pruefung           Ergebnis                Urteil\n"
+                          f"C Koepfe           {ck} / {cf} / 0          OK\n"
+                          "=> BEFORE SAUBER\n")
+
     def relevanz(self, **werte) -> None:
         d = {"erzeuger": "tools/r13t_cov_relevanz.py", "fenster": "Rumpf",
              "ausgefuehrt": 1086, "gebaut": 686, "gebaut_ausgefuehrt": 416,
@@ -162,6 +170,9 @@ class TestHochrechnungGetrennt(Basis):
         super().setUp()
         self.bilanzdatei(206, 681, 686)
         self.dokument(206)
+        # R13ac: die C-Hochrechnung steht auf der gemessenen Preflight-Reihe.
+        self.preflight(205, 73)
+        self.preflight(206, 78)
 
     def test_zwei_getrennte_zeilen(self):
         zeilen = "\n".join(stand.durchsatz_zeilen(self.cfg))

@@ -393,10 +393,14 @@ def build_prompt(cfg, kind: str, ctx: dict) -> str:
         # R13s: PLAN/IST der letzten Batches + verbindliche Zuschnitt-Regel.
         "=== PLAN/IST DER LETZTEN BATCHES (gemessen aus den Belegdateien, rein lesend) ===",
         (ctx.get("plan_ist") or "(keine PLAN/IST-Daten)").strip(),
-        "REGEL (Nutzerauftrag 2026-09-28): Der Bau-Umfang des naechsten Batches "
-        "orientiert sich am MEDIAN der verifizierten Menge der letzten 5 Batches; das "
-        "Ziel darf hoechstens ca. das 1,3-fache des Median sein. Weicht die "
-        "DS_INSTRUCTION davon ab, begruende das in EINEM Satz in der TELEGRAM_SUMMARY.",
+        "REGEL (Nutzerauftrag 2026-09-28, R13ac): Der Bau-Umfang des naechsten Batches "
+        "orientiert sich am MEDIAN der gemessenen C Koepfe der **C-Batches mit "
+        "SOLL-KOEPFE > 0** aus der PLAN/IST-Tafel; das Ziel darf hoechstens ca. das "
+        "1,3-fache des Median sein. Steht in der Tafel kein solcher Batch (heute: keine "
+        "SOLL-KOEPFE-Zeile), ist der Median nicht gemessen - dann gilt die Regel nicht "
+        "und die Sollzahl MUSS als eigene Zeile `SOLL-KOEPFE: <n>` in der "
+        "DS_INSTRUCTION stehen. Weicht die DS_INSTRUCTION vom Median ab, begruende das "
+        "in EINEM Satz in der TELEGRAM_SUMMARY.",
         "",
         "=== NACHRICHTEN AUS DER /claude-QUEUE ===",
         (ctx.get("queue_block") or "(keine)").strip(),

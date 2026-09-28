@@ -1,0 +1,486 @@
+"""Tests fuer R13ac (2026-09-28): Batch-Uhr, Trend aus der Preflight-Reihe, Zaehler-Trennung.
+
+Anlass sind vier Befunde der Aussensicht zu B210 (`runs/meta-210.md`), die der Reviewer
+ausdruecklich als Harness-Sache markiert hat:
+
+* **M210-1 / Punkt 1:** der Worker schaetzte seine Laufzeit an der Zahl der
+  Werkzeugaufrufe ("~180 min", gemessen **46 min**) und strich deshalb Pflichtteile.
+* **Punkt 2 (M210-2):** Trend- und Durchsatzzeile standen auf dem R207-Zaehler
+  ("verifiziert: +0 Koepfe (78 -> 78)"), im Fenster fehlte B209, und die C-Koepfe wurden
+  mit R207 gemischt. Gemessen sind es **+61** Koepfe von B198 (17) bis B210 (78).
+* **M210-3:** "C verifiziert" zeigte die **Kopfzahl** (78), waehrend derselbe Preflight
+  23 davon als teilgeprueft und nur 55 als verifiziert auswies.
+* **M210-4:** die PLAN-Spalte las einen Wert, der nicht im Auftrag stand ("B210 | 6
+  Koepfe" gegen "keine neuen Koepfe"), und die Median-Regel zaehlte B-Batches als
+  Null-Batches mit.
+* **Punkt 5:** die watch-Anzeige zaehlte die Minuten ab dem Start des ZUSCHAUERS
+  ("Batch 210 laufend: … 200.6 min" um 22:11 bei 46 min Laufzeit).
+
+Die Tests mit den **echten** Dateien laufen gegen `g:\\Silent Scope Decomp` (wie R13aa);
+fehlen sie, werden sie uebersprungen. Alles andere im Attrappenbetrieb.
+"""
+
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
+import sys
+import time
+import unittest
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from hx import bilanz, stand, uhr, worker                          # noqa: E402
+from hx.config import load_config                                 # noqa: E402
+from hx.util import Log, ensure_dir, write_text_atomic            # noqa: E402
+from hx.watch import Watcher                                      # noqa: E402
+
+PREFLIGHT = """=== PREFLIGHT (before) 2026-09-28 22:33 ===
+Lauf 2026-09-28 22:33:19 | HEAD 0cdff730
+Pruefung           Ergebnis                                                 Urteil
+C Koepfe           {koepfe} / {faelle} / 0                                   OK
+Bahnabdeckung      {v}/{g} | Bloecke 326/434 | verifiziert {v} | teilgeprueft {t} OK
+=> BEFORE SAUBER
+"""
+
+
+class Basis(unittest.TestCase):
+    """Wegwerf-Workspace: eigener root (state/runs) und ein eigenes 'decomp'-Repo."""
+
+    def setUp(self):
+        self.tmp = Path(ROOT) / "tests" / "_tmp_r13ac"
+        shutil.rmtree(self.tmp, ignore_errors=True)
+        self.root = ensure_dir(self.tmp / "root")
+        self.repo = ensure_dir(self.tmp / "decomp")
+        self.ana = ensure_dir(self.repo / "analysis")
+        cfg = load_config()
+        cfg.data["paths"]["root"] = str(self.root)
+        cfg.data["paths"]["decomp"] = str(self.repo)
+        cfg.data["paths"]["secrets"] = str(ensure_dir(self.tmp / "secrets"))
+        cfg.data["paths"]["harness_home"] = str(self.tmp)
+        prof = ensure_dir(self.root / "profiles")
+        for f in (ROOT / "profiles").glob("*.json"):
+            shutil.copy2(f, prof / f.name)
+        self.cfg = cfg
+        self.log = Log(self.tmp / "log.jsonl", echo=False)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    # ---------------------------------------------------------------- Helfer
+    def preflight(self, batch: int, koepfe: int, verifiziert: int | None = None,
+                  gesamt: int | None = None, teil: int = 23, extra: str = "") -> None:
+        text = (PREFLIGHT.format(koepfe=koepfe, faelle=koepfe * 36, v=verifiziert or 0,
+                                 g=gesamt or koepfe, t=teil) + extra)
+        write_text_atomic(self.ana / f"_preflight_{batch}.txt", text)
+
+    def bilanz_datei(self, batch: int, vorher: int, heute: int) -> None:
+        """Kanonische Bilanzdatei-Attrappe (`analysis/_m<N>/_bilanz<N>.txt`).
+
+        Der Durchsatz liest die Zeile `R207 rueckwaerts` mit Vorbatch- und Heute-Spalte;
+        ohne so eine Datei ist das Fenster leer und die PLAN/IST-Tafel gibt es nicht.
+        """
+        d = ensure_dir(self.ana / f"_m{batch}")
+        write_text_atomic(d / f"_bilanz{batch}.txt",
+                          "| Ast | Vorbatch | heute |\n"
+                          f"| **R207 rueckwaerts** | **{vorher}** (a 30) | "
+                          f"**{heute}** (a 30) |\n")
+
+    def state(self, **felder) -> dict:
+        daten = {"batch": 210, "state": "DS_WORKING", "live": {"batch": 210}}
+        daten.update(felder)
+        write_text_atomic(self.root / "state" / "run.json", json.dumps(daten, indent=1))
+        return daten
+
+    def run_ordner(self, batch: int, **felder) -> Path:
+        rd = ensure_dir(self.root / "runs" / f"b{batch:03d}")
+        daten = {"batch": batch, "rc": 0, "duration_s": 2771.0, "stats": {"requests": 10},
+                 "cost_usd": 0.2, "model_seen": "deepseek-flash[1m]", "model_ok": True}
+        daten.update(felder)
+        write_text_atomic(rd / "result.json", json.dumps(daten, indent=1))
+        return rd
+
+    def watcher(self) -> Watcher:
+        w = Watcher(self.cfg, self.log, color=False, once=True)
+        w.batch_nr = 210
+        return w
+
+
+# ---------------------------------------------------------------- 1) Batch-Uhr
+class TestBatchUhr(Basis):
+    def test_hook_datei_wird_geschrieben(self):
+        """Der Hook landet als Einstellungsdatei im Lauf-Ordner, mit Zustand und Grenzen."""
+        rd = self.run_ordner(210)
+        state = self.root / "state" / "run.json"
+        self.state()
+        ziel = worker.write_worker_hooks(self.cfg, rd, state, self.log)
+        self.assertTrue(ziel and Path(ziel).is_file())
+        daten = json.loads(Path(ziel).read_text(encoding="utf-8"))
+        gruppe = daten["hooks"]["PostToolUse"][0]["hooks"][0]
+        self.assertEqual(gruppe["type"], "command")
+        self.assertIn("batch_uhr.py", " ".join(gruppe["args"]))
+        self.assertIn(str(state), gruppe["args"])
+        # Die Grenzen kommen aus [limits] (Weich 90 min / Hart 180 min in harness.toml).
+        i = gruppe["args"].index("--weich")
+        self.assertEqual(gruppe["args"][i + 1],
+                         f"{float(self.cfg.get('limits', 'alarm_wall_s', 5400)) / 60:.0f}")
+
+    def test_hook_abschaltbar(self):
+        self.cfg.data["claude"]["worker_hooks"] = False
+        self.assertIsNone(worker.write_worker_hooks(self.cfg, self.run_ordner(210),
+                                                    self.root / "state" / "run.json",
+                                                    self.log))
+
+    def test_settings_kommt_in_die_kommandozeile(self):
+        from hx.profiles import load_profile
+        p = load_profile(self.cfg.root, "none")
+        rd = self.run_ordner(210)
+        cmd, _ = worker.build_command(self.cfg, p, rd, "sid-1")
+        self.assertNotIn("--settings", cmd)
+        cmd, _ = worker.build_command(self.cfg, p, rd, "sid-1", hooks_settings="X.json")
+        self.assertIn("--settings", cmd)
+        self.assertEqual(cmd[cmd.index("--settings") + 1], "X.json")
+
+    def test_startzeit_steht_im_vorspann(self):
+        p = worker.build_prompt(self.cfg, "Auftrag", "", None, "none",
+                                start_zeit=datetime.now(timezone.utc))
+        self.assertIn("Batch-Start (Harness-Zeitstempel):", p)
+        self.assertIn("Die ZAHL DER WERKZEUGAUFRUFE sagt nichts", p)
+        self.assertIn("Get-Date", p)
+
+    def test_uhr_text_nennt_die_gemessenen_minuten(self):
+        start = datetime.now(timezone.utc) - timedelta(minutes=42)
+        st = {"worker": {"pid": 1, "started_at": start.isoformat(timespec="seconds")},
+              "live": {"batch": 210}}
+        text = uhr.uhr_text(st, 77, 123)
+        self.assertIn("BATCH-UHR (Harness-Messung)", text)
+        self.assertRegex(text, r"4[12]\.\d min von 77 min")
+        self.assertIn("harte Grenze 123 min", text)
+
+    def test_uhr_ohne_laufenden_batch(self):
+        text = uhr.uhr_text({}, 90, 180)
+        self.assertIn("kein laufender Batch", text)
+
+    def test_uhr_erkennt_unplausible_startzeit(self):
+        alt = datetime.now(timezone.utc) - timedelta(hours=9)
+        d = uhr.start_zeit({"worker": {"started_at": alt.isoformat(timespec="seconds")}})
+        self.assertTrue(d["unplausibel"])
+        self.assertIn("unplausibel", uhr.uhr_text({"worker": {
+            "started_at": alt.isoformat(timespec="seconds")}}, 90, 180))
+
+    def test_hook_skript_im_unterprozess(self):
+        """Das Skript selbst: Eingabe auf stdin, Ausgabe = JSON mit additionalContext."""
+        state = self.root / "state" / "run.json"
+        start = datetime.now(timezone.utc) - timedelta(minutes=42)
+        write_text_atomic(state, json.dumps(
+            {"worker": {"pid": 1, "started_at": start.isoformat(timespec="seconds")},
+             "live": {"batch": 210}}))
+        p = subprocess.run(
+            [sys.executable, str(ROOT / "tools" / "batch_uhr.py"),
+             "--state", str(state), "--weich", "77", "--hart", "123"],
+            input=b'{"hook_event_name": "PostToolUse", "tool_name": "Read"}',
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+        self.assertEqual(p.returncode, 0, p.stderr.decode("utf-8", "replace")[:200])
+        daten = json.loads(p.stdout.decode("utf-8"))
+        hso = daten["hookSpecificOutput"]
+        self.assertEqual(hso["hookEventName"], "PostToolUse")
+        self.assertIn("BATCH-UHR", hso["additionalContext"])
+        self.assertIn("77 min", hso["additionalContext"])
+
+    def test_hook_skript_ohne_zustand_ist_still(self):
+        p = subprocess.run(
+            [sys.executable, str(ROOT / "tools" / "batch_uhr.py"),
+             "--state", str(self.tmp / "gibtsnicht.json")],
+            input=b"{}", stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+        self.assertEqual(p.returncode, 0)
+        self.assertEqual(p.stdout.strip(), b"")
+
+    def test_hook_skript_ohne_worker_schweigt(self):
+        """Zustand ohne `worker` (Lauf beendet) -> keine Zeile im Kontext."""
+        state = self.root / "state" / "run.json"
+        write_text_atomic(state, json.dumps({"batch": 210, "worker": None}))
+        p = subprocess.run(
+            [sys.executable, str(ROOT / "tools" / "batch_uhr.py"), "--state", str(state)],
+            input=b"{}", stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+        self.assertEqual(p.returncode, 0)
+        self.assertEqual(p.stdout.strip(), b"")
+
+    def test_beleg_der_sonde_ist_da(self):
+        """Der Hook-Weg ist GEMESSEN (tools/r13ac_probe_hook.py), nicht behauptet."""
+        beleg = Path(ROOT).parent / "docs" / "_r13ac_hook.txt"
+        self.assertTrue(beleg.is_file(), "Sonden-Beleg fehlt")
+        text = beleg.read_text(encoding="utf-8")
+        self.assertIn("KOMMT BEIM MODELL AN", text)
+        self.assertIn("BATCH-UHR", text)
+
+
+# ------------------------------------------------- 2) Trend/Durchsatz (M210-2)
+class TestTrendMitEchtenDateien(unittest.TestCase):
+    """Die C-Koepfe-Reihe aus den echten Preflight-Dateien (B198 17 -> B210 78)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.cfg = load_config()
+        cls.t = stand.c_trend(cls.cfg, stand.TREND_FENSTER)
+
+    def test_plus_61_ueber_das_fenster(self):
+        self.assertTrue(self.t["gemessen"], "keine Preflight-Reihe gefunden")
+        self.assertEqual((self.t["erst"]["batch"], self.t["erst"]["koepfe"]), (198, 17))
+        self.assertEqual((self.t["letzt"]["batch"], self.t["letzt"]["koepfe"]), (210, 78))
+        self.assertEqual(self.t["delta"], 61)
+        self.assertEqual(self.t["anzahl_batches"], 12)
+        self.assertEqual(self.t["luecken"], [])
+
+    def test_durchsatzzeilen_trennen_die_zaehler(self):
+        zeilen = "\n".join(stand.durchsatz_zeilen(self.cfg, 5))
+        self.assertIn("C Koepfe (Preflight-Messung", zeilen)
+        self.assertIn("Trend B198 17 -> B210 78 = +61 Koepfe", zeilen)
+        self.assertIn("Zaehler R207 (gebaut, ALLE Straenge", zeilen)
+        self.assertIn("LUECKENHAFT", zeilen)          # B209 hat keine Bilanzdatei
+        self.assertNotIn("Durchsatz    : Koepfe (R207 gebaut)", zeilen)
+
+    def test_keine_verwechslung_der_zaehler(self):
+        """Die R207-Zeile heisst R207 - und die C-Zeile nennt ihre Quelle."""
+        zeilen = "\n".join(stand.durchsatz_zeilen(self.cfg, 5))
+        i_c = zeilen.index("C Koepfe (Preflight-Messung")
+        i_r = zeilen.index("Zaehler R207")
+        self.assertLess(i_c, i_r)
+        self.assertIn("nicht mit den C Koepfen mischen", zeilen[i_r - 200:i_r + 200])
+
+
+class TestTrendLogik(Basis):
+    def test_luecke_wird_benannt_nicht_als_null_gezaehlt(self):
+        self.bilanz_datei(202, 620, 679)
+        self.preflight(198, 17)
+        self.preflight(199, 45)
+        self.preflight(201, 45)          # B200 fehlt
+        self.preflight(202, 59)
+        t = stand.c_trend(self.cfg, 4)
+        self.assertEqual(t["luecken"], [200])
+        self.assertEqual(t["delta"], 42)
+        # Gezaehlt werden nur BENACHBARTE C-Schritte (198->199: +28 und 201->202: +14);
+        # der Schritt ueber die Luecke (199->201) zaehlt nicht mit -> 42/2 = 21.
+        self.assertEqual([(s["von"], s["bis"], s["delta"]) for s in t["c_schritte"]],
+                         [(198, 199, 28), (201, 202, 14)])
+        self.assertEqual(t["mittel_je_c_batch"], 21.0)
+        zeilen = "\n".join(stand.durchsatz_zeilen(self.cfg, 3))
+        self.assertIn("Luecken: B200", zeilen)
+
+    def test_ohne_quelle_nicht_gemessen(self):
+        self.bilanz_datei(210, 681, 686)          # Fenster existiert, C-Quelle fehlt
+        t = stand.c_trend(self.cfg, 12)
+        self.assertFalse(t["gemessen"])
+        self.assertIn("Preflight", t["grund"])
+        zeilen = "\n".join(stand.durchsatz_zeilen(self.cfg, 5))
+        self.assertIn("C Koepfe (Preflight-Messung", zeilen)
+        self.assertIn("NICHT GEMESSEN", zeilen)
+
+    def test_eine_datei_reicht_nicht(self):
+        self.preflight(210, 78, verifiziert=55, gesamt=78)
+        t = stand.c_trend(self.cfg, 12)
+        self.assertFalse(t["gemessen"])
+        self.assertIn("nur 1 Preflight", t["grund"])
+
+
+# --------------------------------------------------- 3) "C verifiziert" (M210-3)
+class TestVerifiziertGetrennt(Basis):
+    def test_bahnabdeckung_wird_gelesen(self):
+        self.preflight(210, 78, verifiziert=55, gesamt=78, teil=23)
+        reihe = stand.preflight_bahnabdeckung(self.cfg, 4)
+        self.assertEqual(len(reihe), 1)
+        e = reihe[-1]
+        self.assertEqual((e["verifiziert"], e["gesamt"], e["teilgeprueft"]), (55, 78, 23))
+        self.assertEqual(e["bloecke"], 326)
+        self.assertEqual(e["quelle"], "Bahnabdeckung")
+
+    def test_nachrueckliste_hat_vorrang(self):
+        """Ab B211 liefert der Preflight eine Nachrueckliste - dann gilt DEREN Zahl."""
+        self.preflight(211, 80, verifiziert=55, gesamt=78, teil=23,
+                       extra="Nachrueckliste 1   62/80 | verifiziert 62\n")
+        e = stand.preflight_bahnabdeckung(self.cfg, 4)[-1]
+        self.assertEqual(e["quelle"], "Nachrueckliste 1")
+        self.assertEqual(e["verifiziert"], 62)
+        zeilen = "\n".join(bilanz._verifiziert_zeile(self.cfg))
+        self.assertIn("62 von 80 Koepfen", zeilen)
+        self.assertIn("Nachrueckliste 1", zeilen)
+
+    def test_kopfzeile_heisst_referenzgleich(self):
+        self.preflight(206, 78, verifiziert=55, gesamt=78)
+        self.preflight(210, 78, verifiziert=55, gesamt=78)
+        zeilen = "\n".join(bilanz.gesamt_block(self.cfg)[:4])
+        self.assertIn("C Koepfe referenzgleich: 78 Koepfe", zeilen)
+        self.assertIn("C verifiziert: 55 von 78 Koepfen", zeilen)
+        self.assertNotIn("C verifiziert: 78", zeilen)
+
+    def test_ohne_bahnabdeckung_nicht_gemessen(self):
+        zeilen = "\n".join(bilanz._verifiziert_zeile(self.cfg))
+        self.assertIn("C verifiziert: nicht gemessen", zeilen)
+
+    def test_echte_datei_210(self):
+        cfg = load_config()
+        e = stand.preflight_bahnabdeckung(cfg, 4)[-1]
+        self.assertEqual(e["batch"], 210)
+        self.assertEqual((e["verifiziert"], e["gesamt"], e["teilgeprueft"]), (55, 78, 23))
+
+
+# ------------------------------------------------------ 4) PLAN/Median (M210-4)
+class TestPlanUndMedian(Basis):
+    def test_soll_zeile_wird_gelesen(self):
+        self.assertEqual(stand.soll_koepfe("... SOLL-KOEPFE: 7 Koepfe ..."), 7)
+        self.assertEqual(stand.soll_koepfe("SOLL-KOEPFE 12"), 12)
+        self.assertIsNone(stand.soll_koepfe("keine Soll-Angabe"))
+
+    def test_plan_zeigt_strich_ohne_soll_zeile(self):
+        """Ein Auftrag mit Adressen, aber ohne SOLL-KOEPFE-Zeile -> PLAN '-'.
+
+        Genau der Befund M210-4: die alte Heuristik las "6 Koepfe", waehrend der Auftrag
+        "keine neuen Koepfe" sagte.
+        """
+        self.bilanz_datei(210, 681, 686)
+        rd = self.run_ordner(210)
+        write_text_atomic(rd / "auftrag.md",
+                          "=== AUFTRAG ===\nTEIL 3\nkeine neuen Koepfe\n"
+                          "0x8005BF74 (51)\n0x8005BF80 (51)\n")
+        self.preflight(210, 78)
+        text = stand.plan_ist_text(self.cfg, 5)
+        zeile = [z for z in text.splitlines() if z.startswith("B210")][0]
+        self.assertIn("| - |", zeile)
+
+    def test_soll_zeile_erscheint_im_plan(self):
+        self.bilanz_datei(210, 681, 686)
+        rd = self.run_ordner(210)
+        write_text_atomic(rd / "auftrag.md", "TEIL 3\nSOLL-KOEPFE: 7\n")
+        self.preflight(210, 78)
+        text = stand.plan_ist_text(self.cfg, 5)
+        self.assertIn("| 7 Koepfe |", text)
+
+    def test_median_nur_c_batches_mit_soll(self):
+        self.bilanz_datei(210, 681, 686)
+        self.run_ordner(210)
+        write_text_atomic(self.root / "runs" / "b210" / "auftrag.md",
+                          "TEIL 3\nSOLL-KOEPFE: 6\n")
+        self.preflight(210, 78)
+        text = stand.plan_ist_text(self.cfg, 5)
+        self.assertRegex(text, r"MEDIAN der 1 C-Batches mit SOLL-KOEPFE > 0")
+        self.assertIn("gemessene C Koepfe aus der Preflight-Datei", text)
+
+    def test_median_ohne_soll_ist_nicht_gemessen(self):
+        self.bilanz_datei(210, 681, 686)
+        self.run_ordner(210)
+        write_text_atomic(self.root / "runs" / "b210" / "auftrag.md", "TEIL 3\nirgendwas\n")
+        self.preflight(210, 78)
+        text = stand.plan_ist_text(self.cfg, 5)
+        self.assertIn("MEDIAN: nicht gemessen", text)
+
+    def test_tafel_trennt_die_zaehler_spalten(self):
+        self.bilanz_datei(210, 681, 686)
+        self.run_ordner(210)
+        write_text_atomic(self.root / "runs" / "b210" / "auftrag.md", "TEIL 3\nx\n")
+        self.preflight(210, 78)
+        kopf = stand.plan_ist_text(self.cfg, 5).splitlines()[0]
+        self.assertIn("IST (R207 gebaut, alle Straenge)", kopf)
+        self.assertIn("C Koepfe (Preflight)", kopf)
+
+
+# ------------------------------------------------- 5) watch (Punkt 5)
+class TestGegenprobeEchteDaten(unittest.TestCase):
+    """Die eine Startzeit gegen die echten Belege: `finished_at - duration_s`."""
+
+    def test_startzeit_aus_result_json_stimmt_mit_dem_bericht(self):
+        """B210: `finished_at 2026-09-28T20:34:55Z - 2771,05 s` = 21:48 Ortszeit.
+
+        Genau diese Startzeit nennt der Reviewer-Bericht ("B210 lief 46 min, Start
+        21:48") - und genau sie war die Grundlage der falschen watch-Zahl ("200.6 min"
+        ab watch-Start). Fehlt die Datei (anderer Rechner), wird uebersprungen.
+        """
+        p = Path(load_config().sub("runs")) / "b210" / "result.json"
+        if not p.is_file():
+            self.skipTest("runs/b210/result.json fehlt")
+        d = json.loads(p.read_text(encoding="utf-8"))
+        ende = datetime.fromisoformat(str(d["finished_at"]).replace("Z", "+00:00"))
+        start = ende - timedelta(seconds=float(d["duration_s"]))
+        self.assertEqual(start.astimezone().strftime("%H:%M"), "21:48")
+        self.assertEqual(uhr.hms(d["duration_s"]), "46m11s")
+        # Die Uhr rechnet dasselbe: Startzeit im Zustand = Ende - Laufzeit.
+        d2 = uhr.start_zeit({"worker": {"started_at": start.isoformat(timespec="seconds")},
+                             "live": {"batch": 210}}, jetzt=ende)
+        self.assertAlmostEqual(d2["alter_s"] / 60.0, float(d["duration_s"]) / 60.0,
+                               delta=0.05)
+
+
+class TestWatchUhr(Basis):
+    def test_minuten_zaehlen_ab_batch_start_nicht_ab_watch_start(self):
+        """Der gemessene Fehler: 200.6 min ab watch-Start bei 46 min Laufzeit."""
+        start = datetime.now(timezone.utc) - timedelta(minutes=46.18)
+        self.state(worker={"pid": 1, "started_at": start.isoformat(timespec="seconds")})
+        w = self.watcher()
+        w.started = time.time() - 200.6 * 60        # Zuschauer laeuft seit 200 min
+        teil = w._uhr_teil()
+        self.assertIn("min seit Batch-Start", teil)
+        self.assertNotIn("200", teil)
+        self.assertRegex(teil, r"4[56]\.\d min")
+
+    def test_gegenprobe_gegen_result_json(self):
+        """Dieselbe Startzeit wie `runs/b<N>/result.json` -> gleiche Minuten."""
+        rd = self.run_ordner(210)                      # duration_s = 2771,0 = 46m11s
+        res = json.loads((rd / "result.json").read_text(encoding="utf-8"))
+        start = datetime.now(timezone.utc) - timedelta(seconds=float(res["duration_s"]))
+        self.state(worker={"pid": 1, "started_at": start.isoformat(timespec="seconds")})
+        teil = self.watcher()._uhr_teil()
+        minuten = float(teil.split(" min ")[0])
+        self.assertAlmostEqual(minuten, float(res["duration_s"]) / 60.0, delta=0.2)
+
+    def test_beendeter_batch_zeigt_die_laufzeit_aus_result_json(self):
+        rd = self.run_ordner(210)
+        self.state(worker=None, live=None, batch=210, state="GATE_APPROVAL")
+        w = self.watcher()
+        teil = w._uhr_teil()
+        self.assertIn("runs/b210/result.json", teil)
+        self.assertIn("46m11s", teil)
+
+    def test_watch_ueber_mehrere_batches(self):
+        """Batch 210 beendet (46 min), 211 laeuft seit 3 min -> die Uhr folgt dem Batch."""
+        rd210 = self.run_ordner(210)
+        self.state(worker=None, live=None, batch=210, state="GATE_APPROVAL")
+        w = self.watcher()
+        w.batch_nr = 210
+        self.assertIn("46m11s", w._uhr_teil())
+        # Batch 211 startet: Zustand traegt die neue Startzeit, die Anzeige folgt ihr.
+        start = datetime.now(timezone.utc) - timedelta(minutes=3)
+        self.state(batch=211, state="DS_WORKING", live={"batch": 211},
+                   worker={"pid": 2, "started_at": start.isoformat(timespec="seconds")})
+        w.batch_nr = 211
+        teil = w._uhr_teil()
+        self.assertRegex(teil, r"[23]\.\d min seit Batch-Start")
+        self.assertNotIn("46m11s", teil)
+
+    def test_statuszeile_nennt_beide_zeiten_getrennt(self):
+        start = datetime.now(timezone.utc) - timedelta(minutes=10)
+        self.state(worker={"pid": 1, "started_at": start.isoformat(timespec="seconds")})
+        w = self.watcher()
+        # Eine echte Anfrage im Mitschnitt (die Statuszeile kommt erst mit Zahlen).
+        w.stats.feed(json.dumps({"type": "assistant", "message": {
+            "id": "m1", "model": "deepseek-flash",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+            "content": [{"type": "text", "text": "hallo"}]}}))
+        w.ges_batches = 2
+        w.ges_requests = 5
+        w.ges_cost = 0.1
+        w.started = time.time() - 200.6 * 60        # genau der gemeldete Fall
+        aus: list[str] = []
+        w._p = lambda text="", style="": aus.append(str(text))
+        w._print_stats(force=True)
+        zeile = "\n".join(aus)
+        vor, _, nach = zeile.partition("seit watch-Start")
+        self.assertRegex(vor, r"1[01]\.\d min seit Batch-Start")
+        self.assertNotIn("200", vor)                # der Fehler von damals
+        self.assertIn("200", nach)                  # die watch-Zeit steht nur dort
+        self.assertIn("min", nach)
+
+
+if __name__ == "__main__":
+    unittest.main()

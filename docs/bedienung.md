@@ -1313,3 +1313,68 @@ Faustregeln:
 * **Wissen/Belege statt Zurufe**: Wenn dir etwas auffällt (Messung, Widerspruch,
   fehlender Beleg), ist `/claude` der richtige Weg — der Reviewer prüft es und entscheidet
   selbst.
+
+## 18. Die Batch-Uhr (R13ac, 2026-09-28)
+
+Anlass: der Worker schätzte seine Laufzeit an der Zahl der Werkzeugaufrufe. In B210 hielt
+er sich für "~180 min" (`snapshots/b210/reasoning.jsonl:174`), gemessen waren **46 min**
+(`runs/b210/result.json`) — mit dieser Zeitnot strich er Pflichtteile. Die watch-Anzeige
+zeigte denselben Batch als "200.6 min", weil sie ab dem Start des **Zuschauers** zählte.
+
+### 18a. Eine Zahl, eine Quelle
+
+Alle Zeitangaben kommen aus **einem** Feld: `state/run.json` → `worker.started_at`
+(Prozessstart des Workers, geschrieben von `state.worker_started`). Modul: `hx/uhr.py`.
+
+| Anzeige | Quelle | Beispiel |
+|---|---|---|
+| `hx.cli watch` "… min seit Batch-Start" | `worker.started_at` | `19.8 min seit Batch-Start 23:06:48 (Harness-Messung)` |
+| `hx.cli status` "Laufender Batch 211: seit …" | `worker.started_at` | `seit 19m48s` |
+| **BATCH-UHR** im Worker (nach jedem Werkzeugaufruf) | `worker.started_at` | siehe 18b |
+| Vorspann `Batch-Start (Harness-Zeitstempel)` | derselbe Moment, wenige Sekunden vor dem Prozessstart | `23:06:48 Ortszeit am 2026-09-28` |
+| Laufzeit eines **beendeten** Batches | `runs/b<N>/result.json` (`duration_s`) | `46m11s` |
+
+Ist der Lauf beendet, steht in `watch` `Laufzeit 46m11s (runs/b210/result.json, Lauf
+beendet)`. Fehlt beides, steht "Laufzeit nicht gemessen" — es wird nichts geschätzt. Die
+watch-Minuten erscheinen nur noch im Zusatz `seit watch-Start: … min`, klar benannt.
+
+### 18b. Die BATCH-UHR im Worker (PostToolUse-Hook)
+
+Der Harness schreibt je Lauf eine Einstellungsdatei `runs/b<N>/worker-hooks.json` und hängt
+sie mit `--settings` an den Worker. Darin steht ein `PostToolUse`-Hook (ohne Matcher), der
+`tools/batch_uhr.py` aufruft; der Hook legt nach **jedem** Werkzeugaufruf eine Zeile in den
+Kontext des Modells:
+
+    BATCH-UHR (Harness-Messung): 42.1 min von 90 min seit Batch-Start 21:48:11 (Ortszeit).
+    Weichgrenze 90 min, harte Grenze 180 min. Diese Zahl ist die Wanduhr des
+    Worker-Prozesses (state/run.json:worker.started_at) - die Zahl der Werkzeugaufrufe sagt
+    nichts ueber die Zeit (B210: '180 min' geschaetzt, 46 min gemessen).
+
+* **Gemessen**, dass die Zeile beim Modell ankommt: `tools/r13ac_probe_hook.py`,
+  Beleg `docs/_r13ac_hook.txt` (echter Worker-Aufruf, auffällige Grenzen 77/123 — das
+  Modell nannte sie wörtlich).
+* Die Grenzen kommen aus `[limits]` (`alarm_wall_s` = Weichgrenze, `hard_wall_s` = harte).
+* **Abschalten:** `[claude] worker_hooks = false` in `harness.toml` (dann bleibt nur die
+  Vorspann-Regel). Fehlt `tools/batch_uhr.py`, wird kein Hook gehängt.
+* Der Hook ist **still**, wenn kein Lauf läuft, und bricht nie ab: jeder Fehler endet mit
+  Rückgabewert 0 und ohne Ausgabe.
+* Der erste Werkzeugaufruf eines Batches sieht die Zeile noch nicht — dafür steht die
+  absolute Startzeit im Vorspann (`UMFELD DIESES LAUFS`), zusammen mit der Regel
+  „Restzeit nur aus `Get-Date` minus dieser Startzeit".
+
+### 18c. Trend, „verifiziert", PLAN und Median (M210-2 bis M210-4)
+
+* **Trend und Durchsatz** nennen **zwei Zähler getrennt**: die **C Koepfe** aus den
+  maschinengeschriebenen Preflight-Dateien (`analysis/_preflight_<N>.txt`, Zeile
+  `C Koepfe`), lückenlos über die letzten 12 Batches, und den **R207-Zähler** (gebaut, alle
+  Stränge). Fehlt die Preflight-Reihe, steht dort „NICHT GEMESSEN"; ein Fenster mit Lücke
+  (B209 hat keine Bilanzdatei) wird als „LUECKENHAFT" benannt. Gemessen heute:
+  **B198 17 → B210 78 = +61 Koepfe**.
+* **„C verifiziert"** im Bilanz-Kopf kommt jetzt **nur** aus der Bahnabdeckungszeile des
+  Preflights (heute 55 von 78). Die Kopfzahl heißt **„C Koepfe referenzgleich"** — sie
+  sagt „gleich zur Referenz", nicht „geprüft".
+* **PLAN** kommt aus der Zeile `SOLL-KOEPFE: <n>` der DS_INSTRUCTION (B211 hat sie
+  erstmals), sonst `-`. **MEDIAN** zählt nur C-Batches mit `SOLL-KOEPFE > 0` und steht auf
+  den gemessenen C Koepfen; gibt es keinen solchen Batch, steht „nicht gemessen" und der
+  Reviewer soll die Soll-Zeile nachliefern.
+
