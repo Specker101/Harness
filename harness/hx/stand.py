@@ -528,7 +528,8 @@ def _relevanz_zeilen(cfg) -> list[str]:
         f"  Port-Relevanz: ausgefuehrt {r['ausgefuehrt']} | davon gebaut "
         f"{r['gebaut_ausgefuehrt']} | davon verifiziert {r['verifiziert_ausgefuehrt']}"
         f" von {r['ausgefuehrt']}"
-        f"  (Fenster: {r.get('fenster', '?')}; Messung {r.get('erzeuger', '?')})",
+        f"  (Fenster: {r.get('fenster', '?')}; Messung {r.get('ts', 'Zeit unbekannt')}"
+        f" durch {r.get('erzeuger', '?')})",
         f"                 Paket-E-Wurzeln {r['paket_e_wurzeln_ausgefuehrt']}"
         f"/{r['paket_e_wurzeln']} ausgefuehrt, offene Blaetter "
         f"{r['paket_e_blaetter_ausgefuehrt']}/{r['paket_e_blaetter']}",

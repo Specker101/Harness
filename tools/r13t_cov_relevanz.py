@@ -129,6 +129,7 @@ def rumpf_ende(abbild: bytes, adresse: int) -> int:
 
 def main() -> int:
     import json
+    from datetime import datetime
 
     cov = coverage()
     abbild = ROM.read_bytes() if ROM.is_file() else b""
@@ -186,6 +187,7 @@ def main() -> int:
     ziel = Path(__file__).resolve().parents[1] / "docs" / "_port_relevanz.json"
     ziel.write_text(json.dumps({
         "erzeuger": "tools/r13t_cov_relevanz.py",
+        "ts": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "fenster": "Rumpf (Eintritt bis erstes blr, max 0x400 B)",
         "inventar": len(funcs),
         "ausgefuehrt": len(ausgefuehrt),
