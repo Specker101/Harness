@@ -1,0 +1,40 @@
+R535 IST WIDERLEGT (FEHLALARM) - Interpreter ist RICHTIG, bitte NICHT als eigenen Batch planen.
+
+BEFUND (gemessen, nur lesend):
+1. Die ISA-Regel stimmt: `addc` addiert das EINGEHENDE CA NICHT (rD = rA + rB, CA ist
+   AUSGANG). CA-Eingang lesen nur `adde`, `addze`, `addme`, `subfe`, `subfze`, `subfme`.
+2. Der Interpreter tut genau das: `scripts/m114_matrix.py:394-405` rechnet
+   `s = R[ra] + R[rb]` und setzt danach `self.ca`. Der Kommentar dort ("das Handbuch
+   verlangt rD = rA + rB + CA", B206 §5) ist die FEHLANNAHME - er gehoert berichtigt.
+3. Die B206-Probe war entsprechend falsch gebaut: sie hat NUR den Interpreter auf
+   `+ self.ca` geaendert und dann verglichen. Dass dabei 12 von 74 Koepfen rot wurden,
+   ist kein Defektbeweis - es zeigt nur, in welchen 12 Koepfen CA in den Falldaten
+   ueberhaupt wirkt. Das Zuruecknehmen der Probe war richtig (74/1776/0).
+4. Die CA-lesenden Formen sind im Interpreter GAR NICHT gebaut (`xo == 138/234/202/136/
+   232/200` kommt nicht vor; sie stehen nur in `XO_ARITH_ALLE` fuer die strenge
+   Rc/OE-Ablehnung). In den 78 gruenen Koepfen kommen sie auch nicht vor (Zensus:
+   nur `addc` und `subfc`).
+
+WAS VON R535 UEBRIG BLEIBT (echt, aber klein - NICHT der Interpreter):
+Der PORT-Kopf `8005BF74` liest CA an einem `addc`:
+  port/src/ckopf_leaves.cpp:1977   `if (r0 >= r10) r0 += 1u;   // CA aus 'subfc'`
+Das ROM-Wort an dieser Stelle ist eindeutig ein `addc` (dekodiert, Basis 0x80000000):
+  +18  0x7CAA0011  subfc.  r5,r10,r0     (setzt CA und CR0)
+  +20  0x7C005014  addc    r0,r0,r10     (XO = 10 = addc, Rc = 0 - KEIN CA-Eingang)
+Der Port rechnet dort also `r0 = r0 + (r10>=r0) + r10` = `adde`-Semantik. Das ist eine
+Abweichung von der ISA UND vom Wortinterpreter. Der Vergleich sieht sie nicht, weil die
++/-1 im Fallfacher keine Vergleichsrichtung umdreht (steht so in B206 §5).
+Die vier anderen R535-Stellen im Port sind in Ordnung und spiegeln den Interpreter
+(ckopf_leaves.cpp:2026, :2112, :2183, :2276 - "das eingehende CA bleibt unbeachtet").
+
+VORSCHLAG FUER DEN ANKER (Wortlaut):
+  R535 -> WIDERLEGT (Fehlalarm, 2026-09-28): `addc` liest das CA nicht (ISA); der
+  Wortinterpreter ist richtig, die B206-Probe (`+ self.ca`) war die Fehlannahme und ist
+  zu Recht zurueckgenommen. NEU/ECHT als eigener kleiner Posten: der PORT-Kopf
+  `8005BF74` addiert CA an einem `addc` (`port/src/ckopf_leaves.cpp:1977`) - Rotprobe
+  mit CA=1 an dieser Stelle bauen, +1 entfernen, `vergl` 8005BF74 neu (nur dieser Kopf,
+  kein Interpreter-Batch). Der Kommentar in `m114_matrix.py:395-397` ist zu berichtigen
+  (dort steht die falsche ISA-Lesart).
+
+Bitte KEINEN "R535-Batch" mit Interpreter-Aenderung planen; die 34 CA-Koepfe aus dem
+Zensus bleiben fuer die R207-Regression interessant, aber ohne CA-Eingang im `addc`.

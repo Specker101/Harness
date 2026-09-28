@@ -1812,6 +1812,8 @@ class Orchestrator:
             "historie": self.historie_text(),
             # R13s: PLAN/IST der letzten Batches (rein lesend aus den Belegdateien)
             "plan_ist": standmod.plan_ist_text(self.cfg),
+            # R13t: die /ds-Nachrichten, die DIESER Batch im Auftrag hatte
+            "ds_queue": standmod.ds_nachrichten(self.cfg, batch),
             "markers": "\n".join(marker_lines),
             "queue_block": reviewer_note,
             "anchor": anchor,

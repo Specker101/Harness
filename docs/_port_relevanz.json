@@ -1,0 +1,17 @@
+{
+ "erzeuger": "tools/r13t_cov_relevanz.py",
+ "fenster": "Rumpf (Eintritt bis erstes blr, max 0x400 B)",
+ "inventar": 2072,
+ "ausgefuehrt": 1086,
+ "ausgefuehrt_eintritt": 1066,
+ "gebaut": 686,
+ "gebaut_ausgefuehrt": 416,
+ "verifiziert": 78,
+ "verifiziert_ausgefuehrt": 56,
+ "kopf_leaves": 78,
+ "kopf_leaves_ausgefuehrt": 56,
+ "paket_e_wurzeln": 86,
+ "paket_e_wurzeln_ausgefuehrt": 66,
+ "paket_e_blaetter": 17,
+ "paket_e_blaetter_ausgefuehrt": 12
+}

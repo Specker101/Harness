@@ -37,6 +37,12 @@ BASE = 0x80000000
 
 CA = {10: "addc", 138: "adde", 234: "addme", 202: "addze",
       8: "subfc", 136: "subfe", 232: "subfme", 200: "subfze"}
+# Weitere XO-Formen, die hier nur zur ANZEIGE gebraucht werden (R535-Pruefung).
+XO_NAME = {**CA, **{266: "add", 40: "subf", 0: "cmp", 32: "cmpl", 104: "neg",
+                    235: "mullw", 459: "divwu"}}
+OP_NAME = {14: "addi", 15: "addis", 12: "addic", 13: "addic.", 8: "subfic",
+           34: "lwz", 36: "stw", 32: "lwz", 37: "lwzu", 16: "bc", 18: "b",
+           19: "bclr/blr", 31: "(op31: siehe XO)"}
 
 _EINTRAG = re.compile(r'\(\s*"(?P<tag>[0-9A-Fa-f]+)"\s*,\s*0x(?P<start>[0-9A-Fa-f]{8})\s*,'
                       r'\s*0x(?P<ende>[0-9A-Fa-f]{8})')
@@ -70,10 +76,43 @@ def zaehle(words: list[int]) -> dict[str, int]:
     return treffer
 
 
+def _name(w: int) -> str:
+    """Grober Name eines Wortes (nur fuer die Anzeige einer Kopf-Dekodierung)."""
+    op = w >> 26
+    if op == 31:
+        return XO_NAME.get((w >> 1) & 0x3FF, f"op31/xo{(w >> 1) & 0x3FF}")
+    return OP_NAME.get(op, f"op{op}")
+
+
+def kopf_zeigen(abbild: bytes, adresse: int) -> int:
+    """Einzelkopf dekodieren: Wort, Name, Rc/OE-Bit (R535-Pruefung)."""
+    treffer = [k for k in kopf_def(SCRIPT.read_text(encoding="utf-8", errors="replace"))
+               if k[1] == adresse]
+    if not treffer:
+        print(f"0x{adresse:08X} steht nicht in KOPF_DEF")
+        return 2
+    tag, start, ende = treffer[0]
+    print(f"# Kopf {tag} 0x{start:08X}..0x{ende:08X} ({(ende - start) // 4} Woerter)")
+    for i, w in enumerate(woerter(abbild, start, ende)):
+        op = w >> 26
+        rc = (w & 1) and op == 31
+        oe = ((w >> 10) & 1) and op == 31
+        extra = ""
+        if op == 31 and ((w >> 1) & 0x3FF) in CA:
+            extra = "   <== CA-Form"
+        print(f"  +{4 * i:02X}  0x{w:08X}  {_name(w)}{'.' if rc else ''}"
+              f"{'  OE=1' if oe else ''}{extra}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--json", default="", help="Ergebnis zusaetzlich als JSON ablegen")
+    p.add_argument("--kopf", default="", help="einen Kopf dekodieren, z. B. 0x8005BF74")
     args = p.parse_args(argv)
+
+    if args.kopf:
+        return kopf_zeigen(ROM.read_bytes(), int(args.kopf, 0))
 
     koepfe = kopf_def(SCRIPT.read_text(encoding="utf-8", errors="replace"))
     abbild = ROM.read_bytes()

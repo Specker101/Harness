@@ -1,0 +1,28 @@
+NUTZERENTSCHEIDUNG: DIE SECHS ALTPOSTEN SIND ENTSCHIEDEN (Nutzer, 2026-09-28).
+
+Der Ankerposten (6) nennt sechs Altposten ("offen bleiben: R330, `M60_NO_EVID`,
+`NEG_IMM_LO`, `setup_mesa.ps1` bei EINER DLL, die Pins (R381), der \"Later\"-Abschnitt").
+Der Nutzer hat sie so entschieden - bitte WOERTLICH und in dieser Reihenfolge:
+
+  1. R330                          -> ja
+  2. `M60_NO_EVID`                 -> ja
+  3. `NEG_IMM_LO`                  -> NEIN (jetzt nicht)
+  4. `setup_mesa.ps1` bei EINER DLL -> ja
+  5. die Pins (R381)               -> ja
+  6. der \"Later\"-Abschnitt         -> ja
+
+AUFTRAG AN DEN NAECHSTEN BATCH: fuehre den Posten im Ankerkopf als ENTSCHIEDEN (Nutzer),
+etwa so
+
+  **(6) ENTSCHIEDEN (Nutzer, 2026-09-28):** R330 ja; `M60_NO_EVID` ja; `NEG_IMM_LO` nein
+  (jetzt nicht); `setup_mesa.ps1` bei EINER DLL ja; die Pins (R381) ja; der
+  \"Later\"-Abschnitt ja.
+
+und nenne sie im Batch-Dokument unter "ENTSCHEIDUNG (Nutzer)". Die Bedeutung der Namen
+kommt NICHT aus dieser Nachricht, sondern aus dem Anker/Archiv; belegt sind dort
+(R330: "A ist um 1 zu klein"; `M60_NO_EVID`: der Messschalter bleibt dauerhaft im
+Werkzeug; `setup_mesa.ps1`: EINE DLL; die Pins (R381): die drei GL-Pins bleiben gesetzt).
+Verlangt ein Posten mehr als eine Zeile (R330 braucht eine eigene Messung), dann kommt er
+als eigener kleiner Schritt in die Instruktion - nicht als stiller Nachtrag und nicht
+zusammen mit einem Werkzeugumbau (Nutzerregel "Werkzeugbau und Serienbau nicht im selben
+Batch"). `NEG_IMM_LO` bleibt ausdruecklich OFFEN und wird in diesem Batch NICHT gefahren.

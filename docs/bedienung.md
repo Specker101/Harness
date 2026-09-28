@@ -685,7 +685,31 @@ Der Block steht in `GESAMT` und rechnet **nur aus Belegdateien**, nichts wird ge
 | `Mittel der letzten N` | dieselbe Reihe (bis zu 5 belegte Batches) | arithmetisches Mittel der Differenzen; die Batches stehen in Klammern dahinter |
 | `Insn (nur wo belegt)` | Zeile **`Paket E offen`** der Batch-Dokumente (`analysis/port-batch<N>-*.md`) | Insn offen (Vorbatch) minus Insn offen (heute) |
 | `offen (Paket E, C-Arbeitsvorrat)` | dieselbe Tabellenzeile, Spalte „heute" | Köpfe/Insn, die in Paket E noch offen sind |
-| `HYPOTHESIS: noch ca. N Batches` | offen ÷ Mittel | **Schätzung**, ausdrücklich als HYPOTHESIS markiert — sie gilt nur, solange die Rate gleich bleibt |
+| `HYPOTHESIS (Paket E, Arbeitsvorrat)` | offen ÷ Mittel | **Schätzung**, ausdrücklich als HYPOTHESIS markiert — sie gilt nur, solange die Rate gleich bleibt |
+| `HYPOTHESIS (C gesamt, ABGELEITET)` | Planungsdokument mit der Zeile `OFFEN: <K> Koepfe / <I> Insn` (z. B. B196 §6.1, Quelle `analysis/_m196/_plan_c.txt`) | `<K> - (R207 heute - Bau-Liste damals)`; die Insn über den damaligen **Insn-je-Kopf-Schnitt** fortgeschrieben (deshalb „~" und „Schaetzung") |
+| `-> ca. M Batches` | offen ÷ Mittel | **Schätzung** — dieselbe Rate wie oben |
+
+Die **zwei** Hochrechnungen stehen seit R13t getrennt: die Paket-E-Zeile beschreibt nur den
+C-**Arbeitsvorrat**, die C-gesamt-Zeile den ganzen C-Strang. Sie ist **abgeleitet** und
+nennt Quelle, Stand-Batch und Rechenweg in der Zeile selbst — die Insn-Zahl ist eine
+Schätzung, weil die kanonischen Bilanzdateien keine Insn je Batch führen.
+
+**Port-Relevanz (R13t, Punkt 4b).** Feste Zeile am Ende des Durchsatz-Blocks:
+
+    Port-Relevanz: ausgefuehrt X | davon gebaut Y | davon verifiziert Z von X
+
+Die drei Mengen sind **gemessen** (nicht geschätzt) von `tools/r13t_cov_relevanz.py`:
+
+| Menge | Quelle |
+|---|---|
+| ausgefuehrt | `capture/ppc_coverage.bin` + `ppc_cov_boot.bin` (SSCOV1-Maps), **Rumpf-Fenster** = Eintritt bis erstes `blr`, max. 0x400 B, gegen die 2072 Funktionen aus `analysis/_m60_funcs.json` |
+| gebaut | `scripts/m104_built.py` → `built_map()` (der Projektbegriff „gebaut") |
+| verifiziert | `scripts/c_kopf.py` → `KOPF_DEF` (registrierte C-Köpfe) |
+| Paket E | Wurzeln und offene Blätter aus `analysis/_m<N>/_c_paket_e.txt` |
+
+Das Werkzeug schreibt die Zahl als Cache nach `docs/_port_relevanz.json`; `/bilanz` liest
+nur diese Datei (die Messung selbst dauert Sekunden). Fehlt sie, steht dort
+„nicht gemessen" — geraten wird nicht. Nachmessen: `python tools/r13t_cov_relevanz.py`, Beleg `docs/_r13t_beleg_4b.txt`.
 
 Warum die Insn nicht durchgängig da sind: die kanonische Bilanzdatei führt nur Köpfe
 (nach dem Rumpf gemessen), und die Paket-E-Zeile gibt es erst in neueren Dokumenten.
@@ -698,6 +722,21 @@ Insn in Klammern), was tatsächlich verifiziert wurde, wie lange der Batch lief 
 warum er endete. Dazu gilt im Reviewer-Prompt die **Median-Regel**: das Ziel des
 nächsten Batches darf höchstens ca. das **1,3-fache des Medians** der letzten Batches
 sein — Abweichungen begründet der Reviewer in einem Satz.
+
+### 14d. `/ds`-Nachrichten im Review (R13t)
+
+Schickst du mit `/ds` eine Nachricht an den Worker, hängt der Harness sie an den Auftrag
+des nächsten Batches (`harness/runs/b<N>/auftrag.md`, Kopfzeile
+`NACHRICHTEN AUS DER QUEUE (vom Nutzer, nicht verhandelbar):`). Genau diesen Block liest
+der Review desselben Batches wieder ein und zeigt ihn im Prompt als
+
+    === NUTZER-NACHRICHTEN AN DEN WORKER DIESES BATCHES (/ds) ===
+
+mit der Regel, ob der Worker sie umgesetzt hat und was offen blieb. Quelle ist der
+Auftrag (nicht die Queue: die Nachricht ist zu diesem Zeitpunkt schon nach
+`harness/inbox/done/` archiviert). War keine Nachricht dabei, steht dort `(keine)`.
+Beleg mit echtem Prompt-Ausschnitt: `docs/_r13t_beleg_4_prompt.txt`
+(`python tools/r13t_prompt_probe.py`).
 
 
 ---

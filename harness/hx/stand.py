@@ -35,7 +35,7 @@ import re
 from pathlib import Path
 
 from . import protocol
-from .util import read_text
+from .util import read_json, read_text
 
 # Bloecke des Ankerkopfs (Projektkonvention, AGENTS.md "Session-Kontinuitaet").
 BLOECKE = ("Stand", "Fertig", "Naechster Schritt", "Offene Entscheidung", "Fallstricke")
@@ -361,6 +361,75 @@ def _batch_aus_anker(kopf: dict) -> int:
     return int(m.group(1)) if m else 0
 
 
+def c_offen_gesamt(cfg, anzahl: int = MAX_DOKUMENTE) -> dict:
+    """Der **C-Gesamtvorrat** ("OFFEN: X Koepfe / Y Insn") aus dem neuesten Dokument.
+
+    Steht nur in Planungsdokumenten (B196 §6.1: "OFFEN: 1481 Koepfe / 94913 Insn",
+    Quelle `analysis/_m196/_plan_c.txt`); die laufenden Batch-Dokumente fuehren ihn
+    nicht mit. Deshalb wird das Dokument mitgeliefert - die Anzeige muss den Stand
+    ("abgeleitet, Stand B196") nennen duerfen.
+    """
+    for batch, pfad in reversed(dokumente(cfg, anzahl)):
+        try:
+            text = read_text(pfad)[:400000]
+        except OSError:
+            continue
+        zahlen = _zahlen_aus_text(text)
+        if "offen" in zahlen:
+            koepfe, insn = zahlen["offen"]
+            baut = zahlen.get("baut")
+            return {"batch": batch, "dokument": pfad.name,
+                    "koepfe": koepfe, "insn": insn,
+                    "bau": baut[0] if baut else None,
+                    "bau_insn": baut[1] if baut else None}
+    return {}
+
+
+# ------------------------------------------------- Port-Relevanz (R13t, Punkt 2)
+_PORT_RELEVANZ = ("docs", "_port_relevanz.json")
+
+
+def port_relevanz(cfg) -> dict | None:
+    """Ausgefuehrt vs. gebaut vs. verifiziert - der Cache aus `tools/r13t_cov_relevanz.py`.
+
+    Die Messung selbst (4 MiB Coverage + 2072 Funktionen + Rumpf-Fenster bis zum ersten
+    `blr`) dauert Sekunden; `/bilanz` liest deshalb nur die abgelegte Zahl. Fehlt die
+    Datei, sagt die Anzeige "nicht gemessen" - sie raet nicht.
+    """
+    p = Path(cfg.harness_home).joinpath(*_PORT_RELEVANZ)
+    try:
+        d = read_json(p)
+    except (OSError, ValueError):
+        return None
+    return d if isinstance(d, dict) and d.get("ausgefuehrt") else None
+
+
+# ------------------------------------------- /ds-Nachrichten im Review (R13t)
+QUEUE_KOPF = "NACHRICHTEN AUS DER QUEUE"
+
+
+def ds_nachrichten(cfg, batch: int) -> str:
+    """Der `/ds`-Block, den der **bewertete Batch** in seinem Auftrag hatte (R13t).
+
+    Quelle ist `runs/b<N>/auftrag.md` - dort haengt `worker.build_prompt` den Block
+    ganz am Ende an (Kopfzeile `NACHRICHTEN AUS DER QUEUE …`). Die Queue-Dateien
+    selbst sind zu diesem Zeitpunkt schon archiviert (`inbox/done/`), der Auftrag
+    ist die einzige verlaessliche Quelle des Wortlauts.
+
+    Rueckgabe: der Block ab der Kopfzeile (leer, wenn der Auftrag keine Nachricht
+    enthielt oder nicht lesbar ist).
+    """
+    if batch <= 0:
+        return ""
+    p = Path(cfg.root) / "runs" / f"b{batch:03d}" / "auftrag.md"
+    try:
+        text = read_text(p)
+    except OSError:
+        return ""
+    i = text.find(QUEUE_KOPF)
+    return text[i:].strip() if i >= 0 else ""
+
+
 # ------------------------------------------------------------ Durchsatz (R13s)
 def durchsatz_alt(cfg, n: int = STANDARD_FENSTER) -> dict:
     """(entfernt) - frueher aus den C-Koepfe-Zeilen der Batch-Dokumente."""
@@ -396,19 +465,74 @@ def durchsatz_zeilen(cfg, n: int = STANDARD_FENSTER) -> list[str]:
         teile = []
         if d["batches_koepfe"]:
             teile.append(f"ca. {d['batches_koepfe']:.0f} Batches fuer die "
-                         f"{pe.get('paket_e_koepfe')} offenen Paket-E-Koepfe")
+                         f"{pe.get('paket_e_koepfe')} offenen Koepfe")
         if d["batches_insn"]:
             teile.append(f"ca. {d['batches_insn']:.0f} Batches fuer "
                          f"{pe.get('paket_e_insn')} offene Insn")
-        zeilen.append("                 HYPOTHESIS: noch " + " / ".join(teile)
+        zeilen.append("                 HYPOTHESIS (Paket E, Arbeitsvorrat): noch "
+                      + " / ".join(teile)
                       + f" (offen / Mittel der letzten {d['n']}, Rate unveraendert)")
     else:
         zeilen.append("                 HYPOTHESIS: keine Hochrechnung moeglich")
+    zeilen += _c_gesamt_zeilen(cfg, d)
+    zeilen += _relevanz_zeilen(cfg)
     zeilen.append(f"                 Quelle: analysis/{d['quelle']} (Zeile \"R207 "
                   "rueckwaerts\")"
                   + (f" + analysis/{pe['dokument']} (\"Paket E offen\")"
                      if pe.get("dokument") else ""))
     return zeilen
+
+
+def _c_gesamt_zeilen(cfg, d: dict) -> list[str]:
+    """Die zweite, GETRENNTE Hochrechnung: das ganze C-Programm (R13t, Punkt 3).
+
+    Der C-Gesamtvorrat steht nur in den Planungsdokumenten (B196 §6.1:
+    "OFFEN: 1481 Koepfe / 94913 Insn", Quelle `analysis/_m196/_plan_c.txt`). Er wird
+    deshalb **abgeleitet** auf heute gerechnet: seit dem Stand wurden
+    `R207 heute - Bau-Liste damals` Koepfe gebaut und oben abgezogen. Die Insn-Zahl
+    wird nur ueber den damaligen Insn-je-Kopf-Schnitt fortgeschrieben - das ist eine
+    Schaetzung und steht so in der Zeile.
+    """
+    g = c_offen_gesamt(cfg)
+    if not g or not d.get("letzter"):
+        return []
+    heute = d["letzter"].get("r207")
+    if not heute or not g.get("bau"):
+        return [f"                 HYPOTHESIS (C gesamt): Vorrat "
+                f"{g['koepfe']} Koepfe / {g['insn']} Insn (Stand B{g['batch']}), "
+                "seitheriger Bau nicht rechenbar"]
+    seitdem = max(0, heute - g["bau"])
+    offen = max(0, g["koepfe"] - seitdem)
+    schnitt = g["insn"] / g["koepfe"] if g["koepfe"] else 0.0
+    insn = max(0.0, g["insn"] - seitdem * schnitt)
+    zeilen = [f"                 HYPOTHESIS (C gesamt, ABGELEITET): offen "
+              f"{offen} Koepfe / ~{insn / 1000:.1f}k Insn (Schaetzung)"]
+    if d["mittel_koepfe"] > 0:
+        zeilen.append(f"                   -> ca. {offen / d['mittel_koepfe']:.0f} "
+                      f"Batches bei +{d['mittel_koepfe']:.1f} Koepfen/Batch "
+                      f"(Mittel der letzten {d['n']})")
+    zeilen.append(f"                   Rechenweg: analysis/{g['dokument']} "
+                  f"(\"OFFEN: {g['koepfe']} Koepfe / {g['insn']} Insn\", Stand B"
+                  f"{g['batch']}; Bau-Liste damals {g['bau']}) minus R207-Delta "
+                  f"{heute} - {g['bau']} = {seitdem} Koepfe; Insn-Anteil je Kopf "
+                  f"({schnitt:.1f}) fortgeschrieben - kein Insn-Beleg je Batch")
+    return zeilen
+
+
+def _relevanz_zeilen(cfg) -> list[str]:
+    """Die feste Zeile "Port-Relevanz: ausgefuehrt X | davon gebaut Y | verifiziert Z"."""
+    r = port_relevanz(cfg)
+    if not r:
+        return ["  Port-Relevanz: nicht gemessen (tools/r13t_cov_relevanz.py fahren)"]
+    return [
+        f"  Port-Relevanz: ausgefuehrt {r['ausgefuehrt']} | davon gebaut "
+        f"{r['gebaut_ausgefuehrt']} | davon verifiziert {r['verifiziert_ausgefuehrt']}"
+        f" von {r['ausgefuehrt']}"
+        f"  (Fenster: {r.get('fenster', '?')}; Messung {r.get('erzeuger', '?')})",
+        f"                 Paket-E-Wurzeln {r['paket_e_wurzeln_ausgefuehrt']}"
+        f"/{r['paket_e_wurzeln']} ausgefuehrt, offene Blaetter "
+        f"{r['paket_e_blaetter_ausgefuehrt']}/{r['paket_e_blaetter']}",
+    ]
 
 
 # ------------------------------------------------------------------ PLAN/IST

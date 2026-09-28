@@ -1,0 +1,19 @@
+KURZ FUER DEINE INSTSRUKTION B207 (Nutzer-Nachricht, vor dem Review geprueft):
+
+Der Posten R535 aus dem Anker-Naechster-Schritt ist ein FEHLALARM - baue ihn NICHT als
+Interpreter-Batch ein. Begruendung (gemessen, Belege in docs/_r13t_belege.md):
+* `addc` addiert das eingehende CA NICHT (ISA-Regel). CA-Eingang lesen nur `adde`,
+  `addze`, `addme`, `subfe`, `subfze`, `subfme` - und die kommen in den 78 gruenen
+  Koepfen nicht vor (Zensus: nur `addc`/`subfc`).
+* `m114_matrix.py:394-405` rechnet rD = rA + rB und setzt CA - das ist RICHTIG. Der
+  Kommentar dort (und B206 §5) behauptet das Gegenteil; er gehoert berichtigt.
+* Die B206-Probe hat nur den Interpreter auf "+ self.ca" geaendert; die 12 roten Koepfe
+  zeigen nur, wo CA in den Falldaten wirkt - kein Defektbeweis.
+* ECHT (klein, Port-Seite): `port/src/ckopf_leaves.cpp:1977` liest CA an einem `addc`
+  (`if (r0 >= r10) r0 += 1u;`). ROM-Wort `+0x20` von 8005BF74 ist `0x7C005014` = `addc`
+  (XO = 10, Rc = 0). Der Vergleich sieht die +/-1 nicht. Als eigener kleiner Posten:
+  Rotprobe mit CA=1 bauen, die +1 entfernen, nur `8005BF74` neu vergleichen.
+
+Bitte in der DS_INSTRUCTION fuer B207 stattdessen an den echten Auftrag des Ankers
+(Paket E weiter) anschliessen bzw. den kleinen 8005BF74-Posten aufnehmen, wenn er in den
+Zuschnitt passt. Kein Interpreter-Umbau wegen R535.

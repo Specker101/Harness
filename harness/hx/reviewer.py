@@ -381,6 +381,16 @@ def build_prompt(cfg, kind: str, ctx: dict) -> str:
         "=== NACHRICHTEN AUS DER /claude-QUEUE ===",
         (ctx.get("queue_block") or "(keine)").strip(),
         "",
+        # R13t (Nutzerauftrag 2026-09-28): die /ds-Nachrichten des BEWERTETEN Batches
+        # gehoeren in den Review - der Reviewer soll pruefen, ob der Worker sie
+        # umgesetzt hat, und offene Punkte in die naechste Instruktion tragen.
+        "=== NUTZER-NACHRICHTEN AN DEN WORKER DIESES BATCHES (/ds) ===",
+        (ctx.get("ds_queue") or "(keine)").strip(),
+        "REGEL (Nutzerauftrag 2026-09-28): Diese Nachrichten sind fuer den Worker "
+        "bindend. Pruefe im Review, ob sie umgesetzt sind; was offen blieb, nennst "
+        "du in der TELEGRAM_SUMMARY und traegst es in die naechste DS_INSTRUCTION "
+        "(oder als Marker), damit es nicht untergeht.",
+        "",
         "=== ANKERDATEI analysis/r1b-workstream.md (Kopf) ===",
         (ctx.get("anchor") or "(nicht lesbar)").strip(),
         "",
