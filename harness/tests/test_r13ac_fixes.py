@@ -220,12 +220,51 @@ class TestBatchUhr(Basis):
 
 # ------------------------------------------------- 2) Trend/Durchsatz (M210-2)
 class TestTrendMitEchtenDateien(unittest.TestCase):
-    """Die C-Koepfe-Reihe aus den echten Preflight-Dateien (B198 17 -> B210 78)."""
+    """Die C-Koepfe-Reihe aus den ECHTEN Preflight-Dateien - EINGEFROREN kopiert.
+
+    **FALLSTRICK (erst so gebaut, dann rot):** der erste Anlauf las direkt aus
+    `g:\\Silent Scope Decomp` und nahm "das neueste Fenster". Waehrend der vollen
+    Testreihe beendete sich B211 und schrieb `analysis/_preflight_211.txt` - damit
+    rutschte das Fenster auf B199..B211 und drei Tests wurden rot ("211 != 210",
+    "Trend B199 45 -> B211 78"). Genau dieser Fallstrick steht seit R13x in den
+    Projektnotizen ("der neueste Batch ist kein stabiler Bezug, solange der Harness
+    laeuft"). Deshalb wird die Spanne B198..B210 EINMAL in ein Wegwerf-Verzeichnis
+    kopiert und dort geprueft; daneben steht je ein Test, der die Kopie gegen das
+    lebende Repo prueft (uebersprungen, wenn die Datei fehlt).
+    """
 
     @classmethod
     def setUpClass(cls):
         cls.cfg = load_config()
+        cls.echt = Path(cls.cfg.decomp) / "analysis"
+        cls.tmp = Path(ROOT) / "tests" / "_tmp_r13ac_real"
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+        ana = ensure_dir(cls.tmp / "decomp" / "analysis")
+        cls.kopiert: list[str] = []
+        for b in range(198, 211):
+            p = cls.echt / f"_preflight_{b}.txt"
+            if p.is_file():
+                shutil.copy2(p, ana / p.name)
+                cls.kopiert.append(p.name)
+        # Die kanonischen Bilanzdateien mitkopieren (R207-Zaehler, B209 fehlt bewusst).
+        for ordner in sorted(cls.echt.glob("_m*")):
+            if not ordner.is_dir() or not (ordner.name[2:].isdigit()):
+                continue
+            if not 203 <= int(ordner.name[2:]) <= 210:
+                continue
+            ziel = ensure_dir(ana / ordner.name)
+            for f in ordner.glob("_bilanz*.txt"):
+                shutil.copy2(f, ziel / f.name)
+        cls.cfg.data["paths"]["decomp"] = str(cls.tmp / "decomp")
         cls.t = stand.c_trend(cls.cfg, stand.TREND_FENSTER)
+        cls.zeilen = "\n".join(stand.durchsatz_zeilen(cls.cfg, 5))
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.tmp, ignore_errors=True)
+
+    def test_kopie_ist_vollstaendig(self):
+        self.assertEqual(len(self.kopiert), 13, "B198..B210 nicht vollstaendig kopiert")
 
     def test_plus_61_ueber_das_fenster(self):
         self.assertTrue(self.t["gemessen"], "keine Preflight-Reihe gefunden")
@@ -236,23 +275,55 @@ class TestTrendMitEchtenDateien(unittest.TestCase):
         self.assertEqual(self.t["luecken"], [])
 
     def test_durchsatzzeilen_trennen_die_zaehler(self):
-        zeilen = "\n".join(stand.durchsatz_zeilen(self.cfg, 5))
-        self.assertIn("C Koepfe (Preflight-Messung", zeilen)
-        self.assertIn("Trend B198 17 -> B210 78 = +61 Koepfe", zeilen)
-        self.assertIn("Zaehler R207 (gebaut, ALLE Straenge", zeilen)
-        self.assertIn("LUECKENHAFT", zeilen)          # B209 hat keine Bilanzdatei
-        self.assertNotIn("Durchsatz    : Koepfe (R207 gebaut)", zeilen)
+        self.assertIn("C Koepfe (Preflight-Messung", self.zeilen)
+        self.assertIn("Trend B198 17 -> B210 78 = +61 Koepfe", self.zeilen)
+        self.assertIn("lueckenlos, 13 Dateien", self.zeilen)
+        self.assertIn("Zaehler R207 (gebaut, ALLE Straenge", self.zeilen)
+        self.assertIn("nicht mit den C Koepfen mischen", self.zeilen)
+        # Die kanonischen Bilanzdateien fuer B209 gibt es nicht -> das Fenster ist
+        # lueckenhaft, und genau das muss dastehen.
+        self.assertIn("LUECKENHAFT", self.zeilen)
+        self.assertNotIn("Durchsatz    : Koepfe (R207 gebaut)", self.zeilen)
 
     def test_keine_verwechslung_der_zaehler(self):
         """Die R207-Zeile heisst R207 - und die C-Zeile nennt ihre Quelle."""
-        zeilen = "\n".join(stand.durchsatz_zeilen(self.cfg, 5))
-        i_c = zeilen.index("C Koepfe (Preflight-Messung")
-        i_r = zeilen.index("Zaehler R207")
+        i_c = self.zeilen.index("C Koepfe (Preflight-Messung")
+        i_r = self.zeilen.index("Zaehler R207")
         self.assertLess(i_c, i_r)
-        self.assertIn("nicht mit den C Koepfen mischen", zeilen[i_r - 200:i_r + 200])
+        self.assertIn("Quelle dieser Zeilen: analysis/_preflight_198.txt", self.zeilen)
+
+    def test_bahnabdeckung_210_aus_der_kopie(self):
+        e = [x for x in stand.preflight_bahnabdeckung(self.cfg, 20) if x["batch"] == 210]
+        self.assertEqual(len(e), 1)
+        self.assertEqual((e[0]["verifiziert"], e[0]["gesamt"], e[0]["teilgeprueft"]),
+                         (55, 78, 23))
+        self.assertEqual(e[0]["bloecke"], 326)
+        self.assertEqual(e[0]["quelle"], "Bahnabdeckung")
+
+    def test_die_kopie_stimmt_mit_dem_lebenden_repo(self):
+        """Gegenprobe: die eingefrorenen Werte sind die des echten Repos."""
+        for name in ("_preflight_198.txt", "_preflight_210.txt"):
+            p = self.echt / name
+            if not p.is_file():
+                self.skipTest(f"{name} fehlt im echten Repo")
+            moeglich = [z for z in p.read_text(encoding="utf-8").splitlines()
+                        if z.startswith("C Koepfe")]
+            kopie = [z for z in (self.tmp / "decomp" / "analysis" / name)
+                     .read_text(encoding="utf-8").splitlines() if z.startswith("C Koepfe")]
+            self.assertEqual(kopie, moeglich)
 
 
 class TestTrendLogik(Basis):
+    def test_r207_fenster_mit_luecke_wird_benannt(self):
+        """Der R207-Zaehler hat fuer B209 keine Bilanzdatei - das steht dann auch da."""
+        for n, v, h in ((205, 670, 675), (206, 675, 681), (207, 681, 686),
+                        (208, 686, 686), (210, 686, 686)):      # B209 fehlt
+            self.bilanz_datei(n, v, h)
+        self.preflight(209, 78)
+        zeilen = "\n".join(stand.durchsatz_zeilen(self.cfg, 5))
+        self.assertIn("LUECKENHAFT", zeilen)
+        self.assertIn("B209", zeilen)
+
     def test_luecke_wird_benannt_nicht_als_null_gezaehlt(self):
         self.bilanz_datei(202, 620, 679)
         self.preflight(198, 17)
@@ -319,12 +390,6 @@ class TestVerifiziertGetrennt(Basis):
     def test_ohne_bahnabdeckung_nicht_gemessen(self):
         zeilen = "\n".join(bilanz._verifiziert_zeile(self.cfg))
         self.assertIn("C verifiziert: nicht gemessen", zeilen)
-
-    def test_echte_datei_210(self):
-        cfg = load_config()
-        e = stand.preflight_bahnabdeckung(cfg, 4)[-1]
-        self.assertEqual(e["batch"], 210)
-        self.assertEqual((e["verifiziert"], e["gesamt"], e["teilgeprueft"]), (55, 78, 23))
 
 
 # ------------------------------------------------------ 4) PLAN/Median (M210-4)

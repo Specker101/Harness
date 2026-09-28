@@ -152,6 +152,12 @@ und `self.started` wird im Konstruktor gesetzt (`Watcher.__init__`) - also ab de
   14m23s" - beide Zahlen kommen jetzt aus diesem einen Feld.
 * Rueckwaerts gegen B210: `finished_at 20:34:55Z - duration_s 2771,05 s = 21:48:43
   Ortszeit` = die Startzeit, die der Reviewer-Bericht nennt (46 min, Start 21:48).
+* Rueckwaerts gegen B211 (nach dessen Ende, `duration_s 2243,53` = 37m23s,
+  `finished_at 2026-09-28T21:44:19Z`): `finished_at - duration_s` = **23:06:55 Ortszeit**
+  gegen den **waehrend** des Laufs abgelesenen Zustandswert `worker.started_at` =
+  **23:06:48 Ortszeit** - Abstand **7 s** (0,3 % von 37 min). Die 7 s sind der Anlauf der
+  CLI bis zu ihrem eigenen `duration_ms`-Nullpunkt; damit liegen beide Wege innerhalb der
+  Genauigkeit, die die Anzeige zusagt (der Vorspann sagt ausdruecklich "wenige Sekunden").
 * Test `test_gegenprobe_gegen_result_json`: Startzeit = `jetzt - duration_s` -> die
   Anzeige nennt dieselben Minuten wie `result.json` (±0,2 min).
 * Test `test_watch_ueber_mehrere_batches`: Batch 210 beendet (46m11s aus `result.json`),
@@ -170,3 +176,28 @@ und `self.started` wird im Konstruktor gesetzt (`Watcher.__init__`) - also ab de
   ist der erste mit Hook; dort steht die Zeile im Mitschnitt.
 * Die Zahlen des Trendfensters haengen an den Preflight-Dateien: fehlt eine, wird sie als
   Luecke genannt, nicht geschaetzt.
+
+## Selbst reingefallen - und was daraus fuer die Tests folgt
+
+Der erste Anlauf von `tests/test_r13ac_fixes.py` las die echten Preflight-Dateien direkt
+aus `g:\Silent Scope Decomp` und nahm dort "das neueste Fenster" (`c_trend(cfg, 12)`).
+Waehrend der **vollen Testreihe** beendete sich B211 und schrieb `_preflight_211.txt` -
+das Fenster rutschte auf B199..B211, und drei Tests wurden rot:
+
+    AssertionError: Tuples differ: (199, 45) != (198, 17)
+    AssertionError: 'Trend B198 17 -> B210 78 = +61 Koepfe' not found in '… Trend B199 45 -> B211 78 = +33 …'
+    AssertionError: 211 != 210
+
+Das ist genau der Fallstrick, der seit R13x in den Projektnotizen steht ("der neueste
+Batch ist kein stabiler Bezug, solange der Harness laeuft", B209 schrieb sein Dokument
+mitten in eine Testreihe). **Behoben** wie dort beschrieben: die Spanne B198..B210 wird
+einmal in `tests/_tmp_r13ac_real/decomp/analysis` **kopiert** (13 Preflight-Dateien
+**plus** die kanonischen `_m203.._m210/_bilanz*.txt`), und geprueft wird die Kopie; dazu
+ein Test, der die Kopie gegen das lebende Repo haelt
+(`test_die_kopie_stimmt_mit_dem_lebenden_repo`), plus ein synthetischer Test fuer das
+R207-Fenster mit Luecke (`test_r207_fenster_mit_luecke_wird_benannt`).
+
+**Testreihe (gemessen):** volle Reihe `python -u -m unittest discover -s tests` =
+**700 Tests OK** (378 s, rc=0), gefahren am Gate vor B212.
+
+
