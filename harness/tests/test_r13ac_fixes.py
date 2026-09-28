@@ -34,7 +34,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from hx import bilanz, stand, uhr, worker                          # noqa: E402
+from hx import bilanz, fragen, stand, uhr, worker                  # noqa: E402
 from hx.config import load_config                                 # noqa: E402
 from hx.util import Log, ensure_dir, write_text_atomic            # noqa: E402
 from hx.watch import Watcher                                      # noqa: E402
@@ -545,6 +545,119 @@ class TestWatchUhr(Basis):
         self.assertNotIn("200", vor)                # der Fehler von damals
         self.assertIn("200", nach)                  # die watch-Zeit steht nur dort
         self.assertIn("min", nach)
+
+
+# ------------------------- 6) Batch-Art aus den Pflichtzeilen (R13ac2, Nutzer 2026-09-29)
+ANKER_SAMMEL = """# Workstream R1B - Beispiele
+
+**Stand:** BATCH 211 (2026-09-28) - Beispielstand.
+**Fertig:** **(1)** etwas fertig.
+**Naechster Schritt:** **(a)** weiter.
+**Offene Entscheidung:** Alle Posten GESCHLOSSEN. **(1)** R391: GESCHLOSSEN, erledigt. **(2)** A2-Altposten: GESCHLOSSEN. **(3)** be.bin: GESCHLOSSEN. **(4)** A1 MEM-Varianten, **(5)** `42704`, **(6)** Schrittdatei/`mutalle`: GESCHLOSSEN als Entscheidungsposten - Arbeitsposten. **(7)** `nachzuegler`-Sonde: GESCHLOSSEN, ENTSCHIEDEN (Reviewer). **Keine offene Nutzerfrage.**
+**Fallstricke/Regeln:** keine.
+"""
+
+ANKER_EINZELN = """# Workstream R1B - Beispiele
+
+**Stand:** BATCH 211 (2026-09-28) - Beispielstand.
+**Fertig:** **(1)** etwas fertig.
+**Naechster Schritt:** **(a)** weiter.
+**Offene Entscheidung:** **(1)** R391: GESCHLOSSEN. **(4)** A1 MEM-Varianten - soll das so bleiben (Vorschlag: ja)? Bei ja: bleibt. Bei nein: anders.
+**Fallstricke/Regeln:** keine.
+"""
+
+
+class TestBatchArtPflichtzeilen(Basis):
+    """R13ac2 (1): `STRANG: B|C` und `SOLL-KOEPFE: n (Strang B, …)` entscheiden die Art.
+
+    Anlass: B211 trug nur `SOLL-KOEPFE: 0 (Strang B, …)`; keine Quelle griff, der Batch
+    galt als C-Batch und loeste eine Aussensicht aus (`runs/meta-211.md`).
+    """
+
+    def test_soll_koepfe_zeile_mit_strang(self):
+        rd = ensure_dir(self.root / "runs" / "b211")
+        write_text_atomic(rd / "auftrag.md",
+                          "Vorspann\n=== AUFTRAG (vom Reviewer) ===\nTEIL 3\n"
+                          "SOLL-KOEPFE: 0 (Strang B, B-Batch 3 von hoechstens 20).\n")
+        d = stand.strang_von_batch(self.cfg, 211)
+        self.assertEqual(d["strang"], "B")
+        self.assertIn("auftrag.md", d["quelle"])
+
+    def test_strang_zeile_im_review_der_ihn_bestellt(self):
+        """Am Gate liegt die Instruktion noch in `runs/b<N>/review.md` (B212)."""
+        rd = ensure_dir(self.root / "runs" / "b212")
+        write_text_atomic(rd / "review.md",
+                          "BATCH-ENDE-REVIEW\n\n<DS_INSTRUCTION>\n"
+                          "STRANG: B (B-Batch 4 von hoechstens 20). SOLL-KOEPFE: 0.\n")
+        d = stand.strang_von_batch(self.cfg, 212)
+        self.assertEqual(d["strang"], "B")
+        self.assertIn("review.md", d["quelle"])
+
+    def test_strang_zeile_hat_vorrang_vor_fliesstext(self):
+        rd = ensure_dir(self.root / "runs" / "b213")
+        write_text_atomic(rd / "auftrag.md",
+                          "=== AUFTRAG ===\nB212 war ein B-Batch, B213 ist ein C-Batch.\n"
+                          "STRANG: C\nSOLL-KOEPFE: 9\n")
+        self.assertEqual(stand.strang_von_batch(self.cfg, 213)["strang"], "C")
+
+    def test_ohne_pflichtzeile_bleibt_es_leer(self):
+        rd = ensure_dir(self.root / "runs" / "b214")
+        write_text_atomic(rd / "auftrag.md", "=== AUFTRAG ===\nkeine Pflichtzeile\n")
+        self.assertEqual(stand.strang_von_batch(self.cfg, 214)["strang"], "")
+
+    def test_echte_batches_211_und_212_sind_b(self):
+        """Am echten Repo: B211 (Auftrag) und B212 (Review) sind B-Batches."""
+        cfg = load_config()
+        for batch, datei in ((211, "auftrag.md"), (212, "review.md")):
+            if not (Path(cfg.sub("runs")) / f"b{batch:03d}" / datei).is_file():
+                self.skipTest(f"runs/b{batch:03d}/{datei} fehlt")
+        for batch in (211, 212):
+            d = stand.strang_von_batch(cfg, batch)
+            self.assertEqual(d["strang"], "B", f"B{batch}: {d}")
+
+
+class TestAnkerSammelschluss(Basis):
+    """R13ac2 (2): Posten unter einem gemeinsamen GESCHLOSSEN sind keine offenen Fragen."""
+
+    def anker(self, text: str) -> None:
+        write_text_atomic(ensure_dir(self.repo / "analysis") / "r1b-workstream.md", text)
+
+    def test_mitgezogene_posten_zaehlen_nicht_als_offen(self):
+        self.anker(ANKER_SAMMEL)
+        t = stand.anchor_bloecke(self.cfg).get("Offene Entscheidung", "")
+        offen, geschlossen, ohne = stand.posten_status(t)
+        self.assertEqual([n for n, _ in offen], [])
+        self.assertEqual(geschlossen, 5)
+        self.assertEqual([n for n, _ in ohne], ["(4)", "(5)"])
+        self.assertEqual(stand.offene_entscheidungen(t)[0], [])
+
+    def test_ohne_sammelschluss_bleiben_sie_offen(self):
+        """Die Regel darf nicht zu weit greifen: ohne Sammel-Schluss ist (4) offen."""
+        self.anker(ANKER_EINZELN)
+        t = stand.anchor_bloecke(self.cfg).get("Offene Entscheidung", "")
+        offen, geschlossen, ohne = stand.posten_status(t)
+        self.assertEqual([n for n, _ in offen], ["(4)"])
+        self.assertEqual(geschlossen, 1)
+        self.assertEqual(ohne, [])
+
+    def test_fragen_zeigt_sie_unter_zur_kenntnis(self):
+        self.anker(ANKER_SAMMEL)
+        text = fragen.fragen_text(self.cfg, gate=None)
+        i_off = text.index("OFFENE FRAGEN AN DICH")
+        i_ken = text.index("ZUR KENNTNIS")
+        offen_teil, kenntnis_teil = text[i_off:i_ken], text[i_ken:]
+        self.assertIn("keine - der Reviewer entscheidet den Regelfall selbst", offen_teil)
+        for kennung in ("A4", "A5"):
+            self.assertNotIn(kennung, offen_teil)
+            self.assertIn(kennung, kenntnis_teil)
+        self.assertIn("Sammel-Schluss", kenntnis_teil)
+
+    def test_ohne_sammelschluss_steht_die_frage_offen(self):
+        self.anker(ANKER_EINZELN)
+        text = fragen.fragen_text(self.cfg, gate=None)
+        i_off = text.index("OFFENE FRAGEN AN DICH")
+        self.assertIn("A4", text[i_off:text.index("ZUR KENNTNIS")
+                                 if "ZUR KENNTNIS" in text else len(text)])
 
 
 if __name__ == "__main__":

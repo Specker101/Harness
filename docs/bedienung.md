@@ -807,9 +807,19 @@ Reviewers, und die fehlte in **jedem** Review seit B205. Jetzt liest
 
 | Quelle | Beispiel (echter Beleg) |
 |---|---|
+| **Pflichtzeile der Instruktion** (R13ac2, 2026-09-29) | `STRANG: B (B-Batch 4 …). SOLL-KOEPFE: 0.` (`runs/b212/review.md:51`) bzw. `SOLL-KOEPFE: 0 (Strang B, B-Batch 3 …)` (`runs/b211/auftrag.md:97`) |
 | Pflichtzeile im Review dieses Batches | `B-SCHRITT: 2/5 Maschine, B-Batch 2 von max 20` bzw. `B-SCHRITT: kein B-Batch (Strang C)` |
 | Marker im **Auftrag** des Batches, der ihn nennt | `runs/b208/auftrag.md`: „B208 ist der ERSTE Batch von Strang B"; `runs/b209/auftrag.md`: Zeile „Strang B, Batch 2 von hoechstens 20" |
 | Zeile `Mischverhaeltnis …` in `analysis/hybrid-plan.md` | „Mischverhaeltnis 2 B : 1 C (ENTSCHEIDUNG Reviewer): **B208 B, B209 B, B210 C**" |
+
+**R13ac2 (2026-09-29): die Pflichtzeilen sind die ERSTE Quelle.** Gemessen: B211 trug nur
+`SOLL-KOEPFE: 0 (Strang B, …)` — keine Quelle griff, der Batch galt als **C-Batch** und
+löste eine Aussensicht aus (`runs/meta-211.md`). Gelesen werden jetzt zuerst `STRANG: B|C`
+und `SOLL-KOEPFE: <n> (Strang B, …)` aus der Instruktion, die den Batch bestellt hat:
+`runs/b<N>/auftrag.md` (Auftrag, wie gesendet) — und solange der Batch am Gate steht,
+`runs/b<N>/review.md` (der Review, der ihn bestellt; `runs/b212/review.md:51`).
+Durchsucht wird nur der Auftrags-/Instruktionsteil, nicht die Prosa des Reviews — dort
+stehen fremde Batches.
 
 Sagt keine Quelle etwas, bleibt der Batch **unbekannt** und zählt wie bisher als C-Batch
 (die vorsichtige Seite — geraten wird nichts). Fremde Erwähnungen zählen nicht: der
@@ -1212,6 +1222,16 @@ Was wohin gehört:
 `/status` zählt dieselben Töpfe getrennt: `Fragen an dich: 4 offen, 2 zur Kenntnis
 (offen: A1, R210-1, …) (zur Kenntnis: R210-4, R210-5)`. Beide Listen sind über die Kennung
 antwortbar — auch ein Kenntnis-Punkt („`/claude R209-4 Widerspruch: bitte anders`").
+
+**Ankerposten unter einem Sammel-Schluss (R13ac2, 2026-09-29).** Ein Block kann seine
+Posten auch **sammelweise** schließen: `Alle Posten GESCHLOSSEN. … **(4)** A1
+MEM-Varianten, **(5)** 42704, **(6)** …: GESCHLOSSEN als Entscheidungsposten … **Keine
+offene Nutzerfrage.**` Posten **ohne eigenes Statuswort**, die dieser Sammel-Schluss
+mitzieht, sind **keine** offenen Fragen — sie standen als `A4`/`A5` unter „OFFENE FRAGEN
+AN DICH" und stehen jetzt unter **ZUR KENNTNIS** mit dem Vermerk
+„(Sammel-Schluss im Anker)". Sie verschwinden also nicht, sondern werden einsortiert.
+Ohne Sammel-Schluss bleibt ein solcher Posten offen (und wird als `UNKLAR FORMULIERT`
+gezeigt, wenn keine entscheidbare Zeile daraus wird).
 
 ### 16a. Die Kennungen (R13y, 2026-09-28)
 

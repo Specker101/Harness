@@ -82,16 +82,58 @@ def _posten(text: str) -> list[tuple[str, str]]:
 
 
 def offene_entscheidungen(text: str) -> tuple[list[tuple[str, str]], int]:
-    """Offene Posten `[(nr, text)]` und Anzahl der vom Reviewer GESCHLOSSENen."""
+    """Offene Posten `[(nr, text)]` und Anzahl der GESCHLOSSENen.
+
+    R13ac2 (Nutzerauftrag 2026-09-29): siehe `posten_status` - Posten, die ein
+    **Sammel-Schluss** mitzieht, zaehlen NICHT als offen. Diese Funktion bleibt der
+    schmale Zugang fuer die Anzeigen; wer die mitgezogenen Posten nennen will, nimmt
+    `posten_status`.
+    """
+    offen, geschlossen, _ohne = posten_status(text)
+    return offen, geschlossen
+
+
+# R13ac2 (Nutzerauftrag 2026-09-29): ein Block schliesst seine Posten auch SAMMELWEISE.
+# Gemessen am echten Anker (`analysis/r1b-workstream.md`, Zeile "Offene Entscheidung"):
+#   "Alle Posten GESCHLOSSEN. **(1)** R391 …: GESCHLOSSEN … **(4)** A1 MEM-Varianten,
+#    **(5)** `42704`, **(6)** Schrittdatei/`mutalle`: GESCHLOSSEN als Entscheidungsposten –
+#    … **Keine offene Nutzerfrage.**"
+# (4) und (5) tragen KEIN eigenes Statuswort, wurden aber als A4/A5 unter "OFFENE FRAGEN
+# AN DICH" gefuehrt. Solche Posten sind keine Fragen - aber sie verschwinden auch nicht
+# still, sondern stehen unter "ZUR KENNTNIS" mit dem Grund.
+_RE_SAMMEL_SCHLUSS = re.compile(
+    r"alle\s+posten\s+geschlossen"
+    r"|geschlossen\s+als\s+(?:entscheidungs|anker)[-\s]?(?:posten|frage)"
+    r"|keine\s+offene\s+(?:nutzer|anker)?frage",
+    re.IGNORECASE)
+# Ein eigenes Statuswort eines Postens. Fehlt es UND schliesst der Block sammelweise,
+# ist der Posten mitgezogen.
+_RE_EIGENER_STATUS = re.compile(
+    r"\b(?:GESCHLOSSEN|ENTSCHEIDEN|ENTSCHIEDEN|ZURUECKGESTELLT|ZURÜCKGESTELLT|NEU|OFFEN|"
+    r"FRAGE|WARTET)\b", re.IGNORECASE)
+
+
+def posten_status(text: str) -> tuple[list[tuple[str, str]], int, list[tuple[str, str]]]:
+    """(offen, Anzahl geschlossener, sammelweise geschlossene ohne eigenes Wort).
+
+    Ein Posten ist **offen**, wenn er weder "GESCHLOSSEN" traegt noch von einem
+    Sammel-Schluss mitgezogen wird. Die dritte Liste nennt die Mitgezogenen, damit die
+    Anzeige sie zeigen kann, statt sie zu verschweigen.
+    """
+    posten = _posten(text)
+    sammel = bool(_RE_SAMMEL_SCHLUSS.search(text or ""))
     offen: list[tuple[str, str]] = []
     geschlossen = 0
-    for nr, txt in _posten(text):
-        kopf = txt.upper()
-        if "GESCHLOSSEN" in kopf:
+    ohne: list[tuple[str, str]] = []
+    for nr, txt in posten:
+        if "GESCHLOSSEN" in txt.upper():
             geschlossen += 1
             continue
+        if sammel and not _RE_EIGENER_STATUS.search(txt):
+            ohne.append((nr, txt))
+            continue
         offen.append((nr, txt))
-    return offen, geschlossen
+    return offen, geschlossen, ohne
 
 
 # --------------------------------------------------- entscheidbare Frage (R13s)
@@ -826,9 +868,65 @@ _RE_MISCH_ZAHL = re.compile(r"(\d+)\s*B\s*[:\-/]\s*(\d+)\s*C\b", re.IGNORECASE)
 # Zeile, die MIT dem Strang beginnt ("Strang B, Batch 2 von hoechstens 20; …") - in
 # einem Auftrag beschreibt so eine Zeile den Batch, um den es in dem Auftrag geht.
 _RE_STRANG_ZEILE = re.compile(r"^\s*\**\s*Strang\s+([BC])\b", re.IGNORECASE | re.MULTILINE)
+# R13ac2 (Nutzerauftrag 2026-09-29): die zwei PFlichtzeilen, die die Batch-ART
+# ausdruecklich nennen. Beide Formen sind gemessen:
+#   "STRANG: B (B-Batch 4 von hoechstens 20; …). SOLL-KOEPFE: 0."   (runs/b212/review.md:51)
+#   "SOLL-KOEPFE: 0 (Strang B, B-Batch 3 von hoechstens 20; …)"     (runs/b211/auftrag.md:97)
+# Anlass: B211 trug NUR die zweite Form; keine Quelle griff, der Batch galt als C-Batch
+# und loeste eine Aussensicht aus (runs/meta-211.md).
+_RE_STRANG_PFLICHT = re.compile(r"^\s*\**\s*STRANG\s*:\s*([BC])\b", re.IGNORECASE | re.MULTILINE)
+_RE_SOLL_STRANG = re.compile(r"SOLL-KOEPFE[^\n]{0,80}?\bStrang\s+([BC])\b", re.IGNORECASE)
 
-STRANG_QUELLEN = ("Pflichtzeile B-SCHRITT im Review", "Auftrag runs/b<N>/auftrag.md",
+STRANG_QUELLEN = ("Pflichtzeile STRANG/SOLL-KOEPFE im Auftrag",
+                  "Pflichtzeile B-SCHRITT im Review", "Auftrag runs/b<N>/auftrag.md",
                   "analysis/hybrid-plan.md")
+
+
+def _pflicht_strang(text: str) -> str:
+    """`B`/`C` aus den Pflichtzeilen `STRANG:` bzw. `SOLL-KOEPFE: … (Strang B, …)`.
+
+    Nur diese zwei Zeilenformen werden gelesen - sie beschreiben den Batch, fuer den die
+    Instruktion geschrieben ist. Ein blosses "Strang B" im Fliesstext bleibt absichtlich
+    unberuecksichtigt (dort stehen oft FREMDE Batches).
+    """
+    for muster in (_RE_STRANG_PFLICHT, _RE_SOLL_STRANG):
+        m = muster.search(text or "")
+        if m:
+            return m.group(1).upper()
+    return ""
+
+
+def auftrags_text(cfg, batch: int) -> tuple[str, str]:
+    """Die Instruktion, die Batch `batch` bestellt hat - mit Quellenangabe.
+
+    Reihenfolge:
+      1. `runs/b<N>/auftrag.md`, Abschnitt ab `=== AUFTRAG (vom Reviewer) ===` -
+         das ist der Auftrag, wie er wirklich gesendet wurde.
+      2. sonst `runs/b<N>/review.md`, Block ab `<DS_INSTRUCTION>` - der Review, der ihn
+         bestellt hat (der Ordner `b<N>` traegt den Review von N-1). Das ist der Fall,
+         solange der Batch am Gate steht und noch nicht gestartet ist (B212).
+
+    Durchsucht wird NUR der Auftrags-/Instruktionsteil, nicht die Prosa des Reviews -
+    dort stehen Beschreibungen fremder Batches.
+    """
+    nummer = int(batch or 0)
+    if nummer <= 0:
+        return "", ""
+    p = Path(cfg.root) / "runs" / f"b{nummer:03d}" / "auftrag.md"
+    try:
+        text = read_text(p)
+    except OSError:
+        text = ""
+    if text:
+        i = text.find("=== AUFTRAG")
+        return (text[i:] if i >= 0 else text), f"runs/b{nummer:03d}/auftrag.md"
+    p = Path(cfg.root) / "runs" / f"b{nummer:03d}" / "review.md"
+    try:
+        text = read_text(p)
+    except OSError:
+        return "", ""
+    i = text.find("<DS_INSTRUCTION>")
+    return (text[i:] if i >= 0 else text), f"runs/b{nummer:03d}/review.md"
 
 
 def review_zu_batch(cfg, batch: int) -> str:
@@ -906,6 +1004,9 @@ def strang_von_batch(cfg, batch: int) -> dict:
 
     Quellen in dieser Reihenfolge (die erste, die etwas sagt, gewinnt):
 
+      0. **Pflichtzeile** `STRANG: B|C` bzw. `SOLL-KOEPFE: <n> (Strang B, …)` der
+         Instruktion, die diesen Batch bestellt hat (`runs/b<N>/auftrag.md`, sonst
+         `runs/b<N>/review.md` → `auftrags_text`, R13ac2).
       1. **Pflichtzeile** `B-SCHRITT: <n>/5 …` bzw. `B-SCHRITT: kein B-Batch (Strang C)`
          in der Review-Zusammenfassung dieses Batches (R13w).
       2. **Auftrag** `runs/b<N>/auftrag.md`, wenn er diesen Batch ausdruecklich nennt
@@ -918,21 +1019,27 @@ def strang_von_batch(cfg, batch: int) -> dict:
     bisher als C-Batch (die vorsichtige Seite - ein C-Batch zu viel zeigt eine Bewegung
     zu viel, aber verschluckt keinen Befund).
     """
+    # R13ac2 ZUERST: die ausdrueckliche Pflichtzeile der Instruktion ist der beste Beleg -
+    # B211 trug nur sie ("SOLL-KOEPFE: 0 (Strang B, …)") und galt sonst als C-Batch.
+    text, quelle = auftrags_text(cfg, batch)
+    s = _pflicht_strang(text)
+    if s in ("B", "C"):
+        return {"strang": s, "quelle": f"{STRANG_QUELLEN[0]} ({quelle})"}
     review = review_zu_batch(cfg, batch)
     if review:
         if _RE_B_SCHRITT.search(review):
-            return {"strang": "B", "quelle": STRANG_QUELLEN[0]}
+            return {"strang": "B", "quelle": STRANG_QUELLEN[1]}
         if _RE_B_SCHRITT_C.search(review):
-            return {"strang": "C", "quelle": STRANG_QUELLEN[0]}
+            return {"strang": "C", "quelle": STRANG_QUELLEN[1]}
     auftrag = _auftrag_zu_batch(cfg, batch)
     if auftrag:
         s = _auftrag_strang(auftrag, batch)
         if s in ("B", "C"):
-            return {"strang": s, "quelle": STRANG_QUELLEN[1]}
+            return {"strang": s, "quelle": STRANG_QUELLEN[2]}
     plan = plan_mischung(cfg)
     if plan.get("paare", {}).get(int(batch)):
         return {"strang": plan["paare"][int(batch)],
-                "quelle": f"{STRANG_QUELLEN[2]} ({plan['zeile'][:80]})"}
+                "quelle": f"{STRANG_QUELLEN[3]} ({plan['zeile'][:80]})"}
     return {"strang": "", "quelle": ""}
 
 
@@ -1365,7 +1472,9 @@ def plan_ist(cfg, n: int = STANDARD_FENSTER) -> list[dict]:
     out: list[dict] = []
     for e in d["fenster"]:
         batch = e["batch"]
-        auftrag = read_text(runs / f"b{batch}" / "auftrag.md")
+        # R13ac2: PLAN kommt aus der Instruktion, die DIESEN Batch bestellt hat (Auftrag,
+        # sonst der Review davor) - so ist auch die Zeile sichtbar, die noch am Gate steht.
+        auftrag, plan_quelle = auftrags_text(cfg, batch)
         geplant_k, geplant_i, quelle = geplante_koepfe(auftrag)
         lauf = lauf_ist(cfg, batch)
         dok = reihe.get(batch) or {}
@@ -1377,7 +1486,7 @@ def plan_ist(cfg, n: int = STANDARD_FENSTER) -> list[dict]:
             "strang": strang_von_batch(cfg, batch).get("strang") or "?",
             "geplant_koepfe": geplant_k or None,
             "geplant_insn": geplant_i or None,
-            "plan_quelle": quelle,
+            "plan_quelle": plan_quelle or quelle,
             "ist_koepfe": e["koepfe"],
             "ist_insn": e.get("insn"),
             "ist_faelle": dok.get("c_faelle"),

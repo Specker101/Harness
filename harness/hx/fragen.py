@@ -145,27 +145,48 @@ def fragen_posten(cfg, review_text: str | None = None, gate: dict | None = None)
 
 
 def _anker_posten(cfg) -> list[dict]:
+    """Ankerposten als Fragen - und die sammelweise geschlossenen als "zur Kenntnis".
+
+    R13ac2 (Nutzerauftrag 2026-09-29): Posten ohne eigenes Statuswort, die ein
+    Sammel-Schluss mitzieht ("Alle Posten GESCHLOSSEN. … Keine offene Nutzerfrage."),
+    sind KEINE offenen Fragen - standen aber als A4/A5 unter "OFFENE FRAGEN AN DICH".
+    Sie werden deshalb nach "ZUR KENNTNIS" verschoben (mit dem Grund im Label), statt
+    still zu verschwinden.
+    """
     kopf = stand.anchor_bloecke(cfg)
-    offen, _geschlossen = stand.offene_entscheidungen(kopf.get("Offene Entscheidung", ""))
-    out: list[dict] = []
-    for nr, txt in offen:
+    text = kopf.get("Offene Entscheidung", "")
+    offen, _geschlossen, ohne_status = stand.posten_status(text)
+
+    def eintrag(nr: str, txt: str, zur_kenntnis: bool, label: str) -> dict:
         ziffern = "".join(c for c in str(nr) if c.isdigit())
-        e = stand.entscheidbar(txt)
-        out.append({"id": f"A{ziffern or '?'}", "art": "Ankerposten",
-                    "label": "ANKERPOSTEN " + (nr or ""),
-                    "quelle": "Ankerkopf r1b-workstream.md",
-                    "bremst": False,
-                    # R13ab: ein Ankerposten ist eine echte Frage an den Nutzer.
-                    "zur_kenntnis": False,
-                    "frage": (e or {}).get("frage") or "",
-                    "rohtext": " ".join(str(txt).split()),
-                    "empfehlung": (e or {}).get("empfehlung") or "",
-                    "bei_ja": (e or {}).get("bei_ja") or "",
-                    "bei_nein": (e or {}).get("bei_nein") or "",
-                    # R13z: A/B-Fragen haben ihre Folgen unter "bei A:"/"bei B:".
-                    "bei_a": (e or {}).get("bei_a") or "",
-                    "bei_b": (e or {}).get("bei_b") or "",
-                    "entscheidbar": bool(e)})
+        e = stand.entscheidbar(txt) if not zur_kenntnis else None
+        roh = " ".join(str(txt).split())
+        return {"id": f"A{ziffern or '?'}", "art": "Ankerposten",
+                "label": label,
+                "quelle": "Ankerkopf r1b-workstream.md",
+                "bremst": False,
+                # R13ab: ein Ankerposten ist eine echte Frage an den Nutzer -
+                # R13ac2: ausser er ist vom Sammel-Schluss mitgezogen (dann "zur
+                # Kenntnis", und sein Wortlaut steht als Text da).
+                "zur_kenntnis": zur_kenntnis,
+                # WICHTIG: `frage` bleibt bei einem OFFENEN, nicht entscheidbaren Posten
+                # leer - sonst zeigt die Liste ihn als Frage statt als
+                # "UNKLAR FORMULIERT" (so ist es seit R13s belegt und getestet).
+                "frage": roh if zur_kenntnis else ((e or {}).get("frage") or ""),
+                "rohtext": roh,
+                "empfehlung": (e or {}).get("empfehlung") or "",
+                "bei_ja": (e or {}).get("bei_ja") or "",
+                "bei_nein": (e or {}).get("bei_nein") or "",
+                # R13z: A/B-Fragen haben ihre Folgen unter "bei A:"/"bei B:".
+                "bei_a": (e or {}).get("bei_a") or "",
+                "bei_b": (e or {}).get("bei_b") or "",
+                "entscheidbar": bool(e)}
+
+    out: list[dict] = [eintrag(nr, txt, False, "ANKERPOSTEN " + (nr or ""))
+                       for nr, txt in offen]
+    out += [eintrag(nr, txt, True,
+                    "ANKERPOSTEN " + (nr or "") + " (Sammel-Schluss im Anker)")
+            for nr, txt in ohne_status]
     return out
 
 
