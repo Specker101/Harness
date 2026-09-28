@@ -1,0 +1,167 @@
+# R13v-Nachprobe: faengt PowerShell(Start-Sleep*) auch die Schleife?
+# erzeugt 2026-09-28 17:13:40 von tools/r13v_sperrprobe.py
+# claude:  C:/Users/Benji/.local/bin/claude.exe
+# Modell:  deepseek-flash[1m] (Basis https://api.deepseek.com/anthropic)
+# Kommandozeile: hx.worker.build_command (wie im echten Batch), Profil 'none'
+# Umgebung:      hx.envs.worker_env (wie im echten Batch)
+
+======== Fall kontrolle ========
+Zusatz-Sperre : (keine - wie im echten Batch)
+Sperrliste    : 'mcp__ghidra' 'PowerShell(Start-Sleep*)' 'Bash(sleep *)'
+Befehl an das Modell:
+  Start-Sleep -Seconds 3
+
+rc=0  Dauer=5.6s  Zeilen=41
+URTEIL: BLOCKIERT
+Begruendung: Befehl im Mitschnitt wortgleich: 'Start-Sleep -Seconds 3' | tool_result: 'Permission to use PowerShell with command Start-Sleep -Seconds 3 has been denied.'
+Modell-Antwort (Auszug):
+  ERGEBNIS: BLOCKIERT
+  Permission to use PowerShell with command Start-Sleep -Seconds 3 has been denied.
+
+======== Fall schleife ========
+Zusatz-Sperre : (keine - wie im echten Batch)
+Sperrliste    : 'mcp__ghidra' 'PowerShell(Start-Sleep*)' 'Bash(sleep *)'
+Befehl an das Modell:
+  for ($i=0; $i -lt 40; $i++) { if (-not (Get-Process -Id 1 -EA 0)) { break }; Start-Sleep -Seconds 20 }
+
+rc=0  Dauer=5.9s  Zeilen=306
+URTEIL: BLOCKIERT
+Begruendung: Befehl im Mitschnitt wortgleich: 'for ($i=0; $i -lt 40; $i++) { if (-not (Get-Process -Id 1 -EA 0)) { break }; Start-Sleep -Seconds 20 }' | tool_result: 'Permission to use PowerShell with command for ($i=0; $i -lt 40; $i++) { if (-not (Get-Process -Id 1 -EA 0)) { break }; Start-Sleep -Seconds 20 } has been denied.'
+Modell-Antwort (Auszug):
+  ERGEBNIS: BLOCKIERT
+  Permission to use PowerShell with command for ($i=0; $i -lt 40; $i++) { if (-not (Get-Process -Id 1 -EA 0)) { break }; Start-Sleep -Seconds 20 } has been denied.
+
+======== Fall schleife_stern ========
+Zusatz-Sperre : ['PowerShell(*Start-Sleep*)']
+Sperrliste    : 'PowerShell(*Start-Sleep*)' 'mcp__ghidra' 'PowerShell(Start-Sleep*)' 'Bash(sleep *)'
+Befehl an das Modell:
+  for ($i=0; $i -lt 40; $i++) { if (-not (Get-Process -Id 1 -EA 0)) { break }; Start-Sleep -Seconds 20 }
+
+rc=0  Dauer=5.5s  Zeilen=215
+URTEIL: BLOCKIERT
+Begruendung: Befehl im Mitschnitt wortgleich: 'for ($i=0; $i -lt 40; $i++) { if (-not (Get-Process -Id 1 -EA 0)) { break }; Start-Sleep -Seconds 20 }' | tool_result: 'Permission to use PowerShell with command for ($i=0; $i -lt 40; $i++) { if (-not (Get-Process -Id 1 -EA 0)) { break }; Start-Sleep -Seconds 20 } has been denied.'
+Modell-Antwort (Auszug):
+  ERGEBNIS: BLOCKIERT
+  Permission to use PowerShell with command for ($i=0; $i -lt 40; $i++) { if (-not (Get-Process -Id 1 -EA 0)) { break }; Start-Sleep -Seconds 20 } has been denied.
+
+======== Fall schleife_deny2 ========
+Zusatz-Sperre : ['PowerShell(for *)']
+Sperrliste    : 'PowerShell(for *)' 'mcp__ghidra' 'PowerShell(Start-Sleep*)' 'Bash(sleep *)'
+Befehl an das Modell:
+  for ($i=0; $i -lt 40; $i++) { if (-not (Get-Process -Id 1 -EA 0)) { break }; Start-Sleep -Seconds 20 }
+
+rc=0  Dauer=5.1s  Zeilen=109
+URTEIL: BLOCKIERT
+Begruendung: Befehl im Mitschnitt wortgleich: 'for ($i=0; $i -lt 40; $i++) { if (-not (Get-Process -Id 1 -EA 0)) { break }; Start-Sleep -Seconds 20 }' | tool_result: 'Permission to use PowerShell with command for ($i=0; $i -lt 40; $i++) { if (-not (Get-Process -Id 1 -EA 0)) { break }; Start-Sleep -Seconds 20 } has been denied.'
+Modell-Antwort (Auszug):
+  ERGEBNIS: BLOCKIERT
+  Permission to use PowerShell with command for ($i=0; $i -lt 40; $i++) { if (-not (Get-Process -Id 1 -EA 0)) { break }; Start-Sleep -Seconds 20 } has been denied.
+
+======== Fall echo_kontrolle ========
+Zusatz-Sperre : (keine - wie im echten Batch)
+Sperrliste    : 'mcp__ghidra' 'PowerShell(Start-Sleep*)' 'Bash(sleep *)'
+Befehl an das Modell:
+  Write-Output "hallo"
+
+rc=0  Dauer=5.2s  Zeilen=34
+URTEIL: AUSGEFUEHRT
+Begruendung: Befehl im Mitschnitt wortgleich: 'Write-Output "hallo"' | tool_result: 'hallo'
+Modell-Antwort (Auszug):
+  ERGEBNIS: AUSGEFUEHRT
+  Exit-Code: 0
+  Ausgabe: hallo
+
+======== Fall if_sleep ========
+Zusatz-Sperre : (keine - wie im echten Batch)
+Sperrliste    : 'mcp__ghidra' 'PowerShell(Start-Sleep*)' 'Bash(sleep *)'
+Befehl an das Modell:
+  if ($true) { Start-Sleep -Seconds 3 }
+
+rc=0  Dauer=4.0s  Zeilen=24
+URTEIL: BLOCKIERT
+Begruendung: Befehl im Mitschnitt wortgleich: 'if ($true) { Start-Sleep -Seconds 3 }' | tool_result: 'Permission to use PowerShell with command if ($true) { Start-Sleep -Seconds 3 } has been denied.'
+Modell-Antwort (Auszug):
+  ERGEBNIS: BLOCKIERT
+  Permission to use PowerShell with command if ($true) { Start-Sleep -Seconds 3 } has been denied.
+
+======== Fall stueck_sleep ========
+Zusatz-Sperre : (keine - wie im echten Batch)
+Sperrliste    : 'mcp__ghidra' 'PowerShell(Start-Sleep*)' 'Bash(sleep *)'
+Befehl an das Modell:
+  Write-Output "a"; Start-Sleep -Seconds 3
+
+rc=0  Dauer=4.5s  Zeilen=105
+URTEIL: BLOCKIERT
+Begruendung: Befehl im Mitschnitt wortgleich: 'Write-Output "a"; Start-Sleep -Seconds 3' | tool_result: 'Permission to use PowerShell with command Write-Output "a"; Start-Sleep -Seconds 3 has been denied.'
+Modell-Antwort (Auszug):
+  ERGEBNIS: BLOCKIERT
+  Permission to use PowerShell with command Write-Output "a"; Start-Sleep -Seconds 3 has been denied.
+
+======== Fall alias_schleife ========
+Zusatz-Sperre : (keine - wie im echten Batch)
+Sperrliste    : 'mcp__ghidra' 'PowerShell(Start-Sleep*)' 'Bash(sleep *)'
+Befehl an das Modell:
+  for ($i=0; $i -lt 40; $i++) { if (-not (Get-Process -Id 1 -EA 0)) { break }; sleep -Seconds 20 }
+
+rc=0  Dauer=4.9s  Zeilen=182
+URTEIL: BLOCKIERT
+Begruendung: Befehl im Mitschnitt wortgleich: 'for ($i=0; $i -lt 40; $i++) { if (-not (Get-Process -Id 1 -EA 0)) { break }; sleep -Seconds 20 }' | tool_result: 'Permission to use PowerShell with command for ($i=0; $i -lt 40; $i++) { if (-not (Get-Process -Id 1 -EA 0)) { break }; sleep -Seconds 20 } has been denied.'
+Modell-Antwort (Auszug):
+  ERGEBNIS: BLOCKIERT
+  
+  Permission to use PowerShell with command for ($i=0; $i -lt 40; $i++) { if (-not (Get-Process -Id 1 -EA 0)) { break }; sleep -Seconds 20 } has been denied.
+
+======== Fall zitat_sleep ========
+Zusatz-Sperre : (keine - wie im echten Batch)
+Sperrliste    : 'mcp__ghidra' 'PowerShell(Start-Sleep*)' 'Bash(sleep *)'
+Befehl an das Modell:
+  Write-Output "Start-Sleep -Seconds 3"
+
+rc=0  Dauer=5.3s  Zeilen=50
+URTEIL: AUSGEFUEHRT
+Begruendung: Befehl im Mitschnitt wortgleich: 'Write-Output "Start-Sleep -Seconds 3"' | tool_result: 'Start-Sleep -Seconds 3'
+Modell-Antwort (Auszug):
+  ERGEBNIS: AUSGEFUEHRT
+  Exit-Code: 0
+  Ausgabe: Start-Sleep -Seconds 3
+
+======== Fall alias_allein ========
+Zusatz-Sperre : (keine - wie im echten Batch)
+Sperrliste    : 'mcp__ghidra' 'PowerShell(Start-Sleep*)' 'Bash(sleep *)'
+Befehl an das Modell:
+  sleep -Seconds 3
+
+rc=0  Dauer=4.1s  Zeilen=58
+URTEIL: BLOCKIERT
+Begruendung: Befehl im Mitschnitt wortgleich: 'sleep -Seconds 3' | tool_result: 'Permission to use PowerShell with command sleep -Seconds 3 has been denied.'
+Modell-Antwort (Auszug):
+  ERGEBNIS: BLOCKIERT
+  Permission to use PowerShell with command sleep -Seconds 3 has been denied.
+
+======== Fall fremder_schlaf ========
+Zusatz-Sperre : (keine - wie im echten Batch)
+Sperrliste    : 'mcp__ghidra' 'PowerShell(Start-Sleep*)' 'Bash(sleep *)'
+Befehl an das Modell:
+  [Threading.Thread]::Sleep(2000)
+
+rc=0  Dauer=8.2s  Zeilen=181
+URTEIL: AUSGEFUEHRT
+Begruendung: Befehl im Mitschnitt wortgleich: '[Threading.Thread]::Sleep(2000)' | tool_result: '(PowerShell completed with no output)'
+Modell-Antwort (Auszug):
+  ERGEBNIS: AUSGEFUEHRT
+  
+  Exit-Code: 0 (Werkzeug meldete "PowerShell completed with no output")
+  Ausgabe: keine — `[Threading.Thread]::Sleep(2000)` gibt keinen Wert zurueck (Rueckgabetyp void), Laufzeit ca. 2 s.
+
+======== Zusammenfassung ========
+  kontrolle        -> BLOCKIERT
+  schleife         -> BLOCKIERT
+  schleife_stern   -> BLOCKIERT
+  schleife_deny2   -> BLOCKIERT
+  echo_kontrolle   -> AUSGEFUEHRT
+  if_sleep         -> BLOCKIERT
+  stueck_sleep     -> BLOCKIERT
+  alias_schleife   -> BLOCKIERT
+  zitat_sleep      -> AUSGEFUEHRT
+  alias_allein     -> BLOCKIERT
+  fremder_schlaf   -> AUSGEFUEHRT

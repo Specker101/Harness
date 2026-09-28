@@ -555,6 +555,75 @@ Die Zeile `- Laufzeit-Profil: …` nennt die Warteschleifen jetzt ausdrücklich
 (`WARTESCHLEIFEN n Aufrufe / ~s geschätzt`), damit der Reviewer den nächsten Auftrag
 darauf zuschneiden kann.
 
+#### Nachgemessen mit echtem claude-Lauf (2026-09-28)
+
+Die Sperre war nur behauptet — jetzt ist sie gemessen. Werkzeug
+`tools/r13v_sperrprobe.py` fährt den **echten** `claude`-Prozess mit **genau** der
+Kommandozeile des Workers (`hx.worker.build_command`, Profil `none`) und der Umgebung
+des Workers; das Modell bekommt je Fall einen Befehl wörtlich zum Ausführen, bewertet
+wird der Mitschnitt (nicht die Modellprosa). Beleg: `docs/_r13v_sperrprobe.txt`
+(11 Fälle, gesamt ≈ 60 s Rechenzeit).
+
+| Befehl | Sperrliste | Ergebnis |
+|---|---|---|
+| `Write-Output "hallo"` | wie im Batch | **ausgeführt** (das Werkzeug läuft also) |
+| `Start-Sleep -Seconds 3` | wie im Batch | **blockiert** |
+| `for ($i=0; $i -lt 40; $i++) { …; Start-Sleep -Seconds 20 }` | wie im Batch | **blockiert** |
+| `if ($true) { Start-Sleep -Seconds 3 }` | wie im Batch | **blockiert** |
+| `Write-Output "a"; Start-Sleep -Seconds 3` | wie im Batch | **blockiert** |
+| `for (…) { …; sleep -Seconds 20 }` (PowerShell-Alias) | wie im Batch | **blockiert** |
+| `Write-Output "Start-Sleep -Seconds 3"` (blosse Erwähnung) | wie im Batch | **ausgeführt** |
+| `[Threading.Thread]::Sleep(2000)` | wie im Batch | **ausgeführt** (nicht gesperrt) |
+| dieselbe Schleife | zusätzlich `PowerShell(*Start-Sleep*)` | blockiert (nicht nötig) |
+| dieselbe Schleife | zusätzlich `PowerShell(for *)` | blockiert (nicht nötig) |
+
+**Befund:** `PowerShell(Start-Sleep*)` ist **keine Präfix-Regel**. Der Werkzeugkasten
+löst den Befehl in seine Bestandteile auf (alias-bewusst) und prüft jeden Teil — deshalb
+wird auch die Schleife abgelehnt, obwohl sie mit `for (` beginnt. Eine blosse
+Erwähnung im Text zählt nicht. Nicht gesperrt bleibt `[Threading.Thread]::Sleep(…)`;
+dafür greift nur der Wächter — seit R13v2 wird auch diese Schreibweise **geschätzt**
+(vorher 0 s ⇒ nur Alarm, kein Abbruch), siehe `hx/streamjson.py::warte_normalisiert`.
+
+#### Notbremse: was danach im Arbeitsbaum liegt
+
+`hx/proc.py::kill_tree` beendet mit `taskkill /PID <claude> /T /F` **den Baum** des
+Worker-Prozesses. Messung mit der versionierten Sonde `tools/r13v_waise_probe.ps1`
+(Beleg `docs/_r13v_waise.txt`, Herzschlag-Dateien statt Vermutungen):
+
+| Fall | nach `taskkill /T /F` |
+|---|---|
+| Prozess **im Baum** (Kind des lebenden Werkzeug-Shells, V3) | **beendet** (Herzschlag steht) |
+| Prozess **ohne Elternbezug** (per WMI `Win32_Process.Create` gestartet, V2/V4 = Muster „im Hintergrund weiterlaufen") | **läuft weiter** (Herzschlag frisch) |
+| Kind eines Shells, das per `Start-Process` startete und dann **endete** (V1) | beendet — in dieser Sitzung, siehe Warnung unten |
+
+Dass der Hintergrundlauf im echten Betrieb ebenfalls **ohne** Elternbezug weiterläuft,
+ist an B207 ablesbar: PID 4996 wurde in Zeile `66903` gestartet und lebte **über 19
+Minuten nach dem Ende des aufrufenden Werkzeugaufrufs** weiter (die Poll-Schleifen
+brauchten 601,9 s und 481,8 s, bis er verschwand). Der Sandkasten und der echte Betrieb
+weichen hier ab (V1 stirbt, B207 nicht) — **maßgeblich ist der belegte B207-Fall**: eine
+verschwundene Startshell ist **kein** Beweis, dass der Lauf beendet ist.
+
+Der Harness **räumt danach nichts
+auf**: es gibt keinen Prozess-Scan und kein Nachfassen (die Muster-Prüfung in
+`on_event`/`abbau_ursache` liest nur den Mitschnitt). Der nächste Batch kann also einen
+fremden `python`-Lauf antreffen, der weiter in `analysis/…` schreibt — erkennbar an
+`WARTESCHLEIFEN` / `GRENZE AUSGELOEST: warteschleife` im `result.json` des Vorgängers und
+daran, dass Belegdateien weiter wachsen.
+
+Weiter steht nach einem Abbruch:
+
+* `runs/b<N>/stream.jsonl` (endet an der Abbruchstelle), `stream.err.txt`,
+  `result.json` mit `"killed_reason": "warteschleife"`, `antwort.md` (ggf. leer),
+  `harness-facts.md` mit der Zeile `WARTESCHLEIFEN …`;
+* der Auftrag ist **verbraucht** (Gate gelöscht, `/claude`-Queue zugestellt — R13u),
+  die Batch-Nummer bleibt bei `N`, der nächste Review plant `N+1`: der halbe Batch wird
+  **nicht** wiederholt, der Reviewer entscheidet (typisch: Aufräum-Batch);
+* der Batch geht den **normalen Weg weiter** — Push und Review (`orchestrator.py:2210`),
+  keine automatische Rücknahme. Unfertige Änderungen des Workers bleiben im Arbeitsbaum;
+  die Git-Vorprüfung des nächsten Batches verlangt **keinen sauberen Baum**
+  (`orchestrator.py:996`), sie holt nur den Remote-Stand. Gesichert werden sie erst,
+  wenn der **Harness** gestoppt wird (`wip_rescue`, `orchestrator.py:1126/2026/2281`).
+
 ### 12b. Was der Nutzer selbst entscheiden muss
 
 Der grösste Hebel liegt ausserhalb des Harness: die 68K-Emulationsläufe im Decomp-Repo

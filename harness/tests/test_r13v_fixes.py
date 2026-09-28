@@ -69,6 +69,36 @@ class TestMuster(unittest.TestCase):
         # 40 Schritte x 20 s = 800 s (Obergrenze) - so rechnet auch R13h.
         self.assertAlmostEqual(streamjson.warte_sekunden(POLL40), 800.0, places=1)
 
+    def test_alias_und_fremdschlaf_werden_gemessen(self):
+        """R13v2: Formen, die die Sperre NICHT faengt, muessen messbar bleiben.
+
+        Nachgemessen am 2026-09-28 mit echtem claude-Lauf
+        (`tools/r13v_sperrprobe.py`, `docs/_r13v_sperrprobe.txt`):
+          * `PowerShell(Start-Sleep*)` sperrt `Start-Sleep` an JEDER Stelle und loest
+            den Alias `sleep` auf - die Schleife ist also schon gesperrt,
+          * `[Threading.Thread]::Sleep(2000)` ist NICHT gesperrt.
+        Damit der Waechter auch dort abbricht statt nur zu melden, muss die Wartezeit
+        geschaetzt werden - vorher stand hier 0,0 s und der Fund blieb ein Alarm.
+        """
+        alias = ("for ($i=0; $i -lt 40; $i++) { Get-Process -Id 4996; "
+                 "sleep -Seconds 20 }")
+        self.assertAlmostEqual(streamjson.warte_sekunden(alias), 800.0, places=1)
+        thread = ("for ($i=0; $i -lt 40; $i++) { Get-Process -Id 4996; "
+                  "[Threading.Thread]::Sleep(20000) }")
+        self.assertIsNotNone(streamjson.warte_muster(thread))
+        self.assertAlmostEqual(streamjson.warte_sekunden(thread), 800.0, places=1)
+        self.assertEqual(streamjson.warte_entscheidung(
+            1, streamjson.warte_sekunden(thread),
+            streamjson.warte_sekunden(thread))[0], "kill")
+        # Millisekunden-Schreibweisen ohne Schleife
+        self.assertAlmostEqual(
+            streamjson.warte_sekunden("[Threading.Thread]::Sleep(2500)"), 2.5, places=1)
+
+    def test_blosse_erwaehnung_ist_keine_warteschleife(self):
+        # Der Befehl nennt `Start-Sleep` nur in einem Text - kein Schlaf, keine Schleife.
+        self.assertIsNone(streamjson.warte_muster('Write-Output "Start-Sleep -Seconds 3"'))
+        self.assertIsNone(streamjson.warte_muster("Select-String -Pattern 'Start-Sleep' -Path x"))
+
 
 class TestEntscheidung(unittest.TestCase):
     def test_erster_fund_nur_alarm(self):

@@ -1,0 +1,16 @@
+﻿R13v2-Waisenmessung (Notbremse = taskkill /PID <wurzel> /T /F)
+python    : C:\Users\Benji\AppData\Local\Programs\Python\Python312\python.exe
+herzschlag: G:\Harness\tools\r13v_herzschlag.py
+
+V1  Startende Shell endet sofort            -> letzter Eintrag vor 5.4 s (ENDE)
+V2  Startende Shell endet (Start per WMI)   -> letzter Eintrag vor 0.2 s (17:32:43.293)
+V3  Startende Shell LEBT (wie claude.exe)   -> letzter Eintrag vor 0.4 s (17:32:48.150)
+V3  nach taskkill /PID 19356 /T /F        -> letzter Eintrag vor 4 s (17:32:48.650)
+V4  Hintergrundlauf im lebenden Shell-Baum      -> letzter Eintrag vor 0.3 s (17:32:57.409)
+V4  nach taskkill /PID 11644 /T /F       -> letzter Eintrag vor 0.4 s (17:33:01.413)
+
+Lesart: eine kleine Sekundenzahl heisst, der Prozess schreibt noch (lebt);
+'ENDE' oder eine grosse Zahl heisst, er ist beendet.
+Ergebnis gilt fuer DIESE Maschine/Sitzung; die Herzschlagdateien liegen in
+G:\Harness\sandbox\sperrprobe
+Beleg: G:\Harness\docs\_r13v_waise.txt

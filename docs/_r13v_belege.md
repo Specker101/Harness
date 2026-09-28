@@ -86,3 +86,60 @@ Tests: `harness/tests/test_r13v_fixes.py` (13). Angepasst:
 (verlangte den alten, irrefuehrenden Satz „kurzer Schritt (10-20 s)").
 Werkzeuge: `tools/warte_analyse.py`, `tools/kosten_nachrechnung.py`.
 Reihe: **469 Tests gruen** (vorher 456 + 13).
+
+## 4. Nachprobe vor dem Neustart: faengt die Sperre auch die Schleife? (R13v2)
+
+Werkzeug `tools/r13v_sperrprobe.py`, Beleg `docs/_r13v_sperrprobe.txt`. Es laeuft der
+**echte** `claude`-Prozess mit **genau** der Worker-Kommandozeile
+(`hx.worker.build_command`, Profil `none`) und der Worker-Umgebung (`hx.envs.worker_env`);
+das Modell bekommt je Fall einen Befehl woertlich zum Ausfuehren, bewertet wird der
+Mitschnitt (`tool_use`-Eingabe + `tool_result`), nicht die Modellprosa. 11 Faelle,
+je 4–7 s.
+
+| Befehl | Sperre | Ergebnis |
+|---|---|---|
+| `Write-Output "hallo"` | wie im Batch | ausgefuehrt (Werkzeug laeuft) |
+| `Start-Sleep -Seconds 3` | wie im Batch | **blockiert** |
+| `for ($i=0; $i -lt 40; $i++) { …; Start-Sleep -Seconds 20 }` | wie im Batch | **blockiert** |
+| `if ($true) { Start-Sleep -Seconds 3 }` | wie im Batch | **blockiert** |
+| `Write-Output "a"; Start-Sleep -Seconds 3` | wie im Batch | **blockiert** |
+| `for (…) { …; sleep -Seconds 20 }` (Alias) | wie im Batch | **blockiert** |
+| `Write-Output "Start-Sleep -Seconds 3"` | wie im Batch | ausgefuehrt |
+| `[Threading.Thread]::Sleep(2000)` | wie im Batch | ausgefuehrt |
+| Schleife | zusaetzlich `PowerShell(*Start-Sleep*)` | blockiert (nicht noetig) |
+| Schleife | zusaetzlich `PowerShell(for *)` | blockiert (nicht noetig) |
+
+Wortlaut der Ablehnung (aus dem Mitschnitt):
+*„Permission to use PowerShell with command for ($i=0; $i -lt 40; $i++) { … } has been
+denied."*
+
+**Fazit:** die Sperre ist **keine** Praefix-Regel; der Werkzeugkasten prueft die
+Bestandteile des Befehls (alias-bewusst), deshalb faellt auch die Schleife darunter.
+Nicht gesperrt ist `[Threading.Thread]::Sleep(…)` - dafuer greift nur der Waechter.
+
+## 5. Notbremse: was der naechste Batch vorfindet
+
+Sonde `tools/r13v_waise_probe.ps1` (Herzschlag `tools/r13v_herzschlag.py`), Beleg
+`docs/_r13v_waise.txt` (Zeitstempel alle 0,5 s in eine Datei; frische Datei = Prozess
+lebt, `ENDE` = beendet).
+
+| Fall | nach `taskkill /T /F` auf den Baum |
+|---|---|
+| V3: Kind im Baum eines **lebenden** Shells | beendet (Herzschlag steht bei 17:32:48) |
+| V2/V4: per WMI gestartet, **kein** Elternbezug | laeuft weiter (Herzschlag frisch, 0,2–0,4 s) |
+| V1: Kind per `Start-Process`, startender Shell endet | in dieser Sitzung beendet — **weicht vom echten Betrieb ab** |
+
+Dass der echte Hintergrundlauf ebenfalls ohne Elternbezug weiterlaeuft, zeigt B207:
+PID 4996 lebte **ueber 19 Minuten nach dem Ende des startenden Werkzeugaufrufs**
+(`stream.jsonl:66903` gestartet, danach 601,9 s + 481,8 s Poll-Zeit bis zum Verschwinden).
+Der Harness raeumt nichts auf: kein Prozess-Scan, kein Nachfassen. Was sonst liegen
+bleibt (Mitschnitt, `result.json` mit `killed_reason`, verbrauchter Auftrag, Push+Review
+ohne Ruecknahme, kein Zwang zum sauberen Baum), steht in `docs/bedienung.md` §12c.
+
+**R13v2 (kleine Korrektur, aus dieser Messung):**
+`hx/streamjson.py::warte_normalisiert` schaetzt jetzt auch `sleep -Seconds N` und
+`[Threading.Thread]::Sleep(N)`; vorher stand bei solchen Befehlen `0,0 s` und der Fund
+blieb ein **Alarm** statt eines Abbruchs (gemessen an der Sondenschleife: 800 s statt 0 s).
+Tests dazu in `tests/test_r13v_fixes.py`
+(`test_alias_und_fremdschlaf_werden_gemessen`, `test_blosse_erwaehnung_ist_keine_warteschleife`).
+

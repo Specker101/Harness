@@ -189,6 +189,28 @@ WARTE_EINZEL_AB_S = 300.0       # ein EINZELNER Aufruf mit so viel Wartezeit bri
 WARTE_SUMME_AB_S = 300.0        # aufsummierte Wartezeit im Lauf bricht ab
 
 
+def warte_normalisiert(text) -> str:
+    """Schreibweisen auf die Form bringen, die `_SLEEP_RE` versteht (R13v2, 2026-09-28).
+
+    Anlass ist eine Messung mit ECHTEM claude-Lauf (`tools/r13v_sperrprobe.py`,
+    Beleg `docs/_r13v_sperrprobe.txt`): die Sperre `PowerShell(Start-Sleep*)` lehnt
+    `Start-Sleep` an JEDER Stelle des Befehls ab - auch in `if (…) { … }`, hinter
+    `;` und in einer `for`-Schleife - und loest dabei den PowerShell-Alias `sleep`
+    auf. `[Threading.Thread]::Sleep(2000)` ist dagegen NICHT gesperrt. Damit auch
+    solche Befehle eine GESCHAETZTE Wartezeit bekommen (sonst bliebe es beim Alarm
+    statt beim Abbruch), werden die verbreiteten Schreibweisen hier vereinheitlicht.
+    """
+    t = str(text or "")
+    if not t or ("sleep" not in t.lower()):
+        return t
+    t = re.sub(r"\bsleep\s+-seconds\s+", "start-sleep -seconds ", t, flags=re.IGNORECASE)
+    t = re.sub(r"\bsleep\s+-milliseconds\s+", "start-sleep -milliseconds ", t,
+               flags=re.IGNORECASE)
+    t = re.sub(r"(?:[\w.]*\b)?sleep\s*\(\s*(\d+)\s*\)",
+               r"start-sleep -milliseconds \1", t, flags=re.IGNORECASE)
+    return t
+
+
 def warte_muster(befehl) -> str | None:
     """Erkennt Warteschleifen in einem Befehl (R13v). `None` = erlaubt.
 
@@ -202,7 +224,7 @@ def warte_muster(befehl) -> str | None:
       * fester Schlaf ab 30 s,
       * Schleife, die einen Prozess abfragt (auch ohne Schlaf-Schaetzung).
     """
-    t = str(befehl or "")
+    t = warte_normalisiert(befehl)
     if not t:
         return None
     if _WA_WAITPROC.search(t):
@@ -246,7 +268,7 @@ def warte_sekunden(befehl) -> float:
     Schleifenzahl multipliziert, weil das die Obergrenze des Wartens ist.
     (Gemessen 2026-09-26: b174 hatte 19 solcher Befehle, zusammen 1993 s.)
     """
-    text = str(befehl or "")
+    text = warte_normalisiert(befehl)
     if not text or ("sleep" not in text.lower()):
         return 0.0
     summe = 0.0

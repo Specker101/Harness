@@ -194,8 +194,15 @@ def build_command(cfg, profile, run_path: Path, session_id: str,
     # R13v (2026-09-28): das WARTE-PRIMITIV sperren. Gemessen in B207: zwei
     # Abfrageschleifen kosteten 1083,7 s (`stream.jsonl:76873/77152`). Der erlaubte
     # Weg fuer lange Laeufe steht im Vorspann (`Wait-Process -Timeout`, oder synchron
-    # mit `timeout` bis 600000 ms). Das Praefix-Muster faengt den nackten Schlaf; die
-    # Schleife selbst faengt `streamjson.warte_muster` im Waechter (siehe on_event).
+    # mit `timeout` bis 600000 ms).
+    # NACHGEMESSEN am 2026-09-28 mit echtem claude-Lauf (tools/r13v_sperrprobe.py,
+    # Beleg docs/_r13v_sperrprobe.txt): die Sperre wirkt NICHT als Praefix-Regel.
+    # `PowerShell(Start-Sleep*)` lehnt `Start-Sleep` an JEDER Stelle des Befehls ab -
+    # nackt, hinter `;`, in `if (…) { … }` und in der `for`-Schleife (wortgleich) -
+    # und loest den Alias `sleep` dabei auf. Nur eine blosse ERWAEHNUNG im Text
+    # (`Write-Output "Start-Sleep -Seconds 3"`) laeuft durch.
+    # Nicht gesperrt: `[Threading.Thread]::Sleep(2000)`. Dafuer ist der Waechter da
+    # (`streamjson.warte_muster` im on_event, R13v2 schaetzt auch diese Form).
     denied = denied + ["PowerShell(Start-Sleep*)", "Bash(sleep *)"]
     cmd += ["--disallowedTools", *denied]
     if system_prompt_file:
@@ -697,10 +704,13 @@ RECHENZEIT (R13v, gemessen 2026-09-28 - bitte einhalten)
   2. **Nur wenn es laenger als 10 min dauern kann:** `Start-Process … -PassThru` und
      dann **EIN** `Wait-Process -Id $p.Id -Timeout 480` - und danach die Ausgabe
      lesen. Kein zweiter Wartebefehl, keine Schleife.
-- **`Start-Sleep` ist GESPERRT** (auch im Werkzeug: `PowerShell(Start-Sleep*)` wird
-  abgelehnt). **Keine Abfrageschleife** (`for`/`while` mit `Start-Sleep` oder
-  `Get-Process`): der Harness erkennt sie im Mitschnitt, meldet sie und **bricht den
-  Lauf ab**, sobald 300 s Wartezeit zusammenkommen (`streamjson.warte_muster`).
+- **`Start-Sleep` ist GESPERRT** - nachgemessen am 2026-09-28 mit echtem Lauf: das
+  Werkzeug lehnt `Start-Sleep` an JEDER Stelle ab (nackt, hinter `;`, in `if (…) { … }`,
+  in der Schleife) und loest auch den Alias `sleep` auf (`docs/_r13v_sperrprobe.txt`).
+  **Keine Abfrageschleife** (`for`/`while` mit `Start-Sleep` oder `Get-Process`): der
+  Harness erkennt sie im Mitschnitt, meldet sie und **bricht den Lauf ab**, sobald 300 s
+  Wartezeit zusammenkommen (`streamjson.warte_muster`). Das gilt auch fuer Formen, die
+  die Sperre nicht faengt (`[Threading.Thread]::Sleep(2000)`).
 - **Unabhaengige Rechenlaeufe parallel starten, nicht nacheinander.** Die Maschine hat
   4 Kerne; ein Lauf ueber alle IDs in EINEM Prozess ist fast immer schneller als viele
   Einzelaufrufe hintereinander (jeder zahlt das Laden erneut).
