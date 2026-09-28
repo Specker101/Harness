@@ -268,6 +268,7 @@ class TestJobObjekt(unittest.TestCase):
         finally:
             job.close()
             stream.unlink(missing_ok=True)
+            stream.with_suffix(stream.suffix + ".err").unlink(missing_ok=True)
             if run.pid:
                 subprocess.run(["taskkill", "/PID", str(run.pid), "/T", "/F"],
                                capture_output=True)
