@@ -525,9 +525,35 @@ Quelländerungen, **6,7 s**, wenn nichts zu bauen ist) — und in reinen Wartebe
 * **Laufzeit-Profil im Review und in der Batch-Meldung.** Werkzeugzeit, Modellzeit und
   Wartezeit stehen ab jetzt in `harness-facts.md` (Zeile `- Laufzeit-Profil: …`) und in
   der Telegram-Meldung am Batch-Ende (`Zeit: …`), samt der drei langsamsten Aufrufe.
-* **Worker-Vorspann, Abschnitt „RECHENZEIT"**: unabhängige Rechenläufe **parallel**
-  (4 Kerne) statt nacheinander, und kein `Start-Sleep -Seconds 300` als Wartemuster —
-  Abbruchbedingung mit kurzem Schritt (10–20 s) oder `Wait-Process -Timeout`.
+* **Worker-Vorspann, Abschnitt „RECHENZEIT"** (R13h; **R13v hat ihn ersetzt**, s. 12c):
+  unabhängige Rechenläufe **parallel** (4 Kerne) statt nacheinander.
+
+### 12c. Warteschleifen: technisch verhindert, nicht nur verboten (R13v, 2026-09-28)
+
+Gemessen in B207 (`runs/b207/stream.jsonl`, Beleg `docs/_r13v_beleg_b207.txt`): das
+Werkzeug kappte einen Lauf bei **600 s** und schob ihn in den **Hintergrund**
+(`stream.jsonl:76897` — *„Command did not complete within its 600s timeout and was moved
+to the background"*). Der Worker wartete danach in **zwei Abfrageschleifen** auf PID 4996:
+`stream.jsonl:76873` **601,9 s**, `stream.jsonl:77152` **481,8 s** — zusammen **1083,7 s**
+von 2845 s Laufzeit (der Harness-Schätzwert lag bei 1390 s). In B174 waren es 1993 s.
+Der Vorspann verbot das bis dahin nur in Prosa und empfahl sogar „kurze Schritte (10–20 s)"
+— also genau das Muster.
+
+Drei Ebenen ersetzen das Verbot:
+
+| Ebene | Was | Wo |
+|---|---|---|
+| **Ursache weg** | Werkzeug-Zeitgrenze des Workers auf **600 000 ms als Standard** — ein 7–10-Minuten-Lauf läuft synchron in EINEM Aufruf, es gibt keinen Grund mehr, im Hintergrund zu starten | `hx/envs.py` (`BASH_DEFAULT_TIMEOUT_MS`, `BASH_MAX_TIMEOUT_MS`) |
+| **Sperre** | `PowerShell(Start-Sleep*)` und `Bash(sleep *)` werden dem Werkzeug **verboten** | `hx/worker.py::build_command` (`--disallowedTools`) |
+| **Wächter mit Eingriff** | Der Mitschnitt wird live geprüft: Abfrageschleife (`for`/`while`/`do` mit `Start-Sleep`/`Get-Process`), fester Schlaf ≥ 30 s, Schleife mit Prozessabfrage. Erster Fund = **Alarm** (Telegram + Bericht), ab **300 s** Wartezeit (einzeln oder summiert) **bricht der Lauf ab** mit Grund `warteschleife` | `hx/streamjson.py::warte_muster`/`warte_entscheidung`, `hx/worker.py::on_event` |
+
+Der **erlaubte Weg** steht im Vorspann (Abschnitt „RECHENZEIT") und wird im Test
+festgehalten: synchron mit `timeout` (bis 600 000 ms) für alles bis 10 Minuten, sonst
+`Start-Process … -PassThru` + **EIN** `Wait-Process -Id $p.Id -Timeout 480`. `Wait-Process`
+und `Start-Process -Wait` gelten als erlaubt, `Start-Sleep` nicht.
+Die Zeile `- Laufzeit-Profil: …` nennt die Warteschleifen jetzt ausdrücklich
+(`WARTESCHLEIFEN n Aufrufe / ~s geschätzt`), damit der Reviewer den nächsten Auftrag
+darauf zuschneiden kann.
 
 ### 12b. Was der Nutzer selbst entscheiden muss
 

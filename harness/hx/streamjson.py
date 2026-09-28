@@ -168,6 +168,75 @@ _SLEEP_RE = re.compile(r"start-sleep\s+(?:-seconds\s+)?(\d+(?:\.\d+)?)"
                        r"|\bsleep\s+(\d+)\b", re.IGNORECASE)
 _SCHLEIFE_RE = re.compile(r"for\s*\(\s*\$[a-z]+\s*=\s*0;", re.IGNORECASE)
 
+# ---------------------------------------------------------------------------
+# R13v (2026-09-28): WARTESCHLEIFEN.
+# Gemessen in B207 (`runs/b207/stream.jsonl`): das Werkzeug kappte einen Lauf bei
+# 600 s und schob ihn in den HINTERGRUND (Zeile 76897: "Command did not complete
+# within its 600s timeout and was moved to the background"). Der Worker wartete
+# danach in ZWEI Abfrageschleifen auf PID 4996 - 601,9 s (Zeile 76873) und 481,8 s
+# (Zeile 77152), zusammen 1083,7 s von 2846 s Laufzeit. In B174 waren es 1993 s.
+# Der Vorspann verbot das nur in Prosa und empfahl sogar "kurze Schritte (10-20 s)" -
+# das ist genau das Muster. Hier wird es ERKANNT; `warte_entscheidung` sagt, wann
+# der Lauf abgebrochen wird.
+_WA_POLL = re.compile(r"(?:for|while)\s*\(|do\s*\{", re.IGNORECASE)
+_WA_SLEEP = re.compile(r"start-sleep|\bsleep\s+\d", re.IGNORECASE)
+_WA_PROC = re.compile(r"get-process|get-ciminstance|tasklist", re.IGNORECASE)
+_WA_WAITPROC = re.compile(r"wait-process|start-process[^\n]*-wait\b", re.IGNORECASE)
+# Ein Warten auf eine feste Zeit ist auch ohne Schleife eine Warteschleife im Geist.
+_WA_FEST = re.compile(r"start-sleep\s+(?:-seconds\s+)?(\d+(?:\.\d+)?)", re.IGNORECASE)
+WARTE_FEST_AB_S = 30.0          # ab hier ist ein fester Schlaf keine Pause mehr
+WARTE_EINZEL_AB_S = 300.0       # ein EINZELNER Aufruf mit so viel Wartezeit bricht ab
+WARTE_SUMME_AB_S = 300.0        # aufsummierte Wartezeit im Lauf bricht ab
+
+
+def warte_muster(befehl) -> str | None:
+    """Erkennt Warteschleifen in einem Befehl (R13v). `None` = erlaubt.
+
+    Erlaubt und NICHT gemeldet:
+      * `Wait-Process -Timeout <s>` (der benannte Weg fuer lange Laeufe),
+      * `Start-Process -Wait`,
+      * ein fester `Start-Sleep` unter 30 s (kurze Kunstpause),
+      * jeder Befehl ohne Schlaf/Prozessabfrage.
+    Gemeldet:
+      * Poll-Schleife: `for`/`while`/`do` MIT `Start-Sleep`/`Get-Process`,
+      * fester Schlaf ab 30 s,
+      * Schleife, die einen Prozess abfragt (auch ohne Schlaf-Schaetzung).
+    """
+    t = str(befehl or "")
+    if not t:
+        return None
+    if _WA_WAITPROC.search(t):
+        return None
+    if _WA_POLL.search(t) and (_WA_SLEEP.search(t) or _WA_PROC.search(t)):
+        return "Abfrageschleife (for/while + Start-Sleep/Get-Process)"
+    m = _WA_FEST.search(t)
+    if m:
+        try:
+            if float(m.group(1)) >= WARTE_FEST_AB_S:
+                return f"fester Start-Sleep {m.group(1)} s"
+        except (TypeError, ValueError):
+            pass
+    if _WA_POLL.search(t) and _WA_PROC.search(t):
+        return "Schleife mit Prozessabfrage"
+    return None
+
+
+def warte_entscheidung(anzahl: int, summe_s: float, einzel_s: float) -> tuple[str | None, str]:
+    """Was mit erkannten Warteschleifen geschehen soll (R13v).
+
+    Rueckgabe: ("kill"|"alarm"|None, Begruendung).
+      * `kill`  - der Lauf wird abgebrochen (Notbremse, wie beim Prozessabbau R13i):
+                  ein einzelner Aufruf >= 300 s geschaetzter Wartezeit ODER die Summe
+                  im Lauf >= 300 s. Die Zeit fehlt sonst am Ende fuer die Arbeit.
+      * `alarm` - der erste Fund wird gemeldet (Telegram + Zusammenfassung), aber
+                  der Lauf darf weiterarbeiten (eine kurze Pause ist kein Verbrechen).
+    """
+    if einzel_s >= WARTE_EINZEL_AB_S or summe_s >= WARTE_SUMME_AB_S:
+        return "kill", (f"Warteschleife: {anzahl} Aufrufe, zusammen ~{summe_s:.0f} s "
+                        f"(dieser ~{einzel_s:.0f} s) - Grenze {WARTE_SUMME_AB_S:.0f} s")
+    return "alarm", (f"Warteschleife erkannt ({anzahl}): ~{summe_s:.0f} s geschaetzte "
+                     f"Wartezeit")
+
 
 def warte_sekunden(befehl) -> float:
     """Reine Wartezeit in einem Befehl schaetzen (R13h).
@@ -496,6 +565,8 @@ class StreamStats:
         self.slow_tools: list[dict] = []     # die laengsten Werkzeugaufrufe (max 5)
         # R13i: Muster-Prozessabbau (kann den Harness selbst toeten)
         self.abbau: list[dict] = []
+        # R13v: Warteschleifen (Abfrageschleifen, feste Schlafe) - mit Wartezeit
+        self.warteschleifen: list[dict] = []
 
     # ------------------------------------------------------------------ Feed
     def feed(self, line: str) -> dict | None:
@@ -600,10 +671,18 @@ class StreamStats:
                     # der Harness kann den Lauf noch abbrechen).
                     if name in ("PowerShell", "Bash", "Shell", "Terminal"):
                         eingabe = block.get("input") or {}
-                        grund = abbau_gefahr(eingabe.get("command") if isinstance(eingabe, dict) else "")
+                        befehl_roh = eingabe.get("command") if isinstance(eingabe, dict) else ""
+                        grund = abbau_gefahr(befehl_roh)
                         if grund:
                             self.abbau.append({"werkzeug": name, "grund": grund,
                                                "kurz": kurz_input(eingabe)})
+                        # R13v: Warteschleifen erkennen (Abfrageschleife/fester Schlaf).
+                        grund_warte = warte_muster(befehl_roh)
+                        if grund_warte:
+                            self.warteschleifen.append(
+                                {"werkzeug": name, "grund": grund_warte,
+                                 "kurz": " ".join(str(befehl_roh).split())[:150],
+                                 "warte_s": round(warte_sekunden(befehl_roh), 1)})
                     # R13h: Werkzeugzeit und Wartezeit laufend mitschreiben.
                     if t_ev is not None:
                         self._offen[str(tid)] = (t_ev, name, kurz_input(block.get("input")))
@@ -701,6 +780,13 @@ class StreamStats:
                 "werkzeug_s": round(self.tool_seconds, 1),
                 "modell_s": round(max(0.0, spanne - self.tool_seconds), 1),
                 "warte_s": round(self.wait_seconds, 1),
+                # R13v: Warteschleifen getrennt ausweisen (Anzahl, geschaetzte Summe,
+                # die schlimmsten) - sie kosten dieselbe Zeit wie `warte_s`, sind aber
+                # eine VERMEIDBARE Ursache (der erlaubte Weg steht im Vorspann).
+                "warteschleifen": len(self.warteschleifen),
+                "warteschleifen_s": round(sum(float(w.get("warte_s") or 0)
+                                              for w in self.warteschleifen), 1),
+                "warteschleifen_liste": list(self.warteschleifen[:5]),
                 "langsamste": list(self.slow_tools)}
 
     @staticmethod

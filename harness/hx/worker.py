@@ -51,6 +51,7 @@ class WorkerResult:
         self.ghidra_save: dict = {}          # R13-1: nach dem Batch gespeichert?
         self.secret_hits: list[dict] = []    # R13g: Schluessel-Zugriffe/Werte im Mitschnitt
         self.abbau: list[dict] = []          # R13i: Muster-Prozessabbau (Harness-Gefahr)
+        self.warteschleifen: list[dict] = []  # R13v: Warteschleifen (vermeidbare Zeit)
 
     def describe(self) -> str:
         return (f"rc={self.rc} dauer={self.duration_s:.0f}s grenze={self.killed_reason or '-'} "
@@ -190,6 +191,12 @@ def build_command(cfg, profile, run_path: Path, session_id: str,
         allowed = allowed + profile.mcp_names()
     cmd += ["--allowedTools", *allowed]
     denied = profile.mcp_denied_names() if profile.mcp else ["mcp__ghidra"]
+    # R13v (2026-09-28): das WARTE-PRIMITIV sperren. Gemessen in B207: zwei
+    # Abfrageschleifen kosteten 1083,7 s (`stream.jsonl:76873/77152`). Der erlaubte
+    # Weg fuer lange Laeufe steht im Vorspann (`Wait-Process -Timeout`, oder synchron
+    # mit `timeout` bis 600000 ms). Das Praefix-Muster faengt den nackten Schlaf; die
+    # Schleife selbst faengt `streamjson.warte_muster` im Waechter (siehe on_event).
+    denied = denied + ["PowerShell(Start-Sleep*)", "Bash(sleep *)"]
     cmd += ["--disallowedTools", *denied]
     if system_prompt_file:
         cmd += ["--append-system-prompt-file", system_prompt_file]
@@ -302,6 +309,7 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
         fired: set[str] = set()
         gemeldet = [0]                      # R13g: bis hierher schon alarmierte Secret-Treffer
         gemeldet_abbau = [0]                # R13i: bis hierher gemeldeter Prozessabbau
+        gemeldet_warte = [0]                # R13v: bis hierher gemeldete Warteschleifen
         extra_dates = list(cfg.get("peak", "extra_offpeak_dates", []) or [])
         takt = streamjson.TaktGeber(TICK_MIN_INTERVAL_S)
         takt_lock = threading.Lock()        # R13h: Takt-Thread und Leser duerfen nicht doppelt takten
@@ -362,6 +370,34 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
                     notify(text)
                 res.killed_reason = "prozess_abbau"
                 return "kill"
+            # R13v: Warteschleifen SOFORT melden und bei Zeitverlust abbrechen.
+            # Gemessen in B207: 601,9 s + 481,8 s in zwei Abfrageschleifen auf PID 4996
+            # (`runs/b207/stream.jsonl:76873/77152`), in B174 waren es 1993 s - der
+            # Vorspann verbot das nur in Prosa. Die Notbremse ist dieselbe wie beim
+            # Prozessabbau (R13i): der Lauf endet mit klarem Grund statt in Wartezeit.
+            neu_warte = stats.warteschleifen[gemeldet_warte[0]:]
+            if neu_warte:
+                gemeldet_warte[0] = len(stats.warteschleifen)
+                res.warteschleifen = list(stats.warteschleifen)
+                summe = sum(float(w.get("warte_s") or 0) for w in stats.warteschleifen)
+                letzte = float(neu_warte[0].get("warte_s") or 0)
+                art, grund = streamjson.warte_entscheidung(len(stats.warteschleifen),
+                                                           summe, letzte)
+                text = ("WARTESCHLEIFE (" + str(neu_warte[0].get("grund")) + "): "
+                        + str(neu_warte[0].get("kurz")) + f" - {grund}")
+                log.warn("Warteschleife erkannt", art=art, grund=neu_warte[0].get("grund"),
+                         warte_s=letzte, summe_s=summe, befehl=neu_warte[0].get("kurz"))
+                if art == "kill":
+                    res.alarms.append(text + "\nABBruch: erlaubt sind `Wait-Process -Timeout`"
+                                             " oder ein synchroner Aufruf mit `timeout`.")
+                    if notify:
+                        notify("ABBRUCH - " + text)
+                    res.killed_reason = "warteschleife"
+                    return "kill"
+                if art == "alarm":
+                    res.alarms.append(text)
+                    if notify:
+                        notify("Hinweis - " + text)
             # R13g: Schluessel-Zugriff sofort melden (Werkzeug nennen, nie den Wert).
             neu = stats.secret_hits[gemeldet[0]:]
             if neu:
@@ -520,6 +556,7 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
     res.stats["api_errors"] = list(stats.api_errors)[:5]
     res.stats["secret_hits"] = list(stats.secret_hits)[:10]
     res.stats["abbau"] = list(stats.abbau)[:5]
+    res.stats["warteschleifen"] = list(stats.warteschleifen)[:5]
     # R13h: Laufzeit-Profil (Werkzeuge / Modell / Warten) - damit der Reviewer und der
     # Nutzer sehen, WOHIN die Zeit ging, statt nur wie lange es dauerte.
     res.stats["laufzeit"] = stats.laufzeit_profil()
@@ -545,6 +582,7 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
         "rc": res.rc, "duration_s": res.duration_s, "killed_reason": res.killed_reason,
         "alarms": res.alarms, "stats": res.stats, "cost_usd": res.cost_usd,
         "secret_hits": list(stats.secret_hits)[:10],
+        "warteschleifen": list(stats.warteschleifen)[:5],
         "laufzeit": res.stats.get("laufzeit") or {},
         "cost_naive_usd": res.cost_naive_usd, "model_seen": res.model_seen,
         "model_ok": res.model_ok, "finished_at": now_iso(),
@@ -647,17 +685,27 @@ ABLAUF
    mit dem nächsten Teil weitermachen statt abzubrechen.
 4. Keine Rücknahme von Belegen: Analyse- und Belegdateien werden nicht gelöscht.
 
-RECHENZEIT (R13h, gemessen 2026-09-26 - bitte einhalten)
-- **Unabhängige Rechenläufe parallel starten, nicht nacheinander.** Die Maschine hat
-  4 Kerne; ein Lauf über alle IDs in EINEM Prozess ist fast immer schneller als viele
-  Einzelaufrufe hintereinander (jeder zahlt das Laden erneut). Ein 68K-Emulationslauf
-  kostet hier oft 400-600 s - nacheinander ist das die Summe, parallel nur das Maximum.
-- **Nie in großen Schritten schlafen.** Kein `Start-Sleep -Seconds 300`, wenn du auf
-  eine Datei wartest: nimm eine Abbruchbedingung mit kurzem Schritt (10-20 s).
-  Gemessen: in einem Batch steckten **1993 s (42 % der Laufzeit)** in solchen
-  Wartebefehlen - die Zeit fehlt am Ende für die Arbeit.
-- Fortschritt prüfen statt warten: Dateigröße/mtime, Prozess-CPU-Delta
-  (`(Get-Process -Id N).CPU`) oder `Wait-Process -Timeout` - das ist erlaubt und billig.
+RECHENZEIT (R13v, gemessen 2026-09-28 - bitte einhalten)
+- **Lange Laeufe laufen SYNCHRON, nicht im Hintergrund.** Das Werkzeug kappt bei
+  600 s und schiebt den Befehl dann in den Hintergrund ("Command did not complete
+  within its 600s timeout and was moved to the background"). Genau das fuehrte in
+  B207 zu zwei Abfrageschleifen und **1084 s verlorener Wartezeit**, in B174 zu 1993 s.
+- **Der erlaubte Weg fuer alles, was laenger als ein paar Minuten dauert:**
+  1. **Synchron mit ausdruecklicher Zeitgrenze:** beim Werkzeugaufruf `timeout`
+     mitgeben (Millisekunden, bis 600000 = 10 min). Das ist der Normalfall fuer
+     `c_kopf.py prof`, `vergl alle`, `preflight.py`, `port_build.ps1`, Mutationslaeufe.
+  2. **Nur wenn es laenger als 10 min dauern kann:** `Start-Process … -PassThru` und
+     dann **EIN** `Wait-Process -Id $p.Id -Timeout 480` - und danach die Ausgabe
+     lesen. Kein zweiter Wartebefehl, keine Schleife.
+- **`Start-Sleep` ist GESPERRT** (auch im Werkzeug: `PowerShell(Start-Sleep*)` wird
+  abgelehnt). **Keine Abfrageschleife** (`for`/`while` mit `Start-Sleep` oder
+  `Get-Process`): der Harness erkennt sie im Mitschnitt, meldet sie und **bricht den
+  Lauf ab**, sobald 300 s Wartezeit zusammenkommen (`streamjson.warte_muster`).
+- **Unabhaengige Rechenlaeufe parallel starten, nicht nacheinander.** Die Maschine hat
+  4 Kerne; ein Lauf ueber alle IDs in EINEM Prozess ist fast immer schneller als viele
+  Einzelaufrufe hintereinander (jeder zahlt das Laden erneut).
+- Fortschritt pruefen statt warten: Dateigroesse/mtime oder Prozess-CPU-Delta
+  (`(Get-Process -Id N).CPU`) in EINEM kurzen Aufruf, ohne Schleife.
 
 ABSCHLUSSBERICHT (letzte Nachricht, Pflicht in dieser Gliederung)
 ## 1) Übernommener Stand (5 Sätze)

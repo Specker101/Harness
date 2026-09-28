@@ -1640,6 +1640,14 @@ class Orchestrator:
         teile = [f"Werkzeuge {W:.0f} s ({100 * W / S:.0f} %)", f"Modell {M:.0f} s"]
         if warte:
             teile.append(f"davon reines Warten {warte:.0f} s")
+        # R13v: Warteschleifen ausdruecklich nennen - sie sind die VERMEIDBARE Ursache.
+        # Der Reviewer soll den naechsten Auftrag darauf zuschneiden (synchron mit
+        # `timeout` bzw. `Wait-Process -Timeout` statt Poll-Schleife).
+        n_warte = int(p.get("warteschleifen") or 0)
+        if n_warte:
+            teile.append(f"WARTESCHLEIFEN {n_warte} Aufrufe / ~"
+                         f"{float(p.get('warteschleifen_s') or 0):.0f} s geschaetzt"
+                         + ("" if n_warte <= 1 else " (vermeidbar: Wait-Process -Timeout)"))
         lang = p.get("langsamste") or []
         if lang:
             top = "; ".join(f"{w.get('kurz') or w.get('name')} {float(w.get('dauer_s') or 0):.0f} s"

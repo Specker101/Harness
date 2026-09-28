@@ -202,11 +202,16 @@ class TestAnzeige(Base):
         self.assertIn("reines Warten 30 s", text)
 
     def test_worker_vorspann_warn_vor_grossen_schlafschritten(self):
+        # R13h hatte hier den Satz "kein Start-Sleep -Seconds 300 ... kurzer Schritt
+        # (10-20 s)". Genau dieser Rat hat in B207 zu zwei Abfrageschleifen mit 1084 s
+        # Verlust gefuehrt; R13v hat den Abschnitt ersetzt. Der Vorspann muss den
+        # ERLAUBTEN Weg nennen (tests/test_r13v_fixes.py prueft das im Detail).
         from hx import worker
         pre = worker.WORKER_PREAMBLE
         self.assertIn("RECHENZEIT", pre)
         self.assertIn("parallel", pre)
-        self.assertIn("Start-Sleep -Seconds 300", pre)
+        self.assertIn("Wait-Process -Id $p.Id -Timeout", pre)
+        self.assertNotIn("kurzem Schritt (10-20 s)", pre)
 
 
 class TestTaktThread(unittest.TestCase):
@@ -216,8 +221,10 @@ class TestTaktThread(unittest.TestCase):
         import time
         rufe = []
         t = streamjson.TaktThread(lambda: rufe.append(time.monotonic()), 0.15).start()
+        grenze = time.monotonic() + 5.0
         try:
-            time.sleep(0.55)
+            while len(rufe) < 2 and time.monotonic() < grenze:
+                time.sleep(0.02)
         finally:
             t.stop()
         self.assertGreaterEqual(len(rufe), 2, "der Takt kam nicht durch")
@@ -236,20 +243,29 @@ class TestTaktThread(unittest.TestCase):
                 raise RuntimeError("erster Schlag scheitert")
 
         t = streamjson.TaktThread(takt, 0.15).start()
+        grenze = time.monotonic() + 5.0
         try:
-            time.sleep(0.55)
+            while len(zaehler) < 2 and time.monotonic() < grenze:
+                time.sleep(0.02)
         finally:
             t.stop()
         self.assertGreaterEqual(len(zaehler), 2)
 
     def test_aufrufe_werden_gezaehlt(self):
+        # R13v (2026-09-28): NICHT auf die Wanduhr festnageln. Der Test schlief feste
+        # 0,4 s und verlangte 2 Schlaege bei 0,15 s Takt - unter Last (die Suite startet
+        # viele Kindprozesse) verhungerte der Faden und der Test wurde rot, ohne dass
+        # etwas kaputt war. Jetzt wird auf den ZWEITEN Schlag GEWARTET (mit Obergrenze).
         import time
         t = streamjson.TaktThread(lambda: None, 0.15).start()
+        grenze = time.monotonic() + 5.0
         try:
-            time.sleep(0.4)
+            while t.aufrufe < 2 and time.monotonic() < grenze:
+                time.sleep(0.02)
         finally:
             t.stop()
-        self.assertGreaterEqual(t.aufrufe, 2)
+        self.assertGreaterEqual(t.aufrufe, 2,
+                                f"nur {t.aufrufe} Schlaege in 5 s bei 0,15 s Takt")
 
 
 if __name__ == "__main__":

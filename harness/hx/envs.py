@@ -128,6 +128,15 @@ def worker_env(cfg, environ: dict, token: str) -> dict:
         # R15/E6: Auto-Update aus, damit die Version stabil bleibt.
         "DISABLE_AUTOUPDATER": "1",
         "DISABLE_UPDATES": "1",
+        # R13v (2026-09-28): Zeitgrenzen des Werkzeugs anheben. Gemessen in B207:
+        # das Werkzeug kappte bei 600 s und schob den Befehl in den HINTERGRUND
+        # ("Command did not complete within its 600s timeout and was moved to the
+        # background", runs/b207/stream.jsonl:76897). Der Worker wartete danach in
+        # zwei Abfrageschleifen 1083,7 s auf PID 4996. Mit 600 s als STANDARD-Zeit
+        # laeuft ein 7- bis 10-Minuten-Lauf synchron in EINEM Aufruf - es gibt keinen
+        # Grund mehr, im Hintergrund zu starten und zu pollen.
+        "BASH_DEFAULT_TIMEOUT_MS": str(cfg.get("claude", "tool_timeout_ms", 600000)),
+        "BASH_MAX_TIMEOUT_MS": str(cfg.get("claude", "tool_timeout_ms", 600000)),
     })
     return env
 
