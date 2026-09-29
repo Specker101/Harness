@@ -934,7 +934,9 @@ Preflight gemessen 601,8 s (B214) → Vorlauf 15,03 min → Schwelle **75 min**;
 20-Minuten-Preflight schiebt sie auf **65 min**. Der Reviewer nennt **keine
 eigene Zahl** mehr, sondern formuliert relativ („ab der Umschaltschwelle laut Batch-Uhr").
 Die BATCH-UHR-Zeile (Hook nach jedem Werkzeugaufruf) zeigt jetzt
-`… min von 90 min (Umschalten ab 75) | Kontext 310k von 1M | Preflight zuletzt ~10 min`.
+`… min von 90 min (Umschalten ab 75) | Kontext 310k von 1M | Preflight zuletzt ~10 min`;
+seit R13aj nennt die Zahl in Klammern die Quelle (`(B214)`), und es zählen nur Aufrufe, die
+**allein** liefen (§12l).
 
 **Kontext.** Die Kontextgroesse einer Anfrage ist `input_tokens + cache_read_input_tokens +
 cache_creation_input_tokens`. Sie steht in `runs/b<N>/result.json` als
@@ -950,7 +952,7 @@ mit `--resume <session-id>` fortgesetzt:
 | Bedingung | Wert |
 |---|---|
 | regulaeres Ende | letzte Antwort **ohne** Werkzeugaufruf, `killed_reason` leer, rc 0 |
-| Batch-Uhr | **vor** der Umschaltschwelle (`Alarm − Vorlauf`, Vorlauf = max(15 min, Preflight + 5 min); R13ah) |
+| Batch-Uhr | **vor** der Umschaltschwelle (`Alarm − Vorlauf`, Vorlauf = max(15 min, Preflight + 5 min); R13ah; Preflight nur aus Einzelaufrufen, R13aj) |
 | Kontext | `kontext_letzte_anfrage < kontext_schwelle` (Vorgabe 550000) |
 | Auftrag | Abschnitt `## NACHRUECKLISTE` vorhanden |
 | Anzahl | weniger als `max_fortsetzungen` (Vorgabe 2) |
@@ -1063,6 +1065,44 @@ nicht, 3 B-Batches in Folge), Entprellung über `hybrid_gemeldet_bis` und `rc = 
 
 Belege: `docs/_r13ah_belege.md` (§0 Ausgangsmessung, §1–§3 die drei Änderungen, §5 was
 nicht geprüft ist), Testreihe `harness/tests/test_r13ah_fixes.py`.
+
+### 12l. Werkzeugdauer bei überlappenden Aufrufen (R13aj, 2026-09-29)
+
+**Befund (gemessen an B212–B214).** Die Dauer eines Werkzeugaufrufs ist der Abstand
+`tool_use` → `tool_result`. Zwei Aufrufe stehen **nie** in derselben Assistant-Nachricht
+(B212 234/234, B213 211/211, B214 293/293 Nachrichten mit genau EINEM Aufruf) — sie können
+sich aber **überlappen**, wenn ein gekappter Aufruf im Hintergrund weiterläuft:
+
+```
+Zeile 14789  tool_use PowerShell  Get-ChildItem capture\ppc_cov_boot.bin   (B212)
+Zeile 14790  tool_use Grep        g:\Silent Scope Decomp\scripts          <-- 1 Zeile später
+Zeile 14814  tool_result (PowerShell)
+Zeile 14815  tool_result (Grep)
+```
+
+Beide starten mit **demselben** Zeitstempel und enden 601,6 s später. In der Liste der
+langsamsten Aufrufe stehen deshalb `Grep 602,3 s` und `Grep 511,0 s` für Aufrufe, die
+normale Treffer lieferten und Sekundenbruchteile brauchten. Überlappende Aufrufe:
+B212 14, B213 8, B214 27 (Intervallschnitt > 1,0 s; Rundungsfälle ≤ 0,7 s: 16/2/18
+bleiben unberücksichtigt) — Messung und Rohausgabe: `docs/_r13aj_belege.md`,
+`docs/_r13aj_messung.txt`, Werkzeug `docs/_r13aj_probe.py`.
+
+**Änderung.**
+
+1. `stats.laufzeit.langsamste` trägt je Aufruf **`parallel`** (1 = allein gemessen;
+   gerechnet als 1 + noch offene Aufrufe + abgeschlossene Aufrufe mit einem Schnitt von
+   mehr als `streamjson.PARALLEL_TOLERANZ_S` = 1,0 s). Altdaten ohne das Feld gelten als 1.
+2. `stand.preflight_dauer` nimmt **nur `parallel == 1`**. Hat der neueste Batch keinen
+   solchen Aufruf, kommt der Wert aus dem nächstälteren (Fenster 6 Batches) und das Log
+   bekommt `Preflight-Dauer aus B<k>, B<N> nur parallel gemessen`; `batch` in der Rückgabe
+   ist der Quell-Batch, `uebersprungen` listet die übergangenen.
+3. Die BATCH-UHR nennt die Quelle: `| Preflight zuletzt ~10 min (B213)`. Dafür reicht
+   `worker.umschalt_minuten` → `write_worker_hooks` das Argument `--preflight-batch` an
+   `tools/batch_uhr.py` weiter (§18b). Ohne Quellbatch bleibt die Zeile wie bisher.
+
+So steht in der Schwelle nie wieder eine Zahl, die die Wartezeit eines Nachbaraufrufs
+enthält. Testreihe `harness/tests/test_r13aj_fixes.py` (16 Tests, u. a. der echte
+B212-Ausschnitt als Regressionspflock); volle Reihe 898 Tests OK.
 
 ### 12b. Was der Nutzer selbst entscheiden muss
 
@@ -1589,7 +1629,7 @@ sie mit `--settings` an den Worker. Darin steht ein `PostToolUse`-Hook (ohne Mat
 Kontext des Modells:
 
     BATCH-UHR (Harness-Messung): 42.1 min von 90 min (Umschalten ab 75) seit Batch-Start
-    21:48:11 (Ortszeit). | Kontext 310k von 1M | Preflight zuletzt ~10 min
+    21:48:11 (Ortszeit). | Kontext 310k von 1M | Preflight zuletzt ~10 min (B213)
     Weichgrenze 90 min, harte Grenze 180 min, Umschaltschwelle 75 min (Alarmgrenze minus
     Vorlauf) - diese Zahl ist die Wanduhr des Worker-Prozesses
     (state/run.json:worker.started_at) - die Zahl der Werkzeugaufrufe sagt nichts ueber die
@@ -1602,6 +1642,10 @@ Kontext des Modells:
 * Die Grenzen kommen aus `[limits]` (`alarm_wall_s` = Weichgrenze, `hard_wall_s` = harte);
   die Umschaltschwelle rechnet `hx/worker.py::umschalt_minuten` aus (§12h), die
   Preflight-Dauer aus `runs/b<N>/result.json` (`hx/stand.py::preflight_dauer`).
+* **Die Zahl hinter `Preflight` trägt seit R13aj die Quelle in Klammern** (`(B213)`): nur
+  Aufrufe mit `parallel == 1` zählen, sonst enthielte die Zahl die Wartezeit eines
+  überlappenden Nachbaraufrufs (§12l). Steht dort ein **älterer** Batch, ist der neueste
+  nur parallel gemessen worden — die Zahl ist dann die letzte saubere Messung.
 * **Abschalten:** `[claude] worker_hooks = false` in `harness.toml` (dann bleibt nur die
   Vorspann-Regel). Fehlt `tools/batch_uhr.py`, wird kein Hook gehängt.
 * Der Hook ist **still**, wenn kein Lauf läuft, und bricht nie ab: jeder Fehler endet mit

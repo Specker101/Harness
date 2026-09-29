@@ -135,7 +135,7 @@ def kontext_kurz(tokens) -> str:
 
 def uhr_text(state: dict, weich_min: float, hart_min: float,
              umschalt_min: float | None = None, kontext_limit: int | None = None,
-             preflight_min: float | None = None,
+             preflight_min: float | None = None, preflight_batch: int | None = None,
              jetzt: datetime | None = None) -> str:
     """Die Zeile, die dem Worker nach jedem Werkzeugaufruf erscheint (R13ac, M210-1).
 
@@ -152,6 +152,11 @@ def uhr_text(state: dict, weich_min: float, hart_min: float,
     Dauer des Preflight-Aufrufs aus dem letzten Batch ("Preflight zuletzt ~10 min"). Der
     Worker sieht damit, wieviel Zeit am Batch-Ende schon verplant ist; die Schwelle ist
     um genau diese Dauer vorgezogen (`worker.umschalt_minuten`).
+
+    R13aj: die Zahl kommt moeglicherweise aus einem **frueheren** Batch, weil der
+    neueste den Aufruf nur parallel gemessen hat (dann misst sie die Wartezeit mit).
+    `preflight_batch` nennt die Quelle und steht als `(B<k>)` hinter der Zahl, damit
+    niemand eine alte Messung fuer die des laufenden Batches haelt.
     """
     d = start_zeit(state, jetzt=jetzt)
     if d["zeit"] is None:
@@ -168,7 +173,8 @@ def uhr_text(state: dict, weich_min: float, hart_min: float,
     if kontext_limit and k:
         kopf += f" | Kontext {kontext_kurz(k)} von {kontext_kurz(kontext_limit)}"
     if preflight_min:
-        kopf += f" | Preflight zuletzt ~{float(preflight_min):.0f} min"
+        quelle = f" (B{int(preflight_batch)})" if preflight_batch else ""
+        kopf += f" | Preflight zuletzt ~{float(preflight_min):.0f} min{quelle}"
     rest = (f"Weichgrenze {weich_min:.0f} min, harte Grenze {hart_min:.0f} min, "
             f"Umschaltschwelle {umschalt_min:.0f} min (Alarmgrenze minus Vorlauf) - diese "
             "Zahl ist die Wanduhr des "

@@ -250,7 +250,7 @@ def write_worker_hooks(cfg, rd: Path, state_datei, log=None) -> str | None:
     # R13ah (Aussensicht B214, Befund 3): die Schwelle ist jetzt
     # `Alarm - max(15 min, Preflightdauer + 5 min)` (`umschalt_minuten`) und die
     # gemessene Preflightdauer steht als eigene Zahl in der Uhr-Zeile.
-    u = umschalt_minuten(cfg)
+    u = umschalt_minuten(cfg, log)
     umschalt = u["umschalt_min"]
     kontext_limit = int(cfg.get("limits", "kontext_limit", 1000000))
     daten = {"hooks": {"PostToolUse": [{"hooks": [{
@@ -261,6 +261,7 @@ def write_worker_hooks(cfg, rd: Path, state_datei, log=None) -> str | None:
                  "--weich", f"{weich:.0f}", "--hart", f"{hart:.0f}",
                  "--umschalt", f"{umschalt:.0f}",
                  "--preflight-min", f"{u['preflight_min']:.1f}",
+                 "--preflight-batch", str(u["preflight_batch"]),
                  "--kontext-limit", str(kontext_limit)],
     }]}]}}
     ziel = Path(rd) / "worker-hooks.json"
@@ -386,7 +387,7 @@ def rest_wanduhr_s(hard_wall_s: float, batch_start: float, jetzt: float) -> floa
 PREFLIGHT_ZUSCHLAG_MIN = 5.0
 
 
-def umschalt_minuten(cfg) -> dict:
+def umschalt_minuten(cfg, log=None) -> dict:
     """Die wirksame Umschaltschwelle in Minuten (R13ah, Aussensicht B214 Befund 3).
 
         Vorlauf   = max(`limits.umschalt_vor_alarm_s`, Preflightdauer + 5 min)
@@ -396,13 +397,18 @@ def umschalt_minuten(cfg) -> dict:
     (gemessen B213 602 s, B214 601,8 s), danach folgen Bilanz und Memory-Export. Mit
     festen 15 min lief B213 mit 104 min ueber die 90-min-Alarmgrenze.
 
+    R13aj: Es zaehlt nur eine Messung, bei der der Preflight-Aufruf **allein** lief
+    (`parallel == 1`); sonst misst die Zahl die Wartezeit mit. Ist der neueste Batch
+    nur parallel gemessen, kommt der Wert aus dem naechstaelteren Batch und `log`
+    bekommt den Vermerk (siehe `stand.preflight_dauer`).
+
     Rueckgabe: `{alarm_min, fest_min, preflight_min, preflight_batch, vorlauf_min,
     umschalt_min}`. Ohne Messung (kein `result.json` mit Preflight-Aufruf) gilt die feste
     Zahl - `preflight_min` ist dann 0,0 und `preflight_batch` 0.
     """
     alarm_min = float(cfg.get("limits", "alarm_wall_s", 5400)) / 60.0
     fest_min = float(cfg.get("limits", "umschalt_vor_alarm_s", 900)) / 60.0
-    dauer = stand.preflight_dauer(cfg)
+    dauer = stand.preflight_dauer(cfg, log=log)
     preflight_min = float(dauer["minuten"]) if dauer else 0.0
     vorlauf = max(fest_min, preflight_min + PREFLIGHT_ZUSCHLAG_MIN)
     return {"alarm_min": alarm_min, "fest_min": fest_min,
@@ -489,7 +495,7 @@ def fortsetzung_pruefen(cfg, run, stats, auftrag_text: str, minuten: float,
     if stats.letzte_antwort_ohne_werkzeug() is not True:
         return {"ja": False,
                 "grund": "kein regulaeres Ende (letzte Antwort mit Werkzeugaufruf)"}
-    umschalt_min = umschalt_minuten(cfg)["umschalt_min"]
+    umschalt_min = umschalt_minuten(cfg, log)["umschalt_min"]
     if minuten >= umschalt_min:
         return {"ja": False, "grund": f"Batch-Uhr {minuten:.0f} min >= "
                                       f"Umschaltschwelle {umschalt_min:.0f} min"}
@@ -650,7 +656,7 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
         # R13ah: die wirksame Umschaltschwelle (Alarmgrenze minus Vorlauf; der Vorlauf
         # enthaelt die gemessene Preflight-Dauer) - EINE Quelle fuer Hook, Fortsetzungs-
         # text und Anstoss-Entscheidung.
-        uhr_schwelle = umschalt_minuten(cfg)
+        uhr_schwelle = umschalt_minuten(cfg, log)
         fired: set[str] = set()
         gemeldet = [0]                      # R13g: bis hierher schon alarmierte Secret-Treffer
         gemeldet_abbau = [0]                # R13i: bis hierher gemeldeter Prozessabbau
@@ -1218,13 +1224,17 @@ RECHENZEIT (R13v/R13ah, gemessen 2026-09-28 - bitte einhalten)
 ZEIT (R13ac/R13ad/R13ah - gemessen, nicht geschaetzt, EINE Quelle)
 - Der Harness MISST die Batch-Zeit mit der Wanduhr des Worker-Prozesses. Nach jedem
   Werkzeugaufruf steht in deinem Kontext eine Zeile
-  `BATCH-UHR (Harness-Messung): <m> min von <weich> min (Umschalten ab <u>) | Kontext <x>k von 1M | Preflight zuletzt ~<p> min …`.
+  `BATCH-UHR (Harness-Messung): <m> min von <weich> min (Umschalten ab <u>) | Kontext <x>k von 1M | Preflight zuletzt ~<p> min (B<k>) …`.
   Sie ist die gueltige Grundlage fuer "wie lange laeuft dieser Batch schon".
 - Die Zeile nennt auch die **Umschaltschwelle** und den **Kontext**. Die Schwelle ist
   `Alarmgrenze minus Vorlauf`, und der Vorlauf enthaelt die gemessene Dauer des letzten
   Preflight-Aufrufs (R13ah) - er laeuft am Batch-Ende und seine Zeit ist damit schon
   verplant. Nennt der Auftrag eine andere Minutenzahl ("Budget 80 min", "ab 70 min"),
   gilt die BATCH-UHR - der Reviewer schreibt seit R13ad keine eigene Zahl mehr.
+- Die Zahl hinter `Preflight` traegt in Klammern den Batch, aus dem sie stammt
+  (`(B213)`). Fehlt die Klammer, ist es der laufende Batch; steht dort ein **aelterer**
+  Batch, hat der neueste den Preflight-Aufruf nicht allein gemessen (er lief neben
+  einem anderen Aufruf, R13aj) - die Zahl ist dann die letzte saubere Messung.
 - Die ZAHL DER WERKZEUGAUFRUFE sagt nichts ueber die Zeit. In B210 hielt sich der Worker
   nach Aufrufzaehlung fuer "~180 min" und strich deshalb Pflichtteile - gemessen waren
   es **46 min**. Die Startzeit dieses Laufs steht unten unter "UMFELD DIESES LAUFS".

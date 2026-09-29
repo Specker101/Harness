@@ -737,12 +737,21 @@ def hybrid_verlauf(cfg, anzahl: int = 8) -> list[dict]:
 _RE_PREFLIGHT_AUFRUF = re.compile(r"preflight\.py", re.IGNORECASE)
 
 
-def preflight_dauer(cfg, anzahl: int = 4) -> dict | None:
-    """Dauer des Preflight-Aufrufs aus dem NEUESTEN Batch, der einen hat (R13ah).
+def preflight_dauer(cfg, anzahl: int = 6, log=None) -> dict | None:
+    """Dauer des Preflight-Aufrufs aus dem NEUESTEN Batch, der ihn ALLEIN gemessen hat.
 
-    Rueckgabe `{batch, minuten, dauer_s, befehl}` oder `None` (keine Messung). Quelle ist
-    die Liste der langsamsten Werkzeugaufrufe in `runs/b<N>/result.json` - nur dort steht
-    die Dauer EINZELNER Aufrufe. Gemessen B213: 602 s, B214: 601,8 s.
+    Rueckgabe `{batch, minuten, dauer_s, befehl, parallel, uebersprungen}` oder `None`
+    (keine Messung). Quelle ist die Liste der langsamsten Werkzeugaufrufe in
+    `runs/b<N>/result.json` - nur dort steht die Dauer EINZELNER Aufrufe. Gemessen
+    B213: 602 s, B214: 601,8 s.
+
+    R13aj (2026-09-29): Ueberlappt sich der Aufruf mit einem anderen (`parallel` > 1,
+    z. B. weil ein gekappter Vorgaenger im Hintergrund weiterlief), misst die Zahl die
+    Wartezeit mit und ist fuer die Schwelle unbrauchbar - in B212 standen so 602,3 s und
+    511,0 s fuer einen Grep mit normalen Treffern. Es zaehlt deshalb nur `parallel == 1`;
+    hat der neueste Batch keinen solchen Aufruf, wird der naechstaeltere mit einem
+    gueltigen Wert genommen und das im Log vermerkt (`log.warn`). Altdateien ohne das
+    Feld gelten als `parallel = 1` (damals wurde nicht unterschieden).
     """
     runs = Path(cfg.root) / "runs"
     try:
@@ -750,6 +759,7 @@ def preflight_dauer(cfg, anzahl: int = 4) -> dict | None:
                          if p.is_dir() and p.name[1:].isdigit()), reverse=True)
     except OSError:
         return None
+    uebersprungen: list[int] = []
     for batch, d in ordner[:max(1, int(anzahl))]:
         res = read_json(d / "result.json", {}) or {}
         lang = ((res.get("stats") or {}).get("laufzeit") or {}).get("langsamste") or []
@@ -757,10 +767,26 @@ def preflight_dauer(cfg, anzahl: int = 4) -> dict | None:
                    if _RE_PREFLIGHT_AUFRUF.search(str(e.get("kurz") or ""))]
         if not treffer:
             continue
-        bester = max(treffer, key=lambda e: float(e.get("dauer_s") or 0.0))
+        allein = [e for e in treffer if int(e.get("parallel") or 1) == 1]
+        if not allein:
+            # Nur parallel gemessen: NICHT als Dauer nehmen (siehe Docstring).
+            uebersprungen.append(int(batch))
+            if log is not None:
+                log.warn(f"Preflight-Dauer aus B{int(batch)} nur parallel gemessen - "
+                         f"uebersprungen (parallel="
+                         f"{max(int(e.get('parallel') or 1) for e in treffer)})",
+                         batch=int(batch), datei="runs/%s/result.json" % d.name)
+            continue
+        bester = max(allein, key=lambda e: float(e.get("dauer_s") or 0.0))
         sek = float(bester.get("dauer_s") or 0.0)
+        if uebersprungen and log is not None:
+            log.info(f"Preflight-Dauer aus B{int(batch)}, "
+                     f"B{uebersprungen[0]} nur parallel gemessen",
+                     batch=int(batch), uebersprungen=list(uebersprungen))
         return {"batch": int(batch), "dauer_s": sek, "minuten": sek / 60.0,
-                "befehl": str(bester.get("kurz") or "")[:160]}
+                "befehl": str(bester.get("kurz") or "")[:160],
+                "parallel": int(bester.get("parallel") or 1),
+                "uebersprungen": list(uebersprungen)}
     return None
 
 

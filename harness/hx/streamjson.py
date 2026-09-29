@@ -37,6 +37,18 @@ HTTP_STATE_ENDPOINTS = (
 HTTP_TOOLS = {"PowerShell", "Bash", "Shell", "Write", "Edit", "MultiEdit",
               "NotebookEdit", "Terminal"}
 
+# R13aj (2026-09-29, gemessen an B212-B214): Ein `tool_use` steht immer allein in
+# seiner Assistant-Nachricht - aber zwei Aufrufe koennen sich trotzdem UEBERLAPPEN,
+# wenn das Ergebnis des ersten erst nach dem Start des zweiten im Mitschnitt steht
+# (in B212 `stream.jsonl:14789/14790` und `:37986/37987`: der gekappte
+# PowerShell-Aufruf lief im Hintergrund weiter, daneben lief ein Grep). Dann misst
+# die Ereignisdistanz nicht die Arbeit des Aufrufs, sondern das Warten mit
+# (B212: Grep 602,3 s und 511,0 s, obwohl er normale Treffer lieferte). `parallel`
+# ist deshalb 1 + die Zahl der Aufrufe, mit denen sich dieser Aufruf ueberlappt:
+# 1 = allein gemessen. Eine Ueberlappung unter dieser Schwelle ist Rundung der
+# Zeitstempel, kein Nebenlauf (B212-B214: 14/8/27 echte gegen 16/2/18 winzige).
+PARALLEL_TOLERANZ_S = 1.0
+
 
 def _zeit(wert) -> float | None:
     """ISO-Zeitstempel eines Ereignisses in Sekunden (None, wenn unbrauchbar)."""
@@ -604,6 +616,9 @@ class StreamStats:
         self.t_erste: float | None = None
         self.t_letzte: float | None = None
         self._offen: dict[str, tuple[float, str, str]] = {}
+        # R13aj: abgeschlossene Aufrufe als Zeitintervalle [(t0, t1), ...] - daraus
+        # kommt `parallel` (siehe PARALLEL_TOLERANZ_S).
+        self._intervalle: list[tuple[float, float]] = []
         self.tool_seconds: float = 0.0
         self.wait_seconds: float = 0.0
         self.slow_tools: list[dict] = []     # die laengsten Werkzeugaufrufe (max 5)
@@ -817,15 +832,29 @@ class StreamStats:
         return self._tool_names.get(str(tool_use_id), "?")
 
     def _tool_ende(self, tid: str, t_ende: float | None) -> None:
-        """Dauer eines Werkzeugaufrufs festhalten (R13h)."""
+        """Dauer eines Werkzeugaufrufs festhalten (R13h).
+
+        R13aj: Dazu die Zahl der Aufrufe, mit denen sich dieser ueberlappt
+        (`parallel`, 1 = allein). Noch offene Aufrufe ueberlappen bis jetzt, sie
+        zaehlen mit; abgeschlossene nur, wenn sich die Intervalle um mehr als
+        `PARALLEL_TOLERANZ_S` schneiden.
+        """
         e = self._offen.pop(str(tid), None)
         if not e or t_ende is None:
             return
         dauer = max(0.0, t_ende - e[0])
+        parallel = 1 + len(self._offen) + self._parallel_dazu(e[0], t_ende)
+        self._intervalle.append((e[0], t_ende))
         self.tool_seconds += dauer
-        self.slow_tools.append({"name": e[1], "kurz": e[2], "dauer_s": round(dauer, 1)})
+        self.slow_tools.append({"name": e[1], "kurz": e[2], "dauer_s": round(dauer, 1),
+                                "parallel": parallel})
         self.slow_tools.sort(key=lambda w: -w["dauer_s"])
         del self.slow_tools[5:]
+
+    def _parallel_dazu(self, t0: float, t1: float) -> int:
+        """Zahl der ABGESCHLOSSENEN Aufrufe, die sich mit [t0, t1] ueberlappen (R13aj)."""
+        return sum(1 for a0, a1 in self._intervalle
+                   if min(a1, t1) - max(a0, t0) > PARALLEL_TOLERANZ_S)
 
     def laufzeit_profil(self) -> dict:
         """Wo ging die Zeit hin? (R13h) - Werkzeuge, Modell, Warten, Harness-Rest.

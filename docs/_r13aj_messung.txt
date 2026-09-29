@@ -1,0 +1,54 @@
+=== B212 (g:\Harness\harness\runs\b212\stream.jsonl) ===
+ 1) mehrere tool_use in EINER Assistant-Nachricht?
+  Verteilung (Aufrufe je Assistant-Nachricht): {1: 234}
+    keine Nachricht mit mehr als einem Werkzeugaufruf
+ 2) laeuft ein Aufruf noch, waehrend der naechste startet?
+  234 Aufrufe, davon 15 mit Ueberlappung (ein anderer Aufruf lief noch)
+       601.9 s  offen_bei_ende=1  PowerShell  Zeile  14789  Get-ChildItem capture\ppc_cov_boot.bin | Select-Object Length; $
+       511.0 s  offen_bei_ende=1  PowerShell  Zeile  37986  & .\scripts\port_build.ps1 -Gl 2>&1 | Select-Object -Last 5; Get
+         3.3 s  offen_bei_ende=1  PowerShell  Zeile    313  powershell -ExecutionPolicy Bypass -File scripts\setup_mesa.ps1 
+         2.5 s  offen_bei_ende=1  PowerShell  Zeile  15968  Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -l
+ 3) wie gross ist die Ueberlappung?
+  Ueberlappung > 1,0 s (echter Nebenlauf): 14
+       601.9 s  Ueberlappung   601.6 s  mit Grep (602.3s)          PowerShell  Zeile  14789  Get-ChildItem capture\ppc_cov_boot.bin | Select-Object Length; $
+       602.3 s  Ueberlappung   601.6 s  mit PowerShell (601.9s)    Grep        Zeile  14790  g:\Silent Scope Decomp\scripts
+       511.0 s  Ueberlappung   510.5 s  mit Grep (511.0s)          PowerShell  Zeile  37986  & .\scripts\port_build.ps1 -Gl 2>&1 | Select-Object -Last 5; Get
+       511.0 s  Ueberlappung   510.5 s  mit PowerShell (511.0s)    Grep        Zeile  37987  g:\Silent Scope Decomp\port\hybrid\ppc_kern.cpp
+  Ueberlappung <= 1,0 s (Rundung der Zeitstempel): 16
+
+=== B213 (g:\Harness\harness\runs\b213\stream.jsonl) ===
+ 1) mehrere tool_use in EINER Assistant-Nachricht?
+  Verteilung (Aufrufe je Assistant-Nachricht): {1: 211}
+    keine Nachricht mit mehr als einem Werkzeugaufruf
+ 2) laeuft ein Aufruf noch, waehrend der naechste startet?
+  211 Aufrufe, davon 9 mit Ueberlappung (ein anderer Aufruf lief noch)
+         2.1 s  offen_bei_ende=1  PowerShell  Zeile     99  Get-Date; git status --porcelain
+         1.9 s  offen_bei_ende=1  PowerShell  Zeile    266  python -u scripts/m151_memory_sync.py status
+         1.9 s  offen_bei_ende=1  PowerShell  Zeile   7286  git checkout -- scripts/m114_matrix.py; git status --porcelain s
+         1.7 s  offen_bei_ende=1  PowerShell  Zeile   1906  Get-Content analysis\_m197\_ck_42704.case -TotalCount 40; "=== c
+ 3) wie gross ist die Ueberlappung?
+  Ueberlappung > 1,0 s (echter Nebenlauf): 8
+         2.1 s  Ueberlappung     2.0 s  mit Read (2.9s)            PowerShell  Zeile     99  Get-Date; git status --porcelain
+         2.9 s  Ueberlappung     2.0 s  mit PowerShell (2.1s)      Read        Zeile    100  g:\Silent Scope Decomp\analysis\r1b-workstream.md
+         1.9 s  Ueberlappung     1.7 s  mit Read (1.9s)            PowerShell  Zeile   7286  git checkout -- scripts/m114_matrix.py; git status --porcelain s
+         1.9 s  Ueberlappung     1.7 s  mit PowerShell (1.9s)      Read        Zeile   7287  g:\Silent Scope Decomp\scripts\m114_matrix.py
+  Ueberlappung <= 1,0 s (Rundung der Zeitstempel): 2
+
+=== B214 (g:\Harness\harness\runs\b214\stream.jsonl) ===
+ 1) mehrere tool_use in EINER Assistant-Nachricht?
+  Verteilung (Aufrufe je Assistant-Nachricht): {1: 293}
+    keine Nachricht mit mehr als einem Werkzeugaufruf
+ 2) laeuft ein Aufruf noch, waehrend der naechste startet?
+  293 Aufrufe, davon 28 mit Ueberlappung (ein anderer Aufruf lief noch)
+         4.6 s  offen_bei_ende=1  Glob        Zeile     84  analysis/hybrid-plan.md
+         4.2 s  offen_bei_ende=1  PowerShell  Zeile   1851  Select-String -Path scripts\*.py, port\*.py -Pattern 'Batch 2\d\
+         2.2 s  offen_bei_ende=2  PowerShell  Zeile     82  git status --porcelain; echo "---HEAD---"; git rev-parse HEAD
+         2.2 s  offen_bei_ende=2  PowerShell  Zeile   1850  Select-String -Path scripts\*.py -Pattern '_m2\d\d' | Select-Obj
+ 3) wie gross ist die Ueberlappung?
+  Ueberlappung > 1,0 s (echter Nebenlauf): 27
+         4.6 s  Ueberlappung     4.6 s  mit Glob (4.7s)            Glob        Zeile     84  analysis/hybrid-plan.md
+         4.7 s  Ueberlappung     4.6 s  mit Glob (4.6s)            Glob        Zeile     83  analysis/r1b-workstream.md
+         4.2 s  Ueberlappung     4.1 s  mit Read (4.2s)            PowerShell  Zeile   1851  Select-String -Path scripts\*.py, port\*.py -Pattern 'Batch 2\d\
+         4.2 s  Ueberlappung     4.1 s  mit PowerShell (4.2s)      Read        Zeile   1852  g:\Silent Scope Decomp\scripts\c_kopf.py
+  Ueberlappung <= 1,0 s (Rundung der Zeitstempel): 18
+
