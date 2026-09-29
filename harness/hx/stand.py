@@ -584,8 +584,13 @@ _RE_ZAHL_BLOECKE = re.compile(r"Bloecke\s+(\d+)\s*/\s*(\d+)")
 # Das Zahlenpaar der Zeile selbst: "55/78" (Bahnabdeckung) bzw. "62/80" (Nachrueckliste).
 _RE_ZAHL_PAAR = re.compile(r"(\d+)\s*/\s*(\d+)")
 # Zeile "Hybrid-Lauf        215 | 800138F0 | MMIO | 28/407 | 0              OK".
-# Aus ihr liest heute NICHTS Zahlen - sie steht hier, weil ihr Fehlen gemeldet werden
-# soll (s. `PREFLIGHT_ERWARTET`): sie belegt, dass die Hybrid-Senke ueberhaupt lief.
+# Seit R13ah wird sie GELESEN: Feld 2 ist der Halt-PC, Feld 4 das Wegmass (Zaehler/Gesamt).
+# Der Stillstands-Ausloeser der Aussensicht vergleicht genau diese zwei Felder - das Feld
+# `B-SCHRITT:` des Reviews mass nichts (Aussensicht B214, Befund 4).
+_RE_HYBRID_FELDER = _preflight_zeile(
+    "Hybrid-Lauf",
+    r"(?P<nr>\S+)\s*\|\s*(?P<halt>[0-9A-Fa-fx]+)\s*\|\s*(?P<art>[^|\n]*?)\s*\|\s*"
+    r"(?P<weg>\d+)\s*/\s*(?P<weg_ges>\d+)\s*\|(?P<rest>[^\n]*)")
 _RE_HYBRID_ZEILE = _preflight_zeile("Hybrid-Lauf", r".*$")
 
 
@@ -694,6 +699,69 @@ def preflight_bahnabdeckung(cfg, anzahl: int = 4) -> list[dict]:
             "teilgeprueft": int(t.group(1)) if t else None,
         })
     return out
+
+
+# ------------------------------------------------- Hybrid-Lauf + Preflight-Dauer (R13ah)
+def hybrid_verlauf(cfg, anzahl: int = 8) -> list[dict]:
+    """Die Zeile `Hybrid-Lauf` je Preflight-Datei (R13ah, Aussensicht B214 Befund 4).
+
+    Rueckgabe je Batch, in dem die Zeile steht: `{batch, datei, nr, halt_pc, art, weg,
+    weg_gesamt, rest}`. `halt_pc` ist Feld 2 (Halt-PC), `weg` der Zaehler aus Feld 4
+    ("28/407" -> 28), `weg_gesamt` der Nenner. Fehlt die Zeile (vor B212), fehlt der
+    Eintrag - es wird nichts geschaetzt.
+
+    Anlass: der Preflight liegt **vor** dem Review vor; der Ausloeser "Stillstand" kann
+    damit frueher und an einer gemessenen Zahl haengen statt am Feld `B-SCHRITT:`.
+    """
+    out: list[dict] = []
+    for batch, pfad in preflight_dateien(cfg, max(1, int(anzahl))):
+        try:
+            text = read_text(pfad)[:200000]
+        except OSError:
+            continue
+        for zeile in text.splitlines():
+            m = _RE_HYBRID_FELDER.match(zeile)
+            if m:
+                out.append({"batch": batch, "datei": pfad.name, "nr": m.group("nr"),
+                            "halt_pc": m.group("halt").upper(),
+                            "art": m.group("art").strip(),
+                            "weg": int(m.group("weg")),
+                            "weg_gesamt": int(m.group("weg_ges")),
+                            "rest": m.group("rest").strip()})
+                break
+    return out
+
+
+# Der Preflight-Aufruf in `stats.laufzeit.langsamste` (`runs/b<N>/result.json`) - erkannt
+# am Befehl, nicht am Werkzeugnamen (der ist immer "PowerShell").
+_RE_PREFLIGHT_AUFRUF = re.compile(r"preflight\.py", re.IGNORECASE)
+
+
+def preflight_dauer(cfg, anzahl: int = 4) -> dict | None:
+    """Dauer des Preflight-Aufrufs aus dem NEUESTEN Batch, der einen hat (R13ah).
+
+    Rueckgabe `{batch, minuten, dauer_s, befehl}` oder `None` (keine Messung). Quelle ist
+    die Liste der langsamsten Werkzeugaufrufe in `runs/b<N>/result.json` - nur dort steht
+    die Dauer EINZELNER Aufrufe. Gemessen B213: 602 s, B214: 601,8 s.
+    """
+    runs = Path(cfg.root) / "runs"
+    try:
+        ordner = sorted(((int(p.name[1:]), p) for p in runs.glob("b*")
+                         if p.is_dir() and p.name[1:].isdigit()), reverse=True)
+    except OSError:
+        return None
+    for batch, d in ordner[:max(1, int(anzahl))]:
+        res = read_json(d / "result.json", {}) or {}
+        lang = ((res.get("stats") or {}).get("laufzeit") or {}).get("langsamste") or []
+        treffer = [e for e in lang
+                   if _RE_PREFLIGHT_AUFRUF.search(str(e.get("kurz") or ""))]
+        if not treffer:
+            continue
+        bester = max(treffer, key=lambda e: float(e.get("dauer_s") or 0.0))
+        sek = float(bester.get("dauer_s") or 0.0)
+        return {"batch": int(batch), "dauer_s": sek, "minuten": sek / 60.0,
+                "befehl": str(bester.get("kurz") or "")[:160]}
+    return None
 
 
 def c_trend(cfg, n: int = 12) -> dict:

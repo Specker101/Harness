@@ -78,6 +78,12 @@ Hinter den Zahlen ist ein beliebiger Zusatz erlaubt (`referenzgleich`, `| ausged
 | Ort | vorher | jetzt |
 |---|---|---|
 | `harness/harness.toml:66` `limits.umschalt_vor_alarm_s` | 600 | **900** |
+
+**R13ah (2026-09-29) hat den Vorlauf erweitert:** die Schwelle ist jetzt
+`Alarm − max(umschalt_vor_alarm_s, Preflightdauer + 5 min)`, `umschalt_vor_alarm_s = 900`
+bleibt die Untergrenze des Vorlaufs. Gemessen: Preflight 10,03 min (B214) → Vorlauf 15,03 min
+→ Schwelle 74,97 min; ein 20-Minuten-Preflight schiebt sie auf 65 min
+(`docs/_r13ah_belege.md` §2).
 | `hx/worker.py` Vorgabe in `cfg.get(...)` (3 Stellen: Hook, `fortsetzung_pruefen`, `lim`) | 600 | **900** |
 | `hx/uhr.py` Rückfall ohne `umschalt_min` | `weich - 10` | `weich - 15` |
 | `prompts/reviewer.md` Beispielzeile | `(Umschalten ab 80)` | `(Umschalten ab 75)` |

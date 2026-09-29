@@ -91,9 +91,12 @@ Engpass dieses Aufbaus. Deshalb:
 - **Zeitangaben nur relativ zur Batch-Uhr (R13ad).** Nenne in der Instruktion **keine
   eigene Minutenzahl** — kein „Budget 80 min", kein „ab 70 min umschalten". Die eine
   Quelle ist die **Batch-Uhr** im Worker-Verlauf (sie steht nach jedem Werkzeugaufruf):
-  `<m> min von 90 min (Umschalten ab 75)`. Formuliere Streich- und Umschaltregeln daran
+  `<m> min von 90 min (Umschalten ab 75) | Preflight zuletzt ~10 min`. Formuliere Streich- und Umschaltregeln daran
   **relativ**, z. B. „streichen erst, wenn die Batch-Uhr die Umschaltschwelle erreicht
-  hat, mit unmittelbar davor gemessener `Get-Date`-Zeile im Batch-Dokument". Der Rest der
+  hat, mit unmittelbar davor gemessener `Get-Date`-Zeile im Batch-Dokument". Die Schwelle
+  ist seit R13ah um die **gemessene Preflight-Dauer** vorgezogen (`Alarm − max(15 min,
+  Preflight + 5 min)`) — der Preflight laeuft am Batch-Ende und braucht selbst ~10 min.
+  Der Rest der
   Streichregel bleibt: Streichen nur mit Uhrnachweis, „blockiert" nur mit Beleg, was
   fehlt; Aufwand ist kein Grund.
 - **Umfang an der Messung ausrichten (Nutzerentscheid 2026-09-28).** Im Prompt steht die

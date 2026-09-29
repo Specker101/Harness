@@ -297,13 +297,16 @@ class TestZeitschwelle(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
-    def test_vorspann_und_reviewer_nennen_75(self):
+    def test_vorspann_und_reviewer_nennen_die_schwelle(self):
         pre = worker.WORKER_PREAMBLE
-        self.assertIn("900 s = 15 min", pre)
-        self.assertIn("Umschalten ab 75", pre)
+        # R13ah: die Schwelle ist `Alarmgrenze minus Vorlauf`, und der Vorlauf enthaelt die
+        # gemessene Preflight-Dauer - die feste Zahl "900 s = 15 min" steht dort nicht mehr.
+        self.assertIn("Alarmgrenze minus Vorlauf", pre)
+        self.assertIn("Preflight zuletzt ~<p> min", pre)
         self.assertNotIn("Alarmgrenze minus 10 min", pre)
         rev = (Path(ROOT) / "prompts" / "reviewer.md").read_text(encoding="utf-8")
         self.assertIn("(Umschalten ab 75)", rev)
+        self.assertIn("Alarm − max(15 min,", rev)
         self.assertNotIn("(Umschalten ab 80)", rev)
 
 

@@ -900,38 +900,41 @@ entsteht erst beim Start). Die Serie `[207, 210, 213]` = `(None, None, 0)` feuer
 **nicht** — eine Migration war nicht nötig. Fehlt die Zeile, wird geloggt und der Batch als
 `SOLL > 0` behandelt (kein Stillstand verschluckt, nichts geraten).
 
-**Dasselbe für den B-Schritt (Nachtrag, 2026-09-29).** `runs/meta-213.md` wurde durch
-`B-Schritt 2/5 unveraendert in den B-Batches (Reviews b212 und b213)` ausgelöst — das sind
-die **Batches B211 und B212** (das Review von Batch N liegt in `runs/b<N+1>`; Funktion
-`hx/aussensicht.py:527` `b_schritt_stillstand`, Helfer `b_schritt`). Bis dahin gab es
-**keine Marke**, der Grund feuerte also bei jedem Meta-Lauf erneut. Jetzt gilt:
+**R13ah (2026-09-29) — der B-Schritt-Auslöser ist ERSETZT.** Die Aussensicht B214 hat
+gemessen, dass das Feld `B-SCHRITT:` **nichts misst**: B212 und B213 trugen beide `2/5`,
+während der Hybrid-Lauf in B214 von `28/407` auf `448/42599` lief. Der Stillstand wird
+jetzt aus der **Preflight-Zeile `Hybrid-Lauf`** gelesen (Feld 2 = Halt-PC, Feld 4 = Wegmaß
+`Zähler/Gesamt`; `hx/stand.py::hybrid_verlauf`, `hx/aussensicht.py::hybrid_stillstand`):
 
-* Marke `bschritt_gemeldet_bis` in `state.data["meta"]` = Nummer des neuesten **gemeldeten**
-  B-Batches (`bschritt_neuester_b` = Review-Ordner − 1). Es feuert nur, wenn ein **neuer**
-  B-Batch die Reihe verlängert; gesetzt wird die Marke nur nach `rc = 0` mit beteiligtem
-  Grund. Migration: fehlender Schlüssel → einmalig **212** (der Stillstand B211/B212 ist in
-  `runs/meta-213.md` gemeldet).
-* Schwelle `[meta] bschritt_stillstand_batches` (Vorgabe **3**, vorher fest 2): bei 10–20
-  B-Batches bis zum Ziel B20 sind zwei gleiche Schritte noch kein Stillstand.
-* Reviews mit `B-SCHRITT: kein B-Batch (Strang C)` zählen **nicht** mit — sie haben keinen
-  Schritt-Fortschritt und unterbrechen die Reihe (`runs/b211/review.md:12`,
-  `runs/b214/review.md:7`); das gilt auch, wenn in derselben Zeile eine Zahl steht.
-* Gemessen am Zustand: `runs/b212/review.md:6` und `runs/b213/review.md:10` tragen `2/5`,
-  der neueste verglichene B-Batch ist **212** — mit der Marke 212 feuert der Grund nicht
-  erneut, bis B213/B214 einen neuen Wert liefern.
+* Stillstand = in **3 B-Batches in Folge** (`[meta] bschritt_stillstand_batches`) ist der
+  **Halt-PC gleich** und das **Wegmaß steigt nicht**. C-Batches und Batches ohne
+  `Hybrid-Lauf`-Zeile (vor B212) zählen nicht mit — es wird nichts geraten.
+* Der Preflight liegt **vor** dem Review vor; der Auslöser kommt damit früher.
+* Entprellung wie bisher: Marke `hybrid_gemeldet_bis` in `state.data["meta"]` (Start 0),
+  gesetzt nur nach `rc = 0` mit beteiligtem Grund; gefeuert nur, wenn ein **neuer** B-Batch
+  die Reihe verlängert.
+* Der frühere Grund (`B-Schritt <n>/5 unveraendert …`) und seine Funktionen sind
+  **entfernt**. Die Pflichtzeile `B-SCHRITT:` in der Review-Zusammenfassung **bleibt** —
+  `stand.strang_von_batch` nutzt sie weiter als Beleg für die Strang-Klassifikation.
+* Gemessen am echten Bestand (B212/B213 gleich, B213 ist ein C-Batch, B214 mit Fortschritt):
+  **kein** Fehlalarm. Belege: `docs/_r13ah_belege.md` §0c.
+
+**Der frühere B-Schritt-Auslöser (R13ad, entfallen).** Er las `B-SCHRITT: <n>/5` aus den
+Review-Zusammenfassungen, verglich die letzten drei B-Batches und brauchte eine Marke,
+weil er sonst bei jedem Meta-Lauf erneut feuerte (Anlass war `runs/meta-213.md`).
 
 ### 12h. Batch-Zeitbudget, Kontext, Fortsetzung (R13ad, 2026-09-29)
 
 **Eine Zeitquelle.** Der Reviewer schrieb bis B212 eigene Minutenzahlen in die Aufträge
 („Budget 80 min", „ab 70 min") — die standen in keiner Config und widersprachen der
-Batch-Uhr (90 min). Jetzt gilt: `alarm_wall_s = 5400` (90 min) bleibt,
-`umschalt_vor_alarm_s` ist **900** → **Umschaltschwelle 75 min** (R13ae: vorher 600 =
-80 min; der Preflight dauert selbst ~10 min (B213: 602 s Werkzeugzeit), danach kommen
-Bilanz und Memory-Export — bei 80 min lief jeder volle Batch über den 90-min-Alarm,
-B213 mit 104 min). Der Reviewer nennt **keine
+Batch-Uhr (90 min). Jetzt gilt: `alarm_wall_s = 5400` (90 min) bleibt, und die Schwelle ist
+**`Alarm − Vorlauf`** mit `Vorlauf = max(umschalt_vor_alarm_s, Preflightdauer + 5 min)`
+(`hx/worker.py::umschalt_minuten`, R13ah). Gemessen: `umschalt_vor_alarm_s = 900` (15 min),
+Preflight gemessen 601,8 s (B214) → Vorlauf 15,03 min → Schwelle **75 min**; ein
+20-Minuten-Preflight schiebt sie auf **65 min**. Der Reviewer nennt **keine
 eigene Zahl** mehr, sondern formuliert relativ („ab der Umschaltschwelle laut Batch-Uhr").
 Die BATCH-UHR-Zeile (Hook nach jedem Werkzeugaufruf) zeigt jetzt
-`… min von 90 min (Umschalten ab 75) | Kontext 310k von 1M`.
+`… min von 90 min (Umschalten ab 75) | Kontext 310k von 1M | Preflight zuletzt ~10 min`.
 
 **Kontext.** Die Kontextgroesse einer Anfrage ist `input_tokens + cache_read_input_tokens +
 cache_creation_input_tokens`. Sie steht in `runs/b<N>/result.json` als
@@ -947,7 +950,7 @@ mit `--resume <session-id>` fortgesetzt:
 | Bedingung | Wert |
 |---|---|
 | regulaeres Ende | letzte Antwort **ohne** Werkzeugaufruf, `killed_reason` leer, rc 0 |
-| Batch-Uhr | **vor** der Umschaltschwelle (75 min, R13ae) |
+| Batch-Uhr | **vor** der Umschaltschwelle (`Alarm − Vorlauf`, Vorlauf = max(15 min, Preflight + 5 min); R13ah) |
 | Kontext | `kontext_letzte_anfrage < kontext_schwelle` (Vorgabe 550000) |
 | Auftrag | Abschnitt `## NACHRUECKLISTE` vorhanden |
 | Anzahl | weniger als `max_fortsetzungen` (Vorgabe 2) |
@@ -1023,6 +1026,33 @@ Review eine Zeile UEBERTRAG oder VERWORFEN oder erscheint als erledigt mit Beleg
   Auftrag" zu behaupten.
 - Vorher musste der Reviewer die Blöcke selbst aus `runs/b<N>/auftrag.md` holen; genau
   dabei verschwand B213 Nachrückliste 1.
+
+### 12k. Drei Fixes nach der Außensicht B214 (R13ah, 2026-09-29)
+
+**a) Fortsetzung nach Preflight (Befund 2).** Läuft ein Batch in eine Fortsetzung, liegt am
+Ende des ersten Teillaufs oft schon `analysis/_preflight_<N>.txt` vor. Sie wird **vor** dem
+Anstoß unverändert nach `analysis/_m<N>/_preflight_<N>_vor_fortsetzung<k>.txt` kopiert und
+mit `B<N>: Preflight vor Fortsetzung archiviert` committet (byteweise Kopie; die
+Git-Repo-Wache aus R13i gilt weiter). Der Fortsetzungstext **beginnt** mit
+`Du bist weiterhin in Batch <N>. Alle Commits tragen B<N>:, nicht B<N+1>:.` — die Nummer
+kommt aus dem Harness-Tag `harness/b<N>-start` (`state.data["last_checkpoint"]`), **nicht**
+aus dem Text und nicht aus `state.batch`. Der Pfad steht in `result.json`
+(`stats.preflight_archiv`).
+
+**b) Zeitkappung (Befund 3).** `BASH_MAX_TIMEOUT_MS` hing an `claude.tool_timeout_ms`
+(600 s, nicht gesetzt → Vorgabe) — gemessen wurden Aufrufe von **602 s** (Preflight B213),
+**601,3 s** (`c_kopf.py mutalle`, B214) und danach Warteschleifen von **542 s**. Jetzt gilt
+`[claude] bash_max_timeout_s = 1800`; `BASH_DEFAULT_TIMEOUT_MS` bleibt bei 600 s (Vorgabe
+für Aufrufe ohne eigenes `timeout`). Die Batch-Uhr nennt zusätzlich
+`Preflight zuletzt ~X min`, und die Umschaltschwelle ist um diesen Vorlauf vorgezogen:
+`Alarm − max(umschalt_vor_alarm_s, Preflightdauer + 5 min)` (§12h).
+
+**c) Stillstands-Auslöser (Befund 4).** Das Feld `B-SCHRITT:` misst nichts (§12g): der
+Stillstand kommt jetzt aus der Preflight-Zeile `Hybrid-Lauf` (Halt-PC gleich, Wegmaß steigt
+nicht, 3 B-Batches in Folge), Entprellung über `hybrid_gemeldet_bis` und `rc = 0`.
+
+Belege: `docs/_r13ah_belege.md` (§0 Ausgangsmessung, §1–§3 die drei Änderungen, §5 was
+nicht geprüft ist), Testreihe `harness/tests/test_r13ah_fixes.py`.
 
 ### 12b. Was der Nutzer selbst entscheiden muss
 
@@ -1548,15 +1578,20 @@ sie mit `--settings` an den Worker. Darin steht ein `PostToolUse`-Hook (ohne Mat
 `tools/batch_uhr.py` aufruft; der Hook legt nach **jedem** Werkzeugaufruf eine Zeile in den
 Kontext des Modells:
 
-    BATCH-UHR (Harness-Messung): 42.1 min von 90 min seit Batch-Start 21:48:11 (Ortszeit).
-    Weichgrenze 90 min, harte Grenze 180 min. Diese Zahl ist die Wanduhr des
-    Worker-Prozesses (state/run.json:worker.started_at) - die Zahl der Werkzeugaufrufe sagt
-    nichts ueber die Zeit (B210: '180 min' geschaetzt, 46 min gemessen).
+    BATCH-UHR (Harness-Messung): 42.1 min von 90 min (Umschalten ab 75) seit Batch-Start
+    21:48:11 (Ortszeit). | Kontext 310k von 1M | Preflight zuletzt ~10 min
+    Weichgrenze 90 min, harte Grenze 180 min, Umschaltschwelle 75 min (Alarmgrenze minus
+    Vorlauf) - diese Zahl ist die Wanduhr des Worker-Prozesses
+    (state/run.json:worker.started_at) - die Zahl der Werkzeugaufrufe sagt nichts ueber die
+    Zeit (B210: '180 min' geschaetzt, 46 min gemessen). Der Vorlauf enthaelt den Preflight
+    (gemessen ~10 min) plus 5 min fuer Bilanz/Export.
 
 * **Gemessen**, dass die Zeile beim Modell ankommt: `tools/r13ac_probe_hook.py`,
   Beleg `docs/_r13ac_hook.txt` (echter Worker-Aufruf, auffällige Grenzen 77/123 — das
   Modell nannte sie wörtlich).
-* Die Grenzen kommen aus `[limits]` (`alarm_wall_s` = Weichgrenze, `hard_wall_s` = harte).
+* Die Grenzen kommen aus `[limits]` (`alarm_wall_s` = Weichgrenze, `hard_wall_s` = harte);
+  die Umschaltschwelle rechnet `hx/worker.py::umschalt_minuten` aus (§12h), die
+  Preflight-Dauer aus `runs/b<N>/result.json` (`hx/stand.py::preflight_dauer`).
 * **Abschalten:** `[claude] worker_hooks = false` in `harness.toml` (dann bleibt nur die
   Vorspann-Regel). Fehlt `tools/batch_uhr.py`, wird kein Hook gehängt.
 * Der Hook ist **still**, wenn kein Lauf läuft, und bricht nie ab: jeder Fehler endet mit

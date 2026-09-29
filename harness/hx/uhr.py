@@ -135,6 +135,7 @@ def kontext_kurz(tokens) -> str:
 
 def uhr_text(state: dict, weich_min: float, hart_min: float,
              umschalt_min: float | None = None, kontext_limit: int | None = None,
+             preflight_min: float | None = None,
              jetzt: datetime | None = None) -> str:
     """Die Zeile, die dem Worker nach jedem Werkzeugaufruf erscheint (R13ac, M210-1).
 
@@ -146,6 +147,11 @@ def uhr_text(state: dict, weich_min: float, hart_min: float,
     900 s, R13ae) und die **Kontextgroesse** der letzten Anfrage aus dem Harness-Zustand
     (`state/run.json -> live.kontext`). Damit gibt es genau EINE Zeitquelle; der Reviewer
     schreibt keine eigene Minutenzahl mehr.
+
+    R13ah (Aussensicht B214, Befund 3): dazu kommt **`preflight_min`** - die gemessene
+    Dauer des Preflight-Aufrufs aus dem letzten Batch ("Preflight zuletzt ~10 min"). Der
+    Worker sieht damit, wieviel Zeit am Batch-Ende schon verplant ist; die Schwelle ist
+    um genau diese Dauer vorgezogen (`worker.umschalt_minuten`).
     """
     d = start_zeit(state, jetzt=jetzt)
     if d["zeit"] is None:
@@ -161,11 +167,17 @@ def uhr_text(state: dict, weich_min: float, hart_min: float,
     k = (live or {}).get("kontext")
     if kontext_limit and k:
         kopf += f" | Kontext {kontext_kurz(k)} von {kontext_kurz(kontext_limit)}"
+    if preflight_min:
+        kopf += f" | Preflight zuletzt ~{float(preflight_min):.0f} min"
     rest = (f"Weichgrenze {weich_min:.0f} min, harte Grenze {hart_min:.0f} min, "
-            f"Umschaltschwelle {umschalt_min:.0f} min. Diese Zahl ist die Wanduhr des "
+            f"Umschaltschwelle {umschalt_min:.0f} min (Alarmgrenze minus Vorlauf) - diese "
+            "Zahl ist die Wanduhr des "
             "Worker-Prozesses "
             "(state/run.json:worker.started_at) - die Zahl der Werkzeugaufrufe sagt "
             "nichts ueber die Zeit (B210: '180 min' geschaetzt, 46 min gemessen).")
+    if preflight_min:
+        rest += (" Der Vorlauf enthaelt den Preflight (gemessen "
+                 f"~{float(preflight_min):.0f} min) plus 5 min fuer Bilanz/Export.")
     if d["unplausibel"]:
         rest += (" HINWEIS: der Zeitstempel ist unplausibel alt - er kann aus einem "
                  "abgebrochenen Lauf stammen; bitte mit Get-Date gegenpruefen.")

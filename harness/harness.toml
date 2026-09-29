@@ -37,6 +37,13 @@ max_turns_safety    = 800
 # 180 min, gemessen waren 46). `false` schaltet sie ab, ohne die Vorspann-Regel zu
 # entfernen. Gemessen wirksam: tools/r13ac_probe_hook.py, docs/_r13ac_hook.txt.
 worker_hooks        = true
+# R13ah (Aussensicht B214, Befund 3): BASH_MAX_TIMEOUT_MS stand auf `tool_timeout_ms`
+# (600 s) - jeder laengere Aufruf wurde gekappt und in den HINTERGRUND geschoben, der
+# Worker pollte danach. Gemessen: preflight 602 s (B213), `mutalle` 601 s und preflight
+# 602 s (B214), dazu Warteschleifen von 542 s. 1800 s lassen Preflight, `mutalle` und
+# `port_build.ps1` in EINEM Aufruf durchlaufen. `BASH_DEFAULT_TIMEOUT_MS` bleibt bei
+# `tool_timeout_ms` (600 s) - Vorgabe fuer Aufrufe ohne eigenes `timeout`.
+bash_max_timeout_s  = 1800
 
 [limits]
 # ALARM = Telegram-Hinweis, Lauf geht weiter. HARD = Prozess wird beendet.
@@ -108,10 +115,13 @@ max_turns        = 30    # Werkzeugrunden; Stichproben brauchen mehr als ein Rev
 max_befunde      = 7     # mehr wird nicht in den Ledger uebernommen
 summaries        = 10    # so viele Review-Zusammenfassungen gehen in den Prompt
 bilanz_zeitfenster = 12  # so viele Batches umfasst der Bilanz-Trend
-# R13ad-Nachtrag (2026-09-29): der B-Schritt gilt erst dann als stehengeblieben, wenn so
+# R13ad-Nachtrag (2026-09-29): der B-Schritt galt erst dann als stehengeblieben, wenn so
 # viele B-Batch-Reviews IN FOLGE denselben Schritt zeigen. Vorher waren es fest zwei - bei
 # 5 Schritten und einem Budget von 10-20 B-Batches ist ein einzelnes Wiederholungspaar
 # noch kein Stillstand.
+# R13ah (Aussensicht B214, Befund 4): die Zahl zaehlt jetzt **B-Batches in Folge** mit
+# gleichem Halt-PC (Feld 2) und nicht steigendem Wegmass (Feld 4) aus der Preflight-Zeile
+# `Hybrid-Lauf` - das Feld `B-SCHRITT:` des Reviews mass nichts. Der Schluesselname bleibt.
 bschritt_stillstand_batches = 3
 
 [git]

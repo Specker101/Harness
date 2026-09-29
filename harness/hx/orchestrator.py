@@ -725,9 +725,9 @@ class Orchestrator:
                 serie_bis = aussensicht.c_soll_null_marke_setzen(self.cfg, self.state,
                                                                  log=self.log)
                 self.log.info("c_soll_null-Marke gesetzt", bis=serie_bis)
-            if res.rc == 0 and aussensicht.bschritt_beteiligt(gruende):
-                bs_bis = aussensicht.bschritt_marke_setzen(self.cfg, self.state)
-                self.log.info("B-Schritt-Marke gesetzt", bis=bs_bis)
+            if res.rc == 0 and aussensicht.hybrid_beteiligt(gruende):
+                hy_bis = aussensicht.hybrid_marke_setzen(self.cfg, self.state)
+                self.log.info("Hybrid-Lauf-Marke gesetzt", bis=hy_bis)
         finally:
             meta = dict(self.state.data.get("meta") or {})
             meta.update({"letzter_lauf_batch": batch, "letzter_lauf_ts": now_iso(),

@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import sys
 import threading
 import time
@@ -22,7 +23,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import aufraeumen, envs, pricing, retention, secrets, streamjson, uhr
+from . import aufraeumen, envs, pricing, retention, secrets, stand, streamjson, uhr
+from .gitsafe import Git
 
 # R13v3: Wie oft werden die Nachfahren des Workers aufgenommen? Der Nachweis "dieser
 # Prozess gehoerte zu diesem Lauf" ist nur zu fuehren, SOLANGE die Kette lebt - ein per
@@ -66,6 +68,8 @@ class WorkerResult:
         self.vorgaenger: list[str] = []       # R13v3: gesicherte Belege der Vor-Fassung
         # R13ad: Fortsetzungen im SELBEN Chat ({minute, kontext, antwort_kurz, …}).
         self.fortsetzungen: list[dict] = []
+        # R13ah: Archiv des Preflights VOR der Fortsetzung (Pfad, "" = keiner noetig).
+        self.preflight_archiv: str = ""
 
     def describe(self) -> str:
         return (f"rc={self.rc} dauer={self.duration_s:.0f}s grenze={self.killed_reason or '-'} "
@@ -241,10 +245,13 @@ def write_worker_hooks(cfg, rd: Path, state_datei, log=None) -> str | None:
         return None
     weich = float(cfg.get("limits", "alarm_wall_s", 5400)) / 60.0
     hart = float(cfg.get("limits", "hard_wall_s", 10800)) / 60.0
-    # R13ad: EINE Zeitquelle - die Umschaltschwelle (Alarmgrenze minus
-    # `umschalt_vor_alarm_s`, seit R13ae 900 s = 15 min) und die Kontextgrenze kommen aus
+    # R13ad: EINE Zeitquelle - die Umschaltschwelle und die Kontextgrenze kommen aus
     # `harness.toml` und gehen mit in den Hook.
-    umschalt = max(0.0, weich - float(cfg.get("limits", "umschalt_vor_alarm_s", 900)) / 60.0)
+    # R13ah (Aussensicht B214, Befund 3): die Schwelle ist jetzt
+    # `Alarm - max(15 min, Preflightdauer + 5 min)` (`umschalt_minuten`) und die
+    # gemessene Preflightdauer steht als eigene Zahl in der Uhr-Zeile.
+    u = umschalt_minuten(cfg)
+    umschalt = u["umschalt_min"]
     kontext_limit = int(cfg.get("limits", "kontext_limit", 1000000))
     daten = {"hooks": {"PostToolUse": [{"hooks": [{
         "type": "command",
@@ -253,6 +260,7 @@ def write_worker_hooks(cfg, rd: Path, state_datei, log=None) -> str | None:
         "args": [str(skript), "--state", str(state_datei),
                  "--weich", f"{weich:.0f}", "--hart", f"{hart:.0f}",
                  "--umschalt", f"{umschalt:.0f}",
+                 "--preflight-min", f"{u['preflight_min']:.1f}",
                  "--kontext-limit", str(kontext_limit)],
     }]}]}}
     ziel = Path(rd) / "worker-hooks.json"
@@ -260,7 +268,10 @@ def write_worker_hooks(cfg, rd: Path, state_datei, log=None) -> str | None:
     if log:
         log.info("Batch-Uhr als PostToolUse-Hook gehaengt", datei=ziel.name,
                  weich_min=f"{weich:.0f}", hart_min=f"{hart:.0f}",
-                 umschalt_min=f"{umschalt:.0f}", kontext_limit=kontext_limit)
+                 umschalt_min=f"{umschalt:.0f}",
+                 vorlauf_min=f"{u['vorlauf_min']:.1f}",
+                 preflight_min=f"{u['preflight_min']:.1f}",
+                 preflight_batch=u["preflight_batch"], kontext_limit=kontext_limit)
     return str(ziel)
 
 
@@ -370,6 +381,89 @@ def rest_wanduhr_s(hard_wall_s: float, batch_start: float, jetzt: float) -> floa
     return max(60.0, float(hard_wall_s) - (float(jetzt) - float(batch_start)))
 
 
+# Zuschlag hinter der gemessenen Preflight-Dauer (R13ah): nach dem Preflight kommen noch
+# Bilanz, Memory-Export und Commit.
+PREFLIGHT_ZUSCHLAG_MIN = 5.0
+
+
+def umschalt_minuten(cfg) -> dict:
+    """Die wirksame Umschaltschwelle in Minuten (R13ah, Aussensicht B214 Befund 3).
+
+        Vorlauf   = max(`limits.umschalt_vor_alarm_s`, Preflightdauer + 5 min)
+        Schwelle  = `limits.alarm_wall_s` - Vorlauf
+
+    Grund: der Vorlauf muss den **Preflight-Lauf selbst** abdecken - er dauert ~10 min
+    (gemessen B213 602 s, B214 601,8 s), danach folgen Bilanz und Memory-Export. Mit
+    festen 15 min lief B213 mit 104 min ueber die 90-min-Alarmgrenze.
+
+    Rueckgabe: `{alarm_min, fest_min, preflight_min, preflight_batch, vorlauf_min,
+    umschalt_min}`. Ohne Messung (kein `result.json` mit Preflight-Aufruf) gilt die feste
+    Zahl - `preflight_min` ist dann 0,0 und `preflight_batch` 0.
+    """
+    alarm_min = float(cfg.get("limits", "alarm_wall_s", 5400)) / 60.0
+    fest_min = float(cfg.get("limits", "umschalt_vor_alarm_s", 900)) / 60.0
+    dauer = stand.preflight_dauer(cfg)
+    preflight_min = float(dauer["minuten"]) if dauer else 0.0
+    vorlauf = max(fest_min, preflight_min + PREFLIGHT_ZUSCHLAG_MIN)
+    return {"alarm_min": alarm_min, "fest_min": fest_min,
+            "preflight_min": preflight_min,
+            "preflight_batch": int(dauer["batch"]) if dauer else 0,
+            "vorlauf_min": vorlauf,
+            "umschalt_min": max(0.0, alarm_min - vorlauf)}
+
+
+def batch_aus_checkpoint(state) -> int:
+    """Die Batchnummer aus dem Harness-Tag `harness/b<N>-start` (R13ah).
+
+    **Nicht** aus dem Text und nicht aus `state.batch`: der Tag ist der Anker des Batches
+    und steht in `state.data["last_checkpoint"]` (`orchestrator` setzt ihn unmittelbar vor
+    dem Start, `hx/gitsafe.py::checkpoint`). Fehlt der Tag, gilt `state.batch` als
+    Rueckfall - die Zahl ist dann dieselbe, nur die Quelle ist schwaecher (wird geloggt).
+    """
+    tag = str((getattr(state, "data", {}) or {}).get("last_checkpoint") or "")
+    m = re.search(r"harness/b(\d+)-start", tag)
+    if m:
+        return int(m.group(1))
+    return int(getattr(state, "batch", 0) or 0)
+
+
+def archiviere_preflight_vor_fortsetzung(cfg, state, fortsetzung: int, log=None) -> str:
+    """Preflight VOR einem Fortsetzungs-Anstoss wegschreiben und committen (R13ah).
+
+    Liegt `analysis/_preflight_<N>.txt` schon vor, wird sie **unveraendert** (byteweise,
+    `shutil.copy2`) nach `analysis/_m<N>/_preflight_<N>_vor_fortsetzung<k>.txt` kopiert
+    und mit dem Betreff `B<N>: Preflight vor Fortsetzung archiviert` committet. Grund
+    (Aussensicht B214, Befund 2): die Fortsetzung laeuft im SELBEN Batch weiter und
+    ueberschreibt die Datei beim naechsten Preflight-Lauf - der Beleg des Standes VOR der
+    Fortsetzung waere weg.
+
+    Rueckgabe: Pfad der Archivdatei ("" = nichts zu tun).
+    """
+    nr = batch_aus_checkpoint(state)
+    if nr <= 0:
+        if log:
+            log.warn("Preflight-Archiv: keine Batchnummer", checkpunkt=
+                     str((getattr(state, "data", {}) or {}).get("last_checkpoint")))
+        return ""
+    quelle = Path(cfg.decomp) / "analysis" / f"_preflight_{nr}.txt"
+    if not quelle.is_file():
+        if log:
+            log.info("Kein Preflight vor der Fortsetzung", batch=nr, fortsetzung=fortsetzung)
+        return ""
+    ziel = ensure_dir(quelle.parent / f"_m{nr}") / (
+        f"_preflight_{nr}_vor_fortsetzung{int(fortsetzung)}.txt")
+    shutil.copy2(quelle, ziel)                    # unveraendert, byteweise
+    rel = ziel.relative_to(Path(cfg.decomp)).as_posix()
+    git = Git(cfg, log)
+    git.run("add", "--", rel)
+    rc, _so, se = git.run("commit", "-m",
+                          f"B{nr}: Preflight vor Fortsetzung archiviert")
+    if log:
+        log.info("Preflight vor Fortsetzung archiviert", batch=nr, fortsetzung=fortsetzung,
+                 datei=rel, rc=rc, fehler=(se.strip()[:200] if rc != 0 else ""))
+    return str(ziel)
+
+
 def fortsetzung_pruefen(cfg, run, stats, auftrag_text: str, minuten: float,
                         fortsetzungen: list[dict], killed_reason: str | None = None,
                         log=None) -> dict:
@@ -395,11 +489,10 @@ def fortsetzung_pruefen(cfg, run, stats, auftrag_text: str, minuten: float,
     if stats.letzte_antwort_ohne_werkzeug() is not True:
         return {"ja": False,
                 "grund": "kein regulaeres Ende (letzte Antwort mit Werkzeugaufruf)"}
-    umschalt_s = (float(cfg.get("limits", "alarm_wall_s", 5400))
-                  - float(cfg.get("limits", "umschalt_vor_alarm_s", 900)))
-    if minuten * 60.0 >= umschalt_s:
+    umschalt_min = umschalt_minuten(cfg)["umschalt_min"]
+    if minuten >= umschalt_min:
         return {"ja": False, "grund": f"Batch-Uhr {minuten:.0f} min >= "
-                                      f"Umschaltschwelle {umschalt_s / 60.0:.0f} min"}
+                                      f"Umschaltschwelle {umschalt_min:.0f} min"}
     kontext = stats.kontext_stats()["kontext_letzte_anfrage"]
     schwelle = int(cfg.get("limits", "kontext_schwelle", 550000))
     if kontext >= schwelle:
@@ -410,15 +503,25 @@ def fortsetzung_pruefen(cfg, run, stats, auftrag_text: str, minuten: float,
 
 
 def fortsetzungs_text(minuten: float, kontext: int, alarm_min: float, umschalt_min: float,
-                      preflight_erneut: bool = False) -> str:
-    """Die Fortsetzungsnachricht im SELBEN Chat (Wortlaut laut Auftrag 2026-09-29)."""
-    text = (f"Batch-Uhr: {minuten:.0f} von {alarm_min:.0f} min, Umschaltschwelle "
-            f"{umschalt_min:.0f} min nicht erreicht, Kontext {uhr.kontext_kurz(kontext)}. "
-            "Arbeite die offenen Posten der NACHRUECKLISTE ab, je Posten ein Commit mit "
-            "Soll-Delta. Ist ein Posten blockiert, nenne mit Beleg, welches Material oder "
-            "welche Entscheidung fehlt; Aufwand ist kein Grund. Ist die Nachrückliste "
-            "vollständig erledigt, antworte nur mit NACHRUECKLISTE ERLEDIGT und je Posten "
-            "dem Commit-Hash.")
+                      batch: int = 0, preflight_erneut: bool = False) -> str:
+    """Die Fortsetzungsnachricht im SELBEN Chat (Wortlaut laut Auftrag 2026-09-29).
+
+    R13ah (Aussensicht B214, Befund 2): der Text BEGINNT mit der Batchnummer. Grund: die
+    Fortsetzung laeuft im selben Batch weiter, ein Commit mit `B<N+1>:` war bisher
+    naheliegend - gemessen in B213/B214 wurde die Nummer aus dem Text abgeleitet statt aus
+    dem Harness-Tag (`harness/b<N>-start`).
+    """
+    text = ""
+    if batch > 0:
+        text = (f"Du bist weiterhin in Batch {int(batch)}. Alle Commits tragen "
+                f"B{int(batch)}:, nicht B{int(batch) + 1}:. ")
+    text += (f"Batch-Uhr: {minuten:.0f} von {alarm_min:.0f} min, Umschaltschwelle "
+             f"{umschalt_min:.0f} min nicht erreicht, Kontext {uhr.kontext_kurz(kontext)}. "
+             "Arbeite die offenen Posten der NACHRUECKLISTE ab, je Posten ein Commit mit "
+             "Soll-Delta. Ist ein Posten blockiert, nenne mit Beleg, welches Material oder "
+             "welche Entscheidung fehlt; Aufwand ist kein Grund. Ist die Nachrückliste "
+             "vollständig erledigt, antworte nur mit NACHRUECKLISTE ERLEDIGT und je Posten "
+             "dem Commit-Hash.")
     if preflight_erneut:
         text += (" Nach der Nacharbeit: Preflight erneut laufen lassen, Bilanz "
                  "aktualisieren, committen. Der letzte Preflight gilt, der frühere ist "
@@ -543,10 +646,11 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
             "hard_wall": float(cfg.get("limits", "hard_wall_s", 10800)),
             "hard_requests": int(cfg.get("limits", "hard_requests", 1000)),
             "hard_cost": float(cfg.get("limits", "hard_cost_usd", 2.0)),
-            # R13ad: die Umschaltschwelle (Alarmgrenze minus `umschalt_vor_alarm_s`) -
-            # sie geht auch in den Fortsetzungstext.
-            "umschalt_vor_alarm": float(cfg.get("limits", "umschalt_vor_alarm_s", 900)),
         }
+        # R13ah: die wirksame Umschaltschwelle (Alarmgrenze minus Vorlauf; der Vorlauf
+        # enthaelt die gemessene Preflight-Dauer) - EINE Quelle fuer Hook, Fortsetzungs-
+        # text und Anstoss-Entscheidung.
+        uhr_schwelle = umschalt_minuten(cfg)
         fired: set[str] = set()
         gemeldet = [0]                      # R13g: bis hierher schon alarmierte Secret-Treffer
         gemeldet_abbau = [0]                # R13i: bis hierher gemeldeter Prozessabbau
@@ -801,9 +905,16 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
                 fortsetzungen.append({"minute": round(minuten, 1), "kontext": kontext,
                                       "antwort_kurz": "", "dauer_s": None, "rc": None,
                                       "stream": f"stream-forts{nummer + 1}.jsonl"})
+                # R13ah: den Preflight-Stand VOR der Fortsetzung wegsichern (unveraendert
+                # plus eigener Commit) - sonst ueberschreibt der naechste Preflight-Lauf
+                # im selben Batch den Beleg. Die Batchnummer kommt aus dem Checkpoint-Tag
+                # (`harness/b<N>-start`), NICHT aus `state.batch` oder dem Text.
+                res.preflight_archiv = archiviere_preflight_vor_fortsetzung(
+                    cfg, state, len(fortsetzungen), log=log)
                 fortsetz_text = fortsetzungs_text(
                     minuten, kontext, lim["alarm_wall"] / 60.0,
-                    lim["alarm_wall"] / 60.0 - lim["umschalt_vor_alarm"] / 60.0,
+                    uhr_schwelle["umschalt_min"],
+                    batch=batch_aus_checkpoint(state),
                     preflight_erneut=(stats.werkzeug_enthaelt("preflight")
                                       and stats.werkzeug_enthaelt("bilanz")))
                 resume = True
@@ -952,6 +1063,8 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
     res.stats.update(stats.kontext_stats())
     # R13ad: Fortsetzungen im selben Chat (Minute, Kontext, Antwort des Workers).
     res.stats["fortsetzungen"] = list(res.fortsetzungen or [])
+    # R13ah: der Preflight-Stand VOR der Fortsetzung (Beleg, s. `archiviere_preflight_…`).
+    res.stats["preflight_archiv"] = res.preflight_archiv or ""
     res.stats["usage_check"] = stats.usage_check()
     res.stats["rebuilt"] = bool(rebuilt)
     res.stats["dauer"] = {"wanduhr_s": res.duration_s, "quelle": res.duration_quelle,
@@ -1099,14 +1212,15 @@ RECHENZEIT (R13v, gemessen 2026-09-28 - bitte einhalten)
 - Fortschritt pruefen statt warten: Dateigroesse/mtime oder Prozess-CPU-Delta
   (`(Get-Process -Id N).CPU`) in EINEM kurzen Aufruf, ohne Schleife.
 
-ZEIT (R13ac/R13ad - gemessen, nicht geschaetzt, EINE Quelle)
+ZEIT (R13ac/R13ad/R13ah - gemessen, nicht geschaetzt, EINE Quelle)
 - Der Harness MISST die Batch-Zeit mit der Wanduhr des Worker-Prozesses. Nach jedem
   Werkzeugaufruf steht in deinem Kontext eine Zeile
-  `BATCH-UHR (Harness-Messung): <m> min von <weich> min (Umschalten ab <u>) | Kontext <x>k von 1M …`.
+  `BATCH-UHR (Harness-Messung): <m> min von <weich> min (Umschalten ab <u>) | Kontext <x>k von 1M | Preflight zuletzt ~<p> min …`.
   Sie ist die gueltige Grundlage fuer "wie lange laeuft dieser Batch schon".
-- Die Zeile nennt auch die **Umschaltschwelle** (Alarmgrenze minus
-  `umschalt_vor_alarm_s`; seit R13ae 900 s = 15 min, also "Umschalten ab 75") und den
-  **Kontext**. Nennt der Auftrag eine andere Minutenzahl ("Budget 80 min", "ab 70 min"),
+- Die Zeile nennt auch die **Umschaltschwelle** und den **Kontext**. Die Schwelle ist
+  `Alarmgrenze minus Vorlauf`, und der Vorlauf enthaelt die gemessene Dauer des letzten
+  Preflight-Aufrufs (R13ah) - er laeuft am Batch-Ende und seine Zeit ist damit schon
+  verplant. Nennt der Auftrag eine andere Minutenzahl ("Budget 80 min", "ab 70 min"),
   gilt die BATCH-UHR - der Reviewer schreibt seit R13ad keine eigene Zahl mehr.
 - Die ZAHL DER WERKZEUGAUFRUFE sagt nichts ueber die Zeit. In B210 hielt sich der Worker
   nach Aufrufzaehlung fuer "~180 min" und strich deshalb Pflichtteile - gemessen waren
@@ -1114,10 +1228,12 @@ ZEIT (R13ac/R13ad - gemessen, nicht geschaetzt, EINE Quelle)
 - Restzeit also NUR so rechnen: `Get-Date` minus dieser Startzeit (oder die letzte
   BATCH-UHR-Zeile lesen). Eine Streichung von Pflichtteilen "aus Zeitgruenden" gilt nur
   mit einer unmittelbar davor gemessenen `Get-Date`-Zeile im Batch-Dokument.
-- Hoerst du vor der Umschaltschwelle auf, wird derselbe Chat **fortgesetzt** und du
-  arbeitest die offenen Posten der `NACHRUECKLISTE` des Auftrags ab (je Posten ein Commit
-  mit Soll-Delta). Die STREICHREIHENFOLGE faellt erst ab der Umschaltschwelle und nur mit
-  Uhrnachweis.
+- Hoerst du vor der Umschaltschwelle auf, wird derselbe Chat **fortgesetzt**: die
+  Fortsetzungsnachricht beginnt mit "Du bist weiterhin in Batch <N>. Alle Commits tragen
+  B<N>:, nicht B<N+1>:." - die Batch-Nummer kommt aus dem Harness, nicht aus dem Text.
+  Danach arbeitest du die offenen Posten der `NACHRUECKLISTE` des Auftrags ab (je Posten
+  ein Commit mit Soll-Delta). Die STREICHREIHENFOLGE faellt erst ab der Umschaltschwelle
+  und nur mit Uhrnachweis.
 
 ABSCHLUSSBERICHT (letzte Nachricht, Pflicht in dieser Gliederung)
 ## 1) Übernommener Stand (5 Sätze)

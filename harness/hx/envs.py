@@ -135,8 +135,14 @@ def worker_env(cfg, environ: dict, token: str) -> dict:
         # zwei Abfrageschleifen 1083,7 s auf PID 4996. Mit 600 s als STANDARD-Zeit
         # laeuft ein 7- bis 10-Minuten-Lauf synchron in EINEM Aufruf - es gibt keinen
         # Grund mehr, im Hintergrund zu starten und zu pollen.
+        # R13ah (Aussensicht B214, Befund 3): die HARTE Obergrenze ist jetzt eine eigene
+        # Zahl (`claude.bash_max_timeout_s`, Vorgabe 1800 s). Mit 600 s wurde jeder
+        # laengere Aufruf gekappt und in den Hintergrund geschoben (gemessen: preflight
+        # 602 s in B213/B214, `mutalle` 601 s in B214) - danach folgten Warteschleifen von
+        # 542 s. Die VORGABE fuer Aufrufe ohne eigenes `timeout` bleibt `tool_timeout_ms`.
         "BASH_DEFAULT_TIMEOUT_MS": str(cfg.get("claude", "tool_timeout_ms", 600000)),
-        "BASH_MAX_TIMEOUT_MS": str(cfg.get("claude", "tool_timeout_ms", 600000)),
+        "BASH_MAX_TIMEOUT_MS": str(int(float(cfg.get("claude", "bash_max_timeout_s",
+                                                      1800)) * 1000)),
     })
     return env
 

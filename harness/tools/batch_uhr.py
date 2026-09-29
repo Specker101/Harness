@@ -42,8 +42,11 @@ def main(argv: list[str]) -> int:
         # R13ad: die Umschaltschwelle (Alarmgrenze minus `umschalt_vor_alarm_s`, seit
         # R13ae 900 s = 15 min) und die Kontextgrenze kommen aus `harness.toml` und
         # werden vom Harness mitgegeben.
+        # R13ah: dazu die gemessene Dauer des letzten Preflight-Aufrufs (`--preflight-min`).
         umschalt = (float(argv[argv.index("--umschalt") + 1])
                     if "--umschalt" in argv else None)
+        preflight_min = (float(argv[argv.index("--preflight-min") + 1])
+                         if "--preflight-min" in argv else None)
         kontext_limit = (int(argv[argv.index("--kontext-limit") + 1])
                          if "--kontext-limit" in argv else None)
         from hx import uhr
@@ -53,7 +56,8 @@ def main(argv: list[str]) -> int:
             # stuende nach jedem Werkzeugaufruf ein Hinweis ohne Messwert im Kontext.
             return 0
         text = uhr.uhr_text(state, weich, hart, umschalt_min=umschalt,
-                            kontext_limit=kontext_limit)
+                            kontext_limit=kontext_limit,
+                            preflight_min=preflight_min)
         io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8").write(json.dumps(
             {"hookSpecificOutput": {"hookEventName": "PostToolUse",
                                     "additionalContext": text}},

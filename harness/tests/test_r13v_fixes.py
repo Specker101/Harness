@@ -155,8 +155,11 @@ class TestSperrenUndVorspann(unittest.TestCase):
     def test_worker_umgebung_hebt_die_zeitgrenze(self):
         import os
         env = envs.worker_env(load_config(), dict(os.environ), "token")
+        # R13ah: die VORGABE bleibt 600 s, die HARTE Obergrenze ist eine eigene Zahl
+        # (`claude.bash_max_timeout_s`, 1800 s) - sonst wurde jeder laengere Aufruf
+        # gekappt und in den Hintergrund geschoben (B213/B214: preflight 602 s).
         self.assertEqual(env["BASH_DEFAULT_TIMEOUT_MS"], "600000")
-        self.assertEqual(env["BASH_MAX_TIMEOUT_MS"], "600000")
+        self.assertEqual(env["BASH_MAX_TIMEOUT_MS"], "1800000")
 
     def test_vorspann_nennt_den_erlaubten_weg(self):
         v = worker.WORKER_PREAMBLE

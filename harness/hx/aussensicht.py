@@ -65,6 +65,9 @@ from .util import (ensure_dir, now_iso, read_json, read_text, write_json_atomic,
 # docs/bedienung.md Paragraph 12e).
 STANDARD = {"every_batches": 3, "wall_s": 900, "max_turns": 30, "max_befunde": 7,
             "summaries": 10, "bilanz_zeitfenster": 12, "bschritt_stillstand_batches": 3}
+# `bschritt_stillstand_batches` heisst seit R13ah: so viele **B-Batches in Folge** muessen
+# denselben Halt-PC zeigen und duerfen im Wegmass nicht steigen (Hybrid-Lauf-Zeile). Der
+# Schluesselname bleibt (eine Aenderung wuerde nur Konfiguration und Doku umbenennen).
 
 # Alles Sperrende - dieselbe Haltung wie beim Reviewer, nur ohne MCP.
 VERBOTEN = ["Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "WebFetch", "WebSearch",
@@ -107,19 +110,18 @@ KERNZAHL_GRUND = "Kernzahl ohne Bewegung ueber die letzten C-Batches"
 C_SOLL_GRUND = "c_soll_null_serie"
 SOLL_NULL_SERIE = 3
 
-# Entprellung des B-Schritt-Ausloesers (Auftrag 2026-09-29). Anlass: `runs/meta-213.md`
-# wurde ausgeloest durch "B-Schritt 2/5 unveraendert in den B-Batches (Reviews b212 und
-# b213)" - derselbe Stillstand haette in jedem weiteren B-Batch erneut gefeuert. Die Marke
-# haelt die Nummer des neuesten VERGLICHENEN B-Batches (Review-Ordner minus 1, weil das
-# Review von Batch N in `runs/b<N+1>` liegt). Fehlt der Schluessel, gilt einmalig 212 -
-# der Stillstand B211/B212 ist in `runs/meta-213.md` gemeldet.
-MARKE_BSCHRITT_SCHLUESSEL = "bschritt_gemeldet_bis"
-MIGRATION_BSCHRITT_MARKE = 212
-# Der Wortlaut des Grundes (Kennung fuer `bschritt_beteiligt`).
-BSCHRITT_GRUND = "B-Schritt"
-# Wie viele B-Batch-Reviews in Folge denselben Schritt zeigen muessen (harness.toml
-# `[meta] bschritt_stillstand_batches`, Vorgabe 3 - 5 Schritte bei 10-20 B-Batches).
-BSCHRITT_STILLSTAND_BATCHES = 3
+# Entprellung des Stillstands-Ausloesers (R13ah, Aussensicht B214 Befund 4). Das Feld
+# `B-SCHRITT:` des Reviews mass nichts (B212 2/5, B213 2/5 - waehrend der Hybrid-Lauf in
+# B214 von 28/407 auf 448/42599 lief). Gemessen wird jetzt die ZEILE `Hybrid-Lauf` der
+# Preflight-Datei: Feld 2 (Halt-PC) und Feld 4 (Wegmass-Zaehler). Der Preflight liegt VOR
+# dem Review vor - der Ausloeser kommt damit frueher. Die Marke haelt die Nummer des
+# neuesten VERGLICHENEN B-Batches (hier: der Preflight-Dateiname, also der Batch selbst).
+MARKE_HYBRID_SCHLUESSEL = "hybrid_gemeldet_bis"
+# Der Wortlaut des Grundes (Kennung fuer `hybrid_beteiligt`).
+HYBRID_GRUND = "Hybrid-Lauf"
+# Wie viele B-Batches IN FOLGE denselben Halt-PC und kein steigendes Wegmass zeigen
+# muessen (`[meta] bschritt_stillstand_batches`, Vorgabe 3).
+HYBRID_STILLSTAND_BATCHES = 3
 
 
 def grenzen(cfg) -> dict:
@@ -518,98 +520,82 @@ def summaries(cfg, n: int) -> list[tuple[int, str]]:
     return out[-max(1, int(n)):]
 
 
-def b_schritt(cfg, n: int = 6) -> list[tuple[int, int, str]]:
-    """Die `B-SCHRITT:`-Zeilen aus den letzten Reviews: `[(reviewordner, schritt, zeile)]`.
+# R13ah (Aussensicht B214, Befund 4): die frueheren Funktionen `b_schritt` und
+# `b_schritt_stillstand` sind ENTFALLEN. Sie lasen die Pflichtzeile `B-SCHRITT: <n>/5`
+# aus den Review-Zusammenfassungen - eine Zahl, die nichts mass (B212 2/5, B213 2/5,
+# waehrend der Hybrid-Lauf in B214 von 28/407 auf 448/42599 lief). Der Stillstand wird
+# jetzt aus der Preflight-Zeile `Hybrid-Lauf` gemessen (`hybrid_stillstand` unten), die
+# VOR dem Review vorliegt. Die Klassifikation "B-Batch oder C-Batch" (`stand.strang_von_
+# batch`) nutzt die Zeile weiterhin als einen Beleg - sie bleibt deshalb im Prompt.
 
-    Die Zeile ist seit R13w Pflicht in der Review-Zusammenfassung
-    ("B-SCHRITT: <n>/5 <Name>, B-Batch <k> von max 20"). Sie ist die EINZIGE Quelle des
-    **Schritt-Fortschritts** - fehlt sie, gibt es keine Zahl und es wird NICHT geraten.
-    Ob ein Batch ueberhaupt ein B-Batch ist, haengt dagegen NICHT mehr an dieser Zeile:
-    das entscheidet `stand.strang_von_batch` aus mehreren Belegen (R13aa, Punkt 1 -
-    B208/B209 wurden als C-Batches gezaehlt, weil die Pflichtzeile fehlte).
 
-    Auftrag 2026-09-29: Reviews mit \"B-SCHRITT: kein B-Batch (Strang C)\" zaehlen NICHT
-    mit - sie beschreiben einen C-Batch und haben deshalb keinen Schritt-Fortschritt. Das
-    war schon durch das Zahlenmuster (`<n>/5`) so; hier steht es zusaetzlich ausdruecklich,
-    damit die Absicht im Code sichtbar ist und ein Schreibfehler des Reviewers (Zahl in
-    einem C-Batch) die Reihe nicht verfaelscht.
+def hybrid_stillstand(cfg) -> str:
+    """Steht der Hybrid-Lauf ueber die letzten B-Batches still? ('' = nein)
+
+    Verglichen werden die letzten `[meta] bschritt_stillstand_batches` **B-Batches in
+    Folge** (Vorgabe 3), fuer die es eine Zeile `Hybrid-Lauf` gibt. Stillstand heisst:
+    der **Halt-PC** (Feld 2) ist in allen gleich **und** das **Wegmass** (Feld 4,
+    Zaehler) steigt nicht.
+
+    C-Batches zaehlen nicht mit (sie haben keinen B-Fortschritt), und Batches ohne die
+    Zeile (vor B212) fehlen in der Reihe - beides wird NICHT geraten.
     """
-    out: list[tuple[int, int, str]] = []
-    for batch, summary in summaries(cfg, n):
-        for zeile in summary.splitlines():
-            if not re.search(r"B-SCHRITT:", zeile, re.IGNORECASE):
-                continue
-            # Ein C-Batch meldet "kein B-Batch" - er hat keinen Schritt-Fortschritt und
-            # darf die Reihe nicht verfaelschen, auch wenn versehentlich eine Zahl in
-            # derselben Zeile steht. Die Zeile beendet die Suche in DIESEM Review.
-            if re.search(r"kein\s+B-Batch", zeile, re.IGNORECASE):
-                break
-            m = re.search(r"B-SCHRITT:\s*(\d+)\s*/\s*5", zeile, re.IGNORECASE)
-            if m:
-                out.append((batch, int(m.group(1)), zeile.strip()[:160]))
-                break
-    return out
-
-
-def b_schritt_stillstand(cfg) -> str:
-    """Steht der B-Schritt ueber die letzten B-Batches still? ('' = nein)
-
-    Verglichen werden die letzten `[meta] bschritt_stillstand_batches` B-Batch-Reviews
-    (Vorgabe 3) - vor R13ad waren es zwei. Reviews mit "kein B-Batch" sind in `b_schritt`
-    schon aussortiert, die Reihe besteht also aus aufeinanderfolgenden B-Batches.
-    """
-    n = max(2, int(grenzen(cfg).get("bschritt_stillstand_batches") or BSCHRITT_STILLSTAND_BATCHES))
-    reihe = b_schritt(cfg, max(6, n + 2))
+    n = max(2, int(grenzen(cfg).get("bschritt_stillstand_batches")
+                   or HYBRID_STILLSTAND_BATCHES))
+    verlauf = stand.hybrid_verlauf(cfg, n + 4)
+    reihe = [e for e in verlauf
+             if str(stand.strang_von_batch(cfg, int(e["batch"])).get("strang")) == "B"]
     if len(reihe) < n:
         return ""
     letzte = reihe[-n:]
-    schritte = {s for _b, s, _z in letzte}
-    if len(schritte) != 1:
+    pcs = {e["halt_pc"] for e in letzte}
+    if len(pcs) != 1:
         return ""
-    b_erst, b_letzt = letzte[0][0], letzte[-1][0]
-    return (f"B-Schritt {letzte[-1][1]}/5 unveraendert in den B-Batches "
-            f"(Reviews b{b_erst} und b{b_letzt}) - "
-            f"kein Fortschritt ueber {n} B-Batches")
+    wege = [int(e["weg"]) for e in letzte]
+    if any(b > a for a, b in zip(wege, wege[1:])):
+        return ""                      # das Wegmass STEIGT - also Fortschritt
+    b_erst, b_letzt = letzte[0]["batch"], letzte[-1]["batch"]
+    b_reihe = ", ".join(f"B{e['batch']}" for e in letzte)
+    return (f"Hybrid-Lauf haengt: Halt-PC {letzte[-1]['halt_pc']} unveraendert und "
+            f"Wegmass {wege[0]}/{letzte[0]['weg_gesamt']} -> "
+            f"{wege[-1]}/{letzte[-1]['weg_gesamt']} steigt nicht "
+            f"({b_reihe}, Quelle analysis/{letzte[-1]['datei']}, Zeile \"Hybrid-Lauf\") "
+            f"- kein Fortschritt ueber {n} B-Batches (B{b_erst} bis B{b_letzt})")
 
 
-def bschritt_neuester_b(cfg) -> int:
-    """Die Nummer des neuesten VERGLICHENEN B-Batches (0 = keiner).
-
-    Die Reviews liegen in `runs/b<N>/review.md` und bewerten Batch **N-1** (Konvention
-    R13x) - der neueste verglichene B-Batch ist also `reviewordner - 1`.
-    """
-    reihe = b_schritt(cfg, 6)
-    return max(0, int(reihe[-1][0]) - 1) if reihe else 0
+def hybrid_neuester_b(cfg) -> int:
+    """Die Nummer des neuesten B-Batches mit `Hybrid-Lauf`-Zeile (0 = keiner)."""
+    reihe = [e for e in stand.hybrid_verlauf(cfg, 6)
+             if str(stand.strang_von_batch(cfg, int(e["batch"])).get("strang")) == "B"]
+    return int(reihe[-1]["batch"]) if reihe else 0
 
 
-def bschritt_gemeldet_bis(meta: dict) -> int:
-    """Die B-Schritt-Marke; fehlt sie, gilt `MIGRATION_BSCHRITT_MARKE` (212)."""
-    wert = (meta or {}).get(MARKE_BSCHRITT_SCHLUESSEL)
-    if wert is None:
-        return MIGRATION_BSCHRITT_MARKE
+def hybrid_gemeldet_bis(meta: dict) -> int:
+    """Die Stillstands-Marke; fehlt sie, gilt 0 (nichts gemeldet)."""
+    wert = (meta or {}).get(MARKE_HYBRID_SCHLUESSEL)
     try:
-        return int(wert)
+        return int(wert) if wert is not None else 0
     except (TypeError, ValueError):
-        return MIGRATION_BSCHRITT_MARKE
+        return 0
 
 
-def bschritt_marke_setzen(cfg, state) -> int:
-    """Die B-Schritt-Marke auf den neuesten verglichenen B-Batch setzen.
+def hybrid_marke_setzen(cfg, state) -> int:
+    """Die Marke auf den neuesten verglichenen B-Batch setzen.
 
     Wird - wie `kernzahl_marke_setzen` - erst NACH einem erfolgreichen Lauf (rc=0) gerufen,
     an dem der Grund beteiligt war.
     """
-    neu = bschritt_neuester_b(cfg)
+    neu = hybrid_neuester_b(cfg)
     if neu > 0:
         meta = dict(state.data.get("meta") or {})
-        meta[MARKE_BSCHRITT_SCHLUESSEL] = int(neu)
+        meta[MARKE_HYBRID_SCHLUESSEL] = int(neu)
         state.data["meta"] = meta
     return int(neu)
 
 
-def bschritt_beteiligt(gruende) -> bool:
-    """War der B-Schritt-Stillstand an diesen Ausloeser-Gruenden beteiligt?"""
-    return any(str(g).startswith(BSCHRITT_GRUND) for g in (gruende or []))
+def hybrid_beteiligt(gruende) -> bool:
+    """War der Hybrid-Lauf-Stillstand an diesen Ausloeser-Gruenden beteiligt?"""
+    return any(str(g).startswith(HYBRID_GRUND) for g in (gruende or []))
 
 
 def _marker(cfg, muster: str) -> list[tuple[int, str]]:
@@ -1412,8 +1398,9 @@ def faellig(cfg, state, log=None) -> list[str]:
     #     `runs/meta-212.md` gemeldet und darf nicht erneut feuern.
     #   * `c_soll_null_gemeldet_bis` -> 0: nach der geltenden Regel "fehlende
     #     SOLL-KOEPFE-Zeile = SOLL > 0" bilden B207/B210/B213 keine SOLL-0-Serie.
-    #   * `bschritt_gemeldet_bis` -> 212: der Stillstand B211/B212 ist in
-    #     `runs/meta-213.md` gemeldet.
+    #   * `hybrid_gemeldet_bis` -> 0 (R13ah): der Ausloeser ist neu und liest die
+    #     Preflight-Zeile `Hybrid-Lauf`; fuer B212/B213 gibt es nur ZWEI B-Batches mit
+    #     Zeile, ein Stillstand ist damit nicht gemeldet - es gibt nichts zu ueberspringen.
     # NICHT die Variante "neu.batch > letzter_lauf_batch" - die Marken sind eigenstaendig.
     fehlend = False
     if MARKE_SCHLUESSEL not in meta:
@@ -1422,8 +1409,8 @@ def faellig(cfg, state, log=None) -> list[str]:
     if MARKE_SOLL_SCHLUESSEL not in meta:
         meta[MARKE_SOLL_SCHLUESSEL] = MIGRATION_SOLL_MARKE
         fehlend = True
-    if MARKE_BSCHRITT_SCHLUESSEL not in meta:
-        meta[MARKE_BSCHRITT_SCHLUESSEL] = MIGRATION_BSCHRITT_MARKE
+    if MARKE_HYBRID_SCHLUESSEL not in meta:
+        meta[MARKE_HYBRID_SCHLUESSEL] = 0
         fehlend = True
     if fehlend:
         state.data["meta"] = meta
@@ -1447,8 +1434,8 @@ def faellig(cfg, state, log=None) -> list[str]:
                          ("Abbruchkriterium erreicht", r"ABBRUCHKRITERIUM ERREICHT:")):
         for b, zeile in _marker(cfg, muster)[:1]:
             gruende.append(f"{name} - laut Review in runs/b{b}: {zeile[:120]}")
-    still = b_schritt_stillstand(cfg)
-    if still and bschritt_neuester_b(cfg) > bschritt_gemeldet_bis(meta):
+    still = hybrid_stillstand(cfg)
+    if still and hybrid_neuester_b(cfg) > hybrid_gemeldet_bis(meta):
         gruende.append(still)
     kern = kernzahl_stillstand(cfg, log=log)
     if kern and kernzahl_neuester_c(cfg) > kernzahl_gemeldet_bis(meta):

@@ -1,0 +1,55 @@
+R13ah Ausgangsmessung - erzeugt 2026-09-29 19:11
+Harness-Root: g:\Harness\harness
+Decomp-Repo : g:\Silent Scope Decomp
+
+=== 1) Werkzeug-Zeitgrenzen ===
+  hx/envs.py:143: "BASH_DEFAULT_TIMEOUT_MS": str(cfg.get("claude", "tool_timeout_ms", 600000)),
+  hx/envs.py:144: "BASH_MAX_TIMEOUT_MS": str(int(float(cfg.get("claude", "bash_max_timeout_s",
+  harness.toml claude.tool_timeout_ms   = (nicht gesetzt -> Vorgabe 600000)
+  harness.toml claude.bash_max_timeout_s = 1800
+
+=== 2) Werkzeugaufrufe >= 500 s (runs/b212..b214/result.json) ===
+  --- B212: rc=0 dauer=3141.978 Anfragen=217 ---
+         602.3 s  Grep: g:\Silent Scope Decomp\scripts
+         601.9 s  PowerShell: Get-ChildItem capture\ppc_cov_boot.bin | Select-Object Length; $b=[IO.File]::ReadAllBytes(
+         511.0 s  PowerShell: & .\scripts\port_build.ps1 -Gl 2>&1 | Select-Object -Last 5; Get-Date -Format "HH:mm:ss"
+         511.0 s  Grep: g:\Silent Scope Decomp\port\hybrid\ppc_kern.cpp
+  --- B213: rc=0 dauer=6237.475 Anfragen=201 ---
+         602.0 s  PowerShell: Get-Date; python -u scripts/preflight.py before *> analysis\_preflight_213.txt; "EXIT=$LAS
+         601.6 s  PowerShell: git add port/src/ckopf_leaves.cpp analysis/_m213/; git commit -q -m "B213: Port - L8579C R
+  --- B214: rc=0 dauer=5949.933 Anfragen=223 ---
+         601.8 s  PowerShell: cd 'g:\Silent Scope Decomp'; Get-Date -Format 'HH:mm:ss'; python -u scripts/preflight.py b
+         601.3 s  PowerShell: cd 'g:\Silent Scope Decomp'; python -u scripts/c_kopf.py mutalle *> analysis\_m214\_mutall
+         601.1 s  PowerShell: cd 'g:\Silent Scope Decomp'; Set-Content -Path "$env:TEMP\b214_mut.txt" -Encoding utf8 -Va
+         541.9 s  PowerShell: cd 'g:\Silent Scope Decomp'; $p = Get-Process -Id 18400 -ErrorAction SilentlyContinue; if 
+         541.8 s  PowerShell: cd 'g:\Silent Scope Decomp'; $p = Get-Process -Id 18400 -ErrorAction SilentlyContinue; if 
+
+=== 3) Hybrid-Lauf-Zeilen der echten Preflight-Dateien ===
+  _preflight_199.txt: (keine)
+  _preflight_200.txt: (keine)
+  _preflight_201.txt: (keine)
+  _preflight_202.txt: (keine)
+  _preflight_203.txt: (keine)
+  _preflight_204.txt: (keine)
+  _preflight_205.txt: (keine)
+  _preflight_206.txt: (keine)
+  _preflight_207.txt: (keine)
+  _preflight_208.txt: (keine)
+  _preflight_209.txt: (keine)
+  _preflight_210.txt: (keine)
+  _preflight_211.txt: (keine)
+  _preflight_212.txt: Hybrid-Lauf        215 | 800138F0 | MMIO | 28/407 | 0                       OK
+  _preflight_213.txt: Hybrid-Lauf        215 | 800138F0 | MMIO | 28/407 | 0                       OK
+  _preflight_214.txt: Hybrid-Lauf        2000000 | 8000CB98 | Schranke | 448/42599 | nein         OK
+
+=== 4) Strang und Halt-PC/Wegmass der letzten Batches ===
+  B211: strang=B (Pflichtzeile STRANG/SOLL-KOEPFE im Auftrag (runs/b211/auftrag.md)) | keine Hybrid-Lauf-Zeile
+  B212: strang=B (Pflichtzeile STRANG/SOLL-KOEPFE im Auftrag (runs/b212/auftrag.md)) | Halt-PC 800138F0 | MMIO | Wegmass 28/407
+  B213: strang=C (Pflichtzeile STRANG/SOLL-KOEPFE im Auftrag (runs/b213/auftrag.md)) | Halt-PC 800138F0 | MMIO | Wegmass 28/407
+  B214: strang=B (Pflichtzeile STRANG/SOLL-KOEPFE im Auftrag (runs/b214/auftrag.md)) | Halt-PC 8000CB98 | Schranke | Wegmass 448/42599
+
+=== 5) Ausloeser der Aussensicht (neuer Stand) ===
+  Hybrid-Stillstand: (keiner)
+  neuester B-Batch mit Hybrid-Zeile: B214
+  Marken: {"vorgemerkt": false, "vorgemerkt_grund": "", "vorgemerkt_ts": "2026-09-28T17:07:11+00:00", "letzter_lauf_batch": 214, "letzter_lauf_ts": "2026-09-29T16:43:51+00:00", "geprueft_batch": 214, "kernzahl_gemeldet_bis": 210, "c_soll_null_gemeldet_bis": 0, "bschritt_gemeldet_bis": 214}
+  Preflight-Dauer (letzter Batch): {"batch": 214, "dauer_s": 601.8, "minuten": 10.03, "befehl": "cd 'g:\\Silent Scope Decomp'; Get-Date -Format 'HH:mm:ss'; python -u scripts/preflight.py b"}
