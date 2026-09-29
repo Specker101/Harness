@@ -573,5 +573,208 @@ class TestBilanzZeile(unittest.TestCase):
         self.assertIn("1 offen", mit)
 
 
+class TestKernzahlEntprellung(unittest.TestCase):
+    """Nachbesserung 2026-09-29 (Auftrag): den Kernzahl-Ausloeser entprellen.
+
+    Der Anlass (runs/meta-208…211.md): der Grund "Kernzahl ohne Bewegung ueber die letzten
+    C-Batches" steuerte drei Laeufe (209, 210, 211) und fuehrte dabei IMMER
+    "C Abweichungen = 0" mit - eine Kennzahl mit Zielwert 0, die zwangslaeufig stillsteht.
+    Ausserdem galt B211 (nur `SOLL-KOEPFE: 0 (Strang B, …)`) als C-Batch und loeste aus.
+
+    Geprueft wird: `C Abweichungen` ist kein Kriterium (ODER-Liste), ein C-Batch ohne
+    Bau-Auftrag ist kein Stillstand, der Stillstand feuert nur einmal je neuem C-Batch
+    (Marke `kernzahl_gemeldet_bis`), die Marke setzt nur ein erfolgreicher Lauf (rc=0)
+    mit beteiligtem Grund, und die Migration fehlender Zustaende steht auf 210.
+    """
+
+    def setUp(self):
+        self.tmp = Path(ROOT) / "tests" / "_tmp_r13w_entprell"
+        shutil.rmtree(self.tmp, ignore_errors=True)
+        self.root = ensure_dir(self.tmp / "root")
+        self.decomp = ensure_dir(self.tmp / "decomp")
+        self.ana = ensure_dir(self.decomp / "analysis")
+        self.cfg = load_config()
+        self.cfg.data["paths"]["root"] = str(self.root)
+        self.cfg.data["paths"]["decomp"] = str(self.decomp)
+        self.cfg.data["paths"]["harness_home"] = str(self.tmp)
+        self.cfg.data["paths"]["inbox"] = str(self.root / "inbox")
+        self.log = Log(self.tmp / "log.jsonl", echo=False)
+        self.state = st.State(self.root / "state" / "run.json")
+        self._orig_run = aussensicht.run
+
+    def tearDown(self):
+        aussensicht.run = self._orig_run
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    # ------------------------------------------------------------- Fixture
+    def preflight(self, batch: int, koepfe: int, faelle: int, abw: int = 0) -> None:
+        write_text_atomic(self.ana / f"_preflight_{batch}.txt",
+                          f"Lauf B{batch}\nC Koepfe           {koepfe} / {faelle} / {abw}     OK\n")
+
+    def auftrag(self, batch: int, strang: str, soll: int) -> None:
+        d = ensure_dir(self.root / "runs" / f"b{batch:03d}")
+        write_text_atomic(d / "auftrag.md", f"STRANG: {strang}\nSOLL-KOEPFE: {soll}\n")
+
+    def gruende(self, batch: int) -> list[str]:
+        self.state.data["batch"] = int(batch)
+        return aussensicht.faellig(self.cfg, self.state, log=self.log)
+
+    @staticmethod
+    def kernzahl_grund(gruende: list[str]) -> list[str]:
+        return [g for g in gruende if aussensicht.KERNZAHL_GRUND in g]
+
+    def orch(self) -> Orchestrator:
+        o = Orchestrator(self.cfg, self.log, mock=True,
+                         state_file=self.root / "state" / "run.json")
+        o.qroot = self.root
+        o.said = []
+        o.say = lambda t="", *a, **k: o.said.append(str(t))
+        o.state.data["batch"] = 211
+        o.state.save()
+        return o
+
+    # -------------------------------------- (2) C Abweichungen kein Kriterium
+    def test_c_abweichungen_ist_kein_kriterium(self):
+        """Zielwert 0: `C Abweichungen` steht immer still und darf nie ausloesen."""
+        self.assertNotIn("c_abweichungen", [k for k, _ in aussensicht.KERNZAHLEN])
+        self.preflight(210, 78, 2903)
+        self.preflight(211, 80, 2951)          # Koepfe und Faelle BEWEGT, nur abw gleich
+        self.auftrag(210, "C", 5)
+        self.auftrag(211, "C", 5)
+        stehend = aussensicht.kernzahl_stillstand(self.cfg, log=self.log)
+        self.assertEqual(stehend, [], "nur 'C Abweichungen 0/0' steht still")
+        self.assertFalse(any("C Abweichungen" in z for z in stehend))
+        self.assertEqual(self.kernzahl_grund(self.gruende(211)), [],
+                         "0 Abweichungen allein darf keinen Lauf ausloesen")
+
+    # ------------------------------------------- (4) SOLL-bewusst / Stillstand
+    def test_stillstand_mit_soll_loest_aus(self):
+        self.preflight(210, 78, 2903)
+        self.preflight(211, 78, 2903)
+        self.auftrag(210, "C", 5)
+        self.auftrag(211, "C", 5)
+        stehend = aussensicht.kernzahl_stillstand(self.cfg, log=self.log)
+        self.assertTrue(any("C Koepfe" in z for z in stehend), "ODER: eine Zahl genuegt")
+        self.assertTrue(self.kernzahl_grund(self.gruende(211)))
+
+    def test_soll_null_ist_kein_stillstand(self):
+        """Ein C-Batch ohne Bau-Auftrag (`SOLL-KOEPFE: 0`) ist kein Stillstand."""
+        self.preflight(210, 78, 2903)
+        self.preflight(211, 78, 2903)
+        self.auftrag(210, "C", 5)
+        self.auftrag(211, "C", 0)
+        self.assertEqual(aussensicht.kernzahl_stillstand(self.cfg, log=self.log), [])
+        self.assertEqual(self.kernzahl_grund(self.gruende(211)), [])
+
+    def test_c_soll_null_serie_ist_eigener_grund(self):
+        """Drei C-Batches in Folge mit SOLL 0 -> eigener Grund, kein Stillstand."""
+        for b in (209, 210, 211):
+            self.preflight(b, 78, 2903)
+            self.auftrag(b, "C", 0)
+        gruende = self.gruende(211)
+        self.assertTrue(any("c_soll_null_serie" in g for g in gruende), gruende)
+        self.assertEqual(self.kernzahl_grund(gruende), [],
+                         "ohne Bau-Auftrag gibt es keinen Stillstands-Grund")
+        # Nur zwei solche C-Batches: noch keine Serie.
+        self.auftrag(209, "C", 5)
+        self.assertFalse(any("c_soll_null_serie" in g for g in self.gruende(211)))
+
+    # ------------------------------------------------------ (3) Dedup/Marke
+    def test_dedup_gleiches_c_paar_nur_eine_ausloesung(self):
+        """Dasselbe C-Paar ueber mehrere B-Batches feuert genau EINMAL."""
+        self.preflight(210, 78, 2903)
+        self.preflight(211, 78, 2903)
+        self.auftrag(210, "C", 5)
+        self.auftrag(211, "C", 5)
+        ausloesungen = len(self.kernzahl_grund(self.gruende(211)))
+        self.assertEqual(ausloesungen, 1, "der neue C-Batch 211 muss einmal feuern")
+        # Erfolgreicher Lauf -> die Marke steht auf dem neuesten verglichenen C-Batch.
+        self.assertEqual(aussensicht.kernzahl_marke_setzen(self.cfg, self.state), 211)
+        self.state.save()
+        self.assertEqual(self.state.data["meta"]["kernzahl_gemeldet_bis"], 211)
+        # B-Batches danach halten das C-Paar (210/211) fest - keine zweite Ausloesung.
+        for b in (212, 213):
+            self.auftrag(b, "B", 0)
+            self.preflight(b, 78, 2903)
+            ausloesungen += len(self.kernzahl_grund(self.gruende(b)))
+        self.assertEqual(ausloesungen, 1, "genau eine Ausloesung fuer dasselbe Paar")
+
+    def test_neuer_c_batch_mit_soll_loest_erneut_aus(self):
+        for b in (210, 211, 212):
+            self.preflight(b, 78, 2903)
+            self.auftrag(b, "C", 5)
+        self.state.data["meta"] = {"kernzahl_gemeldet_bis": 211}
+        self.assertTrue(self.kernzahl_grund(self.gruende(212)),
+                        "ein NEUER C-Batch ohne Bewegung muss erneut melden")
+
+    def test_migration_ohne_schluessel_210_und_kein_paar_ausloeser(self):
+        """Ohne Marke gilt 210; das Paar B207/B210 (in meta-212 gemeldet) feuert nicht."""
+        self.preflight(207, 78, 2903)
+        self.preflight(210, 78, 2903)
+        self.auftrag(207, "C", 5)
+        self.auftrag(208, "B", 0)
+        self.auftrag(209, "B", 0)
+        self.auftrag(210, "C", 5)
+        self.state.data["meta"] = {"letzter_lauf_batch": 210}   # ohne Marke, ohne Merker
+        self.assertNotIn("kernzahl_gemeldet_bis", self.state.data["meta"])
+        gruende = self.gruende(210)
+        self.assertEqual(self.state.data["meta"]["kernzahl_gemeldet_bis"], 210,
+                         "fehlender Schluessel wird einmalig auf 210 gesetzt")
+        self.assertEqual(self.kernzahl_grund(gruende), [],
+                         "B207/B210 ist in meta-212 gemeldet - kein zweiter Ausloeser")
+
+    def test_letzter_lauf_batch_ist_nicht_die_marke(self):
+        """Gegenprobe zum Auftrag: NICHT 'neu.batch > letzter_lauf_batch' verwenden.
+
+        `letzter_lauf_batch` steht auf 211, die Marke auf 210 - der neue C-Batch 211 muss
+        TROTZDEM melden, weil `letzter_lauf_batch` den Lauf, nicht die Meldung beschreibt.
+        """
+        self.preflight(210, 78, 2903)
+        self.preflight(211, 78, 2903)
+        self.auftrag(210, "C", 5)
+        self.auftrag(211, "C", 5)
+        self.state.data["meta"] = {"letzter_lauf_batch": 211,
+                                   "kernzahl_gemeldet_bis": 210}
+        self.assertTrue(self.kernzahl_grund(self.gruende(211)))
+
+    # ------------------------------------------- (3) Marke nur bei rc=0 setzen
+    def _fake_run(self, rc: int):
+        def lauf(cfg, log, state, grund, mock=False, zufall=None):
+            res = aussensicht.Ergebnis()
+            res.rc, res.dauer_s, res.text, res.summary, res.tiefe = rc, 1.0, "", "", {}
+            return res
+        return lauf
+
+    def _setup_stillstand(self):
+        self.preflight(210, 78, 2903)
+        self.preflight(211, 78, 2903)
+        self.auftrag(210, "C", 5)
+        self.auftrag(211, "C", 5)
+
+    def test_fehlgeschlagener_lauf_setzt_die_marke_nicht(self):
+        self._setup_stillstand()
+        aussensicht.run = self._fake_run(7)
+        orch = self.orch()
+        orch._do_aussensicht(aussensicht.KERNZAHL_GRUND,
+                             gruende=[aussensicht.KERNZAHL_GRUND])
+        self.assertNotIn("kernzahl_gemeldet_bis", orch.state.data["meta"],
+                         "rc != 0 darf die Marke nicht setzen")
+
+    def test_erfolgreicher_lauf_mit_beteiligtem_grund_setzt_die_marke(self):
+        self._setup_stillstand()
+        aussensicht.run = self._fake_run(0)
+        orch = self.orch()
+        orch._do_aussensicht(aussensicht.KERNZAHL_GRUND,
+                             gruende=[aussensicht.KERNZAHL_GRUND])
+        self.assertEqual(orch.state.data["meta"]["kernzahl_gemeldet_bis"], 211)
+
+    def test_erfolgreicher_lauf_ohne_beteiligten_grund_setzt_keine_marke(self):
+        self._setup_stillstand()
+        aussensicht.run = self._fake_run(0)
+        orch = self.orch()
+        orch._do_aussensicht("Befehl /meta", gruende=["Befehl /meta"])
+        self.assertNotIn("kernzahl_gemeldet_bis", orch.state.data["meta"])
+
+
 if __name__ == "__main__":
     unittest.main()

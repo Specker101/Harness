@@ -873,6 +873,26 @@ bei jeder Kennung: `/claude M209-v1 pruefen` — der Anhang trägt den Wortlaut 
 33 % (Regel 2 B : 1 C) → 295 C-Batches → ca. **886** Kalender-Batches für den ganzen
 C-Strang (vorher stand dort „ca. 369 Batches" aus +3,8 gemischt).
 
+### 12g. Kernzahl-Auslöser: entprellt und SOLL-bewusst (2026-09-29)
+
+Der Grund „Kernzahl ohne Bewegung über die letzten C-Batches" steuerte drei Läufe
+(`runs/meta-209.md`, `meta-210.md`, `meta-211.md`) und führte in **jedem** Anlass
+`C Abweichungen = 0` mit — eine Kennzahl mit Zielwert 0, die zwangsläufig stillsteht.
+Vier Nachbesserungen:
+
+| Punkt | Vorher | Jetzt |
+|---|---|---|
+| **`C Abweichungen`** | Teil der verglichenen Kernzahlen | **entfernt** (`aussensicht.KERNZAHLEN`) — der Zielwert ist 0, die Zahl steht immer still |
+| **Verknüpfung** | war **ODER** (jede unveränderte Zahl einzeln gemeldet) | **ODER** bleibt bewusst: eine einzige unveränderte Kernzahl genügt (`kernzahl_stillstand`) |
+| **Entprellung** | feuerte bei jedem Batch, solange das C-Paar stillstand | Marke `kernzahl_gemeldet_bis` in `state.data["meta"]` = Nummer des neuesten **gemeldeten** C-Batches; es feuert nur, wenn `neuester_C > Marke`. **Nicht** die Variante `neu.batch > letzter_lauf_batch` |
+| **SOLL-bewusst** | ein C-Batch ohne Bau-Auftrag konnte einen Stillstand melden | Stillstand nur bei `SOLL-KOEPFE > 0` in `runs/b<N>/auftrag.md`; drei C-Batches in Folge mit `SOLL-KOEPFE: 0` sind der **eigene Grund** `c_soll_null_serie` |
+
+Die Marke setzt **nur** ein erfolgreicher Lauf (`rc=0`), an dem der Grund beteiligt war —
+nicht schon beim Auslösen (`orchestrator._do_aussensicht`). Fehlt die Marke (ältere
+Zustände), gilt einmalig **210**: der Stillstand B207/B210 ist in `runs/meta-212.md`
+gemeldet und darf nicht erneut feuern. Fehlt die Zeile `SOLL-KOEPFE` im Auftrag, wird
+geloggt und der Batch als `SOLL > 0` behandelt (kein Stillstand verschluckt, nichts geraten).
+
 ### 12b. Was der Nutzer selbst entscheiden muss
 
 Der grösste Hebel liegt ausserhalb des Harness: die 68K-Emulationsläufe im Decomp-Repo

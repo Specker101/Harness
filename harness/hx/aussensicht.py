@@ -25,6 +25,14 @@ Review-Zusammenfassung, ein stehengebliebener B-Schritt (Weg B) bzw. eine C-Kern
 Bewegung ueber die letzten **C-Batches**. Je Batch wird hoechstens einmal entschieden
 (`geprueft_batch`).
 
+Entprellt (Auftrag 2026-09-29): ein liegengebliebener C-Stillstand feuert nur EINMAL je
+neuem C-Batch - die Marke `kernzahl_gemeldet_bis` (im Zustand, `state.data["meta"]`) haelt
+den neuesten bereits gemeldeten C-Batch und wird erst nach einem erfolgreichen Lauf
+(rc=0) gesetzt, an dem der Grund beteiligt war. Der Stillstand zaehlt ausserdem nur, wenn
+der C-Batch laut `runs/b<N>/auftrag.md` `SOLL-KOEPFE > 0` nennt (nichts bestellt = keine
+Bewegung erwartet); drei C-Batches in Folge mit `SOLL-KOEPFE: 0` sind ein eigener Grund
+(`c_soll_null_serie`).
+
 R13z (2026-09-28): die **Quote** des Registers steht in `/bilanz` und `/status`
 (`zeile`/`quote`): "Aussensicht: n Befunde, davon u uebernommen, a abgelehnt, o offen".
 Gezaehlt wird je Kennung; die Zuordnung der Statusworte zu den Klassen macht `klasse`
@@ -68,10 +76,26 @@ EMPFAENGER = ("Reviewer", "Nutzer")
 # Kernzahlen des C-Strangs aus `stand.kernzahlen` (R13x: C Koepfe = Preflight-Zeile,
 # Paket E = Ist-Spalte der Soll/Ist-Tafel) - Befund Nr. 2:
 # sie werden NUR ueber die letzten C-Batches verglichen, nie ueber einen B-Batch hinweg.
+#
+# Verknuepfung (Auftrag 2026-09-29): **ODER**. Jede hier gelistete Zahl, die sich zwischen
+# den beiden C-Batches nicht bewegt hat, wird EINZELN gemeldet - eine einzige
+# unveraenderte genuegt. `C Abweichungen` ist ENTFERNT: ihr Zielwert ist 0, sie stand
+# deshalb immer still und hat den Ausloeser zusammen mit echten Stillstaenden gemeldet
+# (runs/meta-209.md … meta-211.md fuehrten sie in jedem Anlass mit).
 KERNZAHLEN = (("c_koepfe", "C Koepfe"), ("c_faelle", "C Faelle"),
-              ("c_abweichungen", "C Abweichungen"),
               ("paket_e_koepfe", "Paket E offen Koepfe"), ("paket_e_insn", "Paket E offen Insn"),
               ("baut", "Bau-Liste"), ("inventar", "Programm-Inventar"), ("offen", "C-Vorrat"))
+
+# Entprellung (Auftrag 2026-09-29). `MARKE_SCHLUESSEL` liegt in `state.data["meta"]` und
+# haelt die Nummer des neuesten C-Batches, fuer den der Stillstand schon gemeldet wurde.
+# Fehlt der Schluessel (aeltere Zustaende), gilt einmalig die Migrationsmarke 210 - der
+# Stillstand B207/B210 ist in `runs/meta-212.md` gemeldet und darf nicht erneut feuern.
+MARKE_SCHLUESSEL = "kernzahl_gemeldet_bis"
+MIGRATION_MARKE = 210
+# Der Wortlaut des Grundes (auch die Kennung, an der `kernzahl_beteiligt` ihn erkennt).
+KERNZAHL_GRUND = "Kernzahl ohne Bewegung ueber die letzten C-Batches"
+# Eigener Grund: so viele C-Batches in Folge ohne Bau-Auftrag (`SOLL-KOEPFE: 0`).
+SOLL_NULL_SERIE = 3
 
 
 def grenzen(cfg) -> dict:
@@ -524,20 +548,108 @@ def ist_b_batch(cfg, batch: int) -> bool:
     return stand.strang_von_batch(cfg, int(batch)).get("strang") == "B"
 
 
-def kernzahl_stillstand(cfg) -> list[str]:
+def c_batches(cfg) -> list[dict]:
+    """Die C-Batch-Eintraege des Bilanzfensters (B-Batches ausgelassen).
+
+    Welcher Batch ein B-Batch ist, kommt aus `stand.strang_von_batch` (R13aa: Pflichtzeile,
+    Auftrag, hybrid-plan.md) - nicht allein aus der Pflichtzeile, die in der Praxis fehlte.
+    """
+    fenster = stand.kernzahlen(cfg, int(grenzen(cfg)["bilanz_zeitfenster"]))
+    return [e for e in fenster if not ist_b_batch(cfg, int(e.get("batch") or 0))]
+
+
+def soll_koepfe_batch(cfg, batch: int, log=None) -> int | None:
+    """`SOLL-KOEPFE` aus `runs/b<N>/auftrag.md` - oder None.
+
+    Der Reviewer gibt die Sollzahl seit B211 mit der Zeile `SOLL-KOEPFE: <n>` selbst vor
+    (`stand.soll_koepfe`). Fehlt die Datei oder die Zeile, wird das - wenn ein `log`
+    mitgegeben ist - vermerkt und der Batch anschliessend als `SOLL > 0` behandelt
+    (`kernzahl_stillstand`): es wird nicht geraten, aber auch kein Stillstand verschluckt.
+    """
+    p = Path(cfg.root) / "runs" / f"b{int(batch):03d}" / "auftrag.md"
+    text = read_text(p) or ""
+    wert = stand.soll_koepfe(text) if text else None
+    if wert is None and log is not None:
+        log.warn("SOLL-KOEPFE fehlt - Batch gilt als SOLL > 0", batch=int(batch),
+                 datei=f"runs/b{int(batch):03d}/auftrag.md")
+    return wert
+
+
+def kernzahl_neuester_c(cfg) -> int:
+    """Die Nummer des neuesten verglichenen C-Batches (0 = keiner im Fenster)."""
+    cbs = c_batches(cfg)
+    return int(cbs[-1].get("batch") or 0) if cbs else 0
+
+
+def kernzahl_gemeldet_bis(meta: dict) -> int:
+    """Die Marke aus dem Zustand; fehlt sie, gilt die Migrationsmarke (`MIGRATION_MARKE`)."""
+    wert = (meta or {}).get(MARKE_SCHLUESSEL)
+    if wert is None:
+        return MIGRATION_MARKE
+    try:
+        return int(wert)
+    except (TypeError, ValueError):
+        return MIGRATION_MARKE
+
+
+def kernzahl_marke_setzen(cfg, state) -> int:
+    """Die Marke auf den neuesten verglichenen C-Batch setzen.
+
+    Wird vom Orchestrator NACH einem erfolgreichen Aussensicht-Lauf (rc=0) gerufen, an dem
+    der Grund `KERNZAHL_GRUND` beteiligt war - nicht schon beim Ausloesen. Rueckgabe ist
+    die gesetzte Nummer (0 = nichts gesetzt, kein C-Batch im Fenster).
+    """
+    neu = kernzahl_neuester_c(cfg)
+    if neu > 0:
+        meta = dict(state.data.get("meta") or {})
+        meta[MARKE_SCHLUESSEL] = int(neu)
+        state.data["meta"] = meta
+    return int(neu)
+
+
+def kernzahl_beteiligt(gruende) -> bool:
+    """War der Kernzahl-Stillstand an diesen Ausloeser-Gruenden beteiligt?"""
+    return any(KERNZAHL_GRUND in str(g) for g in (gruende or []))
+
+
+def c_soll_null_serie(cfg, log=None) -> str:
+    """`c_soll_null_serie`: `SOLL_NULL_SERIE` C-Batches in Folge mit `SOLL-KOEPFE 0` ('' = nein).
+
+    Eigener Grund (Auftrag 2026-09-29): baut kein C-Batch mehr Koepfe, misst der
+    Kernzahl-Stillstand nichts mehr - die fehlende Bewegung ist dann kein Befund, sondern
+    die Folge eines fehlenden Bau-Auftrags. Genau das soll gemeldet werden.
+    """
+    cbs = c_batches(cfg)
+    if len(cbs) < SOLL_NULL_SERIE:
+        return ""
+    letzte = cbs[-SOLL_NULL_SERIE:]
+    solls = [(int(e.get("batch") or 0),
+              soll_koepfe_batch(cfg, int(e.get("batch") or 0), log=log)) for e in letzte]
+    if all(s == 0 for _, s in solls):
+        return ("c_soll_null_serie: " + str(SOLL_NULL_SERIE) + " C-Batches in Folge mit "
+                "SOLL-KOEPFE 0 (B" + ", B".join(str(b) for b, _ in solls)
+                + ") - kein C-Batch hatte einen Bau-Auftrag")
+    return ""
+
+
+def kernzahl_stillstand(cfg, log=None) -> list[str]:
     """C-Kernzahlen, die sich ueber die letzten beiden **C-Batches** nicht bewegt haben.
 
     Befund Nr. 2 des Nutzers (2026-09-28): bei einem Mischverhaeltnis 2 B : 1 C darf der
-    Ausloeser nicht in jedem B-Batch feuern. Deshalb werden B-Batches ausgelassen und
-    nur die C-Batches verglichen. Welcher Batch ein B-Batch ist, kommt aus
-    `stand.strang_von_batch` (R13aa: Pflichtzeile, Auftrag, hybrid-plan.md) - nicht mehr
-    allein aus der Pflichtzeile, die in der Praxis fehlte.
+    Ausloeser nicht in jedem B-Batch feuern. Deshalb werden B-Batches ausgelassen und nur
+    die C-Batches verglichen (`c_batches`).
+
+    Rueckgabe: je stehengebliebener Kernzahl EINE Zeile - **ODER**-Verknuepfung, eine
+    unveraenderte Zahl genuegt (die Liste nennt jede einzeln, statt sie zu einem UND zu
+    verbinden). SOLL-bewusst (Auftrag 2026-09-29): der Stillstand zaehlt nur, wenn der
+    NEUESTE C-Batch laut `runs/b<N>/auftrag.md` `SOLL-KOEPFE > 0` nennt - bei
+    `SOLL-KOEPFE: 0` war nichts bestellt, eine fehlende Bewegung ist dann erwartet. Fehlt
+    die Zeile, wird geloggt und der Batch als `SOLL > 0` behandelt.
     """
-    fenster = stand.kernzahlen(cfg, int(grenzen(cfg)["bilanz_zeitfenster"]))
-    c_batches = [e for e in fenster if not ist_b_batch(cfg, int(e.get("batch") or 0))]
-    if len(c_batches) < 2:
+    cbs = c_batches(cfg)
+    if len(cbs) < 2:
         return []
-    neu, alt = c_batches[-1], c_batches[-2]
+    neu, alt = cbs[-1], cbs[-2]
     stehend: list[str] = []
     for schluessel, name in KERNZAHLEN:
         n, a = neu.get(schluessel), alt.get(schluessel)
@@ -545,6 +657,10 @@ def kernzahl_stillstand(cfg) -> list[str]:
             continue
         wenn = (f"{n[0]}/{n[1]}" if isinstance(n, (list, tuple)) else str(n))
         stehend.append(f"{name} = {wenn} (B{alt.get('batch')} wie B{neu.get('batch')})")
+    if not stehend:
+        return []
+    if soll_koepfe_batch(cfg, int(neu.get("batch") or 0), log=log) == 0:
+        return []
     return stehend
 
 
@@ -1144,7 +1260,7 @@ def letzter_lauf(cfg, state) -> dict:
     return dict(state.data.get("meta") or {})
 
 
-def faellig(cfg, state) -> list[str]:
+def faellig(cfg, state, log=None) -> list[str]:
     """Gruende, warum jetzt eine Aussensicht faellig ist ([] = nicht faellig)."""
     g = grenzen(cfg)
     meta = dict(state.data.get("meta") or {})
@@ -1152,6 +1268,17 @@ def faellig(cfg, state) -> list[str]:
     letzte = int(meta.get("letzter_lauf_batch") or 0)
     if meta.get("geprueft_batch") == batch and not meta.get("vorgemerkt"):
         return []                              # fuer diesen Batch schon entschieden
+    # Migration (Auftrag 2026-09-29): fehlt die Kernzahl-Marke, wird sie EINMALIG auf 210
+    # gesetzt - der Stillstand B207/B210 ist in `runs/meta-212.md` gemeldet und darf nicht
+    # erneut feuern. Danach traegt der Zustand den Schluessel. NICHT die Variante
+    # "neu.batch > letzter_lauf_batch" - die Marke ist eigenstaendig.
+    if MARKE_SCHLUESSEL not in meta:
+        meta[MARKE_SCHLUESSEL] = MIGRATION_MARKE
+        state.data["meta"] = meta
+        try:
+            state.save()
+        except Exception:                                        # noqa: BLE001
+            pass
     gruende: list[str] = []
     if meta.get("vorgemerkt"):
         gruende.append("vorgemerkt durch /meta")
@@ -1171,10 +1298,12 @@ def faellig(cfg, state) -> list[str]:
     still = b_schritt_stillstand(cfg)
     if still:
         gruende.append(still)
-    kern = kernzahl_stillstand(cfg)
-    if kern:
-        gruende.append("Kernzahl ohne Bewegung ueber die letzten C-Batches: "
-                       + "; ".join(kern[:3]))
+    kern = kernzahl_stillstand(cfg, log=log)
+    if kern and kernzahl_neuester_c(cfg) > kernzahl_gemeldet_bis(meta):
+        gruende.append(KERNZAHL_GRUND + ": " + "; ".join(kern[:3]))
+    serie = c_soll_null_serie(cfg, log=log)
+    if serie:
+        gruende.append(serie)
     return gruende
 
 

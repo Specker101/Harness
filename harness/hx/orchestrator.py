@@ -714,6 +714,13 @@ class Orchestrator:
             self.log.info("Aussensicht beendet", batch=batch, befunde=len(res.befunde),
                           verworfen=len(res.verworfen), an_reviewer=len(an_reviewer),
                           an_nutzer=len(an_nutzer))
+            # Entprellung (Auftrag 2026-09-29): die Kernzahl-Marke erst JETZT setzen - ein
+            # erfolgreicher Lauf (rc=0), an dem der Stillstands-Grund beteiligt war. Ein
+            # fehlgeschlagener Lauf (rc != 0) laesst die Marke unveraendert (nicht beim
+            # Ausloesen setzen).
+            if res.rc == 0 and aussensicht.kernzahl_beteiligt(gruende):
+                bis = aussensicht.kernzahl_marke_setzen(self.cfg, self.state)
+                self.log.info("Kernzahl-Marke gesetzt", bis=bis)
         finally:
             meta = dict(self.state.data.get("meta") or {})
             meta.update({"letzter_lauf_batch": batch, "letzter_lauf_ts": now_iso(),
@@ -2427,7 +2434,7 @@ class Orchestrator:
             # "Reviewer" schon in diesem Review. Je Batch wird genau EINMAL entschieden
             # (`geprueft_batch`), deshalb kostet die Pruefung nur den ersten Durchgang.
             try:
-                gruende = aussensicht.faellig(self.cfg, self.state)
+                gruende = aussensicht.faellig(self.cfg, self.state, log=self.log)
             except Exception as exc:                                    # noqa: BLE001
                 gruende = []
                 self.log.warn("Aussensicht-Ausloeser nicht pruefbar", fehler=str(exc)[:150])

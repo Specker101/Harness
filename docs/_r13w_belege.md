@@ -61,3 +61,23 @@ Alles nur im Harness-Repo; das Decomp-Repo bleibt unberührt (nur lesende Zugrif
 - Wirksam nach Neustart: Code und `harness.toml` liest der Harness beim Start.
   `prompts/reviewer.md` liest er je Review frisch von der Platte — die neuen
   Pflichtzeilen gelten also schon für das nächste Review, ohne Neustart.
+
+## 5. Entprellung des Kernzahl-Auslösers (2026-09-29)
+
+Auftrag: den Auslöser „Kernzahl ohne Bewegung über die letzten C-Batches" entprellen.
+Anlass: er steuerte die Läufe `runs/meta-209.md`, `meta-210.md` und `meta-211.md` —
+meta-208 hing an „vorgemerkt durch /meta". Jeder der drei Kernzahl-Anlässe führte
+`C Abweichungen = 0` mit (Zielwert 0, steht immer still).
+
+| Punkt | Beleg im Code | Test |
+|---|---|---|
+| `C Abweichungen` kein Kriterium | `aussensicht.KERNZAHLEN` ohne `c_abweichungen` | `test_c_abweichungen_ist_kein_kriterium` |
+| Verknüpfung ist **ODER** | `kernzahl_stillstand` meldet jede unveränderte Zahl einzeln | `test_stillstand_mit_soll_loest_aus` |
+| Dedup-Marke | `aussensicht.MARKE_SCHLUESSEL`/`kernzahl_marke_setzen`, `faellig` vergleicht `kernzahl_neuester_c > kernzahl_gemeldet_bis` | `test_dedup_gleiches_c_paar_nur_eine_ausloesung`, `test_neuer_c_batch_mit_soll_loest_erneut_aus`, `test_letzter_lauf_batch_ist_nicht_die_marke` |
+| Marke nur bei `rc=0` | `orchestrator._do_aussensicht`: `if res.rc == 0 and kernzahl_beteiligt(gruende)` | `test_fehlgeschlagener_lauf_setzt_die_marke_nicht`, `test_erfolgreicher_lauf_mit_beteiligtem_grund_setzt_die_marke`, `test_erfolgreicher_lauf_ohne_beteiligten_grund_setzt_keine_marke` |
+| Migration ohne Schlüssel → 210 | `aussensicht.MIGRATION_MARKE`, gesetzt einmalig in `faellig` | `test_migration_ohne_schluessel_210_und_kein_paar_ausloeser` |
+| SOLL-bewusst | `aussensicht.soll_koepfe_batch` (liest `runs/b<N>/auftrag.md`), `kernzahl_stillstand` | `test_soll_null_ist_kein_stillstand` |
+| eigener Grund `c_soll_null_serie` | `aussensicht.c_soll_null_serie` (3 C-Batches in Folge, `SOLL-KOEPFE 0`) | `test_c_soll_null_serie_ist_eigener_grund` |
+
+Fehlt die Zeile `SOLL-KOEPFE`, loggt `soll_koepfe_batch` (ueber den Harness-`Log`) und der
+Batch gilt als `SOLL > 0`. `test_r13w_fixes.py`: 41 Tests gruen (11 neue).
