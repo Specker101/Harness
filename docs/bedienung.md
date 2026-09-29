@@ -986,6 +986,30 @@ jetzt bis B213 (13 Dateien im Fenster 12) statt bis B211 (11 Dateien). Der Beleg
 Vorher/Nachher und dem Durchsatzblock steht in `docs/_r13ae_retro.txt`, die Herleitung in
 `docs/_r13ae_belege.md`.
 
+### 12j. Kein Posten verschwindet: Übertrag-Zeilen und Teilpunkt-Tafel (R13af, 2026-09-29)
+
+Zwei Pflichtzeilen mehr in der Rollenanweisung (`harness/prompts/reviewer.md`), beide aus
+der `/ask`-Prüfung vom 29.09.2026:
+
+| Regel | Zeile | Was sie verhindert |
+|---|---|---|
+| **Übertrag am Batch-Ende** | `UEBERTRAG: <Posten> -> <Ziel-Batch oder Anker "Naechster Schritt">` bzw. `VERWORFEN: <Posten> - <Grund>` — je nicht erledigtem Posten aus `NACHRUECKLISTE` und `STREICHREIHENFOLGE` des **bewerteten** Batches; nichts zu übertragen heißt `UEBERTRAG: keiner - alle Posten erledigt` | **B213 Nachrückliste 1** (weitere teilgeprüfte Köpfe, Stand 57/78) verschwand: nicht im „Naechster Schritt" des Ankers, nicht in `hybrid-plan.md`, kein späterer Auftrag (`runs/b213/auftrag.md:187`) |
+| **Ersetzte `/ds`-Nachrichten** | Wird eine `/ds`-Nachricht nur als **Zusammenfassung** zugestellt (Vorbild `docs/_r13t4_claude_zusammenfassung.txt`), gehört eine **Tafel mit einer Zeile je Teilpunkt** dazu („übernommen als …" / „bewusst weggelassen - Grund"); fehlt sie, trägt der Reviewer die Zeilen nach und nennt die Lücke als `OFFENE FRAGE:` | Nachricht `113914a` hatte zwei Teilpunkte; die Zusammenfassung führte nur `readme.md:640-642` (`_r13t4…:61-65`), der Zusatz `readme.md:69x` („Current Status") fehlt bis heute in jedem Auftrag |
+
+Größe des Verlusts, gemessen: von **13** Posten der Batches B209–B213 tauchten **12** wieder
+auf — verloren ging genau der umfangreichste. Belege:
+`harness/logs/ask/ask-20260929-141152+0000.md` (Nachrücklisten/Streichungen) und
+`harness/logs/ask/ask-20260929-141009+0000.md` (`/ds`-Teilpunkte).
+
+Die Regeln stehen zusätzlich als Kurzfassung direkt neben dem `/ds`-Block im
+Review-Prompt (`hx/reviewer.py`, Abschnitt „NUTZER-NACHRICHTEN AN DEN WORKER DIESES
+BATCHES") — dort, wo die Nachrichten erscheinen, deren Teilpunkte verloren gehen können.
+
+**Offener Punkt (nicht geändert):** die `NACHRUECKLISTE`/`STREICHREIHENFOLGE` des
+bewerteten Batches stehen **nicht** im Review-Prompt; der Reviewer liest sie über
+`--add-dir <harness-root>` aus `runs/b<N>/auftrag.md`. Ein Einbau wie beim `/ds`-Block
+wäre die nächste Härtung, ist aber nicht beauftragt.
+
 ### 12b. Was der Nutzer selbst entscheiden muss
 
 Der grösste Hebel liegt ausserhalb des Harness: die 68K-Emulationsläufe im Decomp-Repo

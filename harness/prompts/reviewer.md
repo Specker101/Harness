@@ -302,6 +302,8 @@ B-SCHRITT: <n>/5 <Name>, B-Batch <k> von max 20      (PFLICHT in B-Batches, s. u
 MEILENSTEIN ERREICHT: …        (nur wenn zutreffend, s. u.)
 ABBRUCHKRITERIUM ERREICHT: …   (nur wenn zutreffend, s. u.)
 M<batch>-<n>: übernommen … / abgelehnt, Grund …  (je offener Aussensicht-Nachricht, s. u.)
+UEBERTRAG: <Posten> -> <Ziel-Batch oder Anker "Naechster Schritt">   (PFLICHT, s. u.)
+VERWORFEN: <Posten> - <Grund>                    (nur wenn bewusst fallengelassen, s. u.)
 ENTSCHIEDEN: …              (was du selbst entschieden hast - ein Punkt je Zeile)
 ENTSCHEIDUNG NOETIG: …      (nur die fünf Fälle oben - bremst!)
 OFFENE FRAGE: …             (nur zur Information - bremst nicht)
@@ -331,6 +333,59 @@ WARTET AUF LIVE-AUFNAHME: … (nur Material, das fehlt - bremst nicht)
   Schreibe sie **nicht** vorsorglich: ein falscher Auslöser kostet einen Lauf. Die Wörter
   „Abbruchkriterium" oder „Meilenstein" allein — etwa in einer Wiederholung der
   Auftragsbedingungen — zählen nicht, nur diese beiden Zeilenformen.
+
+### Übertrag am Batch-Ende: kein Posten verschwindet (Pflicht, R13af, 2026-09-29)
+
+Der bewertete Batch hatte eine `NACHRUECKLISTE` und eine `STREICHREIHENFOLGE`. **Jeder
+Posten daraus, der nicht erledigt wurde**, erscheint im Review in **genau einer** von
+zwei Zeilen — in `<TELEGRAM_SUMMARY>`, damit sie maschinell lesbar sind:
+
+```text
+UEBERTRAG: <Posten> -> <Ziel-Batch oder Anker "Naechster Schritt">
+VERWORFEN: <Posten> - <Grund>
+```
+
+- **`UEBERTRAG:`** heißt: der Posten steht im nächsten oder einem späteren Auftrag bzw.
+  in der Zeile „Naechster Schritt" des Ankerkopfs. Nenne das **Ziel konkret** (Batch-Nummer,
+  Datei:Zeile oder `Anker "Naechster Schritt"`) — „nächster Batch" ohne Nummer zählt nicht.
+- **`VERWORFEN:`** heißt: er wird nicht weiterverfolgt — **mit Grund**. Der Grund ist die
+  Entscheidung und muss aus dem Review heraus prüfbar sein.
+- **Kein Posten darf ohne eine dieser beiden Zeilen verschwinden.** Prüfe dazu **beide**
+  Quellen: die `NACHRUECKLISTE`/`STREICHREIHENFOLGE` der bewerteten Instruktion
+  (`runs/b<N>/auftrag.md`) und den Bericht des Workers (`runs/b<N>/antwort.md`). Auch ein
+  **gar nicht begonnener** Posten ist ein Posten.
+- Nichts zu übertragen? Dann steht dort ausdrücklich
+  `UEBERTRAG: keiner - alle Posten erledigt`. Die **fehlende** Zeile ist keine Aussage.
+
+**Anlass (gemessen, `/ask`-Prüfung 2026-09-29).** Für 12 von 13 Posten der Batches
+B209–B213 galt „taucht wieder auf" — verschwunden ist genau der Posten mit dem grössten
+Umfang: **B213 Nachrückliste 1** (weitere teilgeprüfte Köpfe, Stand 57/78) steht weder im
+„Naechster Schritt" des Ankers noch in `hybrid-plan.md` noch in einem späteren Auftrag
+(`runs/b213/auftrag.md:187`; Tabelle „VERLOREN" in `logs/ask/ask-20260929-141152+0000.md`).
+
+### Ersetzte `/ds`-Nachrichten: Tafel mit einer Zeile je Teilpunkt (Pflicht, R13af, 2026-09-29)
+
+Werden `/ds`-Nachrichten **durch eine Zusammenfassung ersetzt** (Vorbild:
+`docs/_r13t4_claude_zusammenfassung.txt`), führt die Zusammenfassung eine **Tafel mit einer
+Zeile je Teilpunkt jeder ersetzten Nachricht** — fehlt sie im eingehenden Text, trägst du
+diese Zeilen selbst im Review nach:
+
+```text
+| Nachricht | Teilpunkt | übernommen als … / bewusst weggelassen - Grund | Beleg |
+```
+
+- **Ein Teilpunkt ist keine Nachricht.** Eine Nachricht mit fünf Punkten ergibt fünf
+  Zeilen; „Nachricht `113914a` erledigt" gibt es nicht.
+- **„übernommen als …"** nennt das Ziel (Auftrag, Instruktionsteil, Ankerzeile,
+  Entscheidung); **„bewusst weggelassen - Grund"** die Entscheidung und ihren Grund.
+- Fehlt die Tafel im eingehenden Text, nennst du die fehlende Vorlage zusätzlich in einer
+  Zeile `OFFENE FRAGE: …`. Kein Teilpunkt darf ohne Zeile verschwinden — dieselbe Regel wie
+  beim Übertrag oben.
+
+**Anlass (gemessen, `/ask`-Prüfung 2026-09-29).** Nachricht `113914a` hatte **zwei**
+Teilpunkte. Die Zusammenfassung `docs/_r13t4_claude_zusammenfassung.txt` führte nur
+`readme.md:640-642` (`:61-65`); der Zusatz „`readme.md:69x` (Current Status) prüfen" fehlt
+bis heute in jedem Auftrag (Tabelle „VERLOREN" in `logs/ask/ask-20260929-141009+0000.md`).
 
 ### Aussensicht-Befunde beantworten (Pflicht)
 

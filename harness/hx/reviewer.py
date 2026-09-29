@@ -413,7 +413,12 @@ def build_prompt(cfg, kind: str, ctx: dict) -> str:
         "REGEL (Nutzerauftrag 2026-09-28): Diese Nachrichten sind fuer den Worker "
         "bindend. Pruefe im Review, ob sie umgesetzt sind; was offen blieb, nennst "
         "du in der TELEGRAM_SUMMARY und traegst es in die naechste DS_INSTRUCTION "
-        "(oder als Marker), damit es nicht untergeht.",
+        "(oder als Marker), damit es nicht untergeht. R13af (2026-09-29): EIN "
+        "TEILPUNKT IST KEINE NACHRICHT - jeder offene Teilpunkt bekommt eine Zeile "
+        "`UEBERTRAG: <Teilpunkt> -> <Ziel>` bzw. `VERWORFEN: <Teilpunkt> - <Grund>`; "
+        "wird eine Nachricht nur als ZUSAMMENFASSUNG zugestellt, gehoert eine Tafel "
+        "mit einer Zeile je Teilpunkt dazu (Rollenanweisung, Abschnitt \"Ersetzte "
+        "/ds-Nachrichten\").",
         "",
         # R13v3 (Nutzerauftrag 2026-09-28): ein abgebrochener Lauf ist kein normaler Lauf.
         "=== ABBRUCH DES BEWERTETEN LAUFS (nur wenn zutreffend) ===",
