@@ -104,6 +104,11 @@ max_turns        = 30    # Werkzeugrunden; Stichproben brauchen mehr als ein Rev
 max_befunde      = 7     # mehr wird nicht in den Ledger uebernommen
 summaries        = 10    # so viele Review-Zusammenfassungen gehen in den Prompt
 bilanz_zeitfenster = 12  # so viele Batches umfasst der Bilanz-Trend
+# R13ad-Nachtrag (2026-09-29): der B-Schritt gilt erst dann als stehengeblieben, wenn so
+# viele B-Batch-Reviews IN FOLGE denselben Schritt zeigen. Vorher waren es fest zwei - bei
+# 5 Schritten und einem Budget von 10-20 B-Batches ist ein einzelnes Wiederholungspaar
+# noch kein Stillstand.
+bschritt_stillstand_batches = 3
 
 [git]
 push_after_batch = true

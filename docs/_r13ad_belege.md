@@ -103,3 +103,66 @@ Voraussetzung dafuer, dass (d) greifen kann.
 * Die Rueckblick-Tabelle zeigt `kontext_letzte_anfrage == kontext_max` in allen acht Batches
   (der Kontext waechst monoton) — der Maximalwert ist damit keine Zusatzinformation, bleibt
   aber als eigene Zahl stehen.
+
+## 6. Nachtrag: B-Schritt-Ausloeser entprellt, Schwelle konfigurierbar (2026-09-29)
+
+**Anlass (gemessen, `runs/meta-213.md`).** Die Ausloeser-Zeile nannte
+`B-Schritt 2/5 unveraendert in den B-Batches (Reviews b212 und b213)`. Nach der Konvention
+(„das Review von Batch N liegt in `runs/b<N+1>`") sind das die **Batches B211 und B212** —
+die Meldung war also richtig, sie wiederholte sich aber bei **jedem** Meta-Lauf, weil die
+Funktion keinen Zustand kannte.
+
+* Funktion: `harness/hx/aussensicht.py:527` `b_schritt_stillstand` (Helfer `b_schritt`,
+  `:507`). Gemessen `b_schritt(cfg, 6)` = `[(212, 2, …), (213, 2, …)]`;
+  `runs/b212/review.md:6` und `runs/b213/review.md:10` tragen `2/5`,
+  `runs/b211/review.md:12` und `runs/b214/review.md:7` tragen
+  `B-SCHRITT: kein B-Batch (Strang C)`. **Bis hierher gab es keine Marke** — der Grund
+  feuerte unbedingt, solange zwei gleiche Werte in der Reihe standen.
+
+**Was jetzt gilt:**
+
+* **Marke** `state.data["meta"]["bschritt_gemeldet_bis"]` = Nummer des neuesten
+  **verglichenen B-Batches** (`bschritt_neuester_b` = Review-Ordner − 1). Der Grund feuert
+  nur noch, wenn ein **neuer** B-Batch die Reihe verlaengert (`neuester_b > marke`);
+  gesetzt wird die Marke **nur** nach `rc == 0`, wenn der Grund beteiligt war
+  (`orchestrator._do_aussensicht`, Muster der Kernzahl). Migration: fehlt der Schluessel,
+  gilt einmalig **212** — der Stillstand B211/B212 ist in `runs/meta-213.md` gemeldet und
+  darf nicht erneut feuern.
+* **Schwelle** `[meta] bschritt_stillstand_batches` (Vorgabe **3** in `harness.toml` und in
+  `aussensicht.STANDARD`, vorher fest 2). Bei 10–20 B-Batches bis zum Ziel B20 sind zwei
+  gleiche Schritte noch kein Stillstand; die Zahl ist jetzt im Zustand einstellbar.
+* **`kein B-Batch` zaehlt nicht mit.** Ein Review mit `B-SCHRITT: kein B-Batch (Strang C)`
+  hat keinen Schritt-Fortschritt; die Zeile unterbricht die Reihe. Der Test deckt auch die
+  unsaubere Form ab, in der zusaetzlich eine Zahl in derselben Zeile steht.
+* **Nur `C Koepfe` als Kriterium** (aus R13w): `C Faelle` steht nur als Info im Text,
+  `C Abweichungen` ist entfernt. `C Koepfe` waechst weiterhin (78 / 2795 → 4006 Faelle),
+  der Stillstand bezog sich auf den **B-Schritt**, nicht auf C.
+
+**Tests.** `harness/tests/test_r13w_fixes.py::TestBSchrittEntprellung` (11 Faelle):
+zwei gleiche Werte → kein Stillstand; drei → Grund mit „Reviews b214 und b216" und
+„ueber 3 B-Batches"; Schwelle aus der Konfiguration (2) wirkt; `kein B-Batch` zaehlt nicht
+(auch mit Zahl); Entprellung feuert genau einmal je neuem B-Batch; Migration 212;
+`bschritt_neuester_b` = Review − 1; `rc != 0` setzt keine Marke; `rc == 0` setzt sie auf 215.
+
+**Was NICHT geprueft wurde:** kein echter Meta-Lauf mit der neuen Marke (das kostet einen
+Batch); belegt ist die Mechanik plus die Zustandslogik im Test.
+
+## 7. Befund: der Preflight-Kopf-Parser liest seit B212 keine C-Kopfzahlen mehr
+
+**Nur geprueft und berichtet, nichts geaendert** (die Zeilenform kommt mit B214 zurueck).
+
+* Parser: `harness/hx/stand.py:245` `_RE_PREFLIGHT_CKOPF =
+  re.compile(r"^C Koepfe\s+(\d+)\s*/\s*(\d+)\s*/\s*(\d+)\b")`, benutzt in
+  `preflight_c_koepfe` (`stand.py:689`, Treffer bei `:703`).
+* Gemessen: `analysis/_preflight_211.txt:15` = `C Koepfe           78 / 2795 / 0` → **passt**;
+  `analysis/_preflight_212.txt:15` und `_preflight_213.txt:15` =
+  `C Koepfe referenzgleich 78 / 2795 / 0` bzw. `… 78 / 4006 / 0` → **passt nicht**.
+* Folge: `stand.preflight_c_koepfe(cfg, 6)` endet bei B211; `stand.kernzahlen(cfg, 6)`
+  liefert fuer B212/B213 `c_koepfe = None`, `c_faelle = None`; `stand.c_trend(cfg, 12)`
+  endet bei `{batch: 211, … koepfe: 78, faelle: 2795, abweichungen: 0}`. Die Anzeige zeigt
+  also weiter **2795** als neuesten Wert, real ist es **4006**.
+* **Nicht betroffen:** `preflight_bahnabdeckung` (`^Bahnabdeckung`) — 210/211/212 =
+  55/55/23, 213 = 57/60/18.
+* Ein Sonderfall fuer die Kernzahl-Ausloesung entsteht daraus **nicht**: das Kriterium ist
+  `C Koepfe` (78 bleibt 78) und der Zaehler endet ohnehin bei B211 — die Entprellung aus
+  R13w greift unabhaengig davon.

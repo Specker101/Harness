@@ -303,14 +303,17 @@ class TestAusloeser(unittest.TestCase):
 
     # ------------------------------------------------------ B-Schritt (Punkt a)
     def test_b_schritt_stillstand_loest_aus(self):
-        self._review(207, "Ergebnis: x\nB-SCHRITT: 1/5 Kern, B-Batch 0 von max 20")
-        self._review(208, "Ergebnis: x\nB-SCHRITT: 1/5 Kern, B-Batch 1 von max 20")
+        # R13ad-Nachtrag: erst DREI gleiche Werte in Folge sind ein Stillstand, und die
+        # Nummern muessen ueber der Migrationsmarke 212 liegen (sonst greift die Marke).
+        for b in (214, 215, 216):
+            self._review(b, f"Ergebnis: x\nB-SCHRITT: 1/5 Kern, B-Batch {b - 213} von max 20")
         self.assertTrue(any("B-Schritt 1/5" in g
                             for g in aussensicht.faellig(self.cfg, self.state)))
 
     def test_b_schritt_fortschritt_loest_nicht_aus(self):
-        self._review(207, "Ergebnis: x\nB-SCHRITT: 1/5 Kern, B-Batch 0 von max 20")
-        self._review(208, "Ergebnis: x\nB-SCHRITT: 2/5 Maschine, B-Batch 1 von max 20")
+        self._review(214, "Ergebnis: x\nB-SCHRITT: 1/5 Kern, B-Batch 0 von max 20")
+        self._review(215, "Ergebnis: x\nB-SCHRITT: 1/5 Kern, B-Batch 1 von max 20")
+        self._review(216, "Ergebnis: x\nB-SCHRITT: 2/5 Maschine, B-Batch 2 von max 20")
         self.assertFalse(any("B-Schritt" in g
                              for g in aussensicht.faellig(self.cfg, self.state)))
 
@@ -870,6 +873,169 @@ class TestKernzahlEntprellung(unittest.TestCase):
         orch.state.save()
         orch._do_aussensicht(grund_text, gruende=[grund_text])
         self.assertEqual(orch.state.data["meta"]["c_soll_null_gemeldet_bis"], 212)
+
+
+class TestBSchrittEntprellung(unittest.TestCase):
+    """R13ad-Nachtrag (2026-09-29): B-Schritt-Stillstand entprellen, Schwelle auf 3.
+
+    Anlass: `runs/meta-213.md` wurde durch "B-Schritt 2/5 unveraendert in den B-Batches
+    (Reviews b212 und b213)" ausgeloest - die Reviews b212/b213 bewerten die Batches
+    **B211/B212** (Review von Batch N liegt in `runs/b<N+1>`). Ohne Marke haette derselbe
+    Stillstand in jedem weiteren B-Batch erneut gefeuert; ausserdem genuegten zwei gleiche
+    Werte, obwohl 5 Schritte auf 10-20 B-Batches verteilt sind.
+    """
+
+    def setUp(self):
+        self.tmp = Path(ROOT) / "tests" / "_tmp_r13w_bschritt"
+        shutil.rmtree(self.tmp, ignore_errors=True)
+        self.root = ensure_dir(self.tmp / "root")
+        self.decomp = ensure_dir(self.tmp / "decomp")
+        self.ana = ensure_dir(self.decomp / "analysis")
+        self.cfg = load_config()
+        self.cfg.data["paths"]["root"] = str(self.root)
+        self.cfg.data["paths"]["decomp"] = str(self.decomp)
+        self.cfg.data["paths"]["harness_home"] = str(self.tmp)
+        self.cfg.data["paths"]["inbox"] = str(self.root / "inbox")
+        self.log = Log(self.tmp / "log.jsonl", echo=False)
+        self.state = st.State(self.root / "state" / "run.json")
+        self._orig_run = aussensicht.run
+
+    def tearDown(self):
+        aussensicht.run = self._orig_run
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    # ------------------------------------------------------------- Fixture
+    def review(self, batch: int, summary: str) -> None:
+        d = ensure_dir(self.root / "runs" / f"b{batch:03d}")
+        write_text_atomic(d / "review.md",
+                          f"<TELEGRAM_SUMMARY>\n{summary}\n</TELEGRAM_SUMMARY>\n")
+
+    @staticmethod
+    def bschritt(schritt: int = 2, nummer: int = 4) -> str:
+        return (f"B-SCHRITT: {schritt}/5 Kontrollfluss/Supervisor, "
+                f"B-Batch {nummer} von max 20")
+
+    def gruende(self, batch: int = 216) -> list[str]:
+        self.state.data["batch"] = int(batch)
+        return aussensicht.faellig(self.cfg, self.state, log=self.log)
+
+    @staticmethod
+    def bs_grund(gruende: list[str]) -> list[str]:
+        return [g for g in gruende if g.startswith(aussensicht.BSCHRITT_GRUND)]
+
+    def orch(self):
+        o = Orchestrator(self.cfg, self.log, mock=True,
+                         state_file=self.root / "state" / "run.json")
+        o.qroot = self.root
+        o.said = []
+        o.say = lambda t="", *a, **k: o.said.append(str(t))
+        o.state.data["batch"] = 216
+        o.state.save()
+        return o
+
+    def _fake_run(self, rc: int):
+        def lauf(cfg, log, state, grund, mock=False, zufall=None):
+            res = aussensicht.Ergebnis()
+            res.rc, res.dauer_s, res.text, res.summary, res.tiefe = rc, 1.0, "", "", {}
+            return res
+        return lauf
+
+    # -------------------------------------------------- (3) Schwelle auf 3
+    def test_zwei_gleiche_werte_sind_noch_kein_stillstand(self):
+        for b in (214, 215):
+            self.review(b, self.bschritt())
+        self.assertEqual(aussensicht.b_schritt_stillstand(self.cfg), "")
+        self.assertEqual(self.bs_grund(self.gruende()), [])
+
+    def test_drei_gleiche_werte_ergeben_den_grund(self):
+        for b in (214, 215, 216):
+            self.review(b, self.bschritt())
+        text = aussensicht.b_schritt_stillstand(self.cfg)
+        self.assertIn("B-Schritt 2/5", text)
+        self.assertIn("Reviews b214 und b216", text)
+        self.assertIn("ueber 3 B-Batches", text)
+        self.assertTrue(self.bs_grund(self.gruende()))
+
+    def test_schwelle_ist_konfigurierbar(self):
+        self.cfg.data.setdefault("meta", {})["bschritt_stillstand_batches"] = 2
+        for b in (214, 215):
+            self.review(b, self.bschritt())
+        text = aussensicht.b_schritt_stillstand(self.cfg)
+        self.assertIn("B-Schritt 2/5", text)
+        self.assertIn("ueber 2 B-Batches", text)
+
+    def test_konfiguration_hat_die_drei(self):
+        self.assertEqual(
+            int(aussensicht.grenzen(load_config())["bschritt_stillstand_batches"]), 3)
+
+    # --------------------------------- "B-SCHRITT: kein B-Batch" zaehlt nicht
+    def test_kein_b_batch_zaehlt_nicht_mit(self):
+        self.review(213, "B-SCHRITT: kein B-Batch (Strang C)")
+        self.review(214, self.bschritt())
+        self.review(215, "B-SCHRITT: kein B-Batch (Strang C)")
+        self.review(216, self.bschritt())
+        self.assertEqual([b for b, _s, _z in aussensicht.b_schritt(self.cfg, 6)], [214, 216])
+        self.assertEqual(aussensicht.b_schritt_stillstand(self.cfg), "",
+                         "die C-Reviews unterbrechen die B-Reihe")
+
+    def test_kein_b_batch_zaehlt_auch_mit_zahl_nicht(self):
+        self.review(216, self.bschritt())
+        self.review(217, "B-SCHRITT: 2/5 Kontrollfluss, kein B-Batch (Strang C)")
+        self.assertEqual([b for b, _s, _z in aussensicht.b_schritt(self.cfg, 6)], [216])
+
+    # -------------------------------------------------- (2) Entprellung
+    def test_dedup_nur_einmal_je_neuem_b_batch(self):
+        for b in (214, 215, 216):
+            self.review(b, self.bschritt())
+        self.assertEqual(len(self.bs_grund(self.gruende())), 1)
+        # Erfolgreicher Lauf -> Marke auf dem neuesten VERGLICHENEN B-Batch (216-1).
+        self.assertEqual(aussensicht.bschritt_marke_setzen(self.cfg, self.state), 215)
+        self.state.save()
+        self.assertEqual(self.state.data["meta"]["bschritt_gemeldet_bis"], 215)
+        self.assertEqual(self.bs_grund(self.gruende()), [],
+                         "derselbe Stillstand darf nicht erneut feuern")
+        # Ein NEUER B-Batch (Review b217 bewertet B216) verlaengert die Reihe.
+        self.review(217, self.bschritt(nummer=7))
+        self.assertTrue(self.bs_grund(self.gruende()))
+
+    def test_migration_ohne_schluessel_212(self):
+        """Der gemeldete Stillstand B211/B212 (Reviews b212/b213) feuert nicht erneut."""
+        for b in (211, 212, 213):
+            self.review(b, self.bschritt())
+        self.state.data["meta"] = {"letzter_lauf_batch": 213}
+        self.assertNotIn("bschritt_gemeldet_bis", self.state.data["meta"])
+        gruende = self.gruende(213)
+        self.assertEqual(self.state.data["meta"]["bschritt_gemeldet_bis"], 212,
+                         "fehlender Schluessel wird einmalig auf 212 gesetzt")
+        self.assertEqual(self.bs_grund(gruende), [],
+                         "B211/B212 ist in meta-213 gemeldet - kein zweiter Ausloeser")
+
+    def test_neuester_vergleichener_b_batch_ist_review_minus_eins(self):
+        self.review(216, self.bschritt())
+        self.assertEqual(aussensicht.bschritt_neuester_b(self.cfg), 215)
+
+    # ------------------------------------------ Marke nur bei rc=0 setzen
+    def _setup_stillstand(self):
+        for b in (214, 215, 216):
+            self.review(b, self.bschritt())
+
+    def test_fehlgeschlagener_lauf_setzt_die_marke_nicht(self):
+        self._setup_stillstand()
+        grund = aussensicht.b_schritt_stillstand(self.cfg)
+        self.assertTrue(grund)
+        aussensicht.run = self._fake_run(7)
+        orch = self.orch()
+        orch._do_aussensicht(grund, gruende=[grund])
+        self.assertNotIn("bschritt_gemeldet_bis", orch.state.data["meta"],
+                         "rc != 0 darf die Marke nicht setzen")
+
+    def test_erfolgreicher_lauf_setzt_die_marke(self):
+        self._setup_stillstand()
+        grund = aussensicht.b_schritt_stillstand(self.cfg)
+        aussensicht.run = self._fake_run(0)
+        orch = self.orch()
+        orch._do_aussensicht(grund, gruende=[grund])
+        self.assertEqual(orch.state.data["meta"]["bschritt_gemeldet_bis"], 215)
 
 
 if __name__ == "__main__":

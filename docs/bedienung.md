@@ -900,6 +900,26 @@ entsteht erst beim Start). Die Serie `[207, 210, 213]` = `(None, None, 0)` feuer
 **nicht** — eine Migration war nicht nötig. Fehlt die Zeile, wird geloggt und der Batch als
 `SOLL > 0` behandelt (kein Stillstand verschluckt, nichts geraten).
 
+**Dasselbe für den B-Schritt (Nachtrag, 2026-09-29).** `runs/meta-213.md` wurde durch
+`B-Schritt 2/5 unveraendert in den B-Batches (Reviews b212 und b213)` ausgelöst — das sind
+die **Batches B211 und B212** (das Review von Batch N liegt in `runs/b<N+1>`; Funktion
+`hx/aussensicht.py:527` `b_schritt_stillstand`, Helfer `b_schritt`). Bis dahin gab es
+**keine Marke**, der Grund feuerte also bei jedem Meta-Lauf erneut. Jetzt gilt:
+
+* Marke `bschritt_gemeldet_bis` in `state.data["meta"]` = Nummer des neuesten **gemeldeten**
+  B-Batches (`bschritt_neuester_b` = Review-Ordner − 1). Es feuert nur, wenn ein **neuer**
+  B-Batch die Reihe verlängert; gesetzt wird die Marke nur nach `rc = 0` mit beteiligtem
+  Grund. Migration: fehlender Schlüssel → einmalig **212** (der Stillstand B211/B212 ist in
+  `runs/meta-213.md` gemeldet).
+* Schwelle `[meta] bschritt_stillstand_batches` (Vorgabe **3**, vorher fest 2): bei 10–20
+  B-Batches bis zum Ziel B20 sind zwei gleiche Schritte noch kein Stillstand.
+* Reviews mit `B-SCHRITT: kein B-Batch (Strang C)` zählen **nicht** mit — sie haben keinen
+  Schritt-Fortschritt und unterbrechen die Reihe (`runs/b211/review.md:12`,
+  `runs/b214/review.md:7`); das gilt auch, wenn in derselben Zeile eine Zahl steht.
+* Gemessen am Zustand: `runs/b212/review.md:6` und `runs/b213/review.md:10` tragen `2/5`,
+  der neueste verglichene B-Batch ist **212** — mit der Marke 212 feuert der Grund nicht
+  erneut, bis B213/B214 einen neuen Wert liefern.
+
 ### 12h. Batch-Zeitbudget, Kontext, Fortsetzung (R13ad, 2026-09-29)
 
 **Eine Zeitquelle.** Der Reviewer schrieb bis B212 eigene Minutenzahlen in die Aufträge
