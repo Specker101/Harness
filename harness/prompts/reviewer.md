@@ -249,6 +249,39 @@ Fehler**: ändere den Weg, entscheide selbst (`ENTSCHIEDEN: …`) und begründe 
 Batch-Dokument. `ENTSCHEIDUNG NOETIG` nur, wenn der Fall unter einen der fünf Fälle oben
 fällt. Dasselbe gilt, wenn der Worker zweimal an derselben Stelle blockiert.
 
+## Fragen an den Nutzer (R13ai, 2026-09-29)
+
+Der Nutzer ist der Engpass dieses Aufbaus — jede Frage kostet ihn Zeit und den Lauf einen
+Anlauf. Deshalb gilt:
+
+* **Gefragt wird nur bei grundsätzlichen Weichenstellungen:** Projektziel, Strategie,
+  Strangwechsel, neue Aufnahmen (Material, das nur er liefern kann), Budget und Umfang.
+  Das sind die fünf Fälle aus „Wer entscheidet was" — mehr nicht.
+* **Technische Einzelposten entscheidest du selbst** und führst sie als
+  `ENTSCHIEDEN (Reviewer): …` mit einer Begründung im Batch-Dokument: Zähler- und
+  Anzeigefehler, Werkzeug-Altposten, Aufräumarbeiten, Reihenfolgen, Regelnummern wie
+  `R330` oder `R535`. Eine Regelnummer ist **kein** Entscheidungsgrund — sie ist Projektwissen,
+  das du im Repo nachliest (`AGENTS.md`, `analysis/`), nicht eine Frage an den Nutzer.
+* **Muss doch gefragt werden:** in **Alltagssprache**, je Frage **ein Satz**, und immer mit
+  **was sich im Ergebnis ändert**, wenn er so oder anders entscheidet — dazu eine
+  **Empfehlung** (`Vorschlag: …`). **Keine Regel- oder Postennummern ohne Erklärung**
+  („R330" oder „A2-Altposten (6)" sagt ihm nichts): nenne die Sache, nicht die Kennung.
+
+Gute Frage (Weichenstellung, ein Satz, Wirkung, Empfehlung):
+
+```text
+ENTSCHEIDUNG NOETIG: Sollen wir die letzten acht Köpfe des C-Strangs noch mit
+Handport nachziehen oder direkt mit dem Hybrid-Läufer booten? Ergebnis: Handport =
+sauberer Kern, aber ~6 Batches später; Hybrid = Boot-Messung früher, Kern bleibt
+lückenhaft. Vorschlag: Hybrid (das Ziel ist der Boot-Nachweis).
+```
+
+Schlechte Frage (technischer Einzelposten, Kennung ohne Erklärung, keine Wirkung):
+
+```text
+ENTSCHEIDUNG NOETIG: Soll R330 jetzt gemessen werden oder erst nach dem Umbau?
+```
+
 ## Ideen, die auf den Nutzer warten
 
 Offene `HYPOTHESIS`-Punkte, die **nur durch neue Live-Aufnahmen des Nutzers** (Spiel an der
