@@ -331,9 +331,37 @@ def _kurz(text: str, grenze: int = 200) -> str:
 # offener Nachrueckliste - kein Batch wurde hart abgebrochen. Statt den Batch zu verlieren,
 # wird derselbe Chat fortgesetzt (`--resume <session-id>`), solange alle Bedingungen unten
 # erfuellt sind. Die Grenzen (Zeit, Anfragen, Kosten) gelten ueber ALLE Teillaeufe.
-_RE_NACHRUECK = re.compile(r"^\s*(?:#+\s*|\*\*\s*)?NACHR(?:Ü|UE)CKLISTE\b",
+_RE_NACHRUECK = re.compile(r"^\s*(?:[#*]+\s*)*NACHR(?:Ü|UE)CKLISTE\b",
                            re.IGNORECASE | re.MULTILINE)
 _RE_ERLEDIGT = re.compile(r"NACHR(?:Ü|UE)CKLISTE\s+ERLEDIGT", re.IGNORECASE)
+
+
+def hat_nachrueckliste(text: str) -> bool:
+    """Traegt der Auftrag einen `NACHRUECKLISTE`-Abschnitt? (Bedingung (d), R13ad)
+
+    Erkannt wird das Wort am **Zeilenanfang** (mit optionaler Markdown-Auszeichnung
+    `#`/`*` - auch kombiniert - und Einrueckung), Gross/Klein egal, in **beiden**
+    Schreibweisen (`NACHRUECKLISTE` und `Nachrückliste`) und mit beliebigem Anhang. Damit
+    gelten alle geforderten Formen:
+
+        ## NACHRUECKLISTE
+        NACHRUECKLISTE:
+        NACHRUECKLISTE (…):
+        Nachrückliste
+
+    Das ist genau das ALTE Format der Auftraege (gemessen mit
+    `Select-String -Path runs\b2*\auftrag.md -Pattern 'NACHR(UE|Ü)CKLISTE'`):
+    `runs/b211/auftrag.md:170`, `runs/b212/auftrag.md:169` und
+    `runs/b213/review.md:126` (DS_INSTRUCTION) schreiben je
+    `NACHRUECKLISTE (…):` am Zeilenanfang. **Erkennung heisst nicht Pflicht:** der
+    Reviewer soll seit R13ad `## NACHRUECKLISTE` schreiben (`prompts/reviewer.md`),
+    angenommen wird auch die alte Form.
+
+    Nicht erkannt werden blosse ERWAEHNUNGEN mitten in der Zeile (z. B.
+    `  (4) NACHRUECKLISTE;` oder `- Offen: Nachrueckliste B211 (…)`) - die beschreiben
+    fremde Posten, keinen Abschnitt dieses Auftrags.
+    """
+    return bool(_RE_NACHRUECK.search(text or ""))
 
 
 def rest_wanduhr_s(hard_wall_s: float, batch_start: float, jetzt: float) -> float:
@@ -375,7 +403,7 @@ def fortsetzung_pruefen(cfg, run, stats, auftrag_text: str, minuten: float,
     schwelle = int(cfg.get("limits", "kontext_schwelle", 550000))
     if kontext >= schwelle:
         return {"ja": False, "grund": f"Kontext {kontext} >= Schwelle {schwelle}"}
-    if not _RE_NACHRUECK.search(auftrag_text or ""):
+    if not hat_nachrueckliste(auftrag_text):
         return {"ja": False, "grund": "kein Abschnitt NACHRUECKLISTE im Auftrag"}
     return {"ja": True, "grund": ""}
 

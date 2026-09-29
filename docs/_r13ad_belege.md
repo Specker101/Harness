@@ -63,17 +63,32 @@ bleiben `watch`, `rebuild` und der reasoning-Snapshot unveraendert gueltig. Der 
 bleibt zusaetzlich liegen (Nachweis, welche Zeilen zu welchem Anstoss gehoeren) und ist in
 `retention.MIT_ZIP_MUSTER` aufgenommen, wird also nach 14 Tagen mitgepackt.
 
-**Voraussetzung, die mitgebaut werden musste:** Der Abschnitt `NACHRUECKLISTE` war in
-`runs/b*/auftrag.md` **nirgends** vorhanden (geprueft: kein Treffer in allen Auftraegen bis
-B213). Ohne die neue Reviewer-Regel in `prompts/reviewer.md` waere Bedingung (d) nie erfuellt
-und der Anstoss liefe nie — die Regel ist deshalb Teil dieses Schritts.
+**Bedingung (d) — korrigierte Messung (2026-09-29).** Ein erster Check ueber die
+VS-Code-Suche meldete „kein Treffer"; das war **falsch**, denn die Suche ueberspringt `runs/`
+(`search.exclude` / `.gitignore`). Mit PowerShell nachgemessen:
+
+    Select-String -Path runs\b2*\auftrag.md -Pattern 'NACHR(UE|Ü)CKLISTE' -CaseSensitive:$false
+
+| Beleg | Zeile | Wortlaut (Anfang) |
+|---|---|---|
+| `runs/b211/auftrag.md:170` | 170 | `NACHRUECKLISTE (in dieser Reihenfolge, je Punkt ein eigener Commit, nur wenn die Pflicht vor 70 min erfuellt ist):` |
+| `runs/b212/auftrag.md:169` | 169 | `NACHRUECKLISTE (nach TEIL 1-5, vor dem Preflight, je Posten ein Commit mit Soll-Delta):` |
+| `runs/b213/review.md:126` | 126 | `NACHRUECKLISTE (vor dem Preflight, je Posten ein Commit mit Soll-Delta):` (in `<DS_INSTRUCTION>`) |
+
+Das Format `NACHRUECKLISTE (…):` am Zeilenanfang gab es also **schon**. `worker.hat_nachrueckliste`
+akzeptiert es neben `## NACHRUECKLISTE`, `NACHRUECKLISTE:` und `Nachrückliste` (jeweils am
+Zeilenanfang, Gross/Klein egal) und weist blosse Erwaehnungen mitten in der Zeile ab
+(`  (4) NACHRUECKLISTE;`, `- Offen: Nachrueckliste B211 (…)`). Die Pflicht
+`## NACHRUECKLISTE` in `prompts/reviewer.md` bleibt (klarere Gliederung), ist aber **keine**
+Voraussetzung dafuer, dass (d) greifen kann.
 
 ## 4. Tests und Zustand
 
-- `tests/test_r13ad_fixes.py` (neu): **26 Tests** — Kontextsumme/Verlauf/Kompaktierung,
+- `tests/test_r13ad_fixes.py` (neu): **30 Tests** — Kontextsumme/Verlauf/Kompaktierung,
   Summen ueber Fortsetzungen, `result.json` aus dem Attrappenlauf, Batch-Uhr mit Schwelle
-  und Kontext, Hook im Unterprozess, und je eine Probe fuer die Bedingungen (a)–(e) des
-  Fortsetzungsanstosses.
+  und Kontext, Hook im Unterprozess, je eine Probe fuer die Bedingungen (a)–(e) des
+  Fortsetzungsanstosses, und die Erkennung des `NACHRUECKLISTE`-Abschnitts (vier Formen,
+  Gegenproben, echter Text aus `runs/b213/review.md` und `runs/b211|b212/auftrag.md`).
 - Volle Reihe: **768 Tests, OK** (512,6 s; vorher 742).
 
 ## 5. Was NICHT geprueft wurde

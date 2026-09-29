@@ -344,5 +344,71 @@ class TestFortsetzung(unittest.TestCase):
         self.assertIn("NACHRUECKLISTE ERLEDIGT", zeile)
 
 
+class TestNachruecklisteErkennung(unittest.TestCase):
+    """Bedingung (d): welche Formen gelten als NACHRUECKLISTE-Abschnitt? (R13ad)
+
+    Geprueft wird gegen die ECHTEN Auftraege B211-B213. Die Belege wurden mit PowerShell
+    `Select-String` erhoben - die VS-Code-Suche blendet `runs/` aus (search.exclude /
+    .gitignore) und meldete deshalb faelschlich "kein Treffer".
+    """
+
+    def test_die_geforderten_formen_am_zeilenanfang(self):
+        for form in ("## NACHRUECKLISTE",
+                     "NACHRUECKLISTE:",
+                     "NACHRUECKLISTE (vor dem Preflight, je Posten ein Commit mit Soll-Delta):",
+                     "Nachrückliste",
+                     "Nachrueckliste",
+                     "  ## **NACHRUECKLISTE**  "):
+            self.assertTrue(worker.hat_nachrueckliste(form), form)
+            # Auch mitten im Auftrag, nicht nur in Zeile 1.
+            self.assertTrue(worker.hat_nachrueckliste("TEIL 1\nirgendwas\n\n" + form
+                                                      + "\n1. offener Posten"), form)
+
+    def test_erwaehnungen_mitten_in_der_zeile_gelten_nicht(self):
+        for gegen in ("  (4) NACHRUECKLISTE;",
+                      "- Offen: Nachrueckliste B211 (1/2/4/5/6);",
+                      "Die NACHRUECKLISTE ist zuerst dran.",
+                      "NACHRUECKLISTEN"):
+            self.assertFalse(worker.hat_nachrueckliste(gegen), gegen)
+
+    def test_gegen_den_echten_b213_auftrag(self):
+        """Der gemessene Beleg `runs/b213/review.md:126` (DS_INSTRUCTION) muss zaehlen."""
+        from hx.proc import StreamRun
+        cfg = load_config()
+        p = Path(cfg.root) / "runs" / "b213" / "review.md"
+        if not p.is_file():
+            self.skipTest("runs/b213/review.md fehlt")
+        text = p.read_text(encoding="utf-8")
+        i = text.find("<DS_INSTRUCTION>")
+        j = text.find("</DS_INSTRUCTION>")
+        self.assertGreaterEqual(i, 0, "kein DS_INSTRUCTION-Block")
+        instr = text[i:j if j > i else len(text)]
+        self.assertIn("NACHRUECKLISTE (vor dem Preflight", instr)
+        self.assertTrue(worker.hat_nachrueckliste(instr))
+        # Bedingung (d) ist damit fuer einen solchen Auftrag erfuellt.
+        s = streamjson.StreamStats()
+        s.feed(_assistant("m1", 1000))
+        s.feed(_assistant("m2", 300000))
+        s.feed(_result(300000, 0, 0, 1))
+        run = StreamRun()
+        run.rc = 0
+        entsch = worker.fortsetzung_pruefen(cfg, run, s, instr, 30.0, [])
+        self.assertTrue(entsch["ja"], entsch)
+
+    def test_gegen_die_echten_b211_b212_auftraege(self):
+        cfg = load_config()
+        geprueft = 0
+        for n in (211, 212):
+            p = Path(cfg.root) / "runs" / f"b{n:03d}" / "auftrag.md"
+            if not p.is_file():
+                continue
+            text = p.read_text(encoding="utf-8")
+            self.assertIn("NACHRUECKLISTE (", text)
+            self.assertTrue(worker.hat_nachrueckliste(text), f"B{n}")
+            geprueft += 1
+        if not geprueft:
+            self.skipTest("keine echten Auftraege B211/B212")
+
+
 if __name__ == "__main__":
     unittest.main()
