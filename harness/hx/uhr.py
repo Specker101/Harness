@@ -119,22 +119,50 @@ def hms(sekunden) -> str:
     return (f"{h}h{m:02d}m{s:02d}s" if h else f"{m}m{s:02d}s")
 
 
+def kontext_kurz(tokens) -> str:
+    """`310k` / `1M` - kompakte Kontextangabe fuer die Batch-Uhr (R13ad)."""
+    try:
+        n = int(tokens)
+    except (TypeError, ValueError):
+        return "?"
+    if n >= 1_000_000:
+        m = n / 1_000_000.0
+        return (f"{m:.0f}M" if abs(m - round(m)) < 0.05 else f"{m:.1f}M")
+    if n >= 1000:
+        return f"{n / 1000.0:.0f}k"
+    return str(n)
+
+
 def uhr_text(state: dict, weich_min: float, hart_min: float,
+             umschalt_min: float | None = None, kontext_limit: int | None = None,
              jetzt: datetime | None = None) -> str:
     """Die Zeile, die dem Worker nach jedem Werkzeugaufruf erscheint (R13ac, M210-1).
 
     Faktisch formuliert (die Claude-Doku raet ausdruecklich davon ab, Hooks als
     Systemanweisung zu kleiden - das loest die Prompt-Injection-Abwehr des Modells aus).
+
+    R13ad (Auftrag 2026-09-29): die Zeile nennt jetzt auch die **Umschaltschwelle**
+    (`umschalt_min`, Vorgabe: Alarmgrenze minus 10 min) und die **Kontextgroesse** der
+    letzten Anfrage aus dem Harness-Zustand (`state/run.json -> live.kontext`). Damit gibt
+    es genau EINE Zeitquelle; der Reviewer schreibt keine eigene Minutenzahl mehr.
     """
     d = start_zeit(state, jetzt=jetzt)
     if d["zeit"] is None:
         return ("BATCH-UHR (Harness-Messung): kein laufender Batch im Harness-Zustand "
                 "(state/run.json hat keinen worker.started_at).")
     minuten = max(0.0, (d["alter_s"] or 0) / 60.0)
+    if umschalt_min is None:
+        umschalt_min = max(0.0, float(weich_min) - 10.0)
     kopf = (f"BATCH-UHR (Harness-Messung): {minuten:.1f} min von {weich_min:.0f} min "
-            f"seit Batch-Start {ortszeit(d['zeit'])} (Ortszeit).")
-    rest = (f"Weichgrenze {weich_min:.0f} min, harte Grenze {hart_min:.0f} min. "
-            "Diese Zahl ist die Wanduhr des Worker-Prozesses "
+            f"(Umschalten ab {umschalt_min:.0f}) seit Batch-Start {ortszeit(d['zeit'])} "
+            "(Ortszeit).")
+    live = state.get("live") if isinstance(state.get("live"), dict) else None
+    k = (live or {}).get("kontext")
+    if kontext_limit and k:
+        kopf += f" | Kontext {kontext_kurz(k)} von {kontext_kurz(kontext_limit)}"
+    rest = (f"Weichgrenze {weich_min:.0f} min, harte Grenze {hart_min:.0f} min, "
+            f"Umschaltschwelle {umschalt_min:.0f} min. Diese Zahl ist die Wanduhr des "
+            "Worker-Prozesses "
             "(state/run.json:worker.started_at) - die Zahl der Werkzeugaufrufe sagt "
             "nichts ueber die Zeit (B210: '180 min' geschaetzt, 46 min gemessen).")
     if d["unplausibel"]:

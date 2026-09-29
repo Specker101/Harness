@@ -6,7 +6,8 @@ Werkzeugaufruf und gibt eine Zeile `additionalContext` aus - die Claude-CLI haen
 als System-Reminder neben das Werkzeugergebnis, das Modell liest sie beim naechsten
 Aufruf (Doku "Hooks reference", Abschnitt "Add context for Claude").
 
-    python tools/batch_uhr.py --state <state/run.json> --weich 90 --hart 180
+    python tools/batch_uhr.py --state <state/run.json> --weich 90 --hart 180 \
+        --umschalt 80 --kontext-limit 1000000
 
 Quelle der Zahl ist dieselbe wie in der watch-Anzeige: `hx.uhr` liest
 `state/run.json -> worker.started_at` (Prozessstart des Workers). Gegenprobe fuer einen
@@ -38,13 +39,20 @@ def main(argv: list[str]) -> int:
         state_datei = Path(argv[i + 1])
         weich = float(argv[argv.index("--weich") + 1]) if "--weich" in argv else 90.0
         hart = float(argv[argv.index("--hart") + 1]) if "--hart" in argv else 180.0
+        # R13ad: die Umschaltschwelle (Alarmgrenze minus 10 min) und die Kontextgrenze
+        # kommen aus `harness.toml` und werden vom Harness mitgegeben.
+        umschalt = (float(argv[argv.index("--umschalt") + 1])
+                    if "--umschalt" in argv else None)
+        kontext_limit = (int(argv[argv.index("--kontext-limit") + 1])
+                         if "--kontext-limit" in argv else None)
         from hx import uhr
         state = uhr.lies_state(state_datei)
         if uhr.start_zeit(state)["zeit"] is None:
             # Nichts gemessen (kein laufender Batch im Zustand) -> KEINE Zeile. Sonst
             # stuende nach jedem Werkzeugaufruf ein Hinweis ohne Messwert im Kontext.
             return 0
-        text = uhr.uhr_text(state, weich, hart)
+        text = uhr.uhr_text(state, weich, hart, umschalt_min=umschalt,
+                            kontext_limit=kontext_limit)
         io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8").write(json.dumps(
             {"hookSpecificOutput": {"hookEventName": "PostToolUse",
                                     "additionalContext": text}},

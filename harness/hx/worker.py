@@ -238,18 +238,25 @@ def write_worker_hooks(cfg, rd: Path, state_datei, log=None) -> str | None:
         return None
     weich = float(cfg.get("limits", "alarm_wall_s", 5400)) / 60.0
     hart = float(cfg.get("limits", "hard_wall_s", 10800)) / 60.0
+    # R13ad: EINE Zeitquelle - die Umschaltschwelle (Alarmgrenze minus 10 min) und die
+    # Kontextgrenze kommen aus `harness.toml` und gehen mit in den Hook.
+    umschalt = max(0.0, weich - float(cfg.get("limits", "umschalt_vor_alarm_s", 600)) / 60.0)
+    kontext_limit = int(cfg.get("limits", "kontext_limit", 1000000))
     daten = {"hooks": {"PostToolUse": [{"hooks": [{
         "type": "command",
         "timeout": 10,
         "command": sys.executable,
         "args": [str(skript), "--state", str(state_datei),
-                 "--weich", f"{weich:.0f}", "--hart", f"{hart:.0f}"],
+                 "--weich", f"{weich:.0f}", "--hart", f"{hart:.0f}",
+                 "--umschalt", f"{umschalt:.0f}",
+                 "--kontext-limit", str(kontext_limit)],
     }]}]}}
     ziel = Path(rd) / "worker-hooks.json"
     write_text_atomic(ziel, json.dumps(daten, indent=1) + "\n")
     if log:
         log.info("Batch-Uhr als PostToolUse-Hook gehaengt", datei=ziel.name,
-                 weich_min=f"{weich:.0f}", hart_min=f"{hart:.0f}")
+                 weich_min=f"{weich:.0f}", hart_min=f"{hart:.0f}",
+                 umschalt_min=f"{umschalt:.0f}", kontext_limit=kontext_limit)
     return str(ziel)
 
 
@@ -888,11 +895,14 @@ RECHENZEIT (R13v, gemessen 2026-09-28 - bitte einhalten)
 - Fortschritt pruefen statt warten: Dateigroesse/mtime oder Prozess-CPU-Delta
   (`(Get-Process -Id N).CPU`) in EINEM kurzen Aufruf, ohne Schleife.
 
-ZEIT (R13ac - gemessen, nicht geschaetzt)
+ZEIT (R13ac/R13ad - gemessen, nicht geschaetzt, EINE Quelle)
 - Der Harness MISST die Batch-Zeit mit der Wanduhr des Worker-Prozesses. Nach jedem
   Werkzeugaufruf steht in deinem Kontext eine Zeile
-  `BATCH-UHR (Harness-Messung): <m> min von <weich> min seit Batch-Start <HH:MM:SS> …`.
+  `BATCH-UHR (Harness-Messung): <m> min von <weich> min (Umschalten ab <u>) | Kontext <x>k von 1M …`.
   Sie ist die gueltige Grundlage fuer "wie lange laeuft dieser Batch schon".
+- Die Zeile nennt auch die **Umschaltschwelle** (Alarmgrenze minus 10 min) und den
+  **Kontext**. Nennt der Auftrag eine andere Minutenzahl ("Budget 80 min", "ab 70 min"),
+  gilt die BATCH-UHR - der Reviewer schreibt seit R13ad keine eigene Zahl mehr.
 - Die ZAHL DER WERKZEUGAUFRUFE sagt nichts ueber die Zeit. In B210 hielt sich der Worker
   nach Aufrufzaehlung fuer "~180 min" und strich deshalb Pflichtteile - gemessen waren
   es **46 min**. Die Startzeit dieses Laufs steht unten unter "UMFELD DIESES LAUFS".

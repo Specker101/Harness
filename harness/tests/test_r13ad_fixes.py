@@ -173,5 +173,51 @@ class TestResultJsonMitKontext(unittest.TestCase):
         self.assertIn("kontext_letzte_anfrage", st)
 
 
+# =========================================== 2) Eine Zeitquelle
+class TestZeitquelle(unittest.TestCase):
+    def test_umschalt_und_kontext_stehen_in_der_uhr(self):
+        start = datetime.now(timezone.utc) - timedelta(minutes=34)
+        st = {"worker": {"pid": 1, "started_at": start.isoformat(timespec="seconds")},
+              "live": {"batch": 210, "kontext": 310000}}
+        text = uhr.uhr_text(st, 90, 180, umschalt_min=80, kontext_limit=1000000)
+        self.assertIn("34", text)
+        self.assertIn("min von 90 min", text)
+        self.assertIn("Umschalten ab 80", text)
+        self.assertIn("Kontext 310k von 1M", text)
+
+    def test_kontext_zeile_fehlt_ohne_messwert(self):
+        start = datetime.now(timezone.utc) - timedelta(minutes=5)
+        st = {"worker": {"pid": 1, "started_at": start.isoformat(timespec="seconds")}}
+        text = uhr.uhr_text(st, 90, 180, umschalt_min=80, kontext_limit=1000000)
+        self.assertNotIn("Kontext", text)
+
+    def test_konfiguration_hat_die_eine_zeitquelle(self):
+        cfg = load_config()
+        self.assertEqual(float(cfg.get("limits", "alarm_wall_s")), 5400.0)
+        self.assertEqual(float(cfg.get("limits", "umschalt_vor_alarm_s")), 600.0)
+        self.assertEqual(int(cfg.get("limits", "kontext_limit")), 1000000)
+
+    def test_hook_skript_zeigt_die_umschaltschwelle(self):
+        import subprocess
+        tmp = Path(__file__).resolve().parent / "_tmp_r13ad_uhr"
+        shutil.rmtree(tmp, ignore_errors=True)
+        d = ensure_dir(tmp)
+        state = d / "run.json"
+        start = datetime.now(timezone.utc) - timedelta(minutes=34)
+        state.write_text(json.dumps(
+            {"worker": {"pid": 1, "started_at": start.isoformat(timespec="seconds")},
+             "live": {"batch": 210, "kontext": 310000}}), encoding="utf-8")
+        p = subprocess.run([sys.executable, str(ROOT / "tools" / "batch_uhr.py"),
+                            "--state", str(state), "--weich", "90", "--hart", "180",
+                            "--umschalt", "80", "--kontext-limit", "1000000"],
+                           input=b"{}", stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                           timeout=120)
+        self.assertEqual(p.returncode, 0, p.stderr.decode("utf-8", "replace")[:200])
+        txt = json.loads(p.stdout.decode("utf-8"))["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Umschalten ab 80", txt)
+        self.assertIn("Kontext 310k von 1M", txt)
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()

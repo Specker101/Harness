@@ -44,7 +44,7 @@ worker_hooks        = true
 # normaler Lauf 84..347 Anfragen (b176 = 347) - bei 250 klingelte der Alarm fast
 # immer. ZWINGEND mitgezogen: die harte Grenze 400 -> 1000, sonst toetet sie den
 # Batch, BEVOR der Alarm erscheinen kann (und 400 lag nur 53 ueber dem Maximum).
-alarm_wall_s      = 5400      # 90 min
+alarm_wall_s      = 5400      # 90 min - EINE Zeitquelle (R13ad)
 alarm_requests    = 500
 alarm_cost_usd    = 1.0
 hard_wall_s       = 10800     # 3 h
@@ -53,6 +53,20 @@ hard_cost_usd     = 2.0
 daily_budget_usd  = 10.0
 reviewer_wall_s   = 900
 reviewer_alarm_s  = 600
+
+# R13ad (Auftrag 2026-09-29): die Umschaltschwelle liegt `umschalt_vor_alarm_s` Sekunden
+# VOR der Alarmgrenze - also 5400 - 600 = 4800 s = 80 min. Ab hier arbeitet der Worker die
+# Nachrueckliste ab bzw. streicht (nur mit Uhrnachweis). Bis B212 schrieb der Reviewer
+# stattdessen eigene Zahlen ("Budget 80 min", "ab 70 min") in den Auftrag - die standen in
+# keiner Config und widersprachen der Batch-Uhr (90 min).
+umschalt_vor_alarm_s = 600
+# Kontextgrenze des Worker-Modells (deepseek-flash[1m]: 1M Kontext, 384k Ausgabe). Die
+# Batch-Uhr zeigt "Kontext <x>k von 1M"; der Fortsetzungsanstoss bricht bei
+# `kontext_schwelle` ab, damit die Fortsetzung nicht in eine Zwangskompaktierung laeuft.
+kontext_limit        = 1000000
+kontext_schwelle     = 550000
+# So oft darf ein frueh beendeter Lauf im SELBEN Chat fortgesetzt werden (R13ad).
+max_fortsetzungen    = 2
 
 [peak]
 # R5b: in Peak-Zeiten keine NEUEN Batches starten (laufender Batch darf fertig werden).

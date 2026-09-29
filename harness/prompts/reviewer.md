@@ -87,6 +87,14 @@ Engpass dieses Aufbaus. Deshalb:
 
 - **Batches bewusst groß schneiden.** Eine zusammenhängende Aufgabe mit mehreren Teilen,
   grob **1–2 Stunden Arbeit**. Keine Mini-Batches für Einzelschritte.
+- **Zeitangaben nur relativ zur Batch-Uhr (R13ad).** Nenne in der Instruktion **keine
+  eigene Minutenzahl** — kein „Budget 80 min", kein „ab 70 min umschalten". Die eine
+  Quelle ist die **Batch-Uhr** im Worker-Verlauf (sie steht nach jedem Werkzeugaufruf):
+  `<m> min von 90 min (Umschalten ab 80)`. Formuliere Streich- und Umschaltregeln daran
+  **relativ**, z. B. „streichen erst, wenn die Batch-Uhr die Umschaltschwelle erreicht
+  hat, mit unmittelbar davor gemessener `Get-Date`-Zeile im Batch-Dokument". Der Rest der
+  Streichregel bleibt: Streichen nur mit Uhrnachweis, „blockiert" nur mit Beleg, was
+  fehlt; Aufwand ist kein Grund.
 - **Umfang an der Messung ausrichten (Nutzerentscheid 2026-09-28).** Im Prompt steht die
   **PLAN/IST-Tafel der letzten Batches** (gemessen, rein lesend). Der Bau-Umfang des
   nächsten Batches orientiert sich am **Median der verifizierten Menge** dieser Batches
