@@ -1047,6 +1047,16 @@ für Aufrufe ohne eigenes `timeout`). Die Batch-Uhr nennt zusätzlich
 `Preflight zuletzt ~X min`, und die Umschaltschwelle ist um diesen Vorlauf vorgezogen:
 `Alarm − max(umschalt_vor_alarm_s, Preflightdauer + 5 min)` (§12h).
 
+**Nachtrag R13ai (2026-09-29): die Vorgabe bleibt 600 s — der Parameter ist Pflicht.**
+Gemessen in B212–B214: der Worker hatte bei den langen Aufrufen `timeout` gesetzt, aber
+**`timeout=600000`** — also genau die alte Obergrenze; gekappt wurde trotzdem („Command did
+not complete within its 600s timeout and was moved to the background"). Deshalb steht im
+Vorspann bei der Batch-Uhr jetzt: *„Für `preflight.py`, `c_kopf.py mutalle` und `port_build`
+den Bash-Parameter `timeout=1800000` setzen; sonst wird nach 600 s gekappt."* Die 600 s
+bleiben als Schutz gegen hängende Befehle (gemessen: 28 von 234 Aufrufen in B212 hatten
+überhaupt einen `timeout`). Messung und die drei berichteten Kappungsfälle:
+`docs/_r13ai_belege.md`, Werkzeug `docs/_r13ai_stream_probe.py`.
+
 **c) Stillstands-Auslöser (Befund 4).** Das Feld `B-SCHRITT:` misst nichts (§12g): der
 Stillstand kommt jetzt aus der Preflight-Zeile `Hybrid-Lauf` (Halt-PC gleich, Wegmaß steigt
 nicht, 3 B-Batches in Folge), Entprellung über `hybrid_gemeldet_bis` und `rc = 0`.

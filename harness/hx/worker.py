@@ -1187,16 +1187,19 @@ ABLAUF
    mit dem nächsten Teil weitermachen statt abzubrechen.
 4. Keine Rücknahme von Belegen: Analyse- und Belegdateien werden nicht gelöscht.
 
-RECHENZEIT (R13v, gemessen 2026-09-28 - bitte einhalten)
-- **Lange Laeufe laufen SYNCHRON, nicht im Hintergrund.** Das Werkzeug kappt bei
-  600 s und schiebt den Befehl dann in den Hintergrund ("Command did not complete
-  within its 600s timeout and was moved to the background"). Genau das fuehrte in
-  B207 zu zwei Abfrageschleifen und **1084 s verlorener Wartezeit**, in B174 zu 1993 s.
+RECHENZEIT (R13v/R13ah, gemessen 2026-09-28 - bitte einhalten)
+- **Lange Laeufe laufen SYNCHRON, nicht im Hintergrund.** Ohne eigenen `timeout`-Parameter
+  kappt das Werkzeug bei **600 s** und schiebt den Befehl in den Hintergrund ("Command did
+  not complete within its 600s timeout and was moved to the background"). Genau das fuehrte
+  in B207 zu zwei Abfrageschleifen und **1084 s verlorener Wartezeit**, in B174 zu 1993 s,
+  in B213/B214 zu Kappungen von Preflight und `mutalle`.
 - **Der erlaubte Weg fuer alles, was laenger als ein paar Minuten dauert:**
   1. **Synchron mit ausdruecklicher Zeitgrenze:** beim Werkzeugaufruf `timeout`
-     mitgeben (Millisekunden, bis 600000 = 10 min). Das ist der Normalfall fuer
+     mitgeben (Millisekunden, **bis 1800000 = 30 min**). Das ist der Normalfall fuer
      `c_kopf.py prof`, `vergl alle`, `preflight.py`, `port_build.ps1`, Mutationslaeufe.
-  2. **Nur wenn es laenger als 10 min dauern kann:** `Start-Process … -PassThru` und
+     Gemessen (R13ah): `timeout=600000` ist KEINE Erhoehung - das war schon die alte
+     Obergrenze; wer mehr braucht, muss mehr setzen.
+  2. **Nur wenn es laenger als 30 min dauern kann:** `Start-Process … -PassThru` und
      dann **EIN** `Wait-Process -Id $p.Id -Timeout 480` - und danach die Ausgabe
      lesen. Kein zweiter Wartebefehl, keine Schleife.
 - **`Start-Sleep` ist GESPERRT** - nachgemessen am 2026-09-28 mit echtem Lauf: das
@@ -1228,6 +1231,10 @@ ZEIT (R13ac/R13ad/R13ah - gemessen, nicht geschaetzt, EINE Quelle)
 - Restzeit also NUR so rechnen: `Get-Date` minus dieser Startzeit (oder die letzte
   BATCH-UHR-Zeile lesen). Eine Streichung von Pflichtteilen "aus Zeitgruenden" gilt nur
   mit einer unmittelbar davor gemessenen `Get-Date`-Zeile im Batch-Dokument.
+- **Für `preflight.py`, `c_kopf.py mutalle` und `port_build` den Bash-Parameter
+  `timeout=1800000` setzen; sonst wird nach 600 s gekappt.** (Die Obergrenze des
+  Werkzeugs ist seit R13ah 1800 s, die Vorgabe ohne Parameter bleibt 600 s - Schutz
+  gegen haengende Befehle.)
 - Hoerst du vor der Umschaltschwelle auf, wird derselbe Chat **fortgesetzt**: die
   Fortsetzungsnachricht beginnt mit "Du bist weiterhin in Batch <N>. Alle Commits tragen
   B<N>:, nicht B<N+1>:." - die Batch-Nummer kommt aus dem Harness, nicht aus dem Text.

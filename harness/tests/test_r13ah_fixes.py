@@ -551,5 +551,62 @@ class TestHybridStillstand(Basis):
         self.assertTrue(hasattr(stand, "_RE_B_SCHRITT"))
 
 
+class TestGemesseneKappungen(unittest.TestCase):
+    """Nachtrag R13ai: die Kappungen aus B212-B214 als Regressionspflock (nur lesend)."""
+
+    def setUp(self):
+        self.cfg = load_config()
+
+    def test_default_bleibt_600_max_ist_1800(self):
+        """`timeout` ohne Angabe wird weiter bei 600 s gekappt - der Max-Wert greift nur
+        mit ausdruecklichem `timeout`."""
+        import os
+        env = envs.worker_env(self.cfg, dict(os.environ), "token")
+        self.assertEqual(env["BASH_DEFAULT_TIMEOUT_MS"], "600000",
+                         "Schutz gegen haengende Befehle bleibt")
+        self.assertEqual(env["BASH_MAX_TIMEOUT_MS"], "1800000")
+
+    def test_vorspann_hat_die_zeile(self):
+        pre = worker.WORKER_PREAMBLE
+        self.assertIn("Für `preflight.py`, `c_kopf.py mutalle` und `port_build` den "
+                      "Bash-Parameter\n  `timeout=1800000` setzen; sonst wird nach 600 s "
+                      "gekappt.", pre)
+        self.assertIn("bis 1800000 = 30 min", pre)
+        self.assertIn("Die Obergrenze des\n  Werkzeugs ist seit R13ah 1800 s, die Vorgabe "
+                      "ohne Parameter bleibt 600 s", pre)
+        # `timeout=600000` ist KEINE Erhoehung - genau das war der Messbefund in B213/B214.
+        self.assertIn("`timeout=600000` ist KEINE Erhoehung", pre)
+        self.assertNotIn("Millisekunden, bis 600000 = 10 min", pre)
+
+    def test_die_drei_namen_stehen_beisammen(self):
+        pre = worker.WORKER_PREAMBLE
+        for name in ("preflight.py", "c_kopf.py mutalle", "port_build"):
+            self.assertIn(name, pre)
+
+    def test_b212_hat_gekappte_aufrufe_ohne_eigenes_timeout(self):
+        """Belegt, warum die Vorspann-Zeile noetig ist: die Mehrheit laeuft ohne `timeout`."""
+        p = Path(self.cfg.root) / "runs" / "b212" / "stream.jsonl"
+        if not p.is_file():
+            self.skipTest("runs/b212/stream.jsonl fehlt")
+        mit_timeout = 0
+        gesamt = 0
+        with open(p, encoding="utf-8", errors="replace") as fh:
+            for zeile in fh:
+                if '"tool_use"' not in zeile:
+                    continue
+                try:
+                    satz = json.loads(zeile)
+                except ValueError:
+                    continue
+                for block in ((satz.get("message") or {}).get("content") or []):
+                    if isinstance(block, dict) and block.get("type") == "tool_use":
+                        gesamt += 1
+                        if "timeout" in (block.get("input") or {}):
+                            mit_timeout += 1
+        self.assertGreater(gesamt, 100)
+        self.assertLess(mit_timeout, gesamt / 2,
+                        "die Mehrheit der Aufrufe laeuft ohne eigene Zeitgrenze")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,88 @@
+R13ai Werkzeug-Zeiten aus den Mitschnitten - 2026-09-29 19:19
+
+=== B212: 234 Aufrufe mit gemessener Dauer, davon 28 mit eigenem `timeout` ===
+     602.3 s  timeout=(kein)     Grep        g:\Silent Scope Decomp\scripts
+     601.9 s  timeout=(kein)     PowerShell  Get-ChildItem capture\ppc_cov_boot.bin | Select-Object Length; $b=[IO.File]::ReadAllBytes("capture\p
+     511.0 s  timeout=600000     PowerShell  & .\scripts\port_build.ps1 -Gl 2>&1 | Select-Object -Last 5; Get-Date -Format "HH:mm:ss"
+     511.0 s  timeout=(kein)     Grep        g:\Silent Scope Decomp\port\hybrid\ppc_kern.cpp
+     491.4 s  timeout=600000     PowerShell  python -u scripts/preflight.py before *> analysis/_preflight_212.txt; "EXIT=$LASTEXITCODE"; Get-Date
+     142.4 s  timeout=300000     PowerShell  python -u scripts/m212_zeilen.py; Get-Date -Format "HH:mm:ss"
+
+  --- Aufruf call_01_HQLhjgqfM2gAM1n6oO1o4624 (602.3 s) ---
+      timeout : (NICHT gesetzt)
+      pattern: ppc_cov_boot|_cov_boot
+      path: g:\Silent Scope Decomp\scripts
+      output_mode: content
+      -n: True
+      head_limit: 20
+      Ergebnis: scripts\f5_descr_triage.py:9:  * capture/ppc_coverage.bin, ppc_cov_boot.bin (SSCOV1 Byte-Map, 4 MiB) | scripts\f5_descr_triage.py:77:                       os.path.join(WS, "capture", "ppc_cov_boot.bin")]) | scripts\m209_boot_zensus.py:14:    capture/ppc_cov_boot.bin   (i)  der BOOTPFAD | scripts\m209_boot_zensus.py:40:KARTEN = [("Bootpfad", os.path.join(WS, "capture", "ppc_cov_boot.bin")), | scripts\m43b_phasecov.py:7:  capture/ppc_cov_boot.bin         dito (Boot-Lauf) | scripts\m43b_phasecov.py:49:                os.path.join(WS, "capture", "ppc_cov_boot.bin")]) | scripts\m43b_phaserederive.py:42:                os.path.join(WS, "capture", "ppc_cov_boot.bin")]) | scripts\m43c_cov.py:43:   
+
+  --- Aufruf call_00_u38YyF8FD6k3Dljs8wGd4815 (601.9 s) ---
+      timeout : (NICHT gesetzt)
+      Befehl  : Get-ChildItem capture\ppc_cov_boot.bin | Select-Object Length; $b=[IO.File]::ReadAllBytes("capture\ppc_cov_boot.bin"); "Kopf16: " + (($b[0..15] | ForEach-Object { $_.ToString('X2') }) -join ' '); "Nichtnull: " + (($b | Where-Object { $_ -ne 0 }).Count); "distinkt-Werte: " + (($b | Sort-Object -Unique) -join ',')
+      Ergebnis: Command did not complete within its 600s timeout and was moved to the background (ID: bhsdy0whc). Output is being written to: C:\Users\Benji\AppData\Local\Temp\claude\g--Silent-Scope-Decomp\453f6729-e3a4-40aa-8f55-c656b98393ba\tasks\bhsdy0whc.output. You will be notified when it completes. To check interim output, use Read on that file path.
+
+  --- Aufruf call_00_pPElGS4EODqjNQODHpx08732 (511.0 s) ---
+      timeout : 600000
+      Befehl  : & .\scripts\port_build.ps1 -Gl 2>&1 | Select-Object -Last 5; Get-Date -Format "HH:mm:ss"
+      Ergebnis: Exit code 1 | == PoC-CLI (poc/ppc_native/ppc_poc.exe) == | == Port-Skelett (port/build/port_selftest.exe) ueber mingw32-make == | == Port mit GL-Senke (port/build/port_gl.exe) ueber mingw32-make gl == | out-lineoutput : Das Objekt vom Typ "Microsoft.PowerShell.Commands.Internal.Format.FormatEntryData" ist ungültig oder  | befindet sich nicht an der richtigen Position in der Sequenz. Ursache ist wahrscheinlich ein vom Benutzer angegebener  | Befehl "format-*", der zu Konflikten mit der Standardformatierung führt. |     + CategoryInfo          : InvalidData: (:) [out-lineoutput], InvalidOperationException |     + FullyQualifiedErrorId : ConsoleLineOutputOutOfSequencePacket,Microsoft.PowerS
+
+  --- Aufruf call_01_Nw964KtvGL5JYfXePAd81923 (511.0 s) ---
+      timeout : (NICHT gesetzt)
+      pattern: rfi|sc |srr|evpr|EVPR|exception|run_step|mtspr|mfspr|mtmsr|mfmsr
+      path: g:\Silent Scope Decomp\port\hybrid\ppc_kern.cpp
+      output_mode: content
+      -n: True
+      head_limit: 60
+      Ergebnis: 393:        } else if (xo == 339) {                        // m114:526 mfspr | 397:        } else if (xo == 467) {                        // m114:532 mtspr | 474:// Spiegel von `m114_matrix.Machine.run_step` und der SPR-Tafel | 486:    {287, "PVR"},  {936, "MMCR0"}, {940, "MMCR1"}, {982, "EVPR"}, | 530:u32 Maschine::run_step(u32 pc, u32 w) { | 544:            // (ISA Buch 1 Kap. 2.4.3). Spiegel von `m114_matrix.run_step`. | 555:        if (xo == 50) {                                // rfi | 572:        throw KernFehler(fmt("EXC sc @%08X", pc)); | 577:        if (xo == 339) {                               // mfspr | 581:        if (xo == 467) {                               // mtspr | 585:   
+
+=== B213: 211 Aufrufe mit gemessener Dauer, davon 52 mit eigenem `timeout` ===
+     602.0 s  timeout=600000     PowerShell  Get-Date; python -u scripts/preflight.py before *> analysis\_preflight_213.txt; "EXIT=$LASTEXITCODE"
+     601.6 s  timeout=600000     PowerShell  git add port/src/ckopf_leaves.cpp analysis/_m213/; git commit -q -m "B213: Port - L8579C Rueckgabewe
+     420.2 s  timeout=520000     PowerShell  Wait-Process -Id 11752 -Timeout 480 -ErrorAction SilentlyContinue; if (Get-Process -Id 11752 -ErrorA
+     244.6 s  timeout=600000     PowerShell  python scripts\c_kopf.py prof 2>&1 | Select-Object -Last 5
+     210.1 s  timeout=600000     PowerShell  python scripts\c_kopf.py vergl 8579C 2>&1 | Select-Object -First 6; "=== alle ==="; python scripts\c
+     208.3 s  timeout=600000     PowerShell  python scripts\c_kopf.py vergl 8579C; python scripts\c_kopf.py vergl alle 2>&1 | Select-Object -Last
+
+  --- Aufruf call_00_prpzV1Jv5AXDDgemFTvt4493 (602.0 s) ---
+      timeout : 600000
+      Befehl  : Get-Date; python -u scripts/preflight.py before *> analysis\_preflight_213.txt; "EXIT=$LASTEXITCODE"; Get-Content analysis\_preflight_213.txt -TotalCount 3
+      Ergebnis: Command did not complete within its 600s timeout and was moved to the background (ID: bhcb4omuc). Output is being written to: C:\Users\Benji\AppData\Local\Temp\claude\g--Silent-Scope-Decomp\808fafb5-7725-4b4a-bf72-a85bb2068335\tasks\bhcb4omuc.output. You will be notified when it completes. To check interim output, use Read on that file path.
+
+  --- Aufruf call_00_wOBDiYNYko23JfCWSq568167 (601.6 s) ---
+      timeout : 600000
+      Befehl  : git add port/src/ckopf_leaves.cpp analysis/_m213/; git commit -q -m "B213: Port - L8579C Rueckgabewert und Rufargumente nach dem Rohwort"; git log --oneline -1; python -u scripts\c_kopf.py mutalle 2>&1 | Select-Object -Last 3
+      Ergebnis: Command did not complete within its 600s timeout and was moved to the background (ID: b1pjmwlod). Output is being written to: C:\Users\Benji\AppData\Local\Temp\claude\g--Silent-Scope-Decomp\808fafb5-7725-4b4a-bf72-a85bb2068335\tasks\b1pjmwlod.output. You will be notified when it completes. To check interim output, use Read on that file path.
+
+=== B214: 293 Aufrufe mit gemessener Dauer, davon 44 mit eigenem `timeout` ===
+     601.8 s  timeout=600000     PowerShell  cd 'g:\Silent Scope Decomp'; Get-Date -Format 'HH:mm:ss'; python -u scripts/preflight.py before *> a
+     601.3 s  timeout=600000     PowerShell  cd 'g:\Silent Scope Decomp'; python -u scripts/c_kopf.py mutalle *> analysis\_m214\_mutalle.txt; ech
+     601.1 s  timeout=600000     PowerShell  cd 'g:\Silent Scope Decomp'; Set-Content -Path "$env:TEMP\b214_mut.txt" -Encoding utf8 -Value @' B21
+     541.9 s  timeout=600000     PowerShell  cd 'g:\Silent Scope Decomp'; $p = Get-Process -Id 18400 -ErrorAction SilentlyContinue; if ($p) { Wai
+     541.8 s  timeout=600000     PowerShell  cd 'g:\Silent Scope Decomp'; $p = Get-Process -Id 18400 -ErrorAction SilentlyContinue; if ($p) { Wai
+     374.3 s  timeout=540000     PowerShell  cd 'g:\Silent Scope Decomp'; $p = Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-
+
+  --- Aufruf call_00_v9G1NmgJZhAO19OrymGc7433 (601.8 s) ---
+      timeout : 600000
+      Befehl  : cd 'g:\Silent Scope Decomp'; Get-Date -Format 'HH:mm:ss'; python -u scripts/preflight.py before *> analysis\_preflight_214.txt; echo "exit=$LASTEXITCODE"; Get-Date -Format 'HH:mm:ss'
+      Ergebnis: Command did not complete within its 600s timeout and was moved to the background (ID: b8ga4qg31). Output is being written to: C:\Users\Benji\AppData\Local\Temp\claude\g--Silent-Scope-Decomp\b1703b11-a3a2-4707-8565-b8200057480c\tasks\b8ga4qg31.output. You will be notified when it completes. To check interim output, use Read on that file path.
+
+  --- Aufruf call_00_iZa4Jz7DMGybv7a6cFcb3662 (601.3 s) ---
+      timeout : 600000
+      Befehl  : cd 'g:\Silent Scope Decomp'; python -u scripts/c_kopf.py mutalle *> analysis\_m214\_mutalle.txt; echo "exit=$LASTEXITCODE"; Get-Content analysis\_m214\_mutalle.txt -Tail 6
+      Ergebnis: Command did not complete within its 600s timeout and was moved to the background (ID: b020dtkek). Output is being written to: C:\Users\Benji\AppData\Local\Temp\claude\g--Silent-Scope-Decomp\b1703b11-a3a2-4707-8565-b8200057480c\tasks\b020dtkek.output. You will be notified when it completes. To check interim output, use Read on that file path.
+
+  --- Aufruf call_00_3NKo8w19L7CyNa552gPo8563 (601.1 s) ---
+      timeout : 600000
+      Befehl  : cd 'g:\Silent Scope Decomp'; Set-Content -Path "$env:TEMP\b214_mut.txt" -Encoding utf8 -Value @' | B214: Belege mutalle (77 rote Proben) |  | c_kopf.py mutalle, voller Lauf ueber alle 78 Koepfe: 77 rote Proben, | nur 800626E0 ohne Probe (der Thunk hat keinen eigenen Rumpf). Die beiden | verwaisten MUT-Anker sind auf den aktuellen Text gezogen: |  | * 565C8: erster Versuch "r3 |= r7; // or r3,r3,r7" war GRUEN - die Stelle |   wird NIE erreicht (der Kopf setzt ctr = 1, die Schleife bricht VOR dem |   cr_eq2||cr_eq3-Block ab; R527). Neues Ziel ist die BASISADRESSE |   "u32 r5 = q + 0x61Cu;" -> 0x624u: ROT mit 24 Abweichungen |   (ROM RET 00000001 | PORT RET 00000000). | * 8579C: der von B213 re
+      Ergebnis: Command did not complete within its 600s timeout and was moved to the background (ID: bh21l43wb). Output is being written to: C:\Users\Benji\AppData\Local\Temp\claude\g--Silent-Scope-Decomp\b1703b11-a3a2-4707-8565-b8200057480c\tasks\bh21l43wb.output. You will be notified when it completes. To check interim output, use Read on that file path.
+
+  --- Aufruf call_00_lEsS3FRHQgQQeF75B9Ok2609 (541.9 s) ---
+      timeout : 600000
+      Befehl  : cd 'g:\Silent Scope Decomp'; $p = Get-Process -Id 18400 -ErrorAction SilentlyContinue; if ($p) { Wait-Process -Id 18400 -Timeout 540 -ErrorAction SilentlyContinue }; $q = Get-Process -Id 18400 -ErrorAction SilentlyContinue; if ($q) { "LAEUFT NOCH" } else { "FERTIG" }; Get-Content analysis\_m214\_mutalle.txt -Tail 2
+      Ergebnis: LAEUFT NOCH |   => ROT |   => ROT
+
+  --- Aufruf call_00_2obd2ChUIxUwVkGM1ua92582 (541.8 s) ---
+      timeout : 600000
+      Befehl  : cd 'g:\Silent Scope Decomp'; $p = Get-Process -Id 18400 -ErrorAction SilentlyContinue; if ($p) { Wait-Process -Id 18400 -Timeout 540 -ErrorAction SilentlyContinue }; $q = Get-Process -Id 18400 -ErrorAction SilentlyContinue; if ($q) { "LAEUFT NOCH" } else { "FERTIG" }; "size=$((Get-Item analysis\_m214\_mutalle.txt).Length)"
+      Ergebnis: LAEUFT NOCH | size=764
