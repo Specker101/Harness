@@ -1,0 +1,77 @@
+R13ae Rueckblick 201..213 - Preflight-Kopfzeile und Durchsatz (erzeugt 2026-09-29 15:59)
+Kopierte Preflight-Dateien: [201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213]
+Kopierte Bilanz-Ordner: [200, 201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213]
+
+=== C-Kopfzeile je Batch (neuer, toleranter Parser) ===
+  B201: 45 Koepfe / 1080 Faelle / 0 Abweichungen   (_preflight_201.txt)
+  B202: 45 Koepfe / 1080 Faelle / 0 Abweichungen   (_preflight_202.txt)
+  B203: 59 Koepfe / 1416 Faelle / 0 Abweichungen   (_preflight_203.txt)
+  B204: 64 Koepfe / 1536 Faelle / 0 Abweichungen   (_preflight_204.txt)
+  B205: 73 Koepfe / 1752 Faelle / 0 Abweichungen   (_preflight_205.txt)
+  B206: 78 Koepfe / 1872 Faelle / 0 Abweichungen   (_preflight_206.txt)
+  B207: 78 Koepfe / 2903 Faelle / 0 Abweichungen   (_preflight_207.txt)
+  B208: 78 Koepfe / 2903 Faelle / 0 Abweichungen   (_preflight_208.txt)
+  B209: 78 Koepfe / 2903 Faelle / 0 Abweichungen   (_preflight_209.txt)
+  B210: 78 Koepfe / 2795 Faelle / 0 Abweichungen   (_preflight_210.txt)
+  B211: 78 Koepfe / 2795 Faelle / 0 Abweichungen   (_preflight_211.txt)
+  B212: 78 Koepfe / 2795 Faelle / 0 Abweichungen   (_preflight_212.txt)
+  B213: 78 Koepfe / 4006 Faelle / 0 Abweichungen   (_preflight_213.txt)
+
+=== c_trend(12) = B201..B213 (neu) ===
+  gemessen=True erst=B201 letzt=B213 (78 Koepfe / 4006 Faelle)
+  Batches=12 Dateien=13 Luecken=[]
+  Koepfe B201->B213: 45 -> 78 (+33)
+
+=== dasselbe mit dem ALTEN Muster (Stand vor dem Fix) ===
+  gemessen=True erst=B201 letzt=B211 (78 Koepfe / 2795 Faelle)
+  Batches=10 Dateien=11  -> die beiden neuen Zeilenformen fehlten still
+
+=== Durchsatzblock (neu, Fenster 12) ===
+  Durchsatz    : C Koepfe (Preflight-Messung, analysis/_preflight_<N>.txt Zeile "C Koepfe")
+                 letzter gemessener Batch B213: 78 Koepfe (+33 seit B201)
+                 Trend B201 45 -> B213 78 = +33 Koepfe (12 Batches, lueckenlos, 13 Dateien)
+                 Mittel: +2.8 Koepfe je Batch (B und C zusammen, ueber 12 Schritte); +4.1 je C-Batch (8 C-Batch-Schritte im Fenster)
+                 Quelle dieser Zeilen: analysis/_preflight_201.txt bis analysis/_preflight_213.txt (Zeile "C Koepfe", 13 Dateien)
+                 Zaehler R207 (gebaut, ALLE Straenge - nicht mit den C Koepfen mischen) letzter Batch 213: 686 -> 686 (+0)
+                 Mittel der letzten 10 nach R207 (B+C gemischt): +1.9 Koepfe je Batch   (Fenster: 213: +0, 212: +0, 211: +0, 210: +0, 208: +0, 207: +0, 206: +5, 205: +9, 204: +5, 200: +0   - LUECKENHAFT: die kanonischen Bilanzdateien fehlen fuer B209)
+                 Insn: je Batch nicht durchgaengig belegt (die Bilanzdatei fuehrt nur Koepfe)
+                 C-Batches im R207-Fenster: +2.7 Koepfe je C-Batch (R207-Zaehler, 7 von 10: B213, B210, B207, B206, B205, B204, B200)
+  Mischung     : 7 C von 10 Batches im Fenster (70 %); Anteil fuer die Rechnung: 70 % (gemessen im Fenster (kein Mischverhaeltnis in hybrid-plan.md))
+                 HYPOTHESIS: keine Hochrechnung moeglich
+                 HYPOTHESIS (C gesamt, GEMESSEN): offen 1403 Koepfe / 53535 Insn (Inventar minus gebaut, s. Klassen unten)
+                   -> 340 C-Batches bei +4.1 Koepfe je C-Batch (Grundlage: Preflight-Messung: C Koepfe je C-Batch B201..B213)
+                   -> ca. 486 KALENDER-Batches (340 C-Batches / Anteil 70 % = gemessen im Fenster (kein Mischverhaeltnis in hybrid-plan.md))
+  Port-Relevanz: ausgefuehrt 1086 | davon gebaut 416 | davon verifiziert 56 von 1086  (Fenster: Rumpf (Eintritt bis erstes blr, max 0x400 B); Messung 2026-09-28 02:58 durch tools/r13t_cov_relevanz.py)
+                 Paket-E-Wurzeln 66/86 ausgefuehrt, offene Blaetter 12/17
+  C-Arbeitsvorrat: 1403 Koepfe nicht gebaut (von 2072 im Inventar)
+                 (1) ausgefuehrt, noch nicht gebaut  :  677 Koepfe /  28976 Insn -> ca. 164 C-Batches
+                 (2) nicht ausgefuehrt, Paket E   :    1 Koepfe /     38 Insn -> ca. 0 C-Batches
+                 (3) nicht ausgefuehrt, sonstiger Rest:  725 Koepfe /  24521 Insn -> ca. 176 C-Batches
+                 "nicht ausgefuehrt" = in den VORHANDENEN Aufnahmen nicht ausgefuehrt - NICHT "unnoetig" (die Aufnahmen decken nur Boot + einen Teil von Level 1 ab)
+                 (Paket-E-Huelle eigene Nachrechnung: 265 Koepfe, davon offen 28; Projektzahl `c_kopf.py paket_e`: 274 / 38)
+  Aufnahmen    : ppc_coverage.bin = Gameplay-Replay, ppc_cov_boot.bin = Boot+Attract (neueste Aufnahme 2026-09-17; deckt NICHT das ganze Spiel ab - Menuepfade/Service fehlen, s. analysis/bucket-d-2026-09-16.md:312)
+                 Quelle: analysis/f5-descr-batch42-2026-09-17.md:87-88; gemessen 2026-09-28 02:58
+                 Quelle: analysis/_m213/_bilanz213.txt (Zeile "R207 rueckwaerts") + analysis/_preflight_213.txt ("C Koepfe", Preflight)
+
+=== Parser-Pruefung ALLER kopierten Dateien (anzahl=13) ===
+(der Harness prueft nur die NEUESTE Datei - anzahl=1 - sonst warnt er alte Zeilenformen)
+  PARSER: Zeile Bahnabdeckung in _preflight_201.txt nicht erkannt
+  PARSER: Zeile Hybrid-Lauf in _preflight_201.txt nicht erkannt
+  PARSER: Zeile Bahnabdeckung in _preflight_202.txt nicht erkannt
+  PARSER: Zeile Hybrid-Lauf in _preflight_202.txt nicht erkannt
+  PARSER: Zeile Bahnabdeckung in _preflight_203.txt nicht erkannt
+  PARSER: Zeile Hybrid-Lauf in _preflight_203.txt nicht erkannt
+  PARSER: Zeile Bahnabdeckung in _preflight_204.txt nicht erkannt
+  PARSER: Zeile Hybrid-Lauf in _preflight_204.txt nicht erkannt
+  PARSER: Zeile Bahnabdeckung in _preflight_205.txt nicht erkannt
+  PARSER: Zeile Hybrid-Lauf in _preflight_205.txt nicht erkannt
+  PARSER: Zeile Bahnabdeckung in _preflight_206.txt nicht erkannt
+  PARSER: Zeile Hybrid-Lauf in _preflight_206.txt nicht erkannt
+  PARSER: Zeile Bahnabdeckung in _preflight_207.txt nicht erkannt
+  PARSER: Zeile Hybrid-Lauf in _preflight_207.txt nicht erkannt
+  PARSER: Zeile Bahnabdeckung in _preflight_208.txt nicht erkannt
+  PARSER: Zeile Hybrid-Lauf in _preflight_208.txt nicht erkannt
+  PARSER: Zeile Bahnabdeckung in _preflight_209.txt nicht erkannt
+  PARSER: Zeile Hybrid-Lauf in _preflight_209.txt nicht erkannt
+  PARSER: Zeile Hybrid-Lauf in _preflight_210.txt nicht erkannt
+  PARSER: Zeile Hybrid-Lauf in _preflight_211.txt nicht erkannt

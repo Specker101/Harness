@@ -241,8 +241,29 @@ _MDIR = re.compile(r"_m(\d+)$")
 # Preflight-Datei des Decomp-Repos: `analysis/_preflight_<N>.txt` (gueltige Laeufe;
 # Fehllaeufe heissen `_preflight_<N>_fehllauf<k>.txt` und liegen in `analysis/_m<N>/`).
 _RE_PREFLIGHT_NAME = re.compile(r"_preflight_(\d+)\.txt$")
-# Maschinengeschriebene Zeile (Festbreite): "C Koepfe           78 / 2903 / 0     OK"
-_RE_PREFLIGHT_CKOPF = re.compile(r"^C Koepfe\s+(\d+)\s*/\s*(\d+)\s*/\s*(\d+)\b")
+
+
+def _preflight_zeile(etikett: str, zahlen: str, luecke: int = 40) -> re.Pattern[str]:
+    """Ein tolerantes Muster fuer eine maschinengeschriebene Preflight-Zeile (R13ae).
+
+    Anlass (Befund 2026-09-29): ab B212 schrieb `scripts/preflight.py`
+    `C Koepfe referenzgleich 78 / 4006 / 0` statt `C Koepfe           78 / 4006 / 0`.
+    Das alte Muster `^C Koepfe\\s+(\\d+)` verlangte die Zahlen **direkt** hinter dem
+    Etikett und erkannte die Zeile deshalb nicht mehr - der Parser lieferte still
+    `None`, `c_trend` endete bei B211 und zeigte weiter 2795 statt 4006.
+
+    Deshalb: zwischen Etikett und Zahlen duerfen bis zu `luecke` Zeichen **Prosa**
+    stehen (`[^\\d\\n]`, also kein Zeilenwechsel und keine Ziffer - damit kann die Luecke
+    nicht in eine andere Zahlenspalte rutschen), und **hinter** den Zahlen ist ein
+    Zusatz erlaubt (`| ausgeduennt 12`, `referenzgleich`, `OK`), weil keins der Muster
+    am Zeilenende verankert ist.
+    """
+    return re.compile(rf"^{re.escape(etikett)}\b[^\d\n]{{0,{luecke}}}{zahlen}")
+
+
+# C-Kopfzeile: "C Koepfe           78 / 2903 / 0     OK" und
+#               "C Koepfe referenzgleich 78 / 4006 / 0        OK" (ab B212).
+_RE_PREFLIGHT_CKOPF = _preflight_zeile("C Koepfe", r"(\d+)\s*/\s*(\d+)\s*/\s*(\d+)\b")
 # Zeile der kanonischen Bilanzdatei:
 #   | **R207 rueckwaerts** | **681** (a 30 …) | **686** (a 30 …) | `preflight.py` … |
 _RE_R207_DATEI = re.compile(r"R207 rueckwaerts\*\*\s*\|\s*[^|]*?\*\*(\d+)\*\*[^|]*\|\s*"
@@ -551,13 +572,67 @@ def preflight_dateien(cfg, anzahl: int = 4) -> list[tuple[int, Path]]:
 # Ab B211 kommt laut Reviewer-Regel eine **Nachrueckliste 1** dazu (Format noch nicht
 # gesehen - deshalb wird die Zeile tolerant gesucht: Label `Nachrueckliste`, darin
 # `verifiziert <n>`). Ist sie da, hat SIE den Vorrang (Befund M210-3).
-_RE_BAHN_ZEILE = re.compile(r"^Bahnabdeckung\s+(\d+)\s*/\s*(\d+)\b(?P<rest>.*)$")
-_RE_NACHRUECK_ZEILE = re.compile(r"^Nachrueckliste\s*(\d+)?\b(?P<rest>.*)$")
+# Beide Muster sind seit R13ae gleich tolerant wie `_RE_PREFLIGHT_CKOPF` (Prosa zwischen
+# Etikett und Zahlen, Zusatz dahinter). Die Nachrueckliste steht **nicht** in der Liste
+# der Pflichtzeilen (`PREFLIGHT_ERWARTET`): sie ist optional, sonst warnte der Harness
+# in jedem Batch.
+_RE_BAHN_ZEILE = _preflight_zeile("Bahnabdeckung", r"(\d+)\s*/\s*(\d+)\b(?P<rest>.*)$")
+_RE_NACHRUECK_ZEILE = _preflight_zeile("Nachrueckliste", r"(\d+)?\s*(?P<rest>.*)$")
 _RE_WORT_VERIFIZIERT = re.compile(r"verifiziert\s+(\d+)")
 _RE_WORT_TEILGEPRUEFT = re.compile(r"teilgeprueft\s+(\d+)")
 _RE_ZAHL_BLOECKE = re.compile(r"Bloecke\s+(\d+)\s*/\s*(\d+)")
 # Das Zahlenpaar der Zeile selbst: "55/78" (Bahnabdeckung) bzw. "62/80" (Nachrueckliste).
 _RE_ZAHL_PAAR = re.compile(r"(\d+)\s*/\s*(\d+)")
+# Zeile "Hybrid-Lauf        215 | 800138F0 | MMIO | 28/407 | 0              OK".
+# Aus ihr liest heute NICHTS Zahlen - sie steht hier, weil ihr Fehlen gemeldet werden
+# soll (s. `PREFLIGHT_ERWARTET`): sie belegt, dass die Hybrid-Senke ueberhaupt lief.
+_RE_HYBRID_ZEILE = _preflight_zeile("Hybrid-Lauf", r".*$")
+
+
+# Die Zeilen, die der Harness aus `analysis/_preflight_<N>.txt` liest (R13ae).
+# `parsen` nennt die Funktion, die die Zahlen auswertet; "" heisst: nur die Anwesenheit
+# wird geprueft. `muster` ist dasselbe, mit dem geparst wird - so kann eine Zeile nicht
+# "erkannt" heissen und trotzdem leer bleiben.
+PREFLIGHT_ERWARTET: tuple[dict, ...] = (
+    {"name": "C Koepfe", "muster": _RE_PREFLIGHT_CKOPF, "parsen": "preflight_c_koepfe"},
+    {"name": "Bahnabdeckung", "muster": _RE_BAHN_ZEILE,
+     "parsen": "preflight_bahnabdeckung"},
+    {"name": "Hybrid-Lauf", "muster": _RE_HYBRID_ZEILE, "parsen": ""},
+)
+
+
+def preflight_zeilen_pruefen(cfg, log=None, anzahl: int = 1) -> list[str]:
+    """Meldet Pflichtzeilen, die in einer vorhandenen Preflight-Datei fehlen (R13ae).
+
+    Rueckgabe: fertige Zeilen fuer die Review-Fakten, z. B.
+    `PARSER: Zeile C Koepfe in _preflight_213.txt nicht erkannt`. Leer heisst: alle
+    erwarteten Zeilen wurden mit **demselben** Muster gelesen, mit dem die Zahlen
+    geholt werden. Je Fall geht zusaetzlich eine WARN-Zeile ins Log (`log`), damit der
+    Ausfall nicht nur im Review-Text steht.
+
+    Geprueft werden nur die neuesten `anzahl` Dateien: die alten Batches (B155..B197)
+    fuehren noch gar keine Zeile `C Koepfe` - das waere Rauschen, kein Befund.
+    """
+    dateien = preflight_dateien(cfg, max(1, int(anzahl)))
+    if not dateien:
+        return ["PARSER: keine Preflight-Datei (analysis/_preflight_<N>.txt) gefunden"]
+    warnungen: list[str] = []
+    for batch, pfad in dateien:
+        try:
+            zeilen = read_text(pfad)[:200000].splitlines()
+        except OSError as exc:
+            warnungen.append(f"PARSER: {pfad.name} nicht lesbar ({exc.__class__.__name__})")
+            continue
+        for eintrag in PREFLIGHT_ERWARTET:
+            if any(eintrag["muster"].match(z) for z in zeilen):
+                continue
+            warnungen.append(f"PARSER: Zeile {eintrag['name']} in {pfad.name} "
+                             "nicht erkannt")
+            if log is not None:
+                log.warn("Preflight-Zeile nicht erkannt", batch=batch, datei=pfad.name,
+                         zeile=eintrag["name"],
+                         parsen=eintrag["parsen"] or "(nur Anwesenheit)")
+    return warnungen
 
 
 def preflight_bahnabdeckung(cfg, anzahl: int = 4) -> list[dict]:

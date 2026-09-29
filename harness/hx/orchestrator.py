@@ -2088,6 +2088,19 @@ class Orchestrator:
             f"- Werkzeugfehler: {wk.fehler_text(st.get('tool_errors'))}",
             f"- Kosten heute: ${spent:.4f} von ${budget:.2f} | {pricing.status_line(self.cfg)}",
         ]
+        # R13ae: eine Pflichtzeile der Preflight-Datei, die der Harness NICHT erkennt,
+        # muss dastehen (und ins Log) - vorher lieferte der Parser still `None`
+        # (B212/B213: `C Koepfe referenzgleich 78 / 4006 / 0` passte nicht auf das
+        # Muster, der Trend endete bei B211 und zeigte weiter 2795).
+        parser_meldungen = standmod.preflight_zeilen_pruefen(self.cfg, log=self.log)
+        if parser_meldungen:
+            lines += [f"- {z}" for z in parser_meldungen]
+        else:
+            neueste = standmod.preflight_dateien(self.cfg, 1)
+            quelle = neueste[-1][1].name if neueste else "keine Datei vorhanden"
+            lines.append(f"- Parser (R13ae): erwartete Zeilen gelesen, keine Luecke "
+                         f"({quelle}: " + ", ".join(e["name"] for e in
+                                                    standmod.PREFLIGHT_ERWARTET) + ")")
         tools = st.get("tool_counts") or {}
         if tools:
             top = sorted(tools.items(), key=lambda kv: -kv[1])[:10]

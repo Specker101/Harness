@@ -39,8 +39,9 @@ def main(argv: list[str]) -> int:
         state_datei = Path(argv[i + 1])
         weich = float(argv[argv.index("--weich") + 1]) if "--weich" in argv else 90.0
         hart = float(argv[argv.index("--hart") + 1]) if "--hart" in argv else 180.0
-        # R13ad: die Umschaltschwelle (Alarmgrenze minus 10 min) und die Kontextgrenze
-        # kommen aus `harness.toml` und werden vom Harness mitgegeben.
+        # R13ad: die Umschaltschwelle (Alarmgrenze minus `umschalt_vor_alarm_s`, seit
+        # R13ae 900 s = 15 min) und die Kontextgrenze kommen aus `harness.toml` und
+        # werden vom Harness mitgegeben.
         umschalt = (float(argv[argv.index("--umschalt") + 1])
                     if "--umschalt" in argv else None)
         kontext_limit = (int(argv[argv.index("--kontext-limit") + 1])

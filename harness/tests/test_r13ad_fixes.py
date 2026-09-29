@@ -194,7 +194,7 @@ class TestZeitquelle(unittest.TestCase):
     def test_konfiguration_hat_die_eine_zeitquelle(self):
         cfg = load_config()
         self.assertEqual(float(cfg.get("limits", "alarm_wall_s")), 5400.0)
-        self.assertEqual(float(cfg.get("limits", "umschalt_vor_alarm_s")), 600.0)
+        self.assertEqual(float(cfg.get("limits", "umschalt_vor_alarm_s")), 900.0)
         self.assertEqual(int(cfg.get("limits", "kontext_limit")), 1000000)
 
     def test_hook_skript_zeigt_die_umschaltschwelle(self):

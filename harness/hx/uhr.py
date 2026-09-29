@@ -142,9 +142,10 @@ def uhr_text(state: dict, weich_min: float, hart_min: float,
     Systemanweisung zu kleiden - das loest die Prompt-Injection-Abwehr des Modells aus).
 
     R13ad (Auftrag 2026-09-29): die Zeile nennt jetzt auch die **Umschaltschwelle**
-    (`umschalt_min`, Vorgabe: Alarmgrenze minus 10 min) und die **Kontextgroesse** der
-    letzten Anfrage aus dem Harness-Zustand (`state/run.json -> live.kontext`). Damit gibt
-    es genau EINE Zeitquelle; der Reviewer schreibt keine eigene Minutenzahl mehr.
+    (`umschalt_min`, Vorgabe: Alarmgrenze minus 15 min = `limits.umschalt_vor_alarm_s`
+    900 s, R13ae) und die **Kontextgroesse** der letzten Anfrage aus dem Harness-Zustand
+    (`state/run.json -> live.kontext`). Damit gibt es genau EINE Zeitquelle; der Reviewer
+    schreibt keine eigene Minutenzahl mehr.
     """
     d = start_zeit(state, jetzt=jetzt)
     if d["zeit"] is None:
@@ -152,7 +153,7 @@ def uhr_text(state: dict, weich_min: float, hart_min: float,
                 "(state/run.json hat keinen worker.started_at).")
     minuten = max(0.0, (d["alter_s"] or 0) / 60.0)
     if umschalt_min is None:
-        umschalt_min = max(0.0, float(weich_min) - 10.0)
+        umschalt_min = max(0.0, float(weich_min) - 15.0)
     kopf = (f"BATCH-UHR (Harness-Messung): {minuten:.1f} min von {weich_min:.0f} min "
             f"(Umschalten ab {umschalt_min:.0f}) seit Batch-Start {ortszeit(d['zeit'])} "
             "(Ortszeit).")

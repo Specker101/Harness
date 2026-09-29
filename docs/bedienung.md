@@ -924,11 +924,14 @@ die **Batches B211 und B212** (das Review von Batch N liegt in `runs/b<N+1>`; Fu
 
 **Eine Zeitquelle.** Der Reviewer schrieb bis B212 eigene Minutenzahlen in die Aufträge
 („Budget 80 min", „ab 70 min") — die standen in keiner Config und widersprachen der
-Batch-Uhr (90 min). Jetzt gilt: `alarm_wall_s = 5400` (90 min) bleibt, neu ist
-`umschalt_vor_alarm_s = 600` → **Umschaltschwelle 80 min**. Der Reviewer nennt **keine
+Batch-Uhr (90 min). Jetzt gilt: `alarm_wall_s = 5400` (90 min) bleibt,
+`umschalt_vor_alarm_s` ist **900** → **Umschaltschwelle 75 min** (R13ae: vorher 600 =
+80 min; der Preflight dauert selbst ~10 min (B213: 602 s Werkzeugzeit), danach kommen
+Bilanz und Memory-Export — bei 80 min lief jeder volle Batch über den 90-min-Alarm,
+B213 mit 104 min). Der Reviewer nennt **keine
 eigene Zahl** mehr, sondern formuliert relativ („ab der Umschaltschwelle laut Batch-Uhr").
 Die BATCH-UHR-Zeile (Hook nach jedem Werkzeugaufruf) zeigt jetzt
-`… min von 90 min (Umschalten ab 80) | Kontext 310k von 1M`.
+`… min von 90 min (Umschalten ab 75) | Kontext 310k von 1M`.
 
 **Kontext.** Die Kontextgroesse einer Anfrage ist `input_tokens + cache_read_input_tokens +
 cache_creation_input_tokens`. Sie steht in `runs/b<N>/result.json` als
@@ -944,7 +947,7 @@ mit `--resume <session-id>` fortgesetzt:
 | Bedingung | Wert |
 |---|---|
 | regulaeres Ende | letzte Antwort **ohne** Werkzeugaufruf, `killed_reason` leer, rc 0 |
-| Batch-Uhr | **vor** der Umschaltschwelle (80 min) |
+| Batch-Uhr | **vor** der Umschaltschwelle (75 min, R13ae) |
 | Kontext | `kontext_letzte_anfrage < kontext_schwelle` (Vorgabe 550000) |
 | Auftrag | Abschnitt `## NACHRUECKLISTE` vorhanden |
 | Anzahl | weniger als `max_fortsetzungen` (Vorgabe 2) |
@@ -961,6 +964,27 @@ reasoning-Snapshot unverändert funktionieren. In `result.json` steht `fortsetzu
 vor R13ad fand sich der Abschnitt in **keinem** Auftrag. Bei einem Batch **mit** Fortsetzung
 gilt der **letzte** `preflight`-Lauf als der eine gültige; frühere sind überholt und **kein**
 Regelverstoß.
+
+### 12i. Preflight-Zeilen: tolerant gelesen, Lücke gemeldet (R13ae, 2026-09-29)
+
+Der Preflight ist maschinengeschrieben, aber sein Text ändert sich mit dem Werkzeug. Ab
+B212 schrieb `scripts/preflight.py` `C Koepfe referenzgleich 78 / 4006 / 0`; das Muster in
+`hx/stand.py` verlangte die Zahlen **direkt** hinter dem Etikett. Folge: der Parser lieferte
+still `None`, `c_trend` endete bei **B211**, und die Anzeige nannte weiter 2795 Fälle,
+obwohl in `_preflight_213.txt` **4006** stand.
+
+| Punkt | Verhalten |
+|---|---|
+| Toleranz | Zwischen Etikett und Zahlen dürfen bis zu 40 Zeichen Prosa stehen (`referenzgleich`), **keine** Ziffer und kein Zeilenwechsel; hinter den Zahlen ist ein beliebiger Zusatz erlaubt (`\| ausgeduennt 12`, `OK`). Gilt für `C Koepfe`, `Bahnabdeckung`, `Nachrueckliste` (`hx/stand.py:_preflight_zeile`) |
+| Pflichtzeilen | `C Koepfe`, `Bahnabdeckung`, `Hybrid-Lauf` (`PREFLIGHT_ERWARTET`). Die `Nachrueckliste` ist **optional** und wird nur gelesen, wenn sie da ist |
+| Fehlt eine Zeile | `WARN` im Harness-Log (`msg` = `Preflight-Zeile nicht erkannt`) **und** in den Review-Fakten `- PARSER: Zeile <Name> in _preflight_<N>.txt nicht erkannt` — kein stilles `None` |
+| Nichts fehlt | `- Parser (R13ae): erwartete Zeilen gelesen, keine Luecke (_preflight_<N>.txt: …)` — die Abwesenheit der Warnung ist damit eine Aussage |
+| Umfang | geprüft wird **nur die neueste** Datei (`anzahl=1`); ältere Batches führen die Zeilen gar nicht (`Bahnabdeckung` ab B210, `Hybrid-Lauf` ab B212) und wären nur Rauschen |
+
+Gemessen am echten Bestand: B213 = `78 / 4006 / 0`, B212 = `78 / 2795 / 0`; der Trend läuft
+jetzt bis B213 (13 Dateien im Fenster 12) statt bis B211 (11 Dateien). Der Beleg mit
+Vorher/Nachher und dem Durchsatzblock steht in `docs/_r13ae_retro.txt`, die Herleitung in
+`docs/_r13ae_belege.md`.
 
 ### 12b. Was der Nutzer selbst entscheiden muss
 
@@ -1518,4 +1542,8 @@ Kontext des Modells:
   erstmals), sonst `-`. **MEDIAN** zählt nur C-Batches mit `SOLL-KOEPFE > 0` und steht auf
   den gemessenen C Koepfen; gibt es keinen solchen Batch, steht „nicht gemessen" und der
   Reviewer soll die Soll-Zeile nachliefern.
+* **Seit R13ae sind die Preflight-Zeilen tolerant** (Prosa zwischen Etikett und Zahlen,
+  Zusatz dahinter; ab B212 steht dort `C Koepfe referenzgleich 78 / 4006 / 0`) und eine
+  fehlende Pflichtzeile wird in Log und Review-Fakten gemeldet statt still verschluckt —
+  Details in §12i, Messwerte in `docs/_r13ae_retro.txt`.
 

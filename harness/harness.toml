@@ -55,11 +55,15 @@ reviewer_wall_s   = 900
 reviewer_alarm_s  = 600
 
 # R13ad (Auftrag 2026-09-29): die Umschaltschwelle liegt `umschalt_vor_alarm_s` Sekunden
-# VOR der Alarmgrenze - also 5400 - 600 = 4800 s = 80 min. Ab hier arbeitet der Worker die
-# Nachrueckliste ab bzw. streicht (nur mit Uhrnachweis). Bis B212 schrieb der Reviewer
-# stattdessen eigene Zahlen ("Budget 80 min", "ab 70 min") in den Auftrag - die standen in
-# keiner Config und widersprachen der Batch-Uhr (90 min).
-umschalt_vor_alarm_s = 600
+# VOR der Alarmgrenze. Ab hier arbeitet der Worker die Nachrueckliste ab bzw. streicht
+# (nur mit Uhrnachweis). Bis B212 schrieb der Reviewer stattdessen eigene Zahlen
+# ("Budget 80 min", "ab 70 min") in den Auftrag - die standen in keiner Config und
+# widersprachen der Batch-Uhr (90 min).
+# R13ae (2026-09-29): 600 -> 900 s, also 5400 - 900 = 4500 s = **75 min**. Grund
+# (gemessen): der Preflight dauert selbst ~10 min (B213: 602 s Werkzeugzeit), danach
+# kommen noch Bilanz und Memory-Export; bei 80 min lief deshalb jeder volle Batch ueber
+# den 90-min-Alarm hinaus (B213: 104 min).
+umschalt_vor_alarm_s = 900
 # Kontextgrenze des Worker-Modells (deepseek-flash[1m]: 1M Kontext, 384k Ausgabe). Die
 # Batch-Uhr zeigt "Kontext <x>k von 1M"; der Fortsetzungsanstoss bricht bei
 # `kontext_schwelle` ab, damit die Fortsetzung nicht in eine Zwangskompaktierung laeuft.

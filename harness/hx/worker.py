@@ -241,9 +241,10 @@ def write_worker_hooks(cfg, rd: Path, state_datei, log=None) -> str | None:
         return None
     weich = float(cfg.get("limits", "alarm_wall_s", 5400)) / 60.0
     hart = float(cfg.get("limits", "hard_wall_s", 10800)) / 60.0
-    # R13ad: EINE Zeitquelle - die Umschaltschwelle (Alarmgrenze minus 10 min) und die
-    # Kontextgrenze kommen aus `harness.toml` und gehen mit in den Hook.
-    umschalt = max(0.0, weich - float(cfg.get("limits", "umschalt_vor_alarm_s", 600)) / 60.0)
+    # R13ad: EINE Zeitquelle - die Umschaltschwelle (Alarmgrenze minus
+    # `umschalt_vor_alarm_s`, seit R13ae 900 s = 15 min) und die Kontextgrenze kommen aus
+    # `harness.toml` und gehen mit in den Hook.
+    umschalt = max(0.0, weich - float(cfg.get("limits", "umschalt_vor_alarm_s", 900)) / 60.0)
     kontext_limit = int(cfg.get("limits", "kontext_limit", 1000000))
     daten = {"hooks": {"PostToolUse": [{"hooks": [{
         "type": "command",
@@ -395,7 +396,7 @@ def fortsetzung_pruefen(cfg, run, stats, auftrag_text: str, minuten: float,
         return {"ja": False,
                 "grund": "kein regulaeres Ende (letzte Antwort mit Werkzeugaufruf)"}
     umschalt_s = (float(cfg.get("limits", "alarm_wall_s", 5400))
-                  - float(cfg.get("limits", "umschalt_vor_alarm_s", 600)))
+                  - float(cfg.get("limits", "umschalt_vor_alarm_s", 900)))
     if minuten * 60.0 >= umschalt_s:
         return {"ja": False, "grund": f"Batch-Uhr {minuten:.0f} min >= "
                                       f"Umschaltschwelle {umschalt_s / 60.0:.0f} min"}
@@ -542,9 +543,9 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
             "hard_wall": float(cfg.get("limits", "hard_wall_s", 10800)),
             "hard_requests": int(cfg.get("limits", "hard_requests", 1000)),
             "hard_cost": float(cfg.get("limits", "hard_cost_usd", 2.0)),
-            # R13ad: die Umschaltschwelle (Alarmgrenze minus 10 min) - sie geht auch in
-            # den Fortsetzungstext.
-            "umschalt_vor_alarm": float(cfg.get("limits", "umschalt_vor_alarm_s", 600)),
+            # R13ad: die Umschaltschwelle (Alarmgrenze minus `umschalt_vor_alarm_s`) -
+            # sie geht auch in den Fortsetzungstext.
+            "umschalt_vor_alarm": float(cfg.get("limits", "umschalt_vor_alarm_s", 900)),
         }
         fired: set[str] = set()
         gemeldet = [0]                      # R13g: bis hierher schon alarmierte Secret-Treffer
@@ -1103,7 +1104,8 @@ ZEIT (R13ac/R13ad - gemessen, nicht geschaetzt, EINE Quelle)
   Werkzeugaufruf steht in deinem Kontext eine Zeile
   `BATCH-UHR (Harness-Messung): <m> min von <weich> min (Umschalten ab <u>) | Kontext <x>k von 1M …`.
   Sie ist die gueltige Grundlage fuer "wie lange laeuft dieser Batch schon".
-- Die Zeile nennt auch die **Umschaltschwelle** (Alarmgrenze minus 10 min) und den
+- Die Zeile nennt auch die **Umschaltschwelle** (Alarmgrenze minus
+  `umschalt_vor_alarm_s`; seit R13ae 900 s = 15 min, also "Umschalten ab 75") und den
   **Kontext**. Nennt der Auftrag eine andere Minutenzahl ("Budget 80 min", "ab 70 min"),
   gilt die BATCH-UHR - der Reviewer schreibt seit R13ad keine eigene Zahl mehr.
 - Die ZAHL DER WERKZEUGAUFRUFE sagt nichts ueber die Zeit. In B210 hielt sich der Worker
