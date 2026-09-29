@@ -82,8 +82,24 @@ max_fortsetzungen    = 2
 [peak]
 # R5b: in Peak-Zeiten keine NEUEN Batches starten (laufender Batch darf fertig werden).
 block_new_batches   = true
+# R13al: zusaetzlich kein Start, wenn das naechste Peak-Fenster innerhalb dieser Minuten
+# beginnt. Ein Batch, der 20 min vor dem Peak loslaeuft, rechnet sonst voll zum doppelten
+# Tarif; 90 min deckt die ueblichen Batch-Laufzeiten (30-100 min) ab. Geprueft wird an
+# ZWEI Stellen: vor dem Review und - neu - unmittelbar vor dem Start; der wartende
+# Auftrag bleibt dabei stehen und startet von selbst, sobald Off-Peak.
+peak_vorlauf_min    = 90
 # Chinesische Feiertage sind laut Preisseite off-peak; nicht ableitbar -> Liste.
-extra_offpeak_dates = []
+# R13al: Nationalfeiertag (1.-7. Oktober) laut State Council; 2026 fallen der 1. und 2.
+# auf Do/Fr, der 5.-7. auf Mo/Mi. Ob DeepSeek Feiertage wirklich ausnimmt, ist auf der
+# Preisseite NICHT eindeutig belegt - die Liste ist die billigere Annahme (off-peak).
+# Nur Werktage eintragen: Sa/So sind ohnehin off-peak.
+extra_offpeak_dates = [
+    "2026-10-01",   # Nationalfeiertag (Do)
+    "2026-10-02",   # Nationalfeiertag (Fr)
+    "2026-10-05",   # Nationalfeiertag (Mo)
+    "2026-10-06",   # Nationalfeiertag (Di)
+    "2026-10-07",   # Nationalfeiertag (Mi)
+]
 
 [reviewer]
 rotation_after = 10

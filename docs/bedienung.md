@@ -112,7 +112,7 @@ Im Notfall ist `stop.ps1 -Force` sofort.
 ## 3. Telegram-Befehle
 
 `/status` · `/budget` · `/bilanz [N]` · `/thinking [N] [voll]` · `/pause` · `/resume [ok]` ·
-`/stop` · `/approve [Text]` ·
+`/stop` · `/approve [Text|jetzt]` ·
 `/number <N>` · `/autonom [on|off]` · `/ds <Text>` · `/claude <Text>` · `/ask <Frage>` ·
 `/ask-neu <Frage>` · `/meta` ·
 `/review` · `/last [ds|claude] [n]` · `/queue` · `/why` · `/help`
@@ -1139,6 +1139,28 @@ sie **nicht erneut** beantwortet werden sollen (`hx/queue.py::deliver_block` mit
 nachdem um 20:50:59 ein Auftrag verworfen wurde.
 
 Belege: `docs/_r13ak_belege.md`; Testreihe `harness/tests/test_r13ak_fixes.py` (19 Tests).
+
+### 12n. Peak-Sperre vollständig (R13al, 2026-09-29)
+
+Die Peak-Regel (R5b) prüfte nur **eine** Stelle: vor dem Review. Drei Wege liefen daran
+vorbei — ein Review, der selbst im Peak endet; ein `/approve` im Peak; ein Fortsetzen nach
+der Git-Pause. Jetzt gilt:
+
+| Punkt | Verhalten |
+|---|---|
+| **Zweite Prüfung** | unmittelbar vor `git_preflight()` und damit vor dem Start. Der Auftrag **bleibt stehen** (wie bei der Git-Pause — es wird nichts verworfen), Meldung `PEAK: Auftrag B<N> wartet bis <Ortszeit Berlin>`, danach alle 20 s neu geprüft (`PEAK_POLL_S`) und **von selbst** gestartet, sobald Off-Peak. Dabei wird `/approve` **nicht** verbraucht: der Nutzer muss nichts wiederholen. |
+| **Vorlauf** | `[peak] peak_vorlauf_min = 90` — kein Start, wenn das nächste Peak-Fenster innerhalb dieser Minuten beginnt (an **beiden** Prüfstellen). Grund: ein Batch, der 20 min vor dem Peak startet, rechnet voll zum doppelten Tarif. |
+| **Bewusster Ausweg** | `/approve jetzt` (auch `sofort` / `trotz peak`) startet trotz Peak/Vorlauf. Im Log steht `trotz Peak gestartet (Nutzer)`, in `runs/b<N>/result.json` das Feld `peak_hinweis` — teure Läufe bleiben erkennbar. Ein Text hinter `/approve` geht weiter als `/ds`-Nachricht an den Worker. |
+| **Feiertage** | `[peak] extra_offpeak_dates` — 2026-10-01, -02, -05, -06, -07 (chinesischer Nationalfeiertag, Werktage). Quelle: State Council; ob DeepSeek Feiertage wirklich ausnimmt, ist auf der Preisseite **nicht eindeutig belegt** — die Liste ist die billigere Annahme. |
+| **Laufender Batch** | wird **nie** unterbrochen; im laufenden Batch gibt es keine Peak-Prüfung. |
+
+Gemessen am 2026-09-29 an allen 57 Batches mit Ergebnisdatei: **kein** Start im Peak (die
+Nachtläufe 01–10 UTC lagen am Wochenende, und Sa/So ist immer off-peak). Der Auftrag nannte
+`logs/` als Quelle — die Zeile `Starte Batch` steht dort **nicht** (`Orchestrator.say()`
+schreibt nur nach Telegram); gerechnet wird deshalb aus `runs/b<N>/auftrag.md`
+(`Batch-Start (Harness-Zeitstempel)`) bzw. `result.json` (`finished_at − duration_s`).
+Bericht und Werkzeug: `docs/_r13al_belege.md`, `docs/_r13al_messung.txt`,
+`docs/_r13al_peakstart_probe.py`.
 
 ### 12b. Was der Nutzer selbst entscheiden muss
 

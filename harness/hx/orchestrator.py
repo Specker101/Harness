@@ -29,6 +29,9 @@ from .telegram import HELP, Telegram, TelegramError
 from .util import ensure_dir, now_iso, read_json, read_text, secs_human, write_text_atomic
 
 IDLE_SLEEP = 3.0
+# R13al: Taktschritt im Peak-Warten vor dem Batch-Start (der Auftrag bleibt stehen und
+# startet von selbst, sobald Off-Peak).
+PEAK_POLL_S = 20.0
 
 
 def letzter_batch_zeile(cfg, letzte: dict, stand: str = "") -> str:
@@ -94,6 +97,9 @@ class Orchestrator:
         self.qroot = Path(cfg.root)
         self.tg: Telegram | None = None
         self.approved_gate: str | None = None
+        # R13al: "/approve jetzt" - die Kennung des Gates, das der Nutzer TROTZ Peak
+        # starten will. Nur dieser eine Start ist davon betroffen, danach ist es weg.
+        self.approved_peak: str | None = None
         self.stop_requested = False
         self.review_now = False
         self.ghidra_failed = False
@@ -450,15 +456,103 @@ class Orchestrator:
                  f"er; Run-Verzeichnis und Checkpoint-Tag tragen die Nummer {n}.")
 
     def _do_approve(self, text: str = ""):
+        """Freigeben. `"/approve jetzt"` startet auch im Peak (R13al, bewusster Ausweg).
+
+        Alles andere im Text geht weiter als `/ds`-Nachricht an den Worker; das Wort
+        `jetzt` (auch `sofort` oder `trotz peak`) schaltet NUR den Peak-Vorlauf fuer
+        diesen einen Start ab. Im Log und in `result.json` steht dann
+        "trotz Peak gestartet (Nutzer)" - teure Laeufe sollen erkennbar bleiben.
+        """
         gate = self.state.gate
         if not gate:
             self.say("Kein Batch wartet auf Freigabe.")
             return
-        if (text or "").strip():
-            queue.enqueue(self.qroot, "ds", text.strip(), "freigabe")
+        roh = (text or "").strip()
+        trotz = False
+        m = re.match(r"(?i)^(jetzt|sofort|trotz\s*peak)\b\s*(.*)$", roh)
+        if m:
+            trotz = True
+            roh = (m.group(2) or "").strip()
+        if roh:
+            queue.enqueue(self.qroot, "ds", roh, "freigabe")
         self.approved_gate = gate.get("id")
+        self.approved_peak = gate.get("id") if trotz else None
         self.state.set(st.IDLE, "freigegeben")
-        self.say("Freigegeben. Der Batch startet.")
+        if trotz:
+            ok, why = self.peak_gate()
+            self.log.info("Freigabe trotz Peak (Nutzer)", batch=(gate.get("tools") or {}).get("batch"),
+                          lage=("kein Peak - kein Sonderfall" if ok else why[:200]))
+            self.say("Freigegeben - Start TROTZ PEAK (auf deinen Wunsch)"
+                     + ("" if ok else f": {why}") + "\nIm Log und in `result.json` steht "
+                     "\"trotz Peak gestartet (Nutzer)\".")
+            return
+        self.say("Freigegeben. Der Batch startet."
+                 + (" Sollte der Peak dazwischenkommen, wartet er bis zum Off-Peak "
+                    "(/approve jetzt erzwingt den Start)."))
+
+    def gate_approved(self, gate: dict | None = None) -> bool:
+        """Ist dieser Auftrag freigegeben? (R13al: eigene Methode, zwei Aufrufer.)
+
+        Drei Wege: ausdrueckliches `/approve`, Dauerbetrieb ohne offene Entscheidung,
+        oder eine eigene Instruktion des Nutzers (laeuft ohne Review).
+        """
+        gate = self.state.gate if gate is None else gate
+        if not gate:
+            return False
+        return ((self.approved_gate == gate.get("id"))
+                or (bool(self.state.data.get("autonomous"))
+                    and not self.gate_wait_decision(gate))
+                or (gate.get("tools") or {}).get("source") == "user")
+
+    def warte_auf_offpeak(self, s, batch_no: int, trotz_peak: bool = False) -> bool:
+        """Vor dem Start warten, bis Peak und Vorlauf vorbei sind (R13al).
+
+        Rueckgabe: True = starten, False = der Auftrag ist inzwischen weg (`/review`)
+        oder der Harness soll anhalten. Der Auftrag bleibt waehrend des Wartens
+        **stehen** - wie bei der Git-Pause; er wird nicht verworfen und braucht keinen
+        neuen Review. Geprueft wird alle `PEAK_POLL_S` Sekunden von selbst.
+        """
+        if self.peak_gate()[0]:
+            return True                       # nichts zu ueberbruecken
+        # Ein Vermerk aus einem abgebrochenen Lauf gilt nicht fuer diesen Start.
+        s.data.pop("peak_hinweis", None)
+        if trotz_peak:
+            s.data["peak_hinweis"] = "trotz Peak gestartet (Nutzer)"
+            s.save()
+            self.log.info("trotz Peak gestartet (Nutzer)", batch=batch_no,
+                          tarif=pricing.tariff(None, list(self.cfg.get("peak",
+                                                                     "extra_offpeak_dates", []) or [])))
+            self.say(f"Starte Batch {batch_no} TROTZ PEAK (auf deinen Wunsch).")
+            return True
+        gemeldet = False
+        while True:
+            ok, why = self.peak_gate()
+            if ok:
+                if gemeldet:
+                    self.say(f"PEAK vorbei - Batch {batch_no} startet jetzt.")
+                    self.log.info("Peak vorbei - Batch startet", batch=batch_no)
+                return True
+            frei = self.peak_frei_ab()
+            ziel = pricing.ortszeit_text(frei)
+            if not gemeldet:
+                gemeldet = True
+                self.say(f"PEAK: Auftrag B{batch_no} wartet bis {ziel} "
+                         f"(Ortszeit Berlin).\n{why}\nDer Auftrag bleibt stehen - kein "
+                         "neuer Review noetig; ich starte von selbst, sobald Off-Peak.")
+                self.log.info("PEAK: Auftrag wartet bis Off-Peak", batch=batch_no,
+                              bis_ortszeit=ziel, bis_utc=frei.isoformat(timespec="minutes"),
+                              grund=why[:200])
+                s.set(st.GATE_APPROVAL, f"PEAK: wartet bis {ziel} (Ortszeit Berlin)")
+            else:
+                self.notify_once("peak_batch",
+                                 f"PEAK: Auftrag B{batch_no} wartet weiter bis {ziel}.", 1800)
+            if not self.gate_approved():
+                self.log.info("PEAK-Warten beendet - Auftrag nicht mehr freigegeben",
+                              batch=batch_no)
+                return False
+            if s.data.get("stopped") or self.stop_requested:
+                return False
+            time.sleep(PEAK_POLL_S)
 
     def _take_user_instruction(self, obj: dict):
         """Eigene Instruktion des Nutzers als naechster Batch (am Reviewer vorbei)."""
@@ -1373,16 +1467,45 @@ class Orchestrator:
         self.say("Das Reviewer-Limit ist abgelaufen - ich setze von selbst fort.")
         return True
 
-    def peak_gate(self) -> tuple[bool, str]:
+    def peak_vorlauf_min(self) -> float:
+        """Der Vorlauf aus `[peak] peak_vorlauf_min` (Vorgabe 90 min, R13al)."""
+        try:
+            return float(self.cfg.get("peak", "peak_vorlauf_min", 90))
+        except (TypeError, ValueError):
+            return 90.0
+
+    def peak_frei_ab(self, jetzt: datetime | None = None) -> datetime:
+        """Wann ein Start wieder erlaubt ist (UTC) - Vorlauf wie in `peak_gate`."""
+        extra = list(self.cfg.get("peak", "extra_offpeak_dates", []) or [])
+        return pricing.frei_ab(jetzt, self.peak_vorlauf_min(), extra)
+
+    def peak_gate(self, jetzt: datetime | None = None) -> tuple[bool, str]:
+        """(ok, warum) - kein NEUER Batch im Peak und nicht im Vorlauf davor (R13al).
+
+        R5b sperrte nur, wenn GERADE Peak war. Damit startete ein Batch, der kurz vor dem
+        Peak begann, voll in den doppelten Tarif - und ein im Peak freigegebener Auftrag
+        startete sofort. Jetzt sperrt dieselbe Pruefung auch, wenn das naechste
+        Peak-Fenster innerhalb von `[peak] peak_vorlauf_min` (Vorgabe 90 min) beginnt.
+        Sie steht an ZWEI Stellen: vor dem Review und direkt vor dem Start (der Review
+        kann selbst in den Peak laufen). Der laufende Batch wird nie unterbrochen.
+        """
         if not self.cfg.get("peak", "block_new_batches", True):
             return True, ""
         extra = list(self.cfg.get("peak", "extra_offpeak_dates", []) or [])
-        if not pricing.is_peak(None, extra):
+        vorlauf = self.peak_vorlauf_min()
+        jetzt = jetzt or datetime.now(timezone.utc)
+        if not pricing.start_blockiert(jetzt, vorlauf, extra):
             return True, ""
-        nxt = pricing.next_offpeak(None, extra)
-        return False, (f"Peak-Tarif aktiv ({pricing.local_window_text()}). Kein NEUER Batch; "
-                       f"naechster Off-Peak: {nxt.strftime('%Y-%m-%d %H:%M')} UTC "
-                       f"({secs_human((nxt - datetime.now(timezone.utc)).total_seconds())})")
+        frei = pricing.frei_ab(jetzt, vorlauf, extra)
+        rest = secs_human((frei - jetzt).total_seconds())
+        if pricing.is_peak(jetzt, extra):
+            grund = (f"Peak-Tarif aktiv ({pricing.local_window_text(jetzt)})")
+        else:
+            nxt = pricing.next_peak_start(jetzt, extra)
+            minuten = int((nxt - jetzt).total_seconds() // 60) if nxt else 0
+            grund = (f"Peak beginnt in {minuten} min (Vorlauf {vorlauf:.0f} min)")
+        return False, (f"{grund}. Kein NEUER Batch; wieder frei ab "
+                       f"{pricing.ortszeit_text(frei)} Ortszeit (in {rest})")
 
     # --------------------------------------------------------------- Ausfuehren
     def cancel_check(self) -> bool:
@@ -2004,6 +2127,7 @@ class Orchestrator:
             pass
         self.state.clear_gate()
         self.approved_gate = None
+        self.approved_peak = None       # R13al: der Ausweg gilt nur fuer den offenen Auftrag
         self.log.info("Auftrag verworfen", grund=reason, id=gate.get("id"),
                       batch=(gate.get("tools") or {}).get("batch"))
 
@@ -2630,9 +2754,7 @@ class Orchestrator:
                 continue
 
             warten_gate = self.gate_wait_decision(gate)
-            approved = ((self.approved_gate == gate.get("id"))
-                        or (bool(s.data.get("autonomous")) and not warten_gate)
-                        or (gate.get("tools") or {}).get("source") == "user")
+            approved = self.gate_approved(gate)
             if not approved:
                 s.set(st.GATE_APPROVAL,
                       "wartet auf deine Entscheidung" if warten_gate else "wartet auf /approve")
@@ -2651,6 +2773,16 @@ class Orchestrator:
                 program = None
             batch_no = int(tools.get("batch") or self.expected_batch() or 0)
             instruction = gate.get("instruction") or ""
+
+            # R13al: ZWEITE Peak-Pruefung, unmittelbar vor dem Start. Die erste (vor dem
+            # Review) deckt genau diese Faelle nicht ab: der Review kann selbst in den Peak
+            # laufen, das /approve kann im Peak kommen, und nach einer Git- oder
+            # Nutzerpause kann der Start beliebig spaet liegen. Hier wird NICHTS
+            # verworfen - der Auftrag bleibt stehen und startet von selbst, sobald
+            # Off-Peak (wie bei der Git-Pause, s. u.).
+            if not self.warte_auf_offpeak(s, batch_no,
+                                          trotz_peak=(self.approved_peak == gate.get("id"))):
+                continue
 
             ok, why = self.git_preflight()
             if not ok:
@@ -2676,6 +2808,7 @@ class Orchestrator:
             # R13m: erst JETZT wird der Auftrag verbraucht - alles davor (Git-Vorpruefung,
             # Checkpoint) kann den Start verhindern, ohne die Instruktion zu entwerten.
             self.approved_gate = None
+            self.approved_peak = None       # R13al: gilt nur fuer diesen einen Start
             s.clear_gate()
             # R13u: JETZT sind die /claude-Nachrichten dieses Reviews zugestellt - das
             # Gate ist freigegeben und die Git-Vorpruefung hat gehalten. Bei einem
@@ -2686,7 +2819,9 @@ class Orchestrator:
             s.data["last_batch_number"] = batch_no
             s.data["batch"] = batch_no
             s.save()
-            self.say(f"Starte Batch {batch_no}: Profil {profile}, Programm {program or '-'}")
+            self.say(f"Starte Batch {batch_no}: Profil {profile}, Programm {program or '-'}"
+                     + ("  [TROTZ PEAK, Nutzerwunsch]"
+                        if s.data.get("peak_hinweis") else ""))
             self._wip_done = False
             try:
                 self.run_worker(instruction, profile, program, note_block)
@@ -2697,6 +2832,9 @@ class Orchestrator:
                 s.data["paused"] = True
                 s.save()
                 continue
+            # R13al: der Peak-Vermerk gilt nur fuer diesen Lauf (er steht in result.json,
+            # das `run_worker` gerade geschrieben hat).
+            s.data.pop("peak_hinweis", None)
             if self.ghidra_failed:
                 # Nicht pushen und nicht bewerten: erst muss die Ghidra-DB stimmen.
                 self.ghidra_failed = False

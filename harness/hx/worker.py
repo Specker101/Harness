@@ -1098,6 +1098,12 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
         "duration_quelle": res.duration_quelle, "duration_cli_s": res.duration_cli_s,
         "duration_harness_s": res.duration_harness_s, "duration_api_s": res.duration_api_s,
     }
+    # R13al: der bewusste Start trotz Peak (`/approve jetzt`) gehoert in die Messdaten -
+    # sonst sieht spaeter niemand, warum dieser Lauf zum doppelten Tarif lief. Der Harness
+    # setzt den Vermerk vor dem Start und nimmt ihn nach dem Lauf wieder heraus.
+    peak_hinweis = str((getattr(state, "data", {}) or {}).get("peak_hinweis") or "")
+    if peak_hinweis:
+        payload["peak_hinweis"] = peak_hinweis
     write_json_atomic(rd / "result.json", payload)
     write_text_atomic(rd / "antwort.md", res.final_text)
     res.snapshot_path = write_snapshot(cfg, state, res, stats, log)

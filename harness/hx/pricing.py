@@ -58,6 +58,69 @@ def tariff(dt: datetime | None = None, extra_offpeak_dates: list[str] | None = N
     return "peak" if is_peak(dt, extra_offpeak_dates) else "offpeak"
 
 
+# ------------------------------------------------- Peak-Sperre mit Vorlauf (R13al)
+# R5b sperrte nur, wenn GERADE Peak ist. Zwei Luecken blieben: ein Batch, der 5 Minuten
+# vor dem Peak startet, laeuft voll in den doppelten Tarif; und ein Auftrag, der im Peak
+# freigegeben wird, startete sofort. `start_blockiert` sperrt deshalb zusaetzlich, wenn
+# das naechste Peak-Fenster innerhalb des VORLAUFS beginnt (`[peak] peak_vorlauf_min`).
+
+def next_peak_start(dt: datetime | None = None,
+                    extra_offpeak_dates: list[str] | None = None) -> datetime | None:
+    """Beginn des NAECHSTEN Peak-Fensters nach `dt` (UTC); None, wenn in 8 Tagen keins folgt.
+
+    Stundenweise gesucht: ein Fenster beginnt dort, wo `is_peak` gilt und die Stunde davor
+    nicht (Fenster sind immer ganze UTC-Stunden, `PEAK_WINDOWS_UTC`). Wochenenden und
+    Feiertage liefern kein Fenster (`is_peak` ist dort immer False).
+    """
+    dt = _as_utc(dt or datetime.now(timezone.utc))
+    probe = dt.replace(minute=0, second=0, microsecond=0)
+    for _ in range(0, 8 * 24):
+        probe = probe + timedelta(hours=1)
+        if (is_peak(probe, extra_offpeak_dates)
+                and not is_peak(probe - timedelta(hours=1), extra_offpeak_dates)):
+            return probe
+    return None
+
+
+def im_vorlauf(dt: datetime | None = None, vorlauf_min: float = 0,
+               extra_offpeak_dates: list[str] | None = None) -> bool:
+    """True, wenn das naechste Peak-Fenster innerhalb der naechsten `vorlauf_min` beginnt."""
+    if not vorlauf_min or float(vorlauf_min) <= 0:
+        return False
+    dt = _as_utc(dt or datetime.now(timezone.utc))
+    nxt = next_peak_start(dt, extra_offpeak_dates)
+    return nxt is not None and (nxt - dt) <= timedelta(minutes=float(vorlauf_min))
+
+
+def start_blockiert(dt: datetime | None = None, vorlauf_min: float = 0,
+                    extra_offpeak_dates: list[str] | None = None) -> bool:
+    """Kein NEUER Batch: Peak aktiv ODER der Peak beginnt im Vorlauf (R13al)."""
+    dt = _as_utc(dt or datetime.now(timezone.utc))
+    return (is_peak(dt, extra_offpeak_dates)
+            or im_vorlauf(dt, vorlauf_min, extra_offpeak_dates))
+
+
+def frei_ab(dt: datetime | None = None, vorlauf_min: float = 0,
+            extra_offpeak_dates: list[str] | None = None) -> datetime:
+    """Erster Zeitpunkt ab `dt`, zu dem ein Start wieder erlaubt ist (minutengenau).
+
+    Rechnet in Minuten vorwaerts (bis 26 h) - so gilt derselbe Vorlauf wie in
+    `start_blockiert`, ohne Sonderfaelle fuer Fenster, die im Vorlauf liegen. Findet die
+    Suche nichts (z. B. weil der Vorlauf laenger ist als jede Off-Peak-Luecke), gilt das
+    Ende des naechsten Peak-Fensters.
+    """
+    dt = _as_utc(dt or datetime.now(timezone.utc))
+    probe = dt.replace(second=0, microsecond=0)
+    if probe < dt:
+        probe = probe + timedelta(minutes=1)
+    for _ in range(0, 26 * 60):
+        if not start_blockiert(probe, vorlauf_min, extra_offpeak_dates):
+            return probe
+        probe = probe + timedelta(minutes=1)
+    nxt = next_peak_start(dt, extra_offpeak_dates)
+    return next_offpeak(nxt, extra_offpeak_dates) if nxt else dt + timedelta(days=1)
+
+
 def rates_for(dt: datetime | None = None, extra_offpeak_dates: list[str] | None = None) -> dict:
     return RATES[tariff(dt, extra_offpeak_dates)]
 
@@ -103,6 +166,12 @@ def local_window_text(dt: datetime | None = None) -> str:
         parts.append("%02d:00-%02d:00" % ((start + off) % 24, (end + off) % 24))
     zone = "CEST" if off == 2 else "CET"
     return f"{parts[0]} und {parts[1]} Ortszeit ({zone})"
+
+
+def ortszeit_text(dt: datetime | None = None) -> str:
+    """UTC-Zeitpunkt als Ortszeit Europe/Berlin, `YYYY-MM-DD HH:MM` (Anzeige, R13al)."""
+    dt = _as_utc(dt or datetime.now(timezone.utc))
+    return (dt + timedelta(hours=berlin_offset_hours(dt))).strftime("%Y-%m-%d %H:%M")
 
 
 def status_line(cfg, dt: datetime | None = None) -> str:
