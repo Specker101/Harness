@@ -31,6 +31,9 @@ from .util import ensure_dir, now_iso, write_text_atomic
 
 # Diese Dateien je Batch werden gepackt (die `-v1`-Fassungen eines Re-Runs mit).
 MIT_ZIP = ("stream.jsonl", "reviewer.jsonl", "stream-v1.jsonl", "handover.jsonl")
+# R13ad: Mitschnitte der Fortsetzungen (`stream-forts<N>.jsonl`, ein File je Anstoss). Die
+# Zahl haengt an `[limits] max_fortsetzungen` - deshalb als Muster statt als feste Liste.
+MIT_ZIP_MUSTER = "stream-forts*.jsonl"
 SNAPSHOT_NAME = "snapshots"
 
 ALTER_TAGE = 14.0
@@ -175,8 +178,8 @@ def kandidaten(cfg, tage: float = ALTER_TAGE, jetzt: datetime | None = None) -> 
         for bdir in sorted(runs.glob("b*")):
             if not bdir.is_dir():
                 continue
-            for name in MIT_ZIP:
-                p = bdir / name
+            dateien = [bdir / name for name in MIT_ZIP] + list(bdir.glob(MIT_ZIP_MUSTER))
+            for p in dateien:
                 if p.is_file() and p.stat().st_mtime < grenze.timestamp():
                     out.append((p.stat().st_mtime, p))
     snaps = Path(cfg.sub(SNAPSHOT_NAME))

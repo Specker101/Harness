@@ -219,5 +219,130 @@ class TestZeitquelle(unittest.TestCase):
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+# =========================================== 3) Fortsetzungsanstoss
+class TestFortsetzung(unittest.TestCase):
+    """Die Entscheidung "fortsetzen?" - jede Bedingung (a)-(e) einzeln (R13ad)."""
+
+    AUFTRAG = "TEIL 1: irgendwas.\n\n## NACHRUECKLISTE\n1. Kopf 80054AE4 verifizieren\n"
+
+    def setUp(self):
+        self.cfg = load_config()
+
+    def _stats(self, kontext: int, letzte_mit_werkzeug: bool = False):
+        s = streamjson.StreamStats()
+        s.feed(_assistant("m1", 1000))
+        s.feed(_assistant("m2", kontext, werkzeug="Read" if letzte_mit_werkzeug else None))
+        s.feed(_result(kontext, 0, 0, 1))
+        return s
+
+    @staticmethod
+    def _run(rc: int = 0, killed=None):
+        from hx.proc import StreamRun
+        r = StreamRun()
+        r.rc = rc
+        r.killed_reason = killed
+        return r
+
+    def test_30_min_kontext_300k_mit_liste_ergibt_anstoss(self):
+        entsch = worker.fortsetzung_pruefen(self.cfg, self._run(), self._stats(300000),
+                                            self.AUFTRAG, 30.0, [])
+        self.assertTrue(entsch["ja"], entsch)
+
+    def test_85_min_kein_anstoss(self):
+        entsch = worker.fortsetzung_pruefen(self.cfg, self._run(), self._stats(300000),
+                                            self.AUFTRAG, 85.0, [])
+        self.assertFalse(entsch["ja"])
+        self.assertIn("Umschaltschwelle", entsch["grund"])
+
+    def test_kontext_600k_kein_anstoss(self):
+        entsch = worker.fortsetzung_pruefen(self.cfg, self._run(), self._stats(600000),
+                                            self.AUFTRAG, 30.0, [])
+        self.assertFalse(entsch["ja"])
+        self.assertIn("Kontext", entsch["grund"])
+
+    def test_ohne_nachrueckliste_kein_anstoss(self):
+        entsch = worker.fortsetzung_pruefen(self.cfg, self._run(), self._stats(300000),
+                                            "TEIL 1 ohne Liste.", 30.0, [])
+        self.assertFalse(entsch["ja"])
+        self.assertIn("NACHRUECKLISTE", entsch["grund"])
+
+    def test_nach_zwei_anstossen_schluss(self):
+        zwei = [{"minute": 20.0}, {"minute": 40.0}]
+        entsch = worker.fortsetzung_pruefen(self.cfg, self._run(), self._stats(300000),
+                                            self.AUFTRAG, 45.0, zwei)
+        self.assertFalse(entsch["ja"])
+        self.assertIn("max_fortsetzungen", entsch["grund"])
+
+    def test_abbruchgrund_kein_anstoss(self):
+        entsch = worker.fortsetzung_pruefen(self.cfg, self._run(killed="wall"),
+                                            self._stats(300000), self.AUFTRAG, 30.0, [])
+        self.assertFalse(entsch["ja"])
+        self.assertIn("wall", entsch["grund"])
+
+    def test_rc_ungleich_null_kein_anstoss(self):
+        entsch = worker.fortsetzung_pruefen(self.cfg, self._run(rc=1), self._stats(300000),
+                                            self.AUFTRAG, 30.0, [])
+        self.assertFalse(entsch["ja"])
+
+    def test_letzte_antwort_mit_werkzeug_kein_anstoss(self):
+        entsch = worker.fortsetzung_pruefen(self.cfg, self._run(),
+                                            self._stats(300000, letzte_mit_werkzeug=True),
+                                            self.AUFTRAG, 30.0, [])
+        self.assertFalse(entsch["ja"])
+        self.assertIn("regulaeres Ende", entsch["grund"])
+
+    def test_erledigt_marker_beendet_die_kette(self):
+        self.assertTrue(worker.nachrueckliste_erledigt("NACHRUECKLISTE ERLEDIGT"))
+        self.assertTrue(worker.nachrueckliste_erledigt("… NACHRÜCKLISTE erledigt …"))
+        self.assertFalse(worker.nachrueckliste_erledigt("## NACHRUECKLISTE\n1. offen"))
+
+    def test_fortsetzungstext_nennt_uhr_schwelle_kontext(self):
+        text = worker.fortsetzungs_text(34.0, 310000, 90.0, 80.0)
+        self.assertIn("Batch-Uhr: 34 von 90 min", text)
+        self.assertIn("Umschaltschwelle 80 min nicht erreicht", text)
+        self.assertIn("Kontext 310k", text)
+        self.assertIn("NACHRUECKLISTE ERLEDIGT", text)
+        self.assertIn("Aufwand ist kein Grund", text)
+        mit = worker.fortsetzungs_text(34.0, 310000, 90.0, 80.0, preflight_erneut=True)
+        self.assertIn("Nach der Nacharbeit: Preflight erneut laufen lassen", mit)
+        self.assertIn("Der letzte Preflight gilt, der frühere ist überholt.", mit)
+
+    def test_limits_werden_ueber_fortsetzungen_kumuliert(self):
+        # Zeit: die harte Wanduhr wird je Teillauf um die verbrauchte Zeit gekuerzt.
+        self.assertEqual(worker.rest_wanduhr_s(10800.0, 0.0, 0.0), 10800.0)
+        self.assertEqual(worker.rest_wanduhr_s(10800.0, 0.0, 1800.0), 9000.0)
+        self.assertEqual(worker.rest_wanduhr_s(10800.0, 0.0, 20000.0), 60.0)
+        # Anfragen und Kosten: EIN `stats` fuer alle Teillaeufe (Auftrag Punkt 3).
+        s = streamjson.StreamStats()
+        s.feed(_assistant("s1", 100, 0, 0, 5))
+        s.feed(_result(100, 0, 0, 5))
+        s.feed(_assistant("s2", 200, 0, 0, 7))
+        s.feed(_result(200, 0, 0, 7))
+        self.assertEqual(s.totals()["requests"], 2)
+        self.assertEqual(s.totals()["input_miss"], 300)
+        self.assertGreater(s.cost_usd(), 0.0)
+
+    def test_build_command_nutzt_resume(self):
+        from hx.profiles import load_profile
+        cfg = load_config()
+        prof = load_profile(cfg.root, "none")
+        rd = Path(cfg.root) / "runs" / "b999"
+        neu, _ = worker.build_command(cfg, prof, rd, "abc", resume=False)
+        self.assertIn("--session-id", neu)
+        self.assertNotIn("--resume", neu)
+        fort, _ = worker.build_command(cfg, prof, rd, "abc", resume=True)
+        self.assertIn("--resume", fort)
+        self.assertNotIn("--session-id", fort)
+
+    def test_faktenzeile_nennt_die_fortsetzungen(self):
+        from hx.orchestrator import Orchestrator
+        self.assertEqual(Orchestrator.fortsetzungen_zeile(None, {}), "keine")
+        zeile = Orchestrator.fortsetzungen_zeile(None, {"fortsetzungen": [
+            {"minute": 30, "kontext": 300000, "antwort_kurz": "NACHRUECKLISTE ERLEDIGT"}]})
+        self.assertIn("#1 bei 30 min", zeile)
+        self.assertIn("Kontext 300000", zeile)
+        self.assertIn("NACHRUECKLISTE ERLEDIGT", zeile)
+
+
 if __name__ == "__main__":
     unittest.main()

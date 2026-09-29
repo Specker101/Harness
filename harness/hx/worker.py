@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -63,6 +64,8 @@ class WorkerResult:
         self.warteschleifen: list[dict] = []  # R13v: Warteschleifen (vermeidbare Zeit)
         self.aufraeumen: dict | None = None   # R13v3: Job-Objekt + Nachsuche nach Resten
         self.vorgaenger: list[str] = []       # R13v3: gesicherte Belege der Vor-Fassung
+        # R13ad: Fortsetzungen im SELBEN Chat ({minute, kontext, antwort_kurz, …}).
+        self.fortsetzungen: list[dict] = []
 
     def describe(self) -> str:
         return (f"rc={self.rc} dauer={self.duration_s:.0f}s grenze={self.killed_reason or '-'} "
@@ -262,7 +265,8 @@ def write_worker_hooks(cfg, rd: Path, state_datei, log=None) -> str | None:
 
 def build_command(cfg, profile, run_path: Path, session_id: str,
                   system_prompt_file: str | None = None,
-                  hooks_settings: str | None = None) -> tuple[list[str], str | None]:
+                  hooks_settings: str | None = None,
+                  resume: bool = False) -> tuple[list[str], str | None]:
     """Kommandozeile OHNE Prompt - der Prompt geht über stdin (UTF-8).
 
     Beleg (offizielle Doku, Seite "Run Claude Code programmatically"):
@@ -273,6 +277,12 @@ def build_command(cfg, profile, run_path: Path, session_id: str,
 
     `hooks_settings` (R13ac) ist die Einstellungsdatei mit dem Batch-Uhr-Hook
     (`--settings <datei>`, s. `write_worker_hooks`).
+
+    `resume` (R13ad): `True` setzt denselben Chat mit `--resume <session_id>` fort.
+    Gemessen im Reviewer und bei `/ask`: die CLI legt mit `--session-id <uuid>` an und
+    setzt mit `--resume <uuid>` fort (Doku: "-r, --resume [value]  Resume a conversation
+    by session ID"). Der Systemprompt wird bei `--resume` NICHT neu gelesen - hier ohne
+    Belang, der Worker bekommt seinen Auftrag ueber stdin.
     """
     exe = str(cfg.get("claude", "exe"))
     tools_value, allowed = builtin_args("worker")
@@ -283,8 +293,8 @@ def build_command(cfg, profile, run_path: Path, session_id: str,
            "--permission-prompts", "none",
            "--model", str(cfg.get("claude", "model_worker")),
            "--max-turns", str(int(cfg.get("claude", "max_turns_safety", 800))),
-           "--tools", tools_value,
-           "--session-id", session_id]
+           "--tools", tools_value]
+    cmd += ["--resume", session_id] if resume else ["--session-id", session_id]
     if mcp_cfg:
         cmd += ["--mcp-config", mcp_cfg]
         allowed = allowed + profile.mcp_names()
@@ -309,6 +319,87 @@ def build_command(cfg, profile, run_path: Path, session_id: str,
     if hooks_settings:
         cmd += ["--settings", hooks_settings]
     return cmd, mcp_cfg
+
+
+def _kurz(text: str, grenze: int = 200) -> str:
+    """Antwort des Workers in EINER Zeile (fuer `result.json`)."""
+    return " ".join(str(text or "").split())[:grenze]
+
+
+# ------------------------------------------------- Fortsetzung (R13ad, Auftrag 2026-09-29)
+# Der Worker hoerte zwischen B202 und B212 wiederholt FRUEH auf (18-52 min von 90), oft mit
+# offener Nachrueckliste - kein Batch wurde hart abgebrochen. Statt den Batch zu verlieren,
+# wird derselbe Chat fortgesetzt (`--resume <session-id>`), solange alle Bedingungen unten
+# erfuellt sind. Die Grenzen (Zeit, Anfragen, Kosten) gelten ueber ALLE Teillaeufe.
+_RE_NACHRUECK = re.compile(r"^\s*(?:#+\s*|\*\*\s*)?NACHR(?:Ü|UE)CKLISTE\b",
+                           re.IGNORECASE | re.MULTILINE)
+_RE_ERLEDIGT = re.compile(r"NACHR(?:Ü|UE)CKLISTE\s+ERLEDIGT", re.IGNORECASE)
+
+
+def rest_wanduhr_s(hard_wall_s: float, batch_start: float, jetzt: float) -> float:
+    """Rest der HARTEN Wanduhr fuer den GANZEN Batch (mindestens 60 s, R13ad)."""
+    return max(60.0, float(hard_wall_s) - (float(jetzt) - float(batch_start)))
+
+
+def fortsetzung_pruefen(cfg, run, stats, auftrag_text: str, minuten: float,
+                        fortsetzungen: list[dict], killed_reason: str | None = None,
+                        log=None) -> dict:
+    """Darf der Worker in DEMSELBEN Chat fortgesetzt werden? -> `{"ja": bool, "grund": str}`.
+
+    Alle Bedingungen (Auftrag 2026-09-29, Punkt 3) muessen erfuellt sein:
+      a) regulaeres Ende - letzte Antwort ohne Werkzeugaufruf, kein Abbruchgrund, rc 0,
+      b) die Batch-Uhr liegt VOR der Umschaltschwelle,
+      c) `kontext_letzte_anfrage` < `kontext_schwelle`,
+      d) der Auftrag enthaelt einen Abschnitt `NACHRUECKLISTE`,
+      e) es gab weniger als `max_fortsetzungen` Anstoesse.
+    """
+    max_f = int(cfg.get("limits", "max_fortsetzungen", 2))
+    if len(fortsetzungen) >= max_f:
+        return {"ja": False, "grund": f"max_fortsetzungen ({max_f}) erreicht"}
+    grund = killed_reason or getattr(run, "killed_reason", None)
+    if grund:
+        return {"ja": False, "grund": f"Abbruchgrund {grund}"}
+    if getattr(run, "rc", None) != 0:
+        return {"ja": False, "grund": f"rc={getattr(run, 'rc', None)}"}
+    if stats.is_error():
+        return {"ja": False, "grund": "Antwort ist als Fehler markiert"}
+    if stats.letzte_antwort_ohne_werkzeug() is not True:
+        return {"ja": False,
+                "grund": "kein regulaeres Ende (letzte Antwort mit Werkzeugaufruf)"}
+    umschalt_s = (float(cfg.get("limits", "alarm_wall_s", 5400))
+                  - float(cfg.get("limits", "umschalt_vor_alarm_s", 600)))
+    if minuten * 60.0 >= umschalt_s:
+        return {"ja": False, "grund": f"Batch-Uhr {minuten:.0f} min >= "
+                                      f"Umschaltschwelle {umschalt_s / 60.0:.0f} min"}
+    kontext = stats.kontext_stats()["kontext_letzte_anfrage"]
+    schwelle = int(cfg.get("limits", "kontext_schwelle", 550000))
+    if kontext >= schwelle:
+        return {"ja": False, "grund": f"Kontext {kontext} >= Schwelle {schwelle}"}
+    if not _RE_NACHRUECK.search(auftrag_text or ""):
+        return {"ja": False, "grund": "kein Abschnitt NACHRUECKLISTE im Auftrag"}
+    return {"ja": True, "grund": ""}
+
+
+def fortsetzungs_text(minuten: float, kontext: int, alarm_min: float, umschalt_min: float,
+                      preflight_erneut: bool = False) -> str:
+    """Die Fortsetzungsnachricht im SELBEN Chat (Wortlaut laut Auftrag 2026-09-29)."""
+    text = (f"Batch-Uhr: {minuten:.0f} von {alarm_min:.0f} min, Umschaltschwelle "
+            f"{umschalt_min:.0f} min nicht erreicht, Kontext {uhr.kontext_kurz(kontext)}. "
+            "Arbeite die offenen Posten der NACHRUECKLISTE ab, je Posten ein Commit mit "
+            "Soll-Delta. Ist ein Posten blockiert, nenne mit Beleg, welches Material oder "
+            "welche Entscheidung fehlt; Aufwand ist kein Grund. Ist die Nachrückliste "
+            "vollständig erledigt, antworte nur mit NACHRUECKLISTE ERLEDIGT und je Posten "
+            "dem Commit-Hash.")
+    if preflight_erneut:
+        text += (" Nach der Nacharbeit: Preflight erneut laufen lassen, Bilanz "
+                 "aktualisieren, committen. Der letzte Preflight gilt, der frühere ist "
+                 "überholt.")
+    return text
+
+
+def nachrueckliste_erledigt(text: str) -> bool:
+    """Hat der Worker mit `NACHRUECKLISTE ERLEDIGT` geantwortet?"""
+    return bool(_RE_ERLEDIGT.search(text or ""))
 
 
 def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str | None,
@@ -423,6 +514,9 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
             "hard_wall": float(cfg.get("limits", "hard_wall_s", 10800)),
             "hard_requests": int(cfg.get("limits", "hard_requests", 1000)),
             "hard_cost": float(cfg.get("limits", "hard_cost_usd", 2.0)),
+            # R13ad: die Umschaltschwelle (Alarmgrenze minus 10 min) - sie geht auch in
+            # den Fortsetzungstext.
+            "umschalt_vor_alarm": float(cfg.get("limits", "umschalt_vor_alarm_s", 600)),
         }
         fired: set[str] = set()
         gemeldet = [0]                      # R13g: bis hierher schon alarmierte Secret-Treffer
@@ -604,13 +698,86 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
             res.alarms.append(f"HINWEIS: Job-Objekt nicht verfuegbar ({job.grund}); "
                               "Prozessreste werden nur nachgesucht.")
         batch_start = time.time()
+
+        def on_start_erster(pid: int) -> None:
+            """Erster Teillauf: Startzeit UND PID in den Zustand (das ist die Batch-Uhr)."""
+            state.worker_started(pid, str(stream_path), session_id)
+
+        def pid_merken(pid: int) -> None:
+            """Fortsetzung: NUR die PID nachziehen.
+
+            `worker.started_at` bleibt der Start des GANZEN Batches - die Batch-Uhr darf
+            durch eine Fortsetzung NICHT neu beginnen (Auftrag 2026-09-29, Punkt 3).
+            """
+            w = dict(state.data.get("worker") or {})
+            w["pid"] = int(pid)
+            state.data["worker"] = w
+            state.save()
+
+        # R13ad: der Batch darf aus MEHREREN Teillaeufen bestehen (Fortsetzung im SELBEN
+        # Chat). Alle Ereignisse laufen in DENSELBEN `stats` - damit gelten Anfragen- und
+        # Kostenlimit ueber den GANZEN Batch. Die harte Wanduhr wird je Teillauf um die
+        # bereits verbrauchte Zeit gekuerzt.
+        laeufe: list[dict] = []
+        fortsetzungen: list[dict] = []
+        fortsetz_text = prompt
+        resume = False
         try:
-            run = run_stream(cmd, env, cwd=str(cfg.decomp), out_path=stream_path,
-                             on_event=on_event, hard_wall_s=lim["hard_wall"], log=log,
-                             cancel=cancel, stdin_text=prompt, stderr_path=rd / "stream.err.txt",
-                             job=job,
-                             on_start=lambda pid: state.worker_started(pid, str(stream_path),
-                                                                       session_id))
+            while True:
+                nummer = len(fortsetzungen)
+                ziel = stream_path if not resume else rd / f"stream-forts{nummer}.jsonl"
+                fehler = (rd / "stream.err.txt" if not resume
+                          else rd / f"stream-forts{nummer}.err.txt")
+                if resume:
+                    log.info("Fortsetzung im selben Chat", anstoss=nummer,
+                             session=session_id,
+                             rest_s=round(rest_wanduhr_s(lim["hard_wall"], batch_start,
+                                                         time.time()), 1))
+                    cmd, _mcp = build_command(cfg, profile, rd, session_id,
+                                              hooks_settings=hooks, resume=True)
+                run = run_stream(cmd, env, cwd=str(cfg.decomp), out_path=ziel,
+                                 on_event=on_event,
+                                 hard_wall_s=rest_wanduhr_s(lim["hard_wall"], batch_start,
+                                                            time.time()),
+                                 log=log, cancel=cancel, stdin_text=fortsetz_text,
+                                 stderr_path=fehler, job=job,
+                                 on_start=(pid_merken if resume else on_start_erster))
+                laeufe.append({"run": run, "ziel": ziel, "resume": resume})
+                if resume and ziel.is_file():
+                    # EIN Mitschnitt: die Fortsetzung wird an `stream.jsonl` angehaengt,
+                    # damit watch/rebuild/reasoning-Snapshot unveraendert funktionieren.
+                    with open(stream_path, "a", encoding="utf-8") as fh:
+                        fh.write(ziel.read_text(encoding="utf-8", errors="replace"))
+                if run.killed_reason:
+                    res.killed_reason = run.killed_reason
+                if resume:
+                    letzte_f = fortsetzungen[-1]
+                    antwort = stats.final_text() or ""
+                    letzte_f["antwort_kurz"] = _kurz(antwort)
+                    letzte_f["dauer_s"] = round(float(run.duration_s or 0.0), 1)
+                    letzte_f["rc"] = run.rc
+                    if nachrueckliste_erledigt(antwort):
+                        letzte_f["antwort_kurz"] = "NACHRUECKLISTE ERLEDIGT"
+                        log.info("Nachrueckliste erledigt - kein weiterer Anstoss",
+                                 anstoss=nummer)
+                        break
+                minuten = max(0.0, (time.time() - batch_start) / 60.0)
+                entsch = fortsetzung_pruefen(cfg, run, stats, prompt, minuten, fortsetzungen,
+                                             killed_reason=res.killed_reason, log=log)
+                if not entsch["ja"]:
+                    log.info("Kein Fortsetzungsanstoss", grund=entsch["grund"],
+                             teillaeufe=len(laeufe))
+                    break
+                kontext = stats.kontext_stats()["kontext_letzte_anfrage"]
+                fortsetzungen.append({"minute": round(minuten, 1), "kontext": kontext,
+                                      "antwort_kurz": "", "dauer_s": None, "rc": None,
+                                      "stream": f"stream-forts{nummer + 1}.jsonl"})
+                fortsetz_text = fortsetzungs_text(
+                    minuten, kontext, lim["alarm_wall"] / 60.0,
+                    lim["alarm_wall"] / 60.0 - lim["umschalt_vor_alarm"] / 60.0,
+                    preflight_erneut=(stats.werkzeug_enthaelt("preflight")
+                                      and stats.werkzeug_enthaelt("bilanz")))
+                resume = True
         finally:
             if ticker is not None:
                 ticker.stop()
@@ -621,24 +788,28 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
             if job.zugewiesen:
                 log.info("Job-Objekt geschlossen", zugewiesen=job.zugewiesen)
             job.close()
+        res.fortsetzungen = list(fortsetzungen)
         # R13p: Abo-Auslastung mitschreiben, WENN dieser Lauf sie geliefert hat. Der
         # DeepSeek-Worker hat kein Claude-Kontingent - dann passiert hier nichts.
         streamjson.schreibe_rate_limit(cfg, stats.rate_limit, f"Worker b{batch}")
         # R13j: Das Kind war fertig, die Pipe blieb offen (Enkelprozess). Das ist kein
         # Abbruch, aber es gehoert in die Batch-Meldung - sonst sieht es aus, als haette
         # der Worker gehaengt.
-        if getattr(run, "eof_offen_s", None):
+        letzter = laeufe[-1]["run"]
+        if getattr(letzter, "eof_offen_s", None):
             res.alarms.append(
                 f"HINWEIS: Der Worker-Prozess war fertig, aber ein weiterlaufender "
-                f"Kindprozess hielt die Ausgabe-Pipe ({run.eof_offen_s:.0f} s kein Ende). "
+                f"Kindprozess hielt die Ausgabe-Pipe ({letzter.eof_offen_s:.0f} s kein Ende). "
                 f"Der Lauf wurde abgeschlossen (R13j).")
-        res.rc = run.rc
-        res.duration_harness_s = run.duration_s
+        res.rc = letzter.rc
+        gesamt_wanduhr = round(time.time() - batch_start, 3)
+        # R13ad: bei Fortsetzungen ist die Batch-Wanduhr die Summe der Teillaeufe; der
+        # Normalfall (EIN Lauf) bleibt unveraendert.
+        res.duration_harness_s = (letzter.duration_s if len(laeufe) == 1 else gesamt_wanduhr)
         d_cli, d_feld = stats.duration_field()
         res.duration_cli_s = d_cli
-        res.duration_api_s = (round(float((stats.result or {}).get("duration_api_ms", 0)) / 1000.0, 3)
-                              if isinstance((stats.result or {}).get("duration_api_ms"), (int, float))
-                              else None)
+        _api_ms = stats.summe_feld("duration_api_ms")
+        res.duration_api_s = round(_api_ms / 1000.0, 3) if _api_ms else None
         # R13c: die Laufzeit ist die Wanduhr des Worker-Prozesses. Vorrang hat die
         # Selbstauskunft des claude-Prozesses (`duration_ms`); sie zaehlt bis zu seinem
         # Ende. Unsere eigene Messung laeuft weiter, bis die Ausgabe abgearbeitet ist -
@@ -647,17 +818,17 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
             res.duration_s = res.duration_cli_s
             res.duration_quelle = "cli" if d_feld == "duration_ms" else "api"
         else:
-            res.duration_s = run.duration_s
+            res.duration_s = res.duration_harness_s
             res.duration_quelle = "wanduhr"
-        res.killed_reason = res.killed_reason or run.killed_reason
         res.stream_path = str(stream_path)
-        if res.duration_cli_s and (run.duration_s - res.duration_cli_s) >= 120:
+        if (len(laeufe) == 1 and res.duration_cli_s
+                and (res.duration_harness_s - res.duration_cli_s) >= 120):
             # R13c: eine grosse Luecke heisst, der Harness hing hinterher (Rueckstau der
             # Ausgabe) - das gehoert sichtbar in die Bilanz, nicht in eine stille Zahl.
             res.alarms.append(
-                f"ALARM: Harness-Nachlauf {run.duration_s - res.duration_cli_s:.0f}s "
+                f"ALARM: Harness-Nachlauf {res.duration_harness_s - res.duration_cli_s:.0f}s "
                 f"(Prozess {res.duration_cli_s:.0f}s laut {d_feld or 'claude'}, "
-                f"{run.duration_s:.0f}s aus Harness-Sicht) - Ausgabe-Rueckstau pruefen")
+                f"{res.duration_harness_s:.0f}s aus Harness-Sicht) - Ausgabe-Rueckstau pruefen")
         if res.duration_s >= lim["alarm_wall"]:
             res.alarms.append(f"ALARM: Laufzeit {res.duration_s:.0f}s (Alarmgrenze {lim['alarm_wall']:.0f}s)")
 
@@ -667,7 +838,9 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
         # wenn das Job-Objekt nicht greifen konnte.
         grund = res.killed_reason or ("" if job.ok or job.zugewiesen else "job-objekt-nicht-verfuegbar")
         if grund:
-            auf = aufraeumen.nachsuche(cfg.decomp, seit=batch_start, wurzeln_pids={run.pid},
+            auf = aufraeumen.nachsuche(cfg.decomp, seit=batch_start,
+                                       wurzeln_pids={l["run"].pid for l in laeufe
+                                                     if l["run"].pid},
                                        bekannte_pids=bekannte_pids, log=log)
             auf["anlass"] = grund
             auf["job"] = job.beschreibung()
@@ -748,6 +921,8 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
     # Auftrag 2026-09-29: die Kontextgroesse je Anfrage mitmessen (input + cache_read +
     # cache_creation) - als Zahl am Laufende, als Verlauf und als Kompaktierungshinweis.
     res.stats.update(stats.kontext_stats())
+    # R13ad: Fortsetzungen im selben Chat (Minute, Kontext, Antwort des Workers).
+    res.stats["fortsetzungen"] = list(res.fortsetzungen or [])
     res.stats["usage_check"] = stats.usage_check()
     res.stats["rebuilt"] = bool(rebuilt)
     res.stats["dauer"] = {"wanduhr_s": res.duration_s, "quelle": res.duration_quelle,
@@ -909,6 +1084,10 @@ ZEIT (R13ac/R13ad - gemessen, nicht geschaetzt, EINE Quelle)
 - Restzeit also NUR so rechnen: `Get-Date` minus dieser Startzeit (oder die letzte
   BATCH-UHR-Zeile lesen). Eine Streichung von Pflichtteilen "aus Zeitgruenden" gilt nur
   mit einer unmittelbar davor gemessenen `Get-Date`-Zeile im Batch-Dokument.
+- Hoerst du vor der Umschaltschwelle auf, wird derselbe Chat **fortgesetzt** und du
+  arbeitest die offenen Posten der `NACHRUECKLISTE` des Auftrags ab (je Posten ein Commit
+  mit Soll-Delta). Die STREICHREIHENFOLGE faellt erst ab der Umschaltschwelle und nur mit
+  Uhrnachweis.
 
 ABSCHLUSSBERICHT (letzte Nachricht, Pflicht in dieser Gliederung)
 ## 1) Übernommener Stand (5 Sätze)

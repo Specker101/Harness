@@ -900,6 +900,48 @@ entsteht erst beim Start). Die Serie `[207, 210, 213]` = `(None, None, 0)` feuer
 **nicht** — eine Migration war nicht nötig. Fehlt die Zeile, wird geloggt und der Batch als
 `SOLL > 0` behandelt (kein Stillstand verschluckt, nichts geraten).
 
+### 12h. Batch-Zeitbudget, Kontext, Fortsetzung (R13ad, 2026-09-29)
+
+**Eine Zeitquelle.** Der Reviewer schrieb bis B212 eigene Minutenzahlen in die Aufträge
+(„Budget 80 min", „ab 70 min") — die standen in keiner Config und widersprachen der
+Batch-Uhr (90 min). Jetzt gilt: `alarm_wall_s = 5400` (90 min) bleibt, neu ist
+`umschalt_vor_alarm_s = 600` → **Umschaltschwelle 80 min**. Der Reviewer nennt **keine
+eigene Zahl** mehr, sondern formuliert relativ („ab der Umschaltschwelle laut Batch-Uhr").
+Die BATCH-UHR-Zeile (Hook nach jedem Werkzeugaufruf) zeigt jetzt
+`… min von 90 min (Umschalten ab 80) | Kontext 310k von 1M`.
+
+**Kontext.** Die Kontextgroesse einer Anfrage ist `input_tokens + cache_read_input_tokens +
+cache_creation_input_tokens`. Sie steht in `runs/b<N>/result.json` als
+`kontext_letzte_anfrage`, `kontext_max` und `kontext_verlauf` (jede 25. Anfrage, die letzte
+immer dabei), ferner im Live-Zustand (`state/run.json → live.kontext`) und in den
+Review-Fakten. Rückblick B205–B212: 222k–391k am Laufende, **keine** Kompaktierung
+(`compact_boundary` kam nie vor) — die Tabelle steht in `docs/_r13ad_belege.md`.
+
+**Fortsetzung.** Hört ein Lauf regulär (und früh) auf, prüft der Harness
+`worker.fortsetzung_pruefen` — nur wenn **alle** Bedingungen gelten, wird derselbe Chat
+mit `--resume <session-id>` fortgesetzt:
+
+| Bedingung | Wert |
+|---|---|
+| regulaeres Ende | letzte Antwort **ohne** Werkzeugaufruf, `killed_reason` leer, rc 0 |
+| Batch-Uhr | **vor** der Umschaltschwelle (80 min) |
+| Kontext | `kontext_letzte_anfrage < kontext_schwelle` (Vorgabe 550000) |
+| Auftrag | Abschnitt `## NACHRUECKLISTE` vorhanden |
+| Anzahl | weniger als `max_fortsetzungen` (Vorgabe 2) |
+
+Antwortet der Worker `NACHRUECKLISTE ERLEDIGT`, ist Schluss. Zeit, Anfragen (1000) und
+Kosten ($2) gelten **kumuliert** über alle Teilläufe; die harte Wanduhr wird je Teillauf um
+die verbrauchte Zeit gekürzt. Die Fortsetzung hängt ihren Mitschnitt an `stream.jsonl` an
+(`stream-forts<N>.jsonl` bleibt als Rohbeleg liegen), damit `watch`, `rebuild` und der
+reasoning-Snapshot unverändert funktionieren. In `result.json` steht `fortsetzungen`
+(`[{minute, kontext, antwort_kurz}, …]`), in den Review-Fakten eine Zeile daraus.
+
+**Pflichtabschnitt des Reviewers.** Jede `DS_INSTRUCTION` endet mit `## NACHRUECKLISTE`
+(nummerierte offene Posten mit prüfbarem FERTIG WENN). Ohne ihn gibt es keinen Anstoss —
+vor R13ad fand sich der Abschnitt in **keinem** Auftrag. Bei einem Batch **mit** Fortsetzung
+gilt der **letzte** `preflight`-Lauf als der eine gültige; frühere sind überholt und **kein**
+Regelverstoß.
+
 ### 12b. Was der Nutzer selbst entscheiden muss
 
 Der grösste Hebel liegt ausserhalb des Harness: die 68K-Emulationsläufe im Decomp-Repo

@@ -1994,6 +1994,23 @@ class Orchestrator:
             teile.append("langsamste: " + top)
         return " | ".join(teile)
 
+    def fortsetzungen_zeile(self, st: dict) -> str:
+        """Fortsetzungen im selben Chat (R13ad) - Minute, Kontext, Antwort des Workers.
+
+        Grund (Auftrag 2026-09-29): der Worker hoerte wiederholt frueh auf (18-52 von
+        90 min), oft mit offener Nachrueckliste. Jeder Anstoss und die Antwort darauf
+        gehoeren sichtbar in den Review - sonst sieht es aus wie ein regulaerer Abschluss.
+        """
+        liste = list((st or {}).get("fortsetzungen") or [])
+        if not liste:
+            return "keine"
+        teile = []
+        for i, f in enumerate(liste, 1):
+            teile.append(f"#{i} bei {float(f.get('minute') or 0):.0f} min "
+                         f"(Kontext {int(f.get('kontext') or 0)}): "
+                         f"{str(f.get('antwort_kurz') or '(keine Antwort)')[:120]}")
+        return " | ".join(teile)
+
     def secret_zeile(self, batch: int) -> str:
         """Vermerk fuer den Messdatenblock: gab es Schluessel-Zugriffe in diesem Batch?
 
@@ -2060,6 +2077,8 @@ class Orchestrator:
             f"- Kontext (Anfrage-Ende): {st.get('kontext_letzte_anfrage')} Tokens "
             f"| Maximum: {st.get('kontext_max')} "
             f"| Kompaktierungen: {st.get('kompaktierungen') or 'keine'}",
+            # R13ad: Fortsetzungen im selben Chat sind Pflichtangabe (Fruehaufhoeren).
+            f"- Fortsetzungen (R13ad): {self.fortsetzungen_zeile(st)}",
             f"- num_turns: {st.get('num_turns')} (nur die Harness-Grenzen sind maßgeblich)",
             f"- Modell laut Ausgabe: {res.get('model_seen')} (Soll erfüllt: {res.get('model_ok')})",
             f"- Abgelehnte Werkzeugaufrufe: {st.get('denials') or 'keine'}",

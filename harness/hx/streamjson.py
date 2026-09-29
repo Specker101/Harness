@@ -952,6 +952,11 @@ class StreamStats:
                 "kontext_verlauf": [werte[i] for i in idx],
                 "kompaktierungen": self.kompaktierungen()}
 
+    def summe_feld(self, key: str) -> float:
+        """Summe eines Zahlenfelds ueber ALLE `result`-Ereignisse (0.0 ohne Treffer)."""
+        return sum(float(ev.get(key)) for ev in self._result_liste()
+                   if isinstance(ev.get(key), (int, float)))
+
     def letzte_antwort_ohne_werkzeug(self) -> bool | None:
         """Trug die LETZTE Antwort des Modells keinen Werkzeugaufruf? (None = keine)"""
         if not self.letzte_msg_id:

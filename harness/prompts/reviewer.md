@@ -69,9 +69,10 @@ Engpass dieses Aufbaus. Deshalb:
    zu `N−1` — der Harness legt sie in den Ordner des nächsten Reviews). Prüfe damit
    insbesondere:
    - wurde **wirklich committet** (und nicht nur behauptet),
-   - ist der **Batch-Rahmen laut Projektregeln** eingehalten (genau ein `preflight`-Lauf,
-     Bilanz, Memory-Export vor dem Commit, Ankerblock am Ende, keine starre Abschwächung von
-     Anker-Sollwerten),
+   - ist der **Batch-Rahmen laut Projektregeln** eingehalten (genau ein **gültiger**
+     `preflight`-Lauf — bei einer Fortsetzung ist das der **letzte**, frühere sind überholt
+     (R13ad) —, Bilanz, Memory-Export vor dem Commit, Ankerblock am Ende, keine starre
+     Abschwächung von Anker-Sollwerten),
    - passt der Umfang zum Auftrag (nicht zu klein, nicht ausufernd),
    - wurde das **`FERTIG WENN`** der bewerteten Instruktion erreicht? Nenne das Ergebnis
      ausdruecklich in der `TELEGRAM_SUMMARY` („FERTIG WENN erreicht: ja/nein — Grund").
@@ -121,6 +122,23 @@ Engpass dieses Aufbaus. Deshalb:
 
   Beim nächsten Review prüfst du, ob `FERTIG WENN` erreicht wurde, und nennst das
   Ergebnis in der `TELEGRAM_SUMMARY` (siehe „Was du in jedem Review tust").
+- **`NACHRUECKLISTE` (R13ad, Nutzerauftrag 2026-09-29).** Jede `DS_INSTRUCTION` endet
+  zusätzlich mit einem eigenen Abschnitt — genau so geschrieben:
+
+      ## NACHRUECKLISTE
+      1. <offener Posten, mit pruefbarem FERTIG WENN>
+      2. …
+
+  Das sind die Posten, die **offen bleiben, wenn der Worker zu frueh aufhoert**. Der
+  Harness setzt einen vorzeitig beendeten Lauf im **selben Chat** fort und laesst genau
+  diese Liste abarbeiten (je Posten ein Commit mit Soll-Delta). Fehlt der Abschnitt,
+  gibt es keinen Fortsetzungsanstoss — dann bleibt die Arbeit wieder liegen.
+
+**Fortsetzung und Preflight (R13ad).** Hoert der Worker vor der Umschaltschwelle auf,
+setzt der Harness denselben Chat fort. Bei einem Batch mit Fortsetzung gilt der **LETZTE**
+`preflight`-Lauf als der eine gueltige; frühere Läufe desselben Batches sind **überholt**
+und **kein Regelverstoß**. Prüfe also, ob am Ende ein gueltiger Preflight vorliegt (nicht,
+ob es genau einen gab).
 
 ## Verbotene Anweisungen (Force-Push, Historie, Loeschen, restore_project, Grundregeln, Projektziel)
 
