@@ -543,6 +543,20 @@ def rate_limit_aus_mitschnitt(cfg, pfad) -> dict:
 
 
 
+# ----------------------------------------------- Kontext-Messung (Auftrag 2026-09-29)
+# Die Kontextgroesse einer Anfrage ist die Summe der drei Eingabewerte ihrer Antwort
+# (`input_tokens` + `cache_read_input_tokens` + `cache_creation_input_tokens`) - das ist
+# der Prompt, den das Modell in DIESEM Schritt gesehen hat. Die Feldnamen sind am ECHTEN
+# Mitschnitt geprueft (`runs/b205..b212/stream.jsonl`): `assistant.message.usage` traegt
+# genau diese drei Schluessel. `system` fuehrt `subtype` `init|thinking_tokens|task_*` -
+# ein `compact_boundary` kam in B205-B212 NICHT vor (Auto-Compact lief nie).
+KONTEXT_VERLAUF_SCHRITT = 25
+# Als Kompaktierung gilt: ein `compact_boundary`-Ereignis ODER ein sprunghafter
+# Rueckgang der Kontextsumme um mindestens so viele Tokens UND mindestens diesen Anteil.
+KOMPAKT_RUECKGANG_MIN = 20000
+KOMPAKT_RUECKGANG_ANTEIL = 0.20
+
+
 class StreamStats:
     def __init__(self, secret_watch: "SecretWatch | None" = None):
         # R13g: Ueberwachung der Schluessel. Ohne Watch kostet das nichts.
@@ -577,6 +591,14 @@ class StreamStats:
         self.http_state: list[dict] = []        # HTTP-Beruehrungen des Ghidra-Zustands
         self.api_errors: list[str] = []
         self.result: dict | None = None
+        # Auftrag 2026-09-29: Fortsetzungen laufen im SELBEN Chat - der Mitschnitt traegt
+        # dann MEHRERE `result`-Ereignisse. `self.result` bleibt das letzte (Antworttext,
+        # Fehlerflag), `result_ereignisse` sind alle (Summen).
+        self.result_ereignisse: list[dict] = []
+        # Auftrag 2026-09-29: Kontextmessung + Kompaktierung.
+        self.kompakt_marker: list[int] = []      # Anfrage-Nr je `compact_boundary`
+        self._msg_werkzeug: dict[str, bool] = {}  # message.id -> trug einen Werkzeugaufruf
+        self.letzte_msg_id: str | None = None
         self.raw_events: int = 0
         # R13h: Laufzeit-Profil (aus den Zeitstempeln des Mitschnitts, nichts geraten).
         self.t_erste: float | None = None
@@ -627,6 +649,12 @@ class StreamStats:
             tools = ev.get("tools")
             if isinstance(tools, list):
                 self.tools_available = len(tools)
+
+        elif etype == "system" and ev.get("subtype") == "compact_boundary":
+            # Auftrag 2026-09-29: ausdrueckliche Kompaktierungsgrenze. In B205-B212 kam
+            # keine vor; die Erkennung ist vorbereitet und wird ueber die Zahl der bis
+            # dahin gesehenen Anfragen verankert.
+            self.kompakt_marker.append(len(self.requests))
 
         elif etype == "rate_limit_event":
             info = ev.get("rate_limit_info")
@@ -714,6 +742,15 @@ class StreamStats:
                     if name in HTTP_TOOLS:
                         self._scan_http(json.dumps(block.get("input") or {},
                                                    ensure_ascii=False))
+            # Auftrag 2026-09-29: trug DIESE Antwort einen Werkzeugaufruf? Gebraucht fuer
+            # die Fortsetzungs-Bedingung (a): ein regulaeres Ende liegt vor, wenn die
+            # LETZTE Antwort des Modells keinen Werkzeugaufruf mehr enthaelt.
+            mid_key = str(mid or "")
+            hat_wz = any(isinstance(b, dict) and b.get("type") == "tool_use"
+                         for b in (msg.get("content") or []))
+            if mid_key:
+                self._msg_werkzeug[mid_key] = bool(self._msg_werkzeug.get(mid_key)) or hat_wz
+                self.letzte_msg_id = mid_key
 
         elif etype == "user":
             # Kann Werkzeugergebnisse oder Verweigerungen tragen.
@@ -737,6 +774,7 @@ class StreamStats:
 
         elif etype == "result":
             self.result = ev
+            self.result_ereignisse.append(ev)
             for d in (ev.get("permission_denials") or []):
                 self.denials.append(str(d)[:300])
 
@@ -859,6 +897,83 @@ class StreamStats:
         return {"requests": len(self.requests), "input_miss": miss, "cache_read": hit,
                 "cache_creation": creation, "output": self.output_total()}
 
+    # ------------------------------------------------- Kontext (Auftrag 2026-09-29)
+    @staticmethod
+    def kontext_summe(eintrag: dict) -> int:
+        """Kontextgroesse EINER Anfrage: input + cache_read + cache_creation."""
+        return (int(eintrag.get("miss") or 0) + int(eintrag.get("hit") or 0)
+                + int(eintrag.get("creation") or 0))
+
+    def kontext_werte(self) -> list[int]:
+        return [self.kontext_summe(r) for r in self.requests]
+
+    def kompaktierungen(self) -> list[list[int]]:
+        """Hinweise auf eine Kontext-Kompaktierung: `[[Anfrage-Nr, vorher, nachher], …]`.
+
+        Zwei Quellen: ein ausdrueckliches `compact_boundary`-Ereignis (in B205-B212 nie
+        gesehen) und ein sprunghafter Rueckgang der Kontextsumme zwischen zwei Anfragen
+        (mindestens `KOMPAKT_RUECKGANG_MIN` Tokens UND mindestens
+        `KOMPAKT_RUECKGANG_ANTEIL` des Vorwerts).
+        """
+        werte = self.kontext_werte()
+        out: list[list[int]] = []
+        gesehen: set[int] = set()
+        for idx in self.kompakt_marker:
+            i = int(idx)
+            vor = werte[i - 1] if 0 < i <= len(werte) else (werte[-1] if werte else 0)
+            nach = werte[i] if 0 <= i < len(werte) else vor
+            out.append([i, vor, nach])
+            gesehen.add(i)
+        for i in range(1, len(werte)):
+            if i in gesehen:
+                continue
+            vor, nach = werte[i - 1], werte[i]
+            if (vor - nach >= KOMPAKT_RUECKGANG_MIN
+                    and nach <= vor * (1.0 - KOMPAKT_RUECKGANG_ANTEIL)):
+                out.append([i, vor, nach])
+        out.sort()
+        return out
+
+    def kontext_stats(self, schritt: int = KONTEXT_VERLAUF_SCHRITT) -> dict:
+        """Kontextmessung fuer `result.json` (Auftrag 2026-09-29).
+
+        `kontext_letzte_anfrage` = Summe der LETZTEN Anfrage, `kontext_max` = Maximum
+        ueber alle, `kontext_verlauf` = dieselbe Summe alle `schritt` Anfragen (kompakt;
+        die LETZTE Anfrage steht immer mit dabei), `kompaktierungen` = erkannte
+        Kompaktierungen.
+        """
+        werte = self.kontext_werte()
+        n = max(1, int(schritt))
+        idx = list(range(0, len(werte), n))
+        if werte and idx[-1] != len(werte) - 1:
+            idx.append(len(werte) - 1)
+        return {"kontext_letzte_anfrage": (werte[-1] if werte else 0),
+                "kontext_max": (max(werte) if werte else 0),
+                "kontext_verlauf": [werte[i] for i in idx],
+                "kompaktierungen": self.kompaktierungen()}
+
+    def letzte_antwort_ohne_werkzeug(self) -> bool | None:
+        """Trug die LETZTE Antwort des Modells keinen Werkzeugaufruf? (None = keine)"""
+        if not self.letzte_msg_id:
+            return None
+        return not bool(self._msg_werkzeug.get(self.letzte_msg_id))
+
+    def werkzeug_enthaelt(self, *worte: str) -> bool:
+        """Kam in den Argumenten IRGENDEINES Werkzeugaufrufs jedes dieser Worte vor?
+
+        Gebraucht fuer die Fortsetzungs-Bedingung (Punkt 4): "schon Preflight und Bilanz
+        gemacht?" - geprueft wird der Werkzeugaufruf (Aufrufweg), nicht der Fliesstext.
+        """
+        for t in self.tools:
+            try:
+                roh = json.dumps(t.get("input") or {}, ensure_ascii=False)
+            except (TypeError, ValueError):
+                roh = str(t.get("input"))
+            klein = roh.lower()
+            if all(w.lower() in klein for w in worte):
+                return True
+        return False
+
     def cost_usd(self, extra_offpeak_dates: list[str] | None = None) -> float:
         """Kosten nach dem Tarif JEDES Aufrufs (Fenster darf mitten im Batch wechseln).
 
@@ -891,13 +1006,27 @@ class StreamStats:
                                       t["output"], None, extra_offpeak_dates), 6)
 
     # ------------------------------------------------- Nutzung: Gegenprobe
+    def _result_liste(self) -> list[dict]:
+        """Alle `result`-Ereignisse (Fortsetzungen im selben Chat tragen mehrere)."""
+        if self.result_ereignisse:
+            return list(self.result_ereignisse)
+        return [self.result] if isinstance(self.result, dict) else []
+
     def result_usage(self) -> dict:
-        """Nutzung aus dem result-Ereignis (Gesamtlauf laut Claude Code)."""
-        u = (self.result or {}).get("usage") or {}
-        return {"input_miss": int(u.get("input_tokens") or 0),
-                "cache_read": int(u.get("cache_read_input_tokens") or 0),
-                "cache_creation": int(u.get("cache_creation_input_tokens") or 0),
-                "output": int(u.get("output_tokens") or 0)}
+        """Nutzung aus den `result`-Ereignissen (Gesamtlauf laut Claude Code).
+
+        Auftrag 2026-09-29: bei einer Fortsetzung liegen MEHRERE result-Ereignisse im
+        Mitschnitt - die Gesamtwerte sind dann ihre Summe (sonst zaehlte nur der letzte
+        Teillauf und die Gegenprobe `usage_check` schluege falsch Alarm).
+        """
+        summe = {"input_miss": 0, "cache_read": 0, "cache_creation": 0, "output": 0}
+        for ev in self._result_liste():
+            u = (ev or {}).get("usage") or {}
+            summe["input_miss"] += int(u.get("input_tokens") or 0)
+            summe["cache_read"] += int(u.get("cache_read_input_tokens") or 0)
+            summe["cache_creation"] += int(u.get("cache_creation_input_tokens") or 0)
+            summe["output"] += int(u.get("output_tokens") or 0)
+        return summe
 
     def usage_check(self, tolerance: float = 0.01) -> dict:
         """Summe je Nachricht gegen das result-Ereignis stellen (R11-2).
@@ -929,12 +1058,14 @@ class StreamStats:
         return (self.result or {}).get("terminal_reason")
 
     def num_turns(self) -> int | None:
-        v = (self.result or {}).get("num_turns")
-        return int(v) if isinstance(v, int) else None
+        werte = [int(ev.get("num_turns")) for ev in self._result_liste()
+                 if isinstance(ev.get("num_turns"), int)]
+        return sum(werte) if werte else None
 
     def total_cost_usd_field(self) -> float | None:
-        v = (self.result or {}).get("total_cost_usd")
-        return float(v) if isinstance(v, (int, float)) else None
+        werte = [float(ev.get("total_cost_usd")) for ev in self._result_liste()
+                 if isinstance(ev.get("total_cost_usd"), (int, float))]
+        return round(sum(werte), 6) if werte else None
 
     def duration_field(self) -> tuple[float | None, str]:
         """Die vom Worker-Prozess SELBST gemeldete Laufzeit + ihre Herkunft (R13c).
@@ -943,12 +1074,18 @@ class StreamStats:
         nur die darin verbrachte API-Zeit. Fuer die Bilanz ist die Wanduhr massgeblich:
         B159 stand mit `duration_api_ms` (288 s) in der Bilanz, waehrend der Prozess
         377 s lief - der Unterschied ist Ausfuehrungszeit im Kind (Werkzeuge, Rueckstau).
+
+        Auftrag 2026-09-29: bei Fortsetzungen werden die Teillaufzeiten SUMMIERT.
         """
-        r = self.result or {}
+        summe = {"duration_ms": 0.0, "duration_api_ms": 0.0}
+        for ev in self._result_liste():
+            for key in summe:
+                v = (ev or {}).get(key)
+                if isinstance(v, (int, float)) and v > 0:
+                    summe[key] += float(v)
         for key in ("duration_ms", "duration_api_ms"):
-            v = r.get(key)
-            if isinstance(v, (int, float)) and v > 0:
-                return round(float(v) / 1000.0, 3), key
+            if summe[key] > 0:
+                return round(summe[key] / 1000.0, 3), key
         return None, ""
 
     def tool_table(self) -> list[tuple[str, int]]:

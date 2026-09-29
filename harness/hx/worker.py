@@ -456,6 +456,9 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
                 "input_miss": int(t.get("input_miss") or 0),
                 "cache_read": int(t.get("cache_read") or 0),
                 "output": int(t.get("output") or 0),
+                # Auftrag 2026-09-29: die Kontextgroesse der letzten Anfrage - die
+                # Batch-Uhr (Hook) zeigt sie, ohne den Mitschnitt zu lesen.
+                "kontext": (stats.kontext_werte()[-1] if stats.requests else 0),
             }
             try:
                 state.save()
@@ -735,6 +738,9 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
     res.stats["total_cost_usd_field"] = stats.total_cost_usd_field()
     res.stats["tariff_now"] = pricing.tariff(None, extra_dates)
     res.stats["result_usage"] = stats.result_usage()
+    # Auftrag 2026-09-29: die Kontextgroesse je Anfrage mitmessen (input + cache_read +
+    # cache_creation) - als Zahl am Laufende, als Verlauf und als Kompaktierungshinweis.
+    res.stats.update(stats.kontext_stats())
     res.stats["usage_check"] = stats.usage_check()
     res.stats["rebuilt"] = bool(rebuilt)
     res.stats["dauer"] = {"wanduhr_s": res.duration_s, "quelle": res.duration_quelle,

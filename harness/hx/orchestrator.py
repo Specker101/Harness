@@ -2056,6 +2056,10 @@ class Orchestrator:
             f"- Anfragen: {st.get('requests')} | Eingabe ohne Cache: {st.get('input_miss')} "
             f"| Cache-Treffer: {st.get('cache_read')} | Cache-Neu: {st.get('cache_creation')} "
             f"| Ausgabe: {st.get('output')}",
+            # Auftrag 2026-09-29: die Kontextgroesse steht ohne Zusatzrechnung da.
+            f"- Kontext (Anfrage-Ende): {st.get('kontext_letzte_anfrage')} Tokens "
+            f"| Maximum: {st.get('kontext_max')} "
+            f"| Kompaktierungen: {st.get('kompaktierungen') or 'keine'}",
             f"- num_turns: {st.get('num_turns')} (nur die Harness-Grenzen sind maßgeblich)",
             f"- Modell laut Ausgabe: {res.get('model_seen')} (Soll erfüllt: {res.get('model_ok')})",
             f"- Abgelehnte Werkzeugaufrufe: {st.get('denials') or 'keine'}",
