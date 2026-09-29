@@ -1,0 +1,53 @@
+﻿== 1) Warum rc=1 (meta-217) ==
+   Mitschnitt: meta-217.jsonl  subtype='error_max_turns'  is_error=True  num_turns=31  dauer=200.6s
+   Fehlertext: Reached maximum number of turns (30)
+   Bericht:    rc=1 befund=0 verworfen=0 modell='claude-opus-5-5'
+   Rohantwort: 'Zwischenstand: B217 hat die R391-Reihenfolge eingehalten (Port-Edit erst nach dem Vorhersage-Commit im Mitschnitt). Jetz'
+
+== Zuglimit (Datei:Zeile) ==
+   harness/harness.toml:33: max_turns_safety    = 800
+   harness/harness.toml:117: max_turns     = 25
+   harness/harness.toml:131: max_turns        = 50    # Werkzeugrunden; Stichproben brauchen mehr als ein Review
+   hx/aussensicht.py:66  STANDARD ... max_turns = 50  (Vorgabe)
+   hx/aussensicht.py     build_command -> --max-turns 50  (wirksam)
+
+== Zuege der Laeufe meta-208..meta-217 ==
+   meta-208.jsonl     zuege=28   subtype=success          is_error=False
+   meta-209.jsonl     zuege=17   subtype=success          is_error=False
+   meta-210.jsonl     zuege=26   subtype=success          is_error=False
+   meta-211.jsonl     zuege=25   subtype=success          is_error=False
+   meta-212.jsonl     zuege=24   subtype=success          is_error=False
+   meta-213.jsonl     zuege=29   subtype=success          is_error=False
+   meta-214.jsonl     zuege=35   subtype=success          is_error=False
+   meta-217.jsonl     zuege=31   subtype=error_max_turns  is_error=True
+
+== 2) Marken nach dem gescheiterten Lauf ==
+   letzter_lauf_batch         = 217
+   letzter_lauf_ts            = '2026-09-29T22:49:49+00:00'
+   geprueft_batch             = 217
+   vorgemerkt                 = False
+   vorgemerkt_grund           = ''
+   kernzahl_gemeldet_bis      = 210
+   c_soll_null_gemeldet_bis   = 0
+   hybrid_gemeldet_bis        = 0
+   gescheitert_batch          = None
+   gescheitert_grund          = None
+   Batch jetzt                = 217  Zustand = 'GATE_APPROVAL'
+   -> die Takt-Regel 'alle 3' rechnete von 217: naechster automatischer Lauf bei Batch 220
+   -> `geprueft_batch` = 217 heisst: fuer diesen Batch ist entschieden (kein zweiter Versuch im selben Batch)
+
+== Register (state/meta_befunde.json) ==
+   updated_at='2026-09-29T23:02:03+00:00'  Befunde=40  verworfen=0
+   tiefenprobe={"gezogen": [205, 206, 212], "letzte": 212, "ts": "2026-09-29T16:43:36+00:00", "fenster": [205, 206, 207, 208, 209, 210, 211, 212, 213, 214]}
+   Quote: Aussensicht: 40 Befunde, davon 40 uebernommen, 0 abgelehnt, 0 offen   (letzte Aussensicht: Batch 214; 6 Befunde in diesem Lauf; zuletzt gescheitert: Batch 217 (wird wiederholt); Takt: alle 3 Batches)
+   offen: keine
+   -> Der gescheiterte Lauf hat am Register NUR `updated_at` auf den eigenen
+      Zeitstempel gesetzt (2026-09-29T22:49:49, s. runs/meta-217.json -> ts);
+      Befundzahl unveraendert 40, KEIN Eintrag zu Batch 217, und die gezogene
+      Tiefenprobe B214 steht NICHT unter `gezogen` (erst ein Lauf MIT Ergebnis
+      merkt sie, R13ac3). Der Register-Nachtrag M213-4a hat `updated_at` danach
+      neu gesetzt (docs/_r13aq_nachtrag.txt).
+
+== 3) Wiederholung: was der neue Code aus den VORHANDENEN Belegen liest ==
+   bericht_zustand: letzte_gelungen=B214 neuester_gescheitert=B217 grund='rc=1' berichte=8
+   faellig(batch=218): ['Wiederholung nach gescheiterter Aussensicht B217 (rc=1)']

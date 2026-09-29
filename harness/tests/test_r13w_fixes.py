@@ -802,7 +802,12 @@ class TestKernzahlEntprellung(unittest.TestCase):
     def _fake_run(self, rc: int):
         def lauf(cfg, log, state, grund, mock=False, zufall=None):
             res = aussensicht.Ergebnis()
-            res.rc, res.dauer_s, res.text, res.summary, res.tiefe = rc, 1.0, "", "", {}
+            res.rc, res.dauer_s, res.text, res.tiefe = rc, 1.0, "", {}
+            # R13aq (30.09.2026): als gelaufen zaehlt nur ein Lauf MIT Antwortblock -
+            # `rc == 0` allein genuegt nicht mehr (`aussensicht.gelaufen`). Die Attrappe
+            # liefert deshalb bei rc=0 eine Zusammenfassung.
+            res.summary = "Geprueft: zwei Zahlen gegen die Rohbelege bestaetigt." \
+                if rc == 0 else ""
             return res
         return lauf
 

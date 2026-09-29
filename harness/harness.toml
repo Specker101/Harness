@@ -128,7 +128,12 @@ max_turns     = 25
 # "Aussensicht: n Befunde, davon u uebernommen, a abgelehnt, o offen").
 every_batches    = 3     # zusaetzlich automatisch alle N Batches (erste loest /meta aus)
 wall_s           = 900   # harte Zeitgrenze je Lauf (danach bricht der Lauf ab)
-max_turns        = 30    # Werkzeugrunden; Stichproben brauchen mehr als ein Review
+max_turns        = 50    # Werkzeugrunden; Stichproben brauchen mehr als ein Review
+# R13aq (30.09.2026): 30 -> 50. meta-217 brach mit `error_max_turns` bei 31 Zuegen ab
+# (Rohantwort nur ein Zwischenstand, 0 Befunde); die gelungenen Laeufe meta-208..meta-214
+# brauchten 17..35 Zuege (meta-214 = 35). 50 = 35 gemessen + Reserve. Der Schluessel heisst
+# auch `meta_max_turns` (der Name aus dem Auftrag) - er hat Vorrang, s.
+# `aussensicht.max_turns`.
 max_befunde      = 7     # mehr wird nicht in den Ledger uebernommen
 summaries        = 10    # so viele Review-Zusammenfassungen gehen in den Prompt
 bilanz_zeitfenster = 12  # so viele Batches umfasst der Bilanz-Trend

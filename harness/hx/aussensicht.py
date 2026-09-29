@@ -63,7 +63,7 @@ from .util import (ensure_dir, now_iso, read_json, read_text, write_json_atomic,
 # `every_batches` ist die Vorgabe, falls der Schluessel in `harness.toml` fehlt; die
 # eingestellte Zahl steht dort (`[meta]`, seit R13z = 3, Begruendung in
 # docs/bedienung.md Paragraph 12e).
-STANDARD = {"every_batches": 3, "wall_s": 900, "max_turns": 30, "max_befunde": 7,
+STANDARD = {"every_batches": 3, "wall_s": 900, "max_turns": 50, "max_befunde": 7,
             "summaries": 10, "bilanz_zeitfenster": 12, "bschritt_stillstand_batches": 3}
 # `bschritt_stillstand_batches` heisst seit R13ah: so viele **B-Batches in Folge** muessen
 # denselben Halt-PC zeigen und duerfen im Wegmass nicht steigen (Hybrid-Lauf-Zeile). Der
@@ -124,9 +124,33 @@ HYBRID_GRUND = "Hybrid-Lauf"
 HYBRID_STILLSTAND_BATCHES = 3
 
 
+def max_turns(cfg) -> int:
+    """Zuglimit der Aussensicht (R13aq) - konfigurierbar, mit Reserve.
+
+    GEMESSEN (30.09.2026): `runs/meta-217.jsonl` brach mit
+    `subtype=error_max_turns`/`Reached maximum number of turns (30)` bei **31 Zuegen**
+    ab; die gelungenen Laeufe meta-208..meta-214 brauchten 17 bis **35** Zuege
+    (meta-214 = 35, der groesste). Das Limit stand auf 30.
+
+    Gelesen wird `[meta] meta_max_turns` (der Name aus dem Auftrag), sonst das alte
+    `[meta] max_turns`, sonst `STANDARD` (50 = 35 gemessen + Reserve).
+    """
+    for schluessel in ("meta_max_turns", "max_turns"):
+        wert = cfg.get("meta", schluessel, None)
+        if wert is None:
+            continue
+        try:
+            return max(1, int(wert))
+        except (TypeError, ValueError):
+            continue
+    return int(STANDARD["max_turns"])
+
+
 def grenzen(cfg) -> dict:
     """Die Grenzen der Aussensicht aus `[meta]` (Vorgaben als Rueckfall)."""
-    return {k: cfg.get("meta", k, v) for k, v in STANDARD.items()}
+    g = {k: cfg.get("meta", k, v) for k, v in STANDARD.items()}
+    g["max_turns"] = max_turns(cfg)          # R13aq: zwei moegliche Schluesselnamen
+    return g
 
 
 # ------------------------------------------------------------------ Ablage
@@ -254,7 +278,14 @@ def offene(cfg) -> list[dict]:
 # (und wurde nicht mehr vorgelegt). Als offen gezaehlt waere er schlicht falsch; die
 # Absage ("abgelehnt") ist er auch nicht. Das Wort selbst bleibt im Register stehen
 # (`status`), nur die Quote zaehlt ihn zu den uebernommenen.
-UEBERNOMMEN_WORTE = ("uebernommen", "beantwortet", "erledigt", "zurueckgestellt")
+#
+# R13aq (30.09.2026): dasselbe fuer `zur Kenntnis`. Gemessen: `runs/b217/review.md:15`
+# antwortet "M213-4a: zur Kenntnis - die Batch-Uhr bleibt das Mass" - der Befund galt
+# bis dahin als offen (`runs/meta-217.json`, `offen_alt`). "Zur Kenntnis" heisst: der
+# Reviewer hat es gesehen und bewusst NICHT umgesetzt; das ist ein erledigter Posten,
+# keine offene Frage (dieselbe Haltung wie `zurueckgestellt`).
+UEBERNOMMEN_WORTE = ("uebernommen", "beantwortet", "erledigt", "zurueckgestellt",
+                    "zur kenntnis")
 ABGELEHNT_WORTE = ("abgelehnt", "verworfen")
 
 
@@ -398,6 +429,51 @@ def quote(cfg) -> dict:
     return q
 
 
+def bericht_zustand(cfg) -> dict:
+    """Die Berichte `runs/meta-*.json` auswerten (R13aq).
+
+    Rueckgabe: `{letzte_gelungen, befunde, neuester_gescheitert, gescheitert_grund,
+    anzahl_berichte}`.
+
+    Gelaufen wird von **neu nach alt**: ein gescheiterter Bericht (`gelaufen: false` oder
+    `rc != 0`) wird gemerkt, der ERSTE gelungene beendet die Suche - er hat die
+    gescheiterten ueberholt. Berichte ohne beide Felder (vor R13aq) zaehlen als gelaufen.
+
+    Anlass: `runs/meta-217.json` (rc=1, `error_max_turns`) entstand VOR dem Fix und hat
+    die Takt-Marke im Zustand trotzdem gesetzt. Der Bericht ist der dauerhafte Beleg -
+    aus ihm kommt deshalb sowohl die Anzeige (`zeile`) als auch der Wiederholungs-Grund
+    (`faellig`), ohne dass ein Zustand oder ein Beleg nachtraeglich geaendert werden muss.
+    """
+    aus = {"letzte_gelungen": 0, "befunde": 0, "neuester_gescheitert": 0,
+           "gescheitert_grund": "", "anzahl_berichte": 0}
+    runs = Path(cfg.root) / "runs"
+    if not runs.is_dir():
+        return aus
+    try:
+        berichte = sorted(runs.glob("meta-*.json"), key=lambda p: p.stat().st_mtime,
+                          reverse=True)
+    except OSError:
+        return aus
+    aus["anzahl_berichte"] = len(berichte)
+    for p in berichte:
+        try:
+            d = json.loads(read_text(p))
+        except (OSError, ValueError):
+            continue
+        batch = int(d.get("batch") or 0)
+        if d.get("gelaufen") is False or int(d.get("rc") or 0) != 0:
+            if not aus["neuester_gescheitert"]:
+                aus["neuester_gescheitert"] = batch
+                aus["gescheitert_grund"] = str(d.get("gescheitert_grund")
+                                               or f"rc={d.get('rc')}").strip()
+            continue
+        if not aus["letzte_gelungen"]:
+            aus["letzte_gelungen"] = batch
+            aus["befunde"] = len(d.get("befunde") or [])
+        break
+    return aus
+
+
 def zeile(cfg) -> str:
     """Eine Zeile fuer `/bilanz` und `/status` ('' = es gab noch keine Aussensicht).
 
@@ -405,27 +481,26 @@ def zeile(cfg) -> str:
     a abgelehnt, o offen` - dahinter in Klammern die letzte Aussensicht (Batch und Zahl
     der Befunde des Laufs) und der eingestellte **Takt** (`harness.toml`,
     `[meta] every_batches`). Die Quote ist die Grundlage der Auswertung nach einer Woche.
+
+    R13aq: "letzte Aussensicht" ist die letzte **gelungene**; ein gescheiterter Lauf wird
+    eigens genannt (`zuletzt gescheitert: Batch N (wird wiederholt)`), sonst stuende in
+    `/bilanz`, es habe eine Aussensicht gegeben, die es nicht gab.
     """
     alle = ledger(cfg)
-    berichte = sorted((Path(cfg.root) / "runs").glob("meta-*.json"),
-                      key=lambda p: p.stat().st_mtime) if (Path(cfg.root) / "runs").is_dir() else []
-    if not alle and not berichte:
+    zustand = bericht_zustand(cfg)
+    if not alle and not zustand["anzahl_berichte"]:
         return ""
-    batch = 0
-    anzahl = len(alle)
-    if berichte:
-        try:
-            d = json.loads(read_text(berichte[-1]))
-            batch = int(d.get("batch") or 0)
-            anzahl = len(d.get("befunde") or []) or anzahl
-        except (OSError, ValueError):
-            batch = 0
+    batch = zustand["letzte_gelungen"]
+    anzahl = zustand["befunde"] or len(alle)
     q = quote(cfg)
     kopf = (f"Aussensicht: {q['gesamt']} Befunde, davon {q['uebernommen']} uebernommen, "
             f"{q['abgelehnt']} abgelehnt, {q['offen']} offen")
     herkunft = [f"letzte Aussensicht: Batch {batch or '?'}"]
-    if berichte and anzahl:
+    if zustand["anzahl_berichte"] and anzahl:
         herkunft.append(f"{anzahl} Befunde in diesem Lauf")
+    if zustand["neuester_gescheitert"]:
+        herkunft.append(f"zuletzt gescheitert: Batch {zustand['neuester_gescheitert']} "
+                        "(wird wiederholt)")
     try:
         takt = int(grenzen(cfg).get("every_batches") or 0)
     except (TypeError, ValueError):
@@ -1046,6 +1121,12 @@ def build_prompt(cfg, state, grund, tiefe: dict | None = None) -> str:
         "Sei bewusst skeptisch und pruefe nach - eine Zahl aus einer Zusammenfassung ist "
         "kein Beleg. Wenn du etwas nicht pruefen kannst, sage das ausdruecklich.",
         "",
+        # R13aq: meta-217 verbrauchte alle Zuege mit Vorarbeit und schrieb am Ende nur
+        # einen Zwischenstand - der Lauf war verloren. Deshalb eine Frist VOR dem Limit.
+        f"ZEITLIMIT: Schreibe spaetestens nach {max(1, int(g['max_turns']) - 5)} Zuegen "
+        "die Antwort im Blockformat, auch wenn die Tiefenprobe unvollstaendig ist; "
+        "Unvollstaendiges als nicht geprueft kennzeichnen.",
+        "",
     ]
     return "\n".join(kopf) + "\n" + eingaben(cfg, state, tiefe=tiefe) + "\n\n" + \
         FORMAT_HINWEIS.format(max_befunde=int(g["max_befunde"])) + "\n"
@@ -1193,8 +1274,10 @@ def parse(text: str, max_befunde: int = 7) -> tuple[str, list[dict], list[dict],
 # gilt die Zeile NICHT als Antwort (sonst wuerde jede Prosa-Erwaehnung eines Befunds ihn
 # stillschweigend zuklappen).
 _RE_ANTWORT = re.compile(r"\bM(\d{3})-(\d+)([a-z]?)\s*:\s*(?P<rest>[^\n]*)", re.IGNORECASE)
+# R13aq: `zur Kenntnis` ist das dritte Verdikt neben uebernommen/abgelehnt (es zaehlt wie
+# "erledigt", s. `UEBERNOMMEN_WORTE`). Gemessen `runs/b217/review.md:15`.
 _RE_VERDIKT = re.compile(r"\b(uebernommen|übernommen|abgelehnt|erledigt|verworfen|offen|"
-                         r"zurueckgestellt|zurückgestellt)\b", re.IGNORECASE)
+                         r"zurueckgestellt|zurückgestellt|zur\s+Kenntnis)\b", re.IGNORECASE)
 
 # Die Kennung im Text einer Aussensicht-Nachricht ("Aussensicht Batch 214 - Befund
 # M214-1 (Gewicht hoch):"). R13ak: damit findet der Harness den Registereintrag zu einer
@@ -1254,6 +1337,7 @@ def antworten_uebernehmen(cfg, summary: str, batch: int) -> list[str]:
         # `klasse` weiter als uebernommen.
         status = {"übernommen": "uebernommen",
                   "zurückgestellt": "zurueckgestellt"}.get(wort, wort)
+        status = " ".join(str(status).split())        # R13aq: "zur  Kenntnis" -> ein Space
         for eintrag in finde_eintraege(index, bid):
             eintrag["status"] = status
             eintrag["antwort"] = (rest.strip()[:400] or str(summary).strip()[:200])
@@ -1352,12 +1436,44 @@ class Ergebnis:
         self.stream_path: str = ""
         # R13ac3: die Ziehung dieses Laufs (`tiefenprobe_waehlen`).
         self.tiefe: dict = {}
+        # R13aq: warum der Lauf NICHT als Aussensicht zaehlt (leer = gelaufen).
+        self.subtype: str = ""
+        self.zuege: int | None = None
+        self.gescheitert: str = ""
 
     def describe(self) -> str:
         return (f"rc={self.rc} dauer={self.dauer_s:.0f}s modell={self.modell or '-'} "
                 f"befunde={len(self.befunde)} verworfen={len(self.verworfen)}"
+                + (f" zuege={self.zuege}" if self.zuege else "")
+                + (f" subtype={self.subtype}" if self.subtype else "")
                 + (f" tiefenprobe=B{self.tiefe.get('batch')}"
                    if self.tiefe.get("batch") else ""))
+
+
+def gelaufen(res) -> tuple[bool, str]:
+    """Zaehlt dieser Lauf als gelungene Aussensicht? (R13aq) -> `(ok, grund)`.
+
+    Nein, wenn
+      * `rc != 0` ist - Abbruch durch Zeitgrenze, **Zuglimit** (`error_max_turns`),
+        API-Fehler; der Grund nennt `subtype` und Zugarzahl, soweit gemessen; oder
+      * kein Antwortblock da ist (`0 Befunde` UND keine `<AUSSENSICHT>`-Zusammenfassung).
+
+    GEMESSEN (30.09.2026, `runs/meta-217.md`): rc=1, `error_max_turns` nach 202 s,
+    0 Befunde, Rohantwort nur eine Zwischenmeldung ("Zwischenstand: … Jetzt die
+    Tiefenprobe B214"). Der Harness zaehlte das als gelaufene Aussensicht und setzte die
+    Takt-Marke - der naechste automatische Lauf waere damit erst drei Batches spaeter
+    gekommen, mit einem Bericht, der wie ein Ergebnis aussieht.
+    """
+    if int(res.rc or 0) != 0:
+        teile = [f"rc={res.rc}"]
+        if res.subtype:
+            teile.append(str(res.subtype))
+        if res.zuege:
+            teile.append(f"{int(res.zuege)} Zuege")
+        return False, ", ".join(teile)
+    if not (res.summary or res.befunde):
+        return False, "kein AUSSENSICHT-Block in der Antwort (0 Befunde)"
+    return True, ""
 
 
 MOCK_ANTWORT = """<AUSSENSICHT>
@@ -1407,6 +1523,11 @@ def run(cfg, log, state, grund: str, mock: bool = False,
             stats.feed(linie)
         res.text = stats.final_text() or ""
         res.modell = stats.model or ""
+        # R13aq: Abbruchgrund und Zugarzahl aus dem `result`-Ereignis (gemessen
+        # meta-217: subtype=error_max_turns, num_turns=31) - sie stehen im Bericht und
+        # in der Meldung, wenn der Lauf nicht als Aussensicht zaehlt.
+        res.subtype = str((stats.result or {}).get("subtype") or "")
+        res.zuege = stats.num_turns()
         streamjson.schreibe_rate_limit(cfg, stats.rate_limit, f"Aussensicht b{batch}")
         if log:
             log.info("Aussensicht fertig", batch=batch, rc=res.rc,
@@ -1464,6 +1585,22 @@ def faellig(cfg, state, log=None) -> list[str]:
     gruende: list[str] = []
     if meta.get("vorgemerkt"):
         gruende.append("vorgemerkt durch /meta")
+    # R13aq: eine GESCHEITERTE Aussensicht wird beim naechsten Batch-Ende genau einmal
+    # wiederholt. Zwei Quellen, der hoehere Wert gilt:
+    #   * der Zustandsvermerk `gescheitert_batch` (seit diesem Fix, gilt fuer Laeufe nach
+    #     dem Neustart) und
+    #   * der **Bericht** selbst (`bericht_zustand`) - `runs/meta-217.json` (rc=1) entstand
+    #     VOR dem Fix und hat die Takt-Marke trotzdem gesetzt; der Bericht ist der
+    #     dauerhafte Beleg und traegt die Wiederholung auch dann, wenn der Zustand
+    #     verloren geht (Absturz zwischen Lauf und Zustandsschreiben).
+    berichte = bericht_zustand(cfg)
+    gescheitert = max(int(meta.get("gescheitert_batch") or 0),
+                      int(berichte["neuester_gescheitert"] or 0))
+    if gescheitert and batch > gescheitert:
+        grund_text = str(meta.get("gescheitert_grund")
+                         or berichte.get("gescheitert_grund") or "").strip()
+        gruende.append(f"Wiederholung nach gescheiterter Aussensicht B{gescheitert}"
+                       + (f" ({grund_text})" if grund_text else ""))
     # Die 10er-Regel greift erst, wenn schon einmal eine Aussensicht gelaufen ist:
     # sonst wuerde der ERSTE Start nach dieser Aenderung sofort einen Opus-Lauf
     # ausloesen (207 Batches Historie). Die erste Aussensicht loest der Nutzer aus.
@@ -1501,6 +1638,10 @@ def bericht(cfg, batch: int, grund: str, res: Ergebnis, verteilung: dict,
         f"- Ausloeser-Gruende: {'; '.join(gruende[:6]) or '-'}",
         f"- Lauf: {res.describe()}",
     ]
+    ok, warum = gelaufen(res)
+    if not ok:
+        zeilen.append(f"- ERGEBNIS: GESCHEITERT ({warum}) - zaehlt NICHT als Aussensicht, "
+                      "keine Marke, keine Verdikte")
     # R13ac3: die gezogene Nummer steht im Bericht - auch wenn das Modell sie nicht nennt.
     tiefe = dict(res.tiefe or {})
     if tiefe.get("batch"):
@@ -1551,6 +1692,7 @@ def bericht_schreiben(cfg, batch: int, grund: str, res: Ergebnis, verteilung: di
     # R13aa (Punkt 2): verworfene Befunde ins Register - nicht wegwerfen (siehe
     # `verworfene_speichern`), damit `/fragen` sie als "verworfen - pruefen?" zeigen kann.
     verworfene_speichern(cfg, int(batch), list(res.verworfen or []))
+    ok, warum = gelaufen(res)
     write_json_atomic(json_pfad(cfg, batch), {
         "batch": int(batch), "ts": now_iso(), "grund": grund, "gruende": list(gruende),
         "summary": res.summary, "rc": res.rc, "dauer_s": res.dauer_s, "modell": res.modell,
@@ -1558,6 +1700,9 @@ def bericht_schreiben(cfg, batch: int, grund: str, res: Ergebnis, verteilung: di
         "ids": verteilung.get("ids") or [], "verdikte": verteilung.get("verdikte") or [],
         "offen_alt": verteilung.get("offen_alt") or [],
         "tiefenprobe": dict(res.tiefe or {}),
+        # R13aq: der Lauf ist maschinenlesbar als gescheitert markiert (subtype/Zuege).
+        "gelaufen": bool(ok), "gescheitert_grund": warum,
+        "subtype": res.subtype, "zuege": res.zuege,
         "text": res.text,
     })
     return p

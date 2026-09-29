@@ -813,9 +813,10 @@ eine vollwertige Antwort.
    Gezählt wird **je Kennung**: ein geteilter Befund (`M208-5a` Nutzer / `M208-5b`
    Reviewer, §16a) zählt zweimal, weil beide Teile einzeln beantwortet werden. Spiegelt
    das Register ein Verdikt, steht das Wort **so** darin, wie der Reviewer es geschrieben
-   hat (`uebernommen`, `abgelehnt`, `erledigt`, `verworfen`). In der Quote zählt
-   `beantwortet` (das Wort aus R13w, steht noch in älteren Einträgen) und `erledigt`
-   (die Aussensicht hat selbst nachgeprüft) als **übernommen**, `verworfen` als
+   hat (`uebernommen`, `abgelehnt`, `erledigt`, `verworfen`, `zur Kenntnis`). In der Quote
+   zählt `beantwortet` (das Wort aus R13w, steht noch in älteren Einträgen), `erledigt`
+   (die Aussensicht hat selbst nachgeprüft) und seit R13aq `zur Kenntnis`
+   (gesehen und bewusst nicht umgesetzt) als **übernommen**, `verworfen` als
    **abgelehnt**; alles Unbekannte gilt weiter als **offen**. Ein falsch geschriebener
    Status lässt einen Befund also nicht stillschweigend verschwinden.
 
@@ -1235,6 +1236,40 @@ gefehlt hat danach die Zahl (der C-Trend endete auf B215).
 Belege: `docs/_r13ap_belege.md` (inkl. Datei:Zeile-Liste aller Leser),
 `docs/_r13ap_messung.txt`, Fixture `harness/tests/fixtures/preflight_216_utf16.txt`
 (Byte-Kopie), Tests `harness/tests/test_r13ap_fixes.py`.
+
+### 12r. Gescheiterte Aussensicht zählt nicht (R13aq, 2026-09-30)
+
+**Gemessen** (`docs/_r13aq_messung.txt`): `runs/meta-217.jsonl` endet mit
+`subtype=error_max_turns`, `is_error=true`, `num_turns=31`,
+`errors=["Reached maximum number of turns (30)"]` — der Lauf hatte nach 202 s alle Züge
+verbraucht und nur einen Zwischenstand geschrieben (0 Befunde). Die gelungenen Läufe
+meta-208…meta-214 brauchten 17, 28, 26, 25, 24, 29 und **35** Züge (meta-214).
+
+**Was der Harness falsch machte:** die Takt-Marke `letzter_lauf_batch` wurde im
+`finally` **bedingungslos** gesetzt — rc=1 zählte als erledigte Aussensicht, und die Regel
+„alle 3 Batches" rechnete von 217 (nächster automatischer Lauf: B220).
+
+Jetzt gilt:
+
+| Punkt | Verhalten |
+|---|---|
+| **Gelaufen ist …** | `rc == 0` **und** ein gelesener Antwortblock (`<AUSSENSICHT>` bzw. mindestens ein Befund). Sonst `gelaufen=False` mit Grund (`rc=1, error_max_turns, 31 Zuege` / `kein AUSSENSICHT-Block in der Antwort (0 Befunde)`) |
+| **Keine Marke** | `letzter_lauf_batch`/`letzter_lauf_ts` bleiben stehen; auch die drei Stillstands-Marken werden nicht gesetzt. Telegram: `Aussensicht B<N> gescheitert (<Grund>), wird beim nächsten Batch-Ende wiederholt` |
+| **Nichts angewendet** | keine Verdikte, keine Queue-Nachricht, kein Registereintrag. Der Bericht `runs/meta-<N>.md` wird trotzdem geschrieben (Beleg) und trägt `- ERGEBNIS: GESCHEITERT (…)`; `runs/meta-<N>.json` trägt `gelaufen: false` |
+| **Wiederholung** | genau einmal, beim **nächsten** Batch-Ende (`aussensicht.faellig` meldet `Wiederholung nach gescheiterter Aussensicht B<N>`). Im selben Batch wird nicht wiederholt — sonst liefe die Schleife sofort wieder los |
+| **Zuglimit** | `[meta] meta_max_turns` (Name aus dem Auftrag), sonst `[meta] max_turns`; Vorgabe **50** = 35 gemessene Züge + Reserve (vorher 30). `harness.toml:131`, Rückfall in `hx/aussensicht.py` (`STANDARD`) |
+| **Frist im Prompt** | `ZEITLIMIT: Schreibe spaetestens nach <max-5> Zuegen die Antwort im Blockformat, auch wenn die Tiefenprobe unvollstaendig ist; Unvollstaendiges als nicht geprueft kennzeichnen.` — zusätzlich als Abschnitt in `prompts/aussensicht.md` |
+| **Anzeige** | „letzte Aussensicht" in `/bilanz`/`/status` ist die letzte **gelungene**; ein gescheiterter Bericht wird als `zuletzt gescheitert: Batch N (wird wiederholt)` genannt. Erkannt wird er an `gelaufen: false` **oder** `rc != 0` — damit auch der alte `runs/meta-217.json` richtig angezeigt wird, ohne einen Beleg zu ändern |
+| **Verdikt `zur Kenntnis`** | zählt wie `erledigt` (übernommen). `runs/b217/review.md:15` (`M213-4a: zur Kenntnis - …`) wurde über `docs/_r13aq_nachtrag.py --schreiben` nachgetragen: 40/40 übernommen, 0 offen |
+
+Der gescheiterte **meta-217 wird beim nächsten Batch-Ende (B218) wiederholt** — gemessen
+am echten Beleg: `bericht_zustand -> letzte_gelungen=B214, neuester_gescheitert=B217`,
+`faellig(batch=218) -> ['Wiederholung nach gescheiterter Aussensicht B217 (rc=1)']`. Der
+Bericht ist die zweite Quelle der Wiederholung (der Zustandsvermerk fehlt bei Läufen von
+**vor** diesem Fix, und ein Absturz zwischen Lauf und Zustandsschreiben verlöre ihn sonst).
+
+Belege: `docs/_r13aq_belege.md`, `docs/_r13aq_messung.txt`, `docs/_r13aq_nachtrag.txt`,
+Tests `harness/tests/test_r13aq_fixes.py`.
 
 ### 12b. Was der Nutzer selbst entscheiden muss
 

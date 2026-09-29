@@ -808,6 +808,7 @@ class Orchestrator:
             return
         gruende = list(gruende or [grund])
         batch = int(self.state.batch or 0)
+        gelaufen = False
         self.say(f"Aussensicht laeuft (Anlass: {grund}; kann einige Minuten dauern). "
                  "Sie entscheidet nichts und aendert nichts.")
         self.phase("aussensicht", f"Batch {batch}")
@@ -815,8 +816,25 @@ class Orchestrator:
             res = aussensicht.run(self.cfg, self.log, self.state, grund, mock=self.mock)
         except Exception as exc:                                    # noqa: BLE001
             self.log.error("Aussensicht fehlgeschlagen", fehler=str(exc)[:250])
-            self.say("AUSSENSICHT FEHLGESCHLAGEN: " + str(exc)[:300])
+            self._aussensicht_gescheitert(batch, f"Ausnahme: {str(exc)[:120]}")
         else:
+            ok, warum = aussensicht.gelaufen(res)
+            if not ok:
+                # R13aq (30.09.2026): ein Lauf ohne Ergebnis ist KEINE Aussensicht.
+                # GEMESSEN `runs/meta-217.md`: rc=1 (error_max_turns), 0 Befunde, die
+                # Rohantwort nur ein Zwischenstand. Der Bericht wird trotzdem
+                # geschrieben (Beleg), aber es wird NICHTS angewendet: keine Verdikte,
+                # keine Queue, kein Registereintrag, keine Takt-Marke (sonst waere die
+                # naechste Aussensicht erst drei Batches spaeter und der gescheiterte
+                # Lauf zaehlte als gelaufen).
+                pfad = aussensicht.bericht_schreiben(self.cfg, batch, grund, res, {},
+                                                     gruende)
+                self.log.error("Aussensicht gescheitert", batch=batch, grund=warum,
+                               rc=res.rc, subtype=res.subtype, zuege=res.zuege,
+                               bericht=str(pfad))
+                self._aussensicht_gescheitert(batch, warum, bericht=str(pfad))
+                return
+            gelaufen = True
             verteilung = aussensicht.verteile(self.cfg, self.state, res.summary,
                                               res.befunde, res.pruefungen, batch, self.log)
             pfad = aussensicht.bericht_schreiben(self.cfg, batch, grund, res, verteilung,
@@ -853,28 +871,57 @@ class Orchestrator:
             self.log.info("Aussensicht beendet", batch=batch, befunde=len(res.befunde),
                           verworfen=len(res.verworfen), an_reviewer=len(an_reviewer),
                           an_nutzer=len(an_nutzer))
-            # Entprellung (Auftrag 2026-09-29): die Kernzahl-Marke erst JETZT setzen - ein
-            # erfolgreicher Lauf (rc=0), an dem der Stillstands-Grund beteiligt war. Ein
-            # fehlgeschlagener Lauf (rc != 0) laesst die Marke unveraendert (nicht beim
-            # Ausloesen setzen).
-            if res.rc == 0 and aussensicht.kernzahl_beteiligt(gruende):
+            # Entprellung (Auftrag 2026-09-29): die Kernzahl-Marke erst JETZT setzen -
+            # `gelaufen` ist an dieser Stelle wahr (rc=0 UND Antwortblock gelesen, R13aq).
+            # Ein gescheiterter Lauf laesst alle Marken unveraendert.
+            if aussensicht.kernzahl_beteiligt(gruende):
                 bis = aussensicht.kernzahl_marke_setzen(self.cfg, self.state)
                 self.log.info("Kernzahl-Marke gesetzt", bis=bis)
-            if res.rc == 0 and aussensicht.c_soll_null_beteiligt(gruende):
+            if aussensicht.c_soll_null_beteiligt(gruende):
                 serie_bis = aussensicht.c_soll_null_marke_setzen(self.cfg, self.state,
                                                                  log=self.log)
                 self.log.info("c_soll_null-Marke gesetzt", bis=serie_bis)
-            if res.rc == 0 and aussensicht.hybrid_beteiligt(gruende):
+            if aussensicht.hybrid_beteiligt(gruende):
                 hy_bis = aussensicht.hybrid_marke_setzen(self.cfg, self.state)
                 self.log.info("Hybrid-Lauf-Marke gesetzt", bis=hy_bis)
         finally:
             meta = dict(self.state.data.get("meta") or {})
-            meta.update({"letzter_lauf_batch": batch, "letzter_lauf_ts": now_iso(),
-                         "geprueft_batch": batch, "vorgemerkt": False,
-                         "vorgemerkt_grund": ""})
+            meta.update({"vorgemerkt": False, "vorgemerkt_grund": ""})
+            if gelaufen:
+                # R13aq: NUR eine gelaufene Aussensicht setzt die Takt-Marke (und damit
+                # den Abstand "alle N Batches") und loescht den Fehlvermerk.
+                meta.update({"letzter_lauf_batch": batch, "letzter_lauf_ts": now_iso(),
+                             "geprueft_batch": batch})
+                for feld in ("gescheitert_batch", "gescheitert_grund", "gescheitert_ts"):
+                    meta.pop(feld, None)
             self.state.data["meta"] = meta
             self.state.save()
             self.phase(None)
+
+    def _aussensicht_gescheitert(self, batch: int, warum: str,
+                                 bericht: str = "") -> None:
+        """Vermerk und Meldung fuer eine NICHT gelaufene Aussensicht (R13aq).
+
+        `letzter_lauf_batch` bleibt absichtlich stehen - die Takt-Regel "alle N Batches"
+        rechnet von der letzten **gelungenen** Aussensicht. `geprueft_batch` wird
+        dagegen gesetzt: die Schleife fragt `aussensicht.faellig` in JEDEM Durchgang, und
+        ohne diese Entprellung wuerde derselbe Lauf sofort wiederholt (je ~3 min und ein
+        Opus-Lauf). Wiederholt wird erst beim naechsten Batch-Ende - dafuer sorgt
+        `gescheitert_batch` (gelesen in `aussensicht.faellig`).
+        """
+        meta = dict(self.state.data.get("meta") or {})
+        meta.update({"gescheitert_batch": int(batch),
+                     "gescheitert_grund": str(warum)[:200],
+                     "gescheitert_ts": now_iso(),
+                     "geprueft_batch": int(batch),
+                     "vorgemerkt": False, "vorgemerkt_grund": ""})
+        self.state.data["meta"] = meta
+        self.state.save()
+        self.say(f"Aussensicht B{batch} gescheitert ({warum}), wird beim nächsten "
+                 "Batch-Ende wiederholt")
+        if bericht:
+            self.say(f"Bericht: {bericht}")
+        self.log.warn("Aussensicht zaehlt nicht als gelaufen", batch=batch, grund=warum)
 
     def _ask_arbeiter(self) -> None:
         """Die Warteschlange der Fragen abarbeiten - eine nach der anderen (R13o)."""

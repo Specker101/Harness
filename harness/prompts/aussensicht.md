@@ -87,6 +87,18 @@ Dein Prüfauftrag, in dieser Reihenfolge:
   er landet im Register und wird dem Nutzer unter `/fragen` als „verworfen — prüfen?"
   gezeigt, siehe unten).
 
+## Zuglimit und Frist (R13aq, 30.09.2026)
+
+Der Lauf hat eine harte Zahl von **Zügen** (Werkzeugrunden); der Harness nennt sie im
+Prompt und bricht danach ab. **Gemessen:** `runs/meta-217` verbrauchte alle Züge mit
+Vorarbeit und schrieb am Ende nur einen Zwischenstand („Zwischenstand: … Jetzt die
+Tiefenprobe B214") — der ganze Lauf war verloren, kein Befund, keine Marke.
+
+Deshalb gilt: **spätestens fünf Züge vor dem Limit** schreibst du die Antwort im
+Blockformat, auch wenn die Tiefenprobe unvollständig ist. Was du nicht mehr geprüft hast,
+**kennzeichnest du als nicht geprüft** (z. B. „Tiefenprobe B214: nur Auftrag und Bericht
+gelesen, Denkblöcke nicht mehr geprüft") — eine ehrliche Lücke ist ein Ergebnis.
+
 ## Was als Beleg gilt (R13aa, nach der Nachbesserung aus `runs/meta-209.md`)
 
 Eine dieser Formen genügt:

@@ -1,0 +1,13 @@
+Register: g:\Harness\harness\state\meta_befunde.json  (40 Eintraege)
+Quote vorher:   Aussensicht: 40 Befunde, davon 39 uebernommen, 0 abgelehnt, 1 offen   (letzte Aussensicht: Batch 217; 40 Befunde in diesem Lauf; Takt: alle 3 Batches)
+
+--- M213-4a (Bewertung Batch 216) ---
+    harness\runs\b217\review.md:15
+    M213-4a: zur Kenntnis - die Batch-Uhr bleibt das Maß
+    vorher: status='offen' antwort_batch=None
+    nachher: status='zur kenntnis' antwort_batch=216 geaendert=['M213-4a']
+    Antwort im Register: 'zur Kenntnis - die Batch-Uhr bleibt das Maß'
+    Klasse (zaehlt wie 'erledigt'): uebernommen
+
+Quote nachher:  Aussensicht: 40 Befunde, davon 40 uebernommen, 0 abgelehnt, 0 offen   (letzte Aussensicht: Batch 217; 40 Befunde in diesem Lauf; Takt: alle 3 Batches)
+Offene Befunde: keine

@@ -515,7 +515,11 @@ class TestHybridStillstand(Basis):
     def _fake_run(rc: int):
         def lauf(cfg, log, state, grund, mock=False, zufall=None):
             res = aussensicht.Ergebnis()
-            res.rc, res.dauer_s, res.text, res.summary, res.tiefe = rc, 1.0, "", "", {}
+            res.rc, res.dauer_s, res.text, res.tiefe = rc, 1.0, "", {}
+            # R13aq: `rc == 0` allein zaehlt nicht als gelaufen - ein Antwortblock muss da
+            # sein (`aussensicht.gelaufen`). Sonst setzt der Harness keine Marke.
+            res.summary = "Geprueft: Hybrid-Lauf-Zeile gegen die Preflight-Datei geprueft." \
+                if rc == 0 else ""
             return res
         return lauf
 
