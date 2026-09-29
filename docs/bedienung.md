@@ -979,6 +979,14 @@ nur nach 14 Tagen gepackt (13c).
 | `state/run.json` | Zustand, Batch, Gate, `harness_head`, `remote_work`, `retention` |
 | `logs/wip-b<N>-status.txt` / `.patch` | Was bei einem Stopp unfertig im Arbeitsbaum lag |
 
+**Suchen in `runs/`, `state/` und `logs/` immer mit `Select-String` (PowerShell), nie mit
+der VS-Code-Suche:** diese Ordner sind per `.gitignore`/`search.exclude` ausgeblendet
+(`harness/runs/`, `harness/logs/`, `harness/state/`), die Suche meldet dann „keine Treffer",
+obwohl welche da sind (gemessen 2026-09-29: `NACHRUECKLISTE` steht in
+`runs/b211/auftrag.md:170`, `runs/b212/auftrag.md:169` und `runs/b213/review.md:126`).
+
+    Select-String -Path runs\b2*\auftrag.md -Pattern 'NACHR(UE|Ü)CKLISTE' -CaseSensitive:$false
+
 ### 13b. Nach einem Absturz: die Reihenfolge
 
 1. **`watch`** — zeigt den laufenden bzw. letzten Lauf, ohne etwas anzufassen

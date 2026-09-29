@@ -68,3 +68,12 @@ backups/
 # --- Python ---------------------------------------------------------------
 __pycache__/
 *.pyc
+
+# --- Lose Arbeitsnotizen im Harness-Wurzelordner ---------------------------
+# `antworten-<batch>.md` und `nachricht-<batch>.md` sind Notizen des Nutzers
+# (Antworten auf /fragen bzw. Nachrichten an den Harness), keine Repo-Inhalte.
+# Sie liegen seit dem 25.09.2026 untracked im Wurzelordner; damit `git status`
+# nur echte Aenderungen am Repo zeigt, stehen sie hier. Die Dateien selbst
+# bleiben unberuehrt.
+/antworten-*.md
+/nachricht-*.md
