@@ -721,6 +721,10 @@ class Orchestrator:
             if res.rc == 0 and aussensicht.kernzahl_beteiligt(gruende):
                 bis = aussensicht.kernzahl_marke_setzen(self.cfg, self.state)
                 self.log.info("Kernzahl-Marke gesetzt", bis=bis)
+            if res.rc == 0 and aussensicht.c_soll_null_beteiligt(gruende):
+                serie_bis = aussensicht.c_soll_null_marke_setzen(self.cfg, self.state,
+                                                                 log=self.log)
+                self.log.info("c_soll_null-Marke gesetzt", bis=serie_bis)
         finally:
             meta = dict(self.state.data.get("meta") or {})
             meta.update({"letzter_lauf_batch": batch, "letzter_lauf_ts": now_iso(),

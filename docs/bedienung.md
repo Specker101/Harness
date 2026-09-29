@@ -873,25 +873,32 @@ bei jeder Kennung: `/claude M209-v1 pruefen` — der Anhang trägt den Wortlaut 
 33 % (Regel 2 B : 1 C) → 295 C-Batches → ca. **886** Kalender-Batches für den ganzen
 C-Strang (vorher stand dort „ca. 369 Batches" aus +3,8 gemischt).
 
-### 12g. Kernzahl-Auslöser: entprellt und SOLL-bewusst (2026-09-29)
+### 12g. Kernzahl-Auslöser: entprellt, SOLL-bewusst, nur „C Koepfe" (2026-09-29)
 
 Der Grund „Kernzahl ohne Bewegung über die letzten C-Batches" steuerte drei Läufe
 (`runs/meta-209.md`, `meta-210.md`, `meta-211.md`) und führte in **jedem** Anlass
 `C Abweichungen = 0` mit — eine Kennzahl mit Zielwert 0, die zwangsläufig stillsteht.
-Vier Nachbesserungen:
+Nachbesserungen (Nachtrag zu Commit `01180db`):
 
 | Punkt | Vorher | Jetzt |
 |---|---|---|
-| **`C Abweichungen`** | Teil der verglichenen Kernzahlen | **entfernt** (`aussensicht.KERNZAHLEN`) — der Zielwert ist 0, die Zahl steht immer still |
-| **Verknüpfung** | war **ODER** (jede unveränderte Zahl einzeln gemeldet) | **ODER** bleibt bewusst: eine einzige unveränderte Kernzahl genügt (`kernzahl_stillstand`) |
-| **Entprellung** | feuerte bei jedem Batch, solange das C-Paar stillstand | Marke `kernzahl_gemeldet_bis` in `state.data["meta"]` = Nummer des neuesten **gemeldeten** C-Batches; es feuert nur, wenn `neuester_C > Marke`. **Nicht** die Variante `neu.batch > letzter_lauf_batch` |
+| **Kriterium** | `C Koepfe`, `C Faelle`, Paket E, Bau-Liste, Inventar, C-Vorrat (ODER) | **nur `C Koepfe`** (Ist-Delta 0 bei `SOLL-KOEPFE > 0`, `KERNZAHL_KRITERIUM`); `C Faelle` steht nur als **Information** im Anlass-Text (`kernzahl_info_text`) |
+| **`C Abweichungen`** | Teil der verglichenen Kernzahlen | **entfernt** — der Zielwert ist 0, die Zahl steht immer still |
+| **Entprellung Stillstand** | feuerte bei jedem Batch, solange das C-Paar stillstand | Marke `kernzahl_gemeldet_bis` in `state.data["meta"]` = Nummer des neuesten **gemeldeten** C-Batches; es feuert nur, wenn `neuester_C > Marke`. **Nicht** die Variante `neu.batch > letzter_lauf_batch` |
+| **Entprellung Serie** | `c_soll_null_serie` feuerte bei jedem Batch der Serie | Marke `c_soll_null_gemeldet_bis` = neuester C-Batch der gemeldeten Serie; erneut nur, wenn ein **neuer** C-Batch die Serie verlängert oder eine neue Serie entsteht |
 | **SOLL-bewusst** | ein C-Batch ohne Bau-Auftrag konnte einen Stillstand melden | Stillstand nur bei `SOLL-KOEPFE > 0` in `runs/b<N>/auftrag.md`; drei C-Batches in Folge mit `SOLL-KOEPFE: 0` sind der **eigene Grund** `c_soll_null_serie` |
 
-Die Marke setzt **nur** ein erfolgreicher Lauf (`rc=0`), an dem der Grund beteiligt war —
-nicht schon beim Auslösen (`orchestrator._do_aussensicht`). Fehlt die Marke (ältere
-Zustände), gilt einmalig **210**: der Stillstand B207/B210 ist in `runs/meta-212.md`
-gemeldet und darf nicht erneut feuern. Fehlt die Zeile `SOLL-KOEPFE` im Auftrag, wird
-geloggt und der Batch als `SOLL > 0` behandelt (kein Stillstand verschluckt, nichts geraten).
+Beide Marken setzt **nur** ein erfolgreicher Lauf (`rc=0`), an dem der jeweilige Grund
+beteiligt war — nicht schon beim Auslösen (`orchestrator._do_aussensicht`). Fehlt
+`kernzahl_gemeldet_bis` (ältere Zustände), gilt einmalig **210**: der Stillstand B207/B210
+ist in `runs/meta-212.md` gemeldet und darf nicht erneut feuern. `c_soll_null_gemeldet_bis`
+startet bei **0**: nach der Regel „fehlende `SOLL-KOEPFE`-Zeile = SOLL > 0" bilden
+B207/B210/B213 **keine** SOLL-0-Serie. Gemessen: B207 (`runs/b207/auftrag.md` hat keine
+`SOLL-KOEPFE`-Zeile, Prosa „Dieser Batch baut KEINE neuen Koepfe"), B210 (keine Zeile,
+Prosa „keine neuen Koepfe"), B213 (`runs/b213/review.md:59` `SOLL-KOEPFE: 0`; der Auftrag
+entsteht erst beim Start). Die Serie `[207, 210, 213]` = `(None, None, 0)` feuert also
+**nicht** — eine Migration war nicht nötig. Fehlt die Zeile, wird geloggt und der Batch als
+`SOLL > 0` behandelt (kein Stillstand verschluckt, nichts geraten).
 
 ### 12b. Was der Nutzer selbst entscheiden muss
 

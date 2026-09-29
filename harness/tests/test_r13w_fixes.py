@@ -623,6 +623,10 @@ class TestKernzahlEntprellung(unittest.TestCase):
     def kernzahl_grund(gruende: list[str]) -> list[str]:
         return [g for g in gruende if aussensicht.KERNZAHL_GRUND in g]
 
+    @staticmethod
+    def serie_grund(gruende: list[str]) -> list[str]:
+        return [g for g in gruende if aussensicht.C_SOLL_GRUND in g]
+
     def orch(self) -> Orchestrator:
         o = Orchestrator(self.cfg, self.log, mock=True,
                          state_file=self.root / "state" / "run.json")
@@ -637,6 +641,8 @@ class TestKernzahlEntprellung(unittest.TestCase):
     def test_c_abweichungen_ist_kein_kriterium(self):
         """Zielwert 0: `C Abweichungen` steht immer still und darf nie ausloesen."""
         self.assertNotIn("c_abweichungen", [k for k, _ in aussensicht.KERNZAHLEN])
+        self.assertEqual([k for k, _ in aussensicht.KERNZAHL_KRITERIUM], ["c_koepfe"],
+                         "nur die Kopfzahl ist ein Ausloeser")
         self.preflight(210, 78, 2903)
         self.preflight(211, 80, 2951)          # Koepfe und Faelle BEWEGT, nur abw gleich
         self.auftrag(210, "C", 5)
@@ -737,6 +743,68 @@ class TestKernzahlEntprellung(unittest.TestCase):
                                    "kernzahl_gemeldet_bis": 210}
         self.assertTrue(self.kernzahl_grund(self.gruende(211)))
 
+    # ------------------------------------------- (3) Serien-Entprellung
+    def test_soll_null_serie_dedup_nur_eine_ausloesung(self):
+        """Dieselbe SOLL-0-Serie ueber mehrere B-Batches feuert genau EINMAL."""
+        for b in (210, 211, 212):
+            self.preflight(b, 78, 2903)
+            self.auftrag(b, "C", 0)
+        ausloesungen = len(self.serie_grund(self.gruende(212)))
+        self.assertEqual(ausloesungen, 1, "die erste vollstaendige Serie muss feuern")
+        self.assertEqual(aussensicht.c_soll_null_marke_setzen(self.cfg, self.state), 212)
+        self.state.save()
+        self.assertEqual(self.state.data["meta"]["c_soll_null_gemeldet_bis"], 212)
+        # B-Batches halten die C-Serie (210/211/212) fest - keine zweite Ausloesung.
+        for b in (213, 214):
+            self.auftrag(b, "B", 0)
+            self.preflight(b, 78, 3000)
+            ausloesungen += len(self.serie_grund(self.gruende(b)))
+        self.assertEqual(ausloesungen, 1, "dieselbe Serie feuert nur einmal")
+
+    def test_neuer_c_batch_verlaengert_serie(self):
+        """Ein NEUER C-Batch mit SOLL 0 verlaengert die Serie -> erneute Ausloesung."""
+        for b in (209, 210, 211):
+            self.preflight(b, 78, 2903)
+            self.auftrag(b, "C", 0)
+        self.state.data["meta"] = {"c_soll_null_gemeldet_bis": 211}
+        self.preflight(212, 78, 2903)
+        self.auftrag(212, "C", 0)          # Serie 210/211/212, neuer C-Batch 212
+        self.assertTrue(self.serie_grund(self.gruende(212)),
+                        "die verlaengerte Serie muss erneut melden")
+
+    def test_serie_unterbrochen_zaehler_zurueck(self):
+        """Ein C-Batch mit SOLL > 0 bricht die Serie - der Zaehler faellt zurueck."""
+        for b in (209, 210, 211):
+            self.preflight(b, 78, 2903)
+            self.auftrag(b, "C", 0)
+        # Unterbrechung: C-Batch 212 hat wieder einen Bau-Auftrag.
+        self.preflight(212, 80, 2951)
+        self.auftrag(212, "C", 5)
+        self.assertFalse(self.serie_grund(self.gruende(212)),
+                         "nach dem Bau-Auftrag ist die alte Serie gebrochen")
+        # Der naechste SOLL-0-Batch macht daraus noch keine neue Dreier-Serie.
+        self.preflight(213, 80, 2951)
+        self.auftrag(213, "C", 0)
+        self.assertFalse(self.serie_grund(self.gruende(213)))
+
+    def test_koepfe_wachsen_faelle_gleich_keine_ausloesung(self):
+        """Nur `C Koepfe` ist ein Kriterium; gleiche `C Faelle` allein loesen nie aus."""
+        self.auftrag(210, "C", 5)
+        self.auftrag(211, "C", 5)
+        self.preflight(210, 78, 2903)
+        self.preflight(211, 80, 2903)          # Faelle gleich, Koepfe GEWACHSEN
+        self.assertEqual(aussensicht.kernzahl_stillstand(self.cfg, log=self.log), [])
+        self.assertEqual(self.kernzahl_grund(self.gruende(211)), [],
+                         "gewachsene Koepfe duerfen nie ausloesen")
+        # Gegenprobe: stehen die Koepfe still, ist `C Faelle` NUR Information.
+        self.preflight(211, 78, 2903)
+        gruende = self.gruende(211)
+        self.assertTrue(self.kernzahl_grund(gruende))
+        text = " ".join(gruende)
+        self.assertIn("C Koepfe = 78", text)
+        self.assertIn("C Faelle = 2903", text)
+        self.assertIn("nur Information", text)
+
     # ------------------------------------------- (3) Marke nur bei rc=0 setzen
     def _fake_run(self, rc: int):
         def lauf(cfg, log, state, grund, mock=False, zufall=None):
@@ -774,6 +842,34 @@ class TestKernzahlEntprellung(unittest.TestCase):
         orch = self.orch()
         orch._do_aussensicht("Befehl /meta", gruende=["Befehl /meta"])
         self.assertNotIn("kernzahl_gemeldet_bis", orch.state.data["meta"])
+
+    # -------------------------------------- (3) Serien-Marke nur bei rc=0
+    def _setup_serie(self):
+        for b in (210, 211, 212):
+            self.preflight(b, 78, 2903)
+            self.auftrag(b, "C", 0)
+
+    def test_fehlgeschlagener_lauf_setzt_serie_marke_nicht(self):
+        self._setup_serie()
+        grund_text = aussensicht.c_soll_null_serie(self.cfg, log=self.log)
+        self.assertTrue(grund_text)
+        aussensicht.run = self._fake_run(7)
+        orch = self.orch()
+        orch.state.data["batch"] = 212
+        orch.state.save()
+        orch._do_aussensicht(grund_text, gruende=[grund_text])
+        self.assertNotIn("c_soll_null_gemeldet_bis", orch.state.data["meta"],
+                         "rc != 0 darf die Serien-Marke nicht setzen")
+
+    def test_erfolgreicher_lauf_setzt_serie_marke(self):
+        self._setup_serie()
+        grund_text = aussensicht.c_soll_null_serie(self.cfg, log=self.log)
+        aussensicht.run = self._fake_run(0)
+        orch = self.orch()
+        orch.state.data["batch"] = 212
+        orch.state.save()
+        orch._do_aussensicht(grund_text, gruende=[grund_text])
+        self.assertEqual(orch.state.data["meta"]["c_soll_null_gemeldet_bis"], 212)
 
 
 if __name__ == "__main__":

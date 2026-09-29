@@ -81,3 +81,26 @@ meta-208 hing an „vorgemerkt durch /meta". Jeder der drei Kernzahl-Anlässe f�
 
 Fehlt die Zeile `SOLL-KOEPFE`, loggt `soll_koepfe_batch` (ueber den Harness-`Log`) und der
 Batch gilt als `SOLL > 0`. `test_r13w_fixes.py`: 41 Tests gruen (11 neue).
+
+### 5a. Nachtrag zu Commit `01180db` (2026-09-29)
+
+Auftrag: (1) eigene Entprellung fuer `c_soll_null_serie`, (2) SOLL-KOEPFE fuer B207/B210/B213
+lesen und entscheiden, (3) Stillstand auf `C Koepfe` beschraenken, `C Faelle` nur als
+Information.
+
+**Befund (2).** `runs/b207/auftrag.md` und `runs/b210/auftrag.md` tragen **keine**
+`SOLL-KOEPFE`-Zeile (die gibt es erst ab B211); ihre Prosa sagt „(Dieser Batch baut)
+KEINE neuen Koepfe". B213 ist ein C-Batch mit `SOLL-KOEPFE: 0` (`runs/b213/review.md:59`;
+der Auftrag entsteht erst beim Start). Nach der geltenden Regel „fehlende Zeile = SOLL > 0"
+ist die letzte Dreier-Serie `[B207, B210, B213]` = `(None, None, 0)` — sie feuert **nicht**.
+Eine Migration `c_soll_null_gemeldet_bis = 213` war daher **nicht** noetig; die Marke
+startet bei 0.
+
+**Code (1) und (3).**
+
+| Punkt | Beleg im Code | Tests |
+|---|---|---|
+| Kriterium nur `C Koepfe` | `aussensicht.KERNZAHL_KRITERIUM` | `test_koepfe_wachsen_faelle_gleich_keine_ausloesung`, `test_c_abweichungen_ist_kein_kriterium` |
+| `C Faelle` nur Information | `aussensicht.KERNZAHL_INFO`, `kernzahl_info_text` | `test_koepfe_wachsen_faelle_gleich_keine_ausloesung` |
+| Serien-Entprellung | `aussensicht.MARKE_SOLL_SCHLUESSEL`, `c_soll_null_reihe`, `c_soll_null_marke_setzen`, `faellig` | `test_soll_null_serie_dedup_nur_eine_ausloesung`, `test_neuer_c_batch_verlaengert_serie`, `test_serie_unterbrochen_zaehler_zurueck` |
+| Serien-Marke nur bei `rc=0` | `orchestrator._do_aussensicht` (`c_soll_null_beteiligt`) | `test_fehlgeschlagener_lauf_setzt_serie_marke_nicht`, `test_erfolgreicher_lauf_setzt_serie_marke` |
