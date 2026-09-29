@@ -4,7 +4,8 @@ Auftrag: (1) **zweite Pruefung direkt vor dem Batch-Start** — der Review kann 
 den Peak laufen, das `/approve` kann im Peak kommen, und nach einer Git-Pause kann der
 Start beliebig spaet liegen. Der Auftrag bleibt dabei **stehen** (wie bei der Git-Pause)
 und startet von selbst, sobald Off-Peak. (2) **Vorlauf** `[peak] peak_vorlauf_min`
-(Vorgabe 90): kein Start, wenn das naechste Peak-Fenster innerhalb dieser Minuten beginnt —
+(Nutzerentscheid 2026-09-29: **10**): kein Start, wenn das naechste Peak-Fenster innerhalb
+dieser Minuten beginnt —
 an beiden Pruefstellen. (3) **`/approve jetzt`** startet trotz Peak/Vorlauf, mit dem
 Vermerk „trotz Peak gestartet (Nutzer)" im Log und in `result.json`. (4) Feiertagsliste.
 (5) Bericht ueber bisherige Peak-Starts (`docs/_r13al_messung.txt`).
@@ -89,6 +90,8 @@ class Basis(unittest.TestCase):
         cfg.data["telegram"]["allowlist_user_ids"] = []
         cfg.data["mock"]["enabled"] = True
         cfg.data["peak"]["block_new_batches"] = True
+        # Der Vorlauf wird HIER ausdruecklich gesetzt: die Tests haengen damit nicht an
+        # `harness.toml` (dort steht seit dem Nutzerentscheid 2026-09-29 der Wert 10).
         cfg.data["peak"]["peak_vorlauf_min"] = 90
         cfg.data["peak"]["extra_offpeak_dates"] = []
         self.cfg = cfg
@@ -209,6 +212,23 @@ class TestPeakFenster(Basis):
     def test_offpeak_startet(self):
         self.assertTrue(self.lage(MONTAG_OFFPEAK)[0])
 
+    # Nutzerentscheid 2026-09-29: der Vorlauf steht auf 10 min. Beide Faelle setzen ihn
+    # ausdruecklich, sie haengen also nicht an `harness.toml`.
+    def test_5_min_vor_peak_wartet_bei_vorlauf_10(self):
+        self.cfg.data["peak"]["peak_vorlauf_min"] = 10
+        fuenf_vor = datetime(2026, 9, 21, 0, 55, tzinfo=timezone.utc)   # Peak ab 01:00
+        ok, why = self.lage(fuenf_vor)
+        self.assertFalse(ok)
+        self.assertIn("Peak beginnt in 5 min", why)
+        self.assertIn("Vorlauf 10 min", why)
+        self.assertTrue(self.lage(datetime(2026, 9, 21, 0, 45, tzinfo=timezone.utc))[0],
+                        "45 min vor dem Peak ist der Start erlaubt")
+
+    def test_15_min_vor_peak_startet_bei_vorlauf_10(self):
+        self.cfg.data["peak"]["peak_vorlauf_min"] = 10
+        fuenfzehn_vor = datetime(2026, 9, 21, 0, 45, tzinfo=timezone.utc)
+        self.assertTrue(self.lage(fuenfzehn_vor)[0])
+
     def test_vorlauf_null_sperrt_nur_das_fenster_selbst(self):
         self.cfg.data["peak"]["peak_vorlauf_min"] = 0
         self.assertTrue(self.lage(MONTAG_VOR_30)[0])
@@ -237,7 +257,8 @@ class TestPeakFenster(Basis):
         tage = list(echt.get("peak", "extra_offpeak_dates", []) or [])
         for tag in ("2026-10-01", "2026-10-02", "2026-10-05", "2026-10-06", "2026-10-07"):
             self.assertIn(tag, tage)
-        self.assertEqual(float(echt.get("peak", "peak_vorlauf_min", 0)), 90.0)
+        # Nutzerentscheid 2026-09-29: 90 -> 10 (Durchsatz vor dem Peak-Aufschlag).
+        self.assertEqual(float(echt.get("peak", "peak_vorlauf_min", 0)), 10.0)
 
     def test_vorlauf_regeln_in_pricing(self):
         self.assertEqual(pricing.next_peak_start(MONTAG_VOR_120),

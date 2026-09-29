@@ -100,6 +100,24 @@ Kommentar in der Datei: chinesischer Nationalfeiertag laut State Council; **ob D
 Feiertage ausnimmt, ist auf der Preisseite nicht eindeutig belegt** — die Liste ist die
 billigere Annahme (off-peak). Nur Werktage eingetragen (Sa/So sind ohnehin off-peak).
 
+### Nachtrag (Nutzerentscheid 2026-09-29): Vorlauf 90 → **10**
+
+*Die Abschnitte oben bleiben stehen (sie beschreiben den Stand von R13al). Geändert wurde
+nur die Zahl:*
+
+* `harness.toml`: `peak_vorlauf_min = 10` — **Durchsatz vor den paar Cent
+  Peak-Aufschlag**; ein Batch, der kurz vor dem Peak startet und hineinläuft, ist
+  ausdrücklich akzeptiert.
+* `peak_vorlauf_min()` hat denselben Rückfallwert 10 (sonst hätten Code und Datei zwei
+  Meinungen, falls der Schlüssel einmal fehlt).
+* Wirkung auf die Tests: `Basis.setUp` setzt den Vorlauf **ausdrücklich** (90) und ist
+  damit unabhängig von `harness.toml`; neu dazu die beiden Fälle mit **10**
+  (`test_5_min_vor_peak_wartet_bei_vorlauf_10`, `test_15_min_vor_peak_startet_bei_vorlauf_10`);
+  `test_feiertage_stehen_in_der_konfiguration` prüft jetzt den Dateiwert **10**.
+* Folgen für die Praxis: der knappste bisherige Abstand zu einem Peak war 122 min (b212) —
+  bei 10 min hätte sich am Verhalten **keiner** der 57 bisherigen Batches etwas geändert;
+  die zweite Prüfung vor dem Start und `/approve jetzt` bleiben unverändert wirksam.
+
 ## 5. Tests
 
 `harness/tests/test_r13al_fixes.py` — **24 Tests**:

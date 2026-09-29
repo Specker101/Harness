@@ -83,11 +83,12 @@ max_fortsetzungen    = 2
 # R5b: in Peak-Zeiten keine NEUEN Batches starten (laufender Batch darf fertig werden).
 block_new_batches   = true
 # R13al: zusaetzlich kein Start, wenn das naechste Peak-Fenster innerhalb dieser Minuten
-# beginnt. Ein Batch, der 20 min vor dem Peak loslaeuft, rechnet sonst voll zum doppelten
-# Tarif; 90 min deckt die ueblichen Batch-Laufzeiten (30-100 min) ab. Geprueft wird an
-# ZWEI Stellen: vor dem Review und - neu - unmittelbar vor dem Start; der wartende
-# Auftrag bleibt dabei stehen und startet von selbst, sobald Off-Peak.
-peak_vorlauf_min    = 90
+# beginnt. Nutzerentscheid 2026-09-29: von 90 auf **10** gesetzt - Durchsatz vor den
+# paar Cent Peak-Aufschlag; ein Batch, der kurz vor dem Peak startet und hineinlaeuft,
+# ist ausdruecklich akzeptiert. Geprueft wird an ZWEI Stellen: vor dem Review und -
+# neu - unmittelbar vor dem Start; der wartende Auftrag bleibt dabei stehen und startet
+# von selbst, sobald Off-Peak. `/approve jetzt` startet ganz ohne Wartezeit.
+peak_vorlauf_min    = 10
 # Chinesische Feiertage sind laut Preisseite off-peak; nicht ableitbar -> Liste.
 # R13al: Nationalfeiertag (1.-7. Oktober) laut State Council; 2026 fallen der 1. und 2.
 # auf Do/Fr, der 5.-7. auf Mo/Mi. Ob DeepSeek Feiertage wirklich ausnimmt, ist auf der

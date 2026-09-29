@@ -1149,7 +1149,7 @@ der Git-Pause. Jetzt gilt:
 | Punkt | Verhalten |
 |---|---|
 | **Zweite Prüfung** | unmittelbar vor `git_preflight()` und damit vor dem Start. Der Auftrag **bleibt stehen** (wie bei der Git-Pause — es wird nichts verworfen), Meldung `PEAK: Auftrag B<N> wartet bis <Ortszeit Berlin>`, danach alle 20 s neu geprüft (`PEAK_POLL_S`) und **von selbst** gestartet, sobald Off-Peak. Dabei wird `/approve` **nicht** verbraucht: der Nutzer muss nichts wiederholen. |
-| **Vorlauf** | `[peak] peak_vorlauf_min = 90` — kein Start, wenn das nächste Peak-Fenster innerhalb dieser Minuten beginnt (an **beiden** Prüfstellen). Grund: ein Batch, der 20 min vor dem Peak startet, rechnet voll zum doppelten Tarif. |
+| **Vorlauf** | `[peak] peak_vorlauf_min = 10` — kein Start, wenn das nächste Peak-Fenster innerhalb dieser Minuten beginnt (an **beiden** Prüfstellen). **Nutzerentscheid 2026-09-29: 90 → 10** — Durchsatz vor den paar Cent Peak-Aufschlag; ein Batch, der kurz vor dem Peak startet und hineinläuft, ist akzeptiert. |
 | **Bewusster Ausweg** | `/approve jetzt` (auch `sofort` / `trotz peak`) startet trotz Peak/Vorlauf. Im Log steht `trotz Peak gestartet (Nutzer)`, in `runs/b<N>/result.json` das Feld `peak_hinweis` — teure Läufe bleiben erkennbar. Ein Text hinter `/approve` geht weiter als `/ds`-Nachricht an den Worker. |
 | **Feiertage** | `[peak] extra_offpeak_dates` — 2026-10-01, -02, -05, -06, -07 (chinesischer Nationalfeiertag, Werktage). Quelle: State Council; ob DeepSeek Feiertage wirklich ausnimmt, ist auf der Preisseite **nicht eindeutig belegt** — die Liste ist die billigere Annahme. |
 | **Laufender Batch** | wird **nie** unterbrochen; im laufenden Batch gibt es keine Peak-Prüfung. |

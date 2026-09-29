@@ -1468,9 +1468,14 @@ class Orchestrator:
         return True
 
     def peak_vorlauf_min(self) -> float:
-        """Der Vorlauf aus `[peak] peak_vorlauf_min` (Vorgabe 90 min, R13al)."""
+        """Der Vorlauf aus `[peak] peak_vorlauf_min` (Vorgabe 10 min, R13al).
+
+        Nutzerentscheid 2026-09-29: 10 statt 90 — Durchsatz vor den paar Cent
+        Peak-Aufschlag. Fehlt der Schluessel ganz, gilt derselbe Wert wie in der
+        Konfiguration (nicht die alte 90, sonst haetten Code und Datei zwei Meinungen).
+        """
         try:
-            return float(self.cfg.get("peak", "peak_vorlauf_min", 90))
+            return float(self.cfg.get("peak", "peak_vorlauf_min", 10))
         except (TypeError, ValueError):
             return 90.0
 
@@ -1485,7 +1490,8 @@ class Orchestrator:
         R5b sperrte nur, wenn GERADE Peak war. Damit startete ein Batch, der kurz vor dem
         Peak begann, voll in den doppelten Tarif - und ein im Peak freigegebener Auftrag
         startete sofort. Jetzt sperrt dieselbe Pruefung auch, wenn das naechste
-        Peak-Fenster innerhalb von `[peak] peak_vorlauf_min` (Vorgabe 90 min) beginnt.
+        Peak-Fenster innerhalb von `[peak] peak_vorlauf_min` (Vorgabe 10 min, s.
+        `peak_vorlauf_min`) beginnt.
         Sie steht an ZWEI Stellen: vor dem Review und direkt vor dem Start (der Review
         kann selbst in den Peak laufen). Der laufende Batch wird nie unterbrochen.
         """
