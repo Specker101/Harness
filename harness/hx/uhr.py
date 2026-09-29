@@ -142,11 +142,11 @@ def kontext_kurz(tokens) -> str:
 # (`tools/batch_uhr.py`) sagt das dem Worker, sobald der Aufruf vorbei ist:
 # **Hinweis, keine Sperre** (der Worker entscheidet selbst).
 #
-# Der Wortlaut ist der des Auftrags vom 2026-09-29 und wird zeichengleich uebernommen -
-# einschliesslich der Schreibweise "Umschwellschwelle" (so im Auftrag; das uebrige
-# Programm schreibt "Umschaltschwelle"). Nicht "korrigieren": der Text ist der Beleg.
+# Der Wortlaut ist der des Auftrags vom 2026-09-29. Die Schreibweise "Umschwellschwelle"
+# des Auftrags wurde am 2026-09-30 auf Nutzerwunsch zu "Umschaltschwelle" korrigiert
+# (R13ap) - so heisst das Ding auch in der uebrigen Ausgabe.
 PREFLIGHT_HINWEIS = (
-    "Preflight vor der Umschwellschwelle ({minuten:.1f} von {umschalt:.0f} min). "
+    "Preflight vor der Umschaltschwelle ({minuten:.1f} von {umschalt:.0f} min). "
     "Er ist nur zulässig, wenn alle Posten der NACHRUECKLISTE erledigt sind. Sonst erst "
     "die Nachrückliste abarbeiten; ein früher Preflight muss später wiederholt werden und "
     "kostet ~10 min."

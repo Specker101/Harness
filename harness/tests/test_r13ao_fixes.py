@@ -32,8 +32,9 @@ from hx.util import Log, ensure_dir, write_text_atomic          # noqa: E402
 
 # Der Wortlaut STEHT HIER ausgeschrieben (nicht aus `hx.uhr` geholt): nur so schlaegt
 # dieser Test an, wenn jemand den Text aendert. X = Minuten seit Batch-Start,
-# Y = Umschaltschwelle. Schreibweise "Umschwellschwelle" ist die des Auftrags.
-HINWEIS = ("Preflight vor der Umschwellschwelle (42.0 von 80 min). Er ist nur zulässig, "
+# Y = Umschaltschwelle. (R13ap, 2026-09-30: "Umschwellschwelle" aus dem Auftrag wurde
+# zu "Umschaltschwelle" korrigiert - so heisst das Ding auch sonst.)
+HINWEIS = ("Preflight vor der Umschaltschwelle (42.0 von 80 min). Er ist nur zulässig, "
            "wenn alle Posten der NACHRUECKLISTE erledigt sind. Sonst erst die "
            "Nachrückliste abarbeiten; ein früher Preflight muss später wiederholt werden "
            "und kostet ~10 min.")

@@ -1,0 +1,25 @@
+﻿== 1) Kodierung der Preflight-Dateien (BOM-Bytes) ==
+   utf-8-bom             53 Dateien   z.B. _preflight_159.txt (Kopf EF BB), _preflight_160.txt (Kopf EF BB), _preflight_161.txt (Kopf EF BB)
+   utf-16-le              5 Dateien   z.B. _preflight_155.txt (Kopf FF FE), _preflight_156.txt (Kopf FF FE), _preflight_157.txt (Kopf FF FE)
+   utf-8                  4 Dateien   z.B. _preflight_172.txt (Kopf 3D 3D), _preflight_181.txt (Kopf 3D 3D), _preflight_184.txt (Kopf 3D 3D)
+
+== 2) Was liest der Harness JETZT ==
+   B214: _preflight_214.txt  ->  gelesen als utf-8-bom
+   B215: _preflight_215.txt  ->  gelesen als utf-8-bom
+   B216: _preflight_216.txt  ->  gelesen als utf-16-le
+   preflight_zeilen_pruefen(anzahl=1) -> [] (alle Pflichtzeilen erkannt)
+   preflight_kodierung_hinweis(anzahl=1) -> ['Preflight B216 in UTF-16, gelesen (_preflight_216.txt, utf-16-le)']
+   preflight_c_koepfe(4):
+      B213: 78 / 4006 / 0
+      B214: 78 / 4006 / 0
+      B215: 78 / 4006 / 0
+      B216: 85 / 4446 / 0
+   c_trend(12): gemessen=True erst={'batch': 204, 'datei': '_preflight_204.txt', 'koepfe': 64, 'faelle': 1536, 'abweichungen': 0} letzt={'batch': 216, 'datei': '_preflight_216.txt', 'koepfe': 85, 'faelle': 4446, 'abweichungen': 0} delta=21 luecken=[]
+
+== 3) R13ae-Warnung im Review zu B216 ==
+   --- harness\runs\b217\harness-facts.md
+       23: - PARSER: Zeile C Koepfe in _preflight_216.txt nicht erkannt
+       24: - PARSER: Zeile Bahnabdeckung in _preflight_216.txt nicht erkannt
+       25: - PARSER: Zeile Hybrid-Lauf in _preflight_216.txt nicht erkannt
+   --- harness\runs\b216\harness-facts.md
+       23: - Parser (R13ae): erwartete Zeilen gelesen, keine Luecke (_preflight_215.txt: C Koepfe, Bahnabdeckung, Hybrid-Lauf)

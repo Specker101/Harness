@@ -2281,6 +2281,11 @@ class Orchestrator:
         # lieferte still `anteil=None`). Eigener Zweig: die Zeile oben sagt etwas ueber
         # die PREFLIGHT-Datei, nicht ueber den Plan.
         lines += [f"- {z}" for z in standmod.plan_mischung_pruefen(self.cfg, log=self.log)]
+        # R13ap: eine als UTF-16 geschriebene Preflight-Datei wird gelesen (B216, FF FE) -
+        # der Reviewer soll es wissen, ohne dass es als Fehler zaehlt. Eigener Zweig, damit
+        # die positive Zeile oben stehen bleibt.
+        lines += [f"- {z}" for z in
+                  standmod.preflight_kodierung_hinweis(self.cfg, 1, self.log)]
         tools = st.get("tool_counts") or {}
         if tools:
             top = sorted(tools.items(), key=lambda kv: -kv[1])[:10]

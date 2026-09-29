@@ -22,14 +22,15 @@ Teil A desselben Auftrags ist **R13an** (`docs/_r13an_belege.md`).
 
 ```
 BATCH-UHR (Harness-Messung): 42.0 min von 90 min (Umschalten ab 80) …
-PREFLIGHT-HINWEIS: Preflight vor der Umschwellschwelle (42.0 von 80 min). Er ist nur zulässig, wenn alle Posten der NACHRUECKLISTE erledigt sind. Sonst erst die Nachrückliste abarbeiten; ein früher Preflight muss später wiederholt werden und kostet ~10 min.
+PREFLIGHT-HINWEIS: Preflight vor der Umschaltschwelle (42.0 von 80 min). Er ist nur zulässig, wenn alle Posten der NACHRUECKLISTE erledigt sind. Sonst erst die Nachrückliste abarbeiten; ein früher Preflight muss später wiederholt werden und kostet ~10 min.
 ```
 
-Der **Wortlaut ist zeichengleich** der des Auftrags — einschließlich der Schreibweise
-„Umschwellschwelle" (das übrige Programm schreibt „Umschaltschwelle"). Absichtlich nicht
-„korrigiert": der Text ist der Beleg, und `test_r13ao_fixes.py` hat ihn wörtlich im Test
-stehen (nicht aus `hx.uhr` importiert), damit eine spätere Änderung auffällt. Das
-Präfix `PREFLIGHT-HINWEIS: ` ist die einzige Zutat — ohne es wäre die Zeile von der
+Der **Wortlaut** stammt aus dem Auftrag. **Nachtrag (R13ap, 2026-09-30, Nutzerentscheid):**
+das Wort „Umschwellschwelle" des Auftrags war ein Tippfehler und heisst jetzt überall
+„Umschaltschwelle" (Hook, Test, Doku) — sonst unverändert. Der Test hat den Text weiterhin
+wörtlich im Quelltext stehen, damit eine spätere Änderung auffällt.
+
+Das Präfix `PREFLIGHT-HINWEIS: ` ist die einzige Zutat — ohne es wäre die Zeile von der
 Uhr-Zeile nicht zu unterscheiden.
 
 ## 2. Was als „Aufruf" gilt — und warum nicht jede Erwähnung

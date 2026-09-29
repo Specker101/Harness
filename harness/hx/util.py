@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import codecs
 import json
 import os
 import sys
@@ -118,8 +119,15 @@ def open_shared_read(path: str | Path):
     einer offenen Datei aber nicht (siehe `replace_with_retry`) - diese Funktion
     ersetzt also nicht die Nachsicht beim Schreiben.
     """
+    return _oeffne_shared(path, binaer=False)
+
+
+def _oeffne_shared(path: str | Path, binaer: bool):
+    """Gemeinsamer Teil von `open_shared_read` und `open_shared_read_bytes`."""
     p = str(path)
     if os.name != "nt":
+        if binaer:
+            return open(p, "rb")
         return open(p, "r", encoding="utf-8", errors="replace")
     import _winapi
     import msvcrt
@@ -132,7 +140,84 @@ def open_shared_read(path: str | Path):
     except OSError:
         _winapi.CloseHandle(handle)
         raise
+    if binaer:
+        return open(fd, "rb")
+    # `os.O_BINARY` steht auch hier: die Dekodierung macht der Text-Wrapper, und ohne
+    # das Flag wuerde Windows \r\n vorher in \n verwandeln (Zeilenenden unveraendert
+    # durchreichen ist die Regel).
     return open(fd, "r", encoding="utf-8", errors="replace")
+
+
+def read_bytes_shared(path: str | Path) -> bytes:
+    """Eine Datei binaer lesen, ohne spaetere Loeschungen zu blockieren (R13ap)."""
+    with _oeffne_shared(path, binaer=True) as fh:
+        return fh.read()
+
+
+# ------------------------------------------------- Kodierung erkennen (R13ap)
+# Anlass (gemessen 2026-09-30): `analysis/_preflight_216.txt` wurde als **UTF-16 LE mit
+# BOM** geschrieben (FF FE), B211-B215 dagegen als UTF-8-BOM. `read_text` liest UTF-8 -
+# jede Zeile kam mit NUL-Bytes an, der Parser fand keine Pflichtzeile, und der Review von
+# B216 trug drei "PARSER: Zeile ... nicht erkannt" (R13ae-Warnung, s.
+# `docs/_r13ap_belege.md`). Aeltere Faelle derselben Art: B155-B158.
+KODIERUNGEN = ("utf-8", "utf-8-bom", "utf-16-le", "utf-16-be", "utf-16-le-ohne-bom")
+_BOM_UTF8 = codecs.BOM_UTF8                    # EF BB BF
+_BOM_UTF16_LE = codecs.BOM_UTF16_LE            # FF FE
+_BOM_UTF16_BE = codecs.BOM_UTF16_BE            # FE FF
+NUL_KOPF_BYTES = 4096
+
+
+def erkenne_kodierung(b: bytes) -> str:
+    """Die Kodierung aus den Bytes ableiten (R13ap) - Name aus `KODIERUNGEN`.
+
+    Reihenfolge: BOM (UTF-8/UTF-16 LE/BE) schlaegt alles; ohne BOM gilt UTF-8, es sei
+    denn, in den ersten `NUL_KOPF_BYTES` steht ein NUL-Byte - dann wird UTF-16 LE
+    versucht (das ist die Form, die PowerShell ohne BOM schreibt).
+    """
+    if b.startswith(_BOM_UTF8):
+        return "utf-8-bom"
+    if b.startswith(_BOM_UTF16_LE):
+        return "utf-16-le"
+    if b.startswith(_BOM_UTF16_BE):
+        return "utf-16-be"
+    if b"\x00" in b[:NUL_KOPF_BYTES]:
+        return "utf-16-le-ohne-bom"
+    return "utf-8"
+
+
+def dekodiere(b: bytes, kodierung: str) -> str:
+    """Bytes mit der erkannten Kodierung in Text wandeln; BOM wird entfernt (R13ap).
+
+    `errors="replace"` ist Absicht: eine defekte Stelle soll den Harness nicht anhalten.
+    """
+    if kodierung == "utf-8-bom":
+        return b.decode("utf-8-sig", errors="replace")
+    if kodierung == "utf-16-le":
+        return b.decode("utf-16-le", errors="replace").lstrip("\ufeff")
+    if kodierung == "utf-16-be":
+        return b.decode("utf-16-be", errors="replace").lstrip("\ufeff")
+    if kodierung == "utf-16-le-ohne-bom":
+        return b.decode("utf-16-le", errors="replace")
+    return b.decode("utf-8", errors="replace")
+
+
+def ist_utf16(kodierung) -> bool:
+    """Wurde als UTF-16 gelesen? (R13ap) - fuer den Hinweis in den Review-Fakten."""
+    return str(kodierung or "").startswith("utf-16")
+
+
+def read_text_erkannt(path: str | Path, default: str = "") -> tuple[str, str]:
+    """Text mit **erkannter** Kodierung lesen -> `(text, kodierung)` (R13ap).
+
+    Fehlt die Datei, kommt `(default, "")`. Fuer Dateien, die nicht ASCII/UTF-8 sind -
+    `read_text` bleibt fuer alles andere die richtige Wahl, es liest weiter UTF-8.
+    """
+    p = Path(path)
+    if not p.is_file():
+        return default, ""
+    b = read_bytes_shared(p)
+    kodierung = erkenne_kodierung(b)
+    return dekodiere(b, kodierung), kodierung
 
 
 def write_text_atomic(path: str | Path, text: str) -> Path:

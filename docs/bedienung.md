@@ -1199,7 +1199,7 @@ die Batch-Uhr steht **vor** der Umschaltschwelle und `auftrag.md` trägt eine
 `NACHRUECKLISTE`.
 
 ```
-PREFLIGHT-HINWEIS: Preflight vor der Umschwellschwelle (34.0 von 75 min). Er ist nur zulässig, wenn alle Posten der NACHRUECKLISTE erledigt sind. Sonst erst die Nachrückliste abarbeiten; ein früher Preflight muss später wiederholt werden und kostet ~10 min.
+PREFLIGHT-HINWEIS: Preflight vor der Umschaltschwelle (34.0 von 75 min). Er ist nur zulässig, wenn alle Posten der NACHRUECKLISTE erledigt sind. Sonst erst die Nachrückliste abarbeiten; ein früher Preflight muss später wiederholt werden und kostet ~10 min.
 ```
 
 | Punkt | Verhalten |
@@ -1210,6 +1210,31 @@ PREFLIGHT-HINWEIS: Preflight vor der Umschwellschwelle (34.0 von 75 min). Er ist
 | **Ab wann** | der Hook bekommt `--run` mit dieser Fassung; ein **schon laufender** Batch (B216) hat seine Einstellungsdatei ohne `--run` und bleibt unberührt — kein Hinweis, keine Zählung |
 
 Wortlaut, Messung und die Definition der Zähler: `docs/_r13ao_belege.md`.
+
+### 12q. Preflight-Dateien kodierungstolerant lesen (R13ap, 2026-09-30)
+
+Die Preflight-Dateien `analysis/_preflight_<N>.txt` werden vom Decomp-Werkzeug geschrieben —
+**nicht immer in derselben Kodierung.** Gemessen über die 62 vorhandenen Dateien: 53 ×
+UTF-8-BOM (B159–B215), **5 × UTF-16 LE** (B155–B158 und **B216**), 4 × UTF-8 ohne BOM.
+B216 hatte den Lauf über `Start-Process powershell -Command "… *> analysis\_preflight_216.txt"`
+gefahren — ein `*>`-Redirect in PowerShell 5.1 schreibt UTF-16.
+
+Der Harness las UTF-8: jede Zeile kam mit NUL-Bytes an, kein Pflichtmuster passte, und der
+Review von B216 trug drei `PARSER: Zeile … nicht erkannt`
+(`harness/runs/b217/harness-facts.md:23-25`). Die R13ae-Warnung hat also **angeschlagen**;
+gefehlt hat danach die Zahl (der C-Trend endete auf B215).
+
+| Punkt | Verhalten |
+|---|---|
+| **Erkennung** | `util.erkenne_kodierung`: BOM (UTF-8, UTF-16 LE/BE) schlägt alles → sonst UTF-8 → bei NUL-Bytes in den ersten 4096 Bytes wird UTF-16 LE versucht |
+| **Eine Lesestelle** | `stand.preflight_text(pfad) -> (text, kodierung)` (`stand.py:578`); alle vier Leser gehen darüber — `preflight_zeilen_pruefen`, `preflight_bahnabdeckung`, `hybrid_verlauf`, `preflight_c_koepfe` |
+| **Hinweis** | wird eine Datei als UTF-16 gelesen, steht in den Review-Fakten `- Preflight B<N> in UTF-16, gelesen (<datei>, <kodierung>)` plus eine WARN-Zeile im Log. Die positive Preflight-Zeile bleibt daneben stehen |
+| **Nicht betroffen** | `worker.archiviere_preflight_vor_fortsetzung` kopiert byteweise (`shutil.copy2`) — eine Kopie darf nicht dekodiert werden |
+| **Was der Harness nicht heilt** | die Schreibweise selbst liegt im Decomp-Werkzeug; der Harness liest sie nur |
+
+Belege: `docs/_r13ap_belege.md` (inkl. Datei:Zeile-Liste aller Leser),
+`docs/_r13ap_messung.txt`, Fixture `harness/tests/fixtures/preflight_216_utf16.txt`
+(Byte-Kopie), Tests `harness/tests/test_r13ap_fixes.py`.
 
 ### 12b. Was der Nutzer selbst entscheiden muss
 

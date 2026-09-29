@@ -35,7 +35,7 @@ import re
 from pathlib import Path
 
 from . import protocol
-from .util import read_json, read_text
+from .util import read_json, read_text, read_text_erkannt, ist_utf16
 
 # Bloecke des Ankerkopfs (Projektkonvention, AGENTS.md "Session-Kontinuitaet").
 BLOECKE = ("Stand", "Fertig", "Naechster Schritt", "Offene Entscheidung", "Fallstricke")
@@ -566,6 +566,47 @@ def preflight_dateien(cfg, anzahl: int = 4) -> list[tuple[int, Path]]:
     return gefunden[-max(1, anzahl):]
 
 
+# Die EINE Lesestelle fuer `analysis/_preflight_<N>.txt` (R13ap).
+# Anlass (gemessen 2026-09-30): `_preflight_216.txt` ist **UTF-16 LE mit BOM** (FF FE),
+# B211-B215 sind UTF-8-BOM. `read_text` liest UTF-8 - jede Zeile kam mit NUL-Bytes an,
+# kein Pflichtmuster passte, und der Review von B216 trug drei
+# `PARSER: Zeile ... nicht erkannt`, obwohl die Datei die Zeilen hat (genau dafuer wurde
+# die R13ae-Warnung gebaut; Beleg `docs/_r13ap_belege.md`). Aeltere Faelle: B155-B158.
+PREFLIGHT_GRENZE = 200000
+
+
+def preflight_text(pfad) -> tuple[str, str]:
+    """Inhalt **und Kodierung** einer Preflight-Datei -> `(text, kodierung)` (R13ap).
+
+    Kodierungserkennung in `util.read_text_erkannt`: BOM (UTF-8, UTF-16 LE/BE) schlaegt
+    alles, sonst UTF-8, und NUL-Bytes ohne BOM werden als UTF-16 LE gelesen. Fehlende
+    Datei: `("", "")` - wie vorher meldet der Aufrufer dann `nicht erkannt`; echte
+    Lesefehler (`OSError`) werden durchgereicht und dort als `nicht lesbar` gemeldet.
+    """
+    text, kodierung = read_text_erkannt(Path(pfad))
+    return text[:PREFLIGHT_GRENZE], kodierung
+
+
+def preflight_kodierung_hinweis(cfg, anzahl: int = 1, log=None) -> list[str]:
+    """Vermerkt eine als UTF-16 gelesene Preflight-Datei (R13ap) - fuer die Review-Fakten.
+
+    Der Text kommt trotzdem an (das ist der Punkt der Kodierungserkennung) - der Reviewer
+    soll aber wissen, dass dieser Batch seine Datei in einer anderen Kodierung geschrieben
+    hat als alle anderen: das ist ein Werkzeugfehler im Decomp-Repo, kein Messwert.
+    Rueckgabe: Liste mit hoechstens einer Zeile je gepruefter Datei.
+    """
+    out: list[str] = []
+    for batch, pfad in preflight_dateien(cfg, max(1, int(anzahl))):
+        _text, kodierung = preflight_text(pfad)
+        if ist_utf16(kodierung):
+            out.append(f"Preflight B{batch} in UTF-16, gelesen "
+                       f"({pfad.name}, {kodierung})")
+            if log is not None:
+                log.warn("Preflight-Datei ist UTF-16", batch=batch, datei=pfad.name,
+                         kodierung=kodierung)
+    return out
+
+
 # ------------------------------------------------- Zeilen der Bahnabdeckung (R13ac)
 # Maschinengeschriebene Zeilen der Preflight-Datei (Beispiel B210):
 #   "Bahnabdeckung      55/78 | Bloecke 326/434 | verifiziert 55 | teilgeprueft 23 OK"
@@ -624,7 +665,7 @@ def preflight_zeilen_pruefen(cfg, log=None, anzahl: int = 1) -> list[str]:
     warnungen: list[str] = []
     for batch, pfad in dateien:
         try:
-            zeilen = read_text(pfad)[:200000].splitlines()
+            zeilen = preflight_text(pfad)[0].splitlines()
         except OSError as exc:
             warnungen.append(f"PARSER: {pfad.name} nicht lesbar ({exc.__class__.__name__})")
             continue
@@ -654,7 +695,7 @@ def preflight_bahnabdeckung(cfg, anzahl: int = 4) -> list[dict]:
     out: list[dict] = []
     for batch, pfad in preflight_dateien(cfg, anzahl):
         try:
-            text = read_text(pfad)[:200000]
+            text = preflight_text(pfad)[0]
         except OSError:
             continue
         bahn: dict | None = None
@@ -716,7 +757,7 @@ def hybrid_verlauf(cfg, anzahl: int = 8) -> list[dict]:
     out: list[dict] = []
     for batch, pfad in preflight_dateien(cfg, max(1, int(anzahl))):
         try:
-            text = read_text(pfad)[:200000]
+            text = preflight_text(pfad)[0]
         except OSError:
             continue
         for zeile in text.splitlines():
@@ -865,7 +906,7 @@ def preflight_c_koepfe(cfg, anzahl: int = 4) -> list[dict]:
     out: list[dict] = []
     for batch, pfad in preflight_dateien(cfg, anzahl):
         try:
-            text = read_text(pfad)[:200000]
+            text = preflight_text(pfad)[0]
         except OSError:
             continue
         for zeile in text.splitlines():
