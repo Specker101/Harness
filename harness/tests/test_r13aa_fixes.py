@@ -16,6 +16,13 @@ Auftrag (Nutzer, drei Punkte):
 
 Zwei Sorten Tests: **echte Belege** (B207-B210 + `hybrid-plan.md`, nur lesend kopiert,
 uebersprungen wenn sie fehlen) und **Attrappen** in `tests/_tmp_r13aa`.
+
+**R13an (2026-09-29): der Plan kommt jetzt aus einer eingefrorenen Fixture.** Der Test
+las `analysis/hybrid-plan.md` **lebend** aus `g:\Silent Scope Decomp`; der laufende Batch
+hat die Datei um 23:04 um eine neue Mischverhaeltnis-Zeile ergaenzt, und der Test lief auf
+`anteil=None` (`TypeError`). Die Fixture `tests/fixtures/hybrid-plan_vor_b216.md` ist der
+Stand VOR diesem Nachtrag (Decomp-Revision `bd92910`), wortgleich und ohne Vorspann -
+die Zeilennummern stimmen mit der Originaldatei ueberein.
 """
 
 from __future__ import annotations
@@ -37,6 +44,9 @@ from hx.util import Log, ensure_dir, write_json_atomic, write_text_atomic  # noq
 ECHTER_CFG = load_config()
 DEC = Path(ECHTER_CFG.decomp)
 ECHTER_ROOT = Path(ECHTER_CFG.root)
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
+# Eingefrorener Plan (R13an): NICHT die lebende Datei - der laufende Batch schreibt sie.
+PLAN_FIXTURE = FIXTURES / "hybrid-plan_vor_b216.md"
 
 # Der Befund, an dem die Beleg-Regel gescheitert ist (Wortlaut aus `runs/meta-209.md`).
 M209_4 = ("Laufzeiten aus den Kosten und Laufzeiten je Batch: B201 18,1 min, B202 25,2 "
@@ -49,8 +59,10 @@ def _echte_fehlen() -> list[str]:
     for n in (207, 208, 209):
         if not (ECHTER_ROOT / "runs" / f"b{n:03d}" / "auftrag.md").is_file():
             fehlend.append(f"runs/b{n:03d}/auftrag.md")
-    if not (DEC / "analysis" / "hybrid-plan.md").is_file():
-        fehlend.append("analysis/hybrid-plan.md")
+    # R13an: der Plan kommt aus der Fixture (die lebende Datei wird waehrend eines
+    # Batches umgeschrieben und ist als Testgrundlage untauglich).
+    if not PLAN_FIXTURE.is_file():
+        fehlend.append("tests/fixtures/hybrid-plan_vor_b216.md")
     return fehlend
 
 
@@ -126,7 +138,7 @@ class TestEchteBelege(unittest.TestCase):
             p = ECHTER_ROOT / "runs" / f"b{n:03d}" / "review.md"
             if p.is_file():
                 shutil.copy2(p, ensure_dir(self.root / "runs" / f"b{n:03d}") / "review.md")
-        shutil.copy2(DEC / "analysis" / "hybrid-plan.md", self.ana / "hybrid-plan.md")
+        shutil.copy2(PLAN_FIXTURE, self.ana / "hybrid-plan.md")
         cfg = load_config()
         cfg.data["paths"]["root"] = str(self.root)
         cfg.data["paths"]["decomp"] = str(self.decomp)
@@ -137,11 +149,13 @@ class TestEchteBelege(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_mischverhaeltnis_aus_dem_plan(self):
+        """Stand VOR B216 (Fixture): die Entscheidungszeile traegt `2 B : 1 C`."""
         p = stand.plan_mischung(self.cfg)
         self.assertAlmostEqual(p["anteil"], 1 / 3, places=3)
         self.assertEqual(p["paare"].get(208), "B")
         self.assertEqual(p["paare"].get(209), "B")
         self.assertEqual(p["paare"].get(210), "C")
+        self.assertTrue(p.get("erkannt"))
 
     def test_b208_und_b209_sind_b_batches(self):
         # B208: Marker im Auftrag; B209: Zeile "Strang B, Batch 2 ..." im Auftrag.
@@ -217,9 +231,26 @@ class TestKlassifikation(Basis):
         self.auftrag(209, "Der naechste Batch B210 ist ein C-Batch; B211 wird wieder B.")
         self.assertEqual(stand.strang_von_batch(self.cfg, 209)["strang"], "")
 
-    def test_kaputte_planzeile_ergibt_nichts(self):
+    def test_kaputte_planzeile_wird_gemeldet(self):
+        """Kein Verhaeltnis in der Zeile: `erkannt=False` UND eine Parser-Meldung.
+
+        R13an: vorher kam hier ein leeres dict zurueck (bzw. `anteil=None`) - still. Jetzt
+        steht die Lage im Rueckgabewert (`erkannt`/`grund`), im Log und in den
+        Review-Fakten (`plan_mischung_pruefen`).
+        """
         self.plan("- **Mischverhaeltnis** offen (noch nicht entschieden)")
-        self.assertEqual(stand.plan_mischung(self.cfg), {})
+        p = stand.plan_mischung(self.cfg)
+        self.assertFalse(p["erkannt"])
+        self.assertIsNone(p["anteil"])
+        self.assertTrue(p["grund"], "der Grund muss benannt sein")
+        meldungen = stand.plan_mischung_pruefen(self.cfg, log=self.log)
+        self.assertEqual(len(meldungen), 1)
+        self.assertTrue(meldungen[0].startswith(
+            "PARSER: Mischverhaeltnis in hybrid-plan.md nicht erkannt"), meldungen)
+        self.assertTrue(any("Mischverhaeltnis" in str(z.get("msg") or "")
+                            for z in [json.loads(x) for x in
+                                      (self.tmp / "log.jsonl").read_text(
+                                          encoding="utf-8").splitlines() if x.strip()]))
 
     def test_hinweis_und_warnung(self):
         # B208 ist ein B-Batch (Marker im Auftrag), sein Review nennt die Pflichtzeile nicht

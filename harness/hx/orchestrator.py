@@ -2276,6 +2276,11 @@ class Orchestrator:
             lines.append(f"- Parser (R13ae): erwartete Zeilen gelesen, keine Luecke "
                          f"({quelle}: " + ", ".join(e["name"] for e in
                                                     standmod.PREFLIGHT_ERWARTET) + ")")
+        # R13an: dasselbe fuer das Mischverhaeltnis in `hybrid-plan.md` (die Datei bekam
+        # am 29.09. eine Zeile ohne `n B : m C` - der Parser nahm sie als erste und
+        # lieferte still `anteil=None`). Eigener Zweig: die Zeile oben sagt etwas ueber
+        # die PREFLIGHT-Datei, nicht ueber den Plan.
+        lines += [f"- {z}" for z in standmod.plan_mischung_pruefen(self.cfg, log=self.log)]
         tools = st.get("tool_counts") or {}
         if tools:
             top = sorted(tools.items(), key=lambda kv: -kv[1])[:10]

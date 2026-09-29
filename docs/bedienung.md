@@ -1162,6 +1162,27 @@ schreibt nur nach Telegram); gerechnet wird deshalb aus `runs/b<N>/auftrag.md`
 Bericht und Werkzeug: `docs/_r13al_belege.md`, `docs/_r13al_messung.txt`,
 `docs/_r13al_peakstart_probe.py`.
 
+### 12o. Mischverhältnis-Zeile robust gelesen (R13an, 2026-09-29)
+
+`hx/stand.py:plan_mischung` suchte die **erste** Zeile mit dem Wort „Mischverhaeltnis".
+Am 29.09. um 23:04 hat der laufende Batch B216 genau davor eine **neue** Zeile
+eingetragen (`hybrid-plan.md:299` `Mischverhaeltnis 2:1 ab B217 …` **ohne** die Form
+`n B : m C`); die historische Entscheidungszeile steht seither eine Zeile darunter
+(`:301`). Der Parser nahm die neue, fand kein Verhältnis und lieferte still
+`anteil=None` — `test_r13aa_fixes.py` brach deshalb mit `TypeError` ab (die volle Reihe
+stand auf 947 Tests / 1 Fehler).
+
+Jetzt gilt:
+
+| Punkt | Verhalten |
+|---|---|
+| **Auswahl** | gewählt wird die Zeile **mit** einem Verhältnis `n B : m C` (auch `n B:m C`, beliebige Leerzeichen); gibt es mehrere, die mit dem Wort `ENTSCHEIDUNG`, sonst die **letzte** |
+| **Meldung** | trägt **keine** Zeile ein Verhältnis: `erkannt=False` + benannter Grund, `plan_mischung_pruefen` schreibt `PARSER: Mischverhaeltnis in hybrid-plan.md nicht erkannt (<Grund>)` ins Log **und** in die Review-Fakten (Muster R13ae). Ist die **Datei** nicht lesbar, lautet die Zeile `PARSER: hybrid-plan.md nicht lesbar` — ebenfalls kein Schweigen |
+| **Tests** | die beiden Zustände liegen eingefroren in `tests/fixtures/` (`hybrid-plan_vor_b216.md` aus `bd92910`, `hybrid-plan_mit_b216.md` aus `4f60f45`); **kein** Test liest mehr ein Dauer-Dokument aus dem Decomp-Repo — was bleibt, sind feste, abgeschlossene Nummernbereiche (`_preflight_<N>.txt`, `port-batch<N>-*.md`, `runs/b<N>/…`), die nur ein Wiederlauf eines alten Batches verschieben könnte |
+
+Belege: `docs/_r13an_belege.md`, `docs/_r13an_bestand.txt` (Bestandsaufnahme aller Tests,
+die den echten Workspace berühren), `docs/_r13an_volle_reihe.txt`.
+
 ### 12b. Was der Nutzer selbst entscheiden muss
 
 Der grösste Hebel liegt ausserhalb des Harness: die 68K-Emulationsläufe im Decomp-Repo

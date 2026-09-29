@@ -1,0 +1,192 @@
+﻿python : G:\Harness\harness\tests\test_r13aa_fixes.py:1: SyntaxWarning: 
+invalid escape sequence '\S'
+In Zeile:1 Zeichen:114
++ ... 'Continue'; python -u -m unittest discover -s tests -p "test_*.py" 2> ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (G:\Harness\harn...e sequence '\S' 
+   :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  """Tests fuer R13aa (2026-09-28): Aussensicht-Nachbesserung aus 
+`runs/meta-209.md`.
+pause: abgelegt (pause.ctl)
+KEIN Harness-Prozess erreichbar. Der Befehl bleibt als Datei liegen und wird beim naechsten Start ausgefuehrt.
+resume: abgelegt (resume.ctl)
+KEIN Harness-Prozess erreichbar. Der Befehl bleibt als Datei liegen und wird beim naechsten Start ausgefuehrt.
+approve: abgelegt (approve.ctl)
+KEIN Harness-Prozess erreichbar. Der Befehl bleibt als Datei liegen und wird beim naechsten Start ausgefuehrt.
+stop: abgelegt (stop.ctl)
+KEIN Harness-Prozess erreichbar. Der Befehl bleibt als Datei liegen und wird beim naechsten Start ausgefuehrt.
+.Kein Text: --file <pfad.md> oder --text "..."
+Datei nicht gefunden: G:\Harness\harness\tests\_tmp_cli\y
+Instruktion abgelegt (instruction.json, 39 Zeichen).
+Profil none, Programm - - Quelle: vom Nutzer (ohne Review).
+KEIN Harness-Prozess erreichbar. Der Befehl bleibt als Datei liegen und wird beim naechsten Start ausgefuehrt.
+claude: 20260929_214640_0000_BB552ECEFAC8.md (20 Zeichen)
+Zustellung: ds beim naechsten Batch-Uebergang, claude beim naechsten Review.
+KEIN Harness-Prozess erreichbar. Der Befehl bleibt als Datei liegen und wird beim naechsten Start ausgefuehrt.
+ds: 20260929_214640_0000_377E828B2CBB.md (18 Zeichen)
+Zustellung: ds beim naechsten Batch-Uebergang, claude beim naechsten Review.
+KEIN Harness-Prozess erreichbar. Der Befehl bleibt als Datei liegen und wird beim naechsten Start ausgefuehrt.
+....Kein Text: 'send ds "..."' oder 'send ds --file <pfad.md>'
+Datei nicht gefunden: G:\Harness\harness\tests\_tmp_cli\x
+Datei ist leer: G:\Harness\harness\tests\_tmp_cli\leer.md
+ds: 20260929_214640_0000_282116F4DEAC.md (48 Zeichen)
+Zustellung: ds beim naechsten Batch-Uebergang, claude beim naechsten Review.
+KEIN Harness-Prozess erreichbar. Der Befehl bleibt als Datei liegen und wird beim naechsten Start ausgefuehrt.
+claude: 20260929_214640_0000_DD79377D2AA9.md (48 Zeichen)
+Zustellung: ds beim naechsten Batch-Uebergang, claude beim naechsten Review.
+KEIN Harness-Prozess erreichbar. Der Befehl bleibt als Datei liegen und wird beim naechsten Start ausgefuehrt.
+watch: gibtsnicht  (nachspielen)
+(noch kein Mitschnitt unter G:\Harness\harness\tests\_tmp_watch\runs\gibtsnicht)
+watch: b001  (nachspielen)
+  ~ (mock)
+  > Read(file_path=analysis/r1b-workstream.md)
+  ~ (mock)
+  > Grep(pattern=80054AE4, path=port/src)
+  ~ (mock)
+  > mcp__ghidra__decompile_function(address=0x80054AE4)
+  ~ (mock)
+  > PowerShell(command=python -u scripts/preflight.py before)
+
+WORKER:
+## 1) Uebernommener Stand
+(mock) Der Anker wurde gelesen; keine echten Messungen in diesem Testlauf.
+
+## 2) Befunde
+- (F1) MOCK-Befund mit Datei:Zeile-Beleg: `port/src/mission_script.cpp:1402` [CONFIRMED]
+- (F2) MOCK-Vermutung ohne Beleg [HYPOTHESIS]
+
+## 3) Naechster Schritt
+(mock) Verdrahtung im Sandkasten vorbereiten.
+
+<TOOL_REQUEST>mcp__ghidra__read_memory</TOOL_REQUEST>
+
+--- WORKER beendet ---
+[23:46:50] Batch 0 laufend: 5 Anfragen ┬À 22650 ein / 86500 cache / 1030 aus ┬À $0.0043 ┬À Laufzeit nicht gemessen (kein worker.started_at im Harness-Zustand)
+
+----------------------------------------------------------------------
+Batch 1: rc=0 ┬À 1s ┬À 5 Anfragen ┬À $0.0042 ┬À Modell deepseek-flash[1m] (ok=True)
+----------------------------------------------------------------------
+
+======================================================================
+REVIEWER (b001/review.md)
+======================================================================
+Zusammenfassung (TELEGRAM_SUMMARY):
+Alles gut.
+Werkzeuge: Profil none, Programm -
+
+Instruktion (DS_INSTRUCTION):
+Batch 2 - weiter
+watch: env-proof  (nachspielen)
+
+WORKER:
+hallo
+(fuer diesen Lauf gibt es keine Kennzahlen-Datei - gezeigt wurde der Mitschnitt selbst)
+watch: b999  (nachspielen)
+(noch kein Mitschnitt unter G:\Harness\harness\tests\_tmp_r10\root\runs\b999)
+
+WORKER:
+hallo
+
+WORKER:
+weiter
+[23:48:03] INFO  Harness startet  config=g:\Harness\harness\harness.toml mock=False
+[23:48:03] WARN  Kein Telegram-Token gefunden - Bot ist aus
+...............................................................................
+...............................................................................
+...............................................................................
+...............................................................................
+...............................................................................
+...........................ABSTURZ: RuntimeError: platt
+...............................................................................
+...............................................................<frozen 
+importlib._bootstrap_external>:752: ResourceWarning: unclosed <ssl.SSLSocket 
+[closed] fd=744, family=23, type=1, proto=0>
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+<frozen importlib._bootstrap_external>:752: ResourceWarning: unclosed 
+<ssl.SSLSocket [closed] fd=1620, family=23, type=1, proto=0>
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+<frozen importlib._bootstrap_external>:752: ResourceWarning: unclosed 
+<ssl.SSLSocket [closed] fd=1364, family=23, type=1, proto=0>
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+<frozen importlib._bootstrap_external>:752: ResourceWarning: unclosed 
+<ssl.SSLSocket [closed] fd=1596, family=23, type=1, proto=0>
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+.........G:\Harness\harness\tests\test_r13j_fixes.py:75: ResourceWarning: 
+unclosed file <_io.FileIO name=6 mode='rb' closefd=True>
+  run = run_stream([sys.executable, "-c", "print('x', flush=True)"], env=None,
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+G:\Harness\harness\tests\test_r13j_fixes.py:75: ResourceWarning: unclosed file 
+<_io.FileIO name=7 mode='rb' closefd=True>
+  run = run_stream([sys.executable, "-c", "print('x', flush=True)"], env=None,
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+..G:\Harness\harness\tests\test_r13j_fixes.py:67: ResourceWarning: unclosed 
+file <_io.FileIO name=8 mode='rb' closefd=True>
+  run = run_stream([sys.executable, "-c", "print('kurz und fertig', 
+flush=True)"],
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+G:\Harness\harness\tests\test_r13j_fixes.py:67: ResourceWarning: unclosed file 
+<_io.FileIO name=9 mode='rb' closefd=True>
+  run = run_stream([sys.executable, "-c", "print('kurz und fertig', 
+flush=True)"],
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+.........................C:\Users\Benji\AppData\Local\Programs\Python\Python312
+\Lib\threading.py:1014: ResourceWarning: unclosed file <_io.FileIO name=6 
+mode='rb' closefd=True>
+  del self._target, self._args, self._kwargs
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+C:\Users\Benji\AppData\Local\Programs\Python\Python312\Lib\threading.py:1014: 
+ResourceWarning: unclosed file <_io.FileIO name=7 mode='rb' closefd=True>
+  del self._target, self._args, self._kwargs
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+C:\Users\Benji\AppData\Local\Programs\Python\Python312\Lib\threading.py:1014: 
+ResourceWarning: unclosed file <_io.FileIO name=8 mode='rb' closefd=True>
+  del self._target, self._args, self._kwargs
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+C:\Users\Benji\AppData\Local\Programs\Python\Python312\Lib\threading.py:1014: 
+ResourceWarning: unclosed file <_io.FileIO name=9 mode='rb' closefd=True>
+  del self._target, self._args, self._kwargs
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+...............................................................................
+...............................................................................
+......G:\Harness\harness\tests\test_r13v3_fixes.py:264: ResourceWarning: 
+unclosed file <_io.FileIO name=6 mode='rb' closefd=True>
+  run = run_stream([sys.executable, "-c", "import time;time.sleep(4)"], 
+env=dict(os.environ),
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+G:\Harness\harness\tests\test_r13v3_fixes.py:264: ResourceWarning: unclosed 
+file <_io.FileIO name=7 mode='rb' closefd=True>
+  run = run_stream([sys.executable, "-c", "import time;time.sleep(4)"], 
+env=dict(os.environ),
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+.......C:\Users\Benji\AppData\Local\Programs\Python\Python312\Lib\subprocess.py
+:1127: ResourceWarning: subprocess 12500 is still running
+  _warn("subprocess %s is still running" % self.pid,
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+FRAGEN AN DICH (Anker: BATCH 101)
+
+NAECHSTER SCHRITT
+  **(a)** Paket E weiter.
+
+OFFENE FRAGEN AN DICH
+  A5        ANKERPOSTEN (5): soll `prof` je Kopf MEHRERE MEM-Varianten fahren?
+            Empfehlung: ja
+            Quelle: Ankerkopf r1b-workstream.md
+  A6        UNKLAR FORMULIERT: offen bleiben: R330, `M60_NO_EVID`, die Pins (R381)
+            (so nicht entscheidbar - bitte in /claude den Wortlaut nennen)
+            Quelle: Ankerkopf r1b-workstream.md
+
+ANTWORTEN: /claude <Kennung> <Text>   (z. B. "/claude A5 ja" - Kennung am Anfang, dann der Text)
+claude: 20260929_215355_0000_04A64A064491.md (199 Zeichen)  In die Queue gelegt. Beantwortet: A5 - die Frage(n) stehen jetzt als "beantwortet, wartet auf Review".
+Zustellung: ds beim naechsten Batch-Uebergang, claude beim naechsten Review.
+KEIN Harness-Prozess erreichbar. Der Befehl bleibt als Datei liegen und wird beim naechsten Start ausgefuehrt.
+...............................................................................
+.............................Unbekannte Kennung: A9. Die Nachricht wurde NICHT 
+in die Queue gelegt.
+Gueltige Kennungen: A5, A6
+............................................................................
+----------------------------------------------------------------------
+Ran 960 tests in 436.155s
+
+OK

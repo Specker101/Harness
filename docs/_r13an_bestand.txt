@@ -1,0 +1,42 @@
+﻿Testdatei                    load_config  Temp-Root  echte Dateien / Bereiche
+test_local_control.py        ja           decomp,root ECHT  a.txt, auftrag.md, leer.md, log.jsonl, result.json, review.md ÔÇª; Batches: 001
+test_r10_fixes.py            ja           decomp,root ECHT  a.txt, auftrag.md, log.jsonl, r1b-workstream.md, review-pre.md, review-prompt-x.md ÔÇª; Batches: 000, 159
+test_r11_fixes.py            ja           decomp,root ECHT  a.txt, antwort.md, auftrag.md, log.jsonl, r1b-workstream.md, result.json ÔÇª; Batches: 159
+test_r13_fixes.py            ja           decomp,root ECHT  log.jsonl, r1b-workstream.md, result.json, run.json, vorherige-session.md; Batches: 159
+test_r13aa_fixes.py          ja           decomp,harness_home,root ECHT  auftrag.md, hybrid-plan.md, hybrid-plan_vor_b216.md, log.jsonl, meta-211.json, review.md ÔÇª; for n in (207, 208
+test_r13ab_fixes.py          ja           decomp,harness_home,root ECHT  _r13ab_probe.txt, antwort.md, harness-facts.md, log.jsonl, r1b-workstream.md, result.json ÔÇª; Batches: 209, 211
+test_r13ac3_fixes.py         ja           decomp,harness_home,root -     antwort.md, auftrag.md, aussensicht.md, log.jsonl, r1b-workstream.md, result.json ÔÇª; for n in (198, 200) / (19
+test_r13ac_fixes.py          ja           decomp,harness_home,root ECHT  X.json, _preflight_198.txt, _preflight_210.txt, _r13ac_hook.txt, auftrag.md, gibtsnicht.json ÔÇª; Batches: 198, 
+test_r13ad_fixes.py          ja           decomp,root ECHT  auftrag.md, log.jsonl, r1b-workstream.md, result.json, review.md, run.json; for n in (211, 212); Batches: 213,
+test_r13ae_fixes.py          ja           decomp,harness_home,root ECHT  _preflight_211.txt, _preflight_212.txt, _preflight_213.txt, harness-facts.md, log.jsonl, reviewer.md ÔÇª; Batche
+test_r13af_fixes.py          ja           decomp,harness_home,root ECHT  _r13t4_claude_zusammenfassung.txt, auftrag.md, bedienung.md, log.jsonl, reviewer.md, run.json; Batches: 213
+test_r13ah_fixes.py          ja           decomp,harness_home,root ECHT  _preflight_207_vor_fortsetzung1.txt, _preflight_214.txt, _preflight_214_vor_fortsetzung1.txt, _preflight_214_v
+test_r13ai_fixes.py          ja           -          ECHT  reviewer.md
+test_r13aj_fixes.py          ja           harness_home,root -     log.jsonl, result.json, reviewer.md, run.json, stream.jsonl; Batches: 212, 214
+test_r13ak_fixes.py          ja           decomp,harness_home,root -     log.jsonl, review.md, run.json; Batches: 211, 213
+test_r13al_fixes.py          ja           decomp,root ECHT  _r13al_messung.txt, log.jsonl, r1b-workstream.md, result.json, run.json
+test_r13an_fixes.py          ja           decomp,harness_home,root ECHT  hybrid-plan.md, hybrid-plan_mit_b216.md, hybrid-plan_vor_b216.md, log.jsonl
+test_r13b_fixes.py           ja           decomp,root ECHT  antwort.md, auftrag.md, harness-facts.md, log.jsonl, r1b-workstream.md, result.json ÔÇª; Batches: 159, 160
+test_r13c_fixes.py           ja           decomp,root ECHT  AGENTS.md, crash-20260926T010101.txt, log.jsonl, r1b-workstream.md, result.json, review.md ÔÇª; Batches: 160, 16
+test_r13e_fixes.py           ja           decomp,root -     a.txt, ghidra-mcp-notes.md, harness-facts.md, log.jsonl, mcp-lazy-warnung.txt, notes.md ÔÇª; Batches: 162, 174, 
+test_r13f_fixes.py           ja           decomp,root ECHT  log.jsonl, reviewer.md, run.json
+test_r13g_fixes.py           ja           decomp,root ECHT  log.jsonl, run.json, secret-zugriff.jsonl, stream.jsonl, x.md
+test_r13h_fixes.py           ja           decomp,root -     log.jsonl, result.json, run.json
+test_r13i_fixes.py           ja           decomp,root ECHT  a.txt, log.jsonl, run.json, stream.jsonl
+test_r13m_fixes.py           ja           decomp,root -     log.jsonl, r1b-workstream.md, run.json
+test_r13n_fixes.py           ja           decomp,root ECHT  fremd.txt, log.jsonl, lokal.txt, neu.txt, r1b-workstream.md, readme.md ÔÇª
+test_r13o_fixes.py           ja           decomp,root ECHT  .credentials.json, log.jsonl, log2.jsonl, run.json, session.json
+test_r13p_fixes.py           ja           decomp,root -     auftrag.md, harness-facts.md, leer.jsonl, log.jsonl, port0.txt, readme.md ÔÇª; for n in (140, 141, 142, 143, 144
+test_r13q_fixes.py           ja           decomp,root ECHT  _bilanz_snapshot.json, a.txt, b.txt, log.jsonl, port-batch101-rest24-2026-09-27.md, port-batch101-x.md ÔÇª; Batc
+test_r13r_fixes.py           ja           decomp,root ECHT  gibtsnicht.jsonl, log.jsonl, run.json, stream.jsonl
+test_r13s_fixes.py           ja           decomp,root -     _bilanz101.txt, _bilanz_snapshot.json, auftrag.md, harness-facts.md, log.jsonl, r1b-workstream.md ÔÇª; Batches: 
+test_r13t2_fixes.py          ja           decomp,root -     _bilanz206.txt, _port_relevanz.json, port-batch206-x-2026-09-28.md
+test_r13t_fixes.py           ja           decomp,root ECHT  _port_relevanz.json, auftrag.md, port-batch206-beispiel-2026-09-28.md
+test_r13u_fixes.py           ja           decomp,root -     log.jsonl, r1b-workstream.md, run.json
+test_r13v3_fixes.py          ja           decomp     ECHT  _tmp_r13v3_stream.jsonl, _tmp_r13v3_zeile.json, antwort-v1.md, antwort.md, auftrag-v1.md, auftrag.md ÔÇª; for n 
+test_r13v_fixes.py           ja           -          ECHT  _r13v_test.jsonl; Batches: 207
+test_r13w_fixes.py           ja           decomp,harness_home,root ECHT  AGENTS.md, auftrag.md, aussensicht.md, log.jsonl, readme.md, reasoning.jsonl ÔÇª
+test_r13x_fixes.py           ja           decomp,root ECHT  _bilanz_snapshot.json, _preflight_202.txt, _preflight_203.txt, _preflight_208.txt, auftrag.md, harness-facts.m
+test_r13y_fixes.py           ja           decomp,root -     harness-facts.md, log.jsonl, r1b-workstream.md, review.md, run.json
+test_r13z_fixes.py           ja           decomp,harness_home,root ECHT  _bilanz_snapshot.json, log.jsonl, r1b-workstream.md, reviewer.md, run.json
+test_units.py                ja           -          -     run.json; Batches: 999

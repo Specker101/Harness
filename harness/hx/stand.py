@@ -1200,31 +1200,82 @@ def review_zu_batch(cfg, batch: int) -> str:
 def plan_mischung(cfg) -> dict:
     """Das Mischverhaeltnis aus `analysis/hybrid-plan.md`.
 
-    Gelesen wird die Zeile mit dem Wort "Mischverhaeltnis" - sie traegt die Zuordnung
-    ausdruecklich (`… B208 B, B209 B, B210 C`) und das Verhaeltnis (`2 B : 1 C`).
-    Rueckgabe: `{"paare": {batch: "B"|"C"}, "anteil": float|None, "zeile": str,
-    "datei": "hybrid-plan.md"}` (leer, wenn die Datei fehlt oder die Zeile nichts hergibt).
+    Gesucht wird die Zeile mit dem Wort "Mischverhaeltnis" **und** einem Verhaeltnis der
+    Form `n B : m C` (auch `n B:m C`, beliebige Leerzeichen). Gibt es mehrere solche
+    Zeilen, gilt die mit dem Wort `ENTSCHEIDUNG`, sonst die **letzte** von ihnen - sie ist
+    die juengste Fassung.
+
+    Anlass (gemessen 2026-09-29, B216): der Plan bekam eine NEUE Zeile
+    `Mischverhaeltnis 2:1 ab B217 voraussichtlich **B221** (B217 B, …)` **vor** die
+    historische `**Mischverhaeltnis 2 B : 1 C (ENTSCHEIDUNG Reviewer):** B208 B, B209 B,
+    B210 C`. Die alte Regel "erste Trefferzeile" nahm die neue, fand darin kein
+    `n B : m C` und lieferte still `anteil=None` (der Test `test_mischverhaeltnis_aus_dem_
+    plan` lief deshalb auf einen `TypeError`).
+
+    Rueckgabe: `{"paare": {batch: "B"|"C"}, "anteil": float|None, "regel": str,
+    "zeile": str, "datei": "hybrid-plan.md", "erkannt": bool, "grund": str,
+    "kandidaten": int}`. `erkannt=False` heisst: keine Zeile trug ein Verhaeltnis - der
+    Aufrufer meldet das (`plan_mischung_pruefen`), es bleibt nicht still.
     """
     try:
         text = read_text(Path(cfg.decomp) / "analysis" / "hybrid-plan.md")
     except OSError:
         text = ""
-    for zeile in (text or "").splitlines():
-        if not _RE_MISCHUNG.search(zeile):
-            continue
-        paare = {int(m.group(1)): m.group(2).upper()
-                 for m in _RE_MISCH_PAAR.finditer(zeile)}
-        m = _RE_MISCH_ZAHL.search(zeile)
-        anteil = None
-        regel = ""
-        if m:
-            b, c = int(m.group(1)), int(m.group(2))
-            anteil = c / (b + c) if (b + c) else None
-            regel = " ".join(m.group(0).split())
-        if paare or anteil:
-            return {"paare": paare, "anteil": anteil, "regel": regel,
-                    "zeile": " ".join(zeile.split())[:160], "datei": "hybrid-plan.md"}
-    return {}
+    kandidaten = [z for z in (text or "").splitlines() if _RE_MISCHUNG.search(z)]
+    if not kandidaten:
+        return {"paare": {}, "anteil": None, "regel": "", "zeile": "",
+                "datei": "hybrid-plan.md", "erkannt": False,
+                "grund": ("Datei nicht lesbar" if not text
+                          else "keine Zeile mit \"Mischverhaeltnis\" gefunden"),
+                "kandidaten": 0}
+    mit_zahl = [z for z in kandidaten if _RE_MISCH_ZAHL.search(z)]
+    if mit_zahl:
+        entschieden = [z for z in mit_zahl if "entscheidung" in z.lower()]
+        zeile = entschieden[-1] if entschieden else mit_zahl[-1]
+        erkannt, grund = True, ""
+    else:
+        zeile = kandidaten[-1]            # ohne Verhaeltnis: die Paare der letzten Zeile
+        erkannt = False
+        grund = ("kein Verhaeltnis \"n B : m C\" in einer der "
+                 f"{len(kandidaten)} Mischverhaeltnis-Zeilen")
+    paare = {int(m.group(1)): m.group(2).upper() for m in _RE_MISCH_PAAR.finditer(zeile)}
+    m = _RE_MISCH_ZAHL.search(zeile)
+    anteil = None
+    regel = ""
+    if m:
+        b, c = int(m.group(1)), int(m.group(2))
+        anteil = c / (b + c) if (b + c) else None
+        regel = " ".join(m.group(0).split())
+    return {"paare": paare, "anteil": anteil, "regel": regel,
+            "zeile": " ".join(zeile.split())[:160], "datei": "hybrid-plan.md",
+            "erkannt": bool(erkannt), "grund": grund, "kandidaten": len(kandidaten)}
+
+
+def plan_mischung_pruefen(cfg, log=None) -> list[str]:
+    """Meldet ein NICHT erkanntes Mischverhaeltnis in `hybrid-plan.md` (R13an).
+
+    Wie `preflight_zeilen_pruefen` (R13ae): die Meldung geht ins Log **und** in die
+    Review-Fakten - ein stilles `None` hat schon einmal einen Test und den Trend
+    verfaelscht. Rueckgabe: Liste mit hoechstens einer Zeile.
+
+    Zwei Wortlaute, weil zwei verschiedene Faelle:
+      * Datei da, aber keine Zeile traegt `n B : m C` -> "nicht erkannt" (das ist der
+        Fall, der am 29.09. den Test brach);
+      * Datei fehlt/ist nicht lesbar -> "nicht lesbar" (in einem Echtlauf eine
+        Anomalie, in Tests mit umgebogenem Wurzelverzeichnis normal).
+    Beide Male bleibt es nicht still.
+    """
+    plan = plan_mischung(cfg)
+    if plan.get("erkannt"):
+        return []
+    grund = str(plan.get("grund") or "unbekannt")
+    meldung = ("PARSER: hybrid-plan.md nicht lesbar"
+               if grund == "Datei nicht lesbar"
+               else "PARSER: Mischverhaeltnis in hybrid-plan.md nicht erkannt")
+    if log is not None:
+        log.warn(meldung, datei="hybrid-plan.md", grund=grund,
+                 kandidaten=plan.get("kandidaten"))
+    return [f"{meldung} ({grund})"]
 
 
 def _auftrag_zu_batch(cfg, batch: int) -> str:
