@@ -1183,6 +1183,34 @@ Jetzt gilt:
 Belege: `docs/_r13an_belege.md`, `docs/_r13an_bestand.txt` (Bestandsaufnahme aller Tests,
 die den echten Workspace berühren), `docs/_r13an_volle_reihe.txt`.
 
+### 12p. Preflight zu früh: Hinweis statt Sperre (R13ao, 2026-09-29)
+
+Der Preflight (`scripts/preflight.py`, gemessen ~10 min) gehört ans **Batch-Ende** — er
+liest den Stand, den der Batch gerade erst herstellt. Läuft er vorher, muss er später
+wiederholt werden und kostet doppelt.
+
+**Gemessen** (B206–B215, `docs/_r13ao_messung.txt`): **9 von 10** Batches haben den
+Preflight deutlich zu früh gestartet (B208 nach 14 min, B215 nach 23 min), zwei bis drei
+Starts je Batch bei B210/B214/B215. Nur B213 lag mit 92 min dahinter.
+
+Deshalb hängt der PostToolUse-Hook (dieselbe Stelle wie die BATCH-UHR, §18b) eine zweite
+Zeile an, wenn **alle drei** Bedingungen gelten: der Aufruf **startet** den Preflight,
+die Batch-Uhr steht **vor** der Umschaltschwelle und `auftrag.md` trägt eine
+`NACHRUECKLISTE`.
+
+```
+PREFLIGHT-HINWEIS: Preflight vor der Umschwellschwelle (34.0 von 75 min). Er ist nur zulässig, wenn alle Posten der NACHRUECKLISTE erledigt sind. Sonst erst die Nachrückliste abarbeiten; ein früher Preflight muss später wiederholt werden und kostet ~10 min.
+```
+
+| Punkt | Verhalten |
+|---|---|
+| **Keine Sperre** | nur eine Zeile `additionalContext`; der Worker entscheidet selbst |
+| **Was ein Aufruf ist** | Shell-Werkzeug **und** Interpreter (`python`/`py`) mit `preflight.py` als Argument; `Select-String -Path scripts/preflight.py`, `git add … scripts/preflight.py` und die Überwachung des Laufs (`-like '*preflight.py*'`) zählen **nicht** (gemessen: 14 echte Starts gegen 23 Treffer der reinen Textsuche) |
+| **Zähler** | `runs/b<N>/preflight-aufrufe.jsonl` — eine Zeile je erkanntem Start; daraus `result.json: preflight_laeufe` (Aufrufe) und `preflight_frueh` (davon vor der Schwelle mit offener Nachrückliste) |
+| **Ab wann** | der Hook bekommt `--run` mit dieser Fassung; ein **schon laufender** Batch (B216) hat seine Einstellungsdatei ohne `--run` und bleibt unberührt — kein Hinweis, keine Zählung |
+
+Wortlaut, Messung und die Definition der Zähler: `docs/_r13ao_belege.md`.
+
 ### 12b. Was der Nutzer selbst entscheiden muss
 
 Der grösste Hebel liegt ausserhalb des Harness: die 68K-Emulationsläufe im Decomp-Repo
@@ -1208,7 +1236,8 @@ nur nach 14 Tagen gepackt (13c).
 | `runs/b<N>/stream.jsonl` | **Der vollständige Mitschnitt des Worker-Laufs**: jede Zeile der DeepSeek-Ausgabe — Antworttexte, Denkblöcke, jeder Werkzeugaufruf **und dessen Ergebnis**. Das ist die Quelle für `rebuild`, `watch` und alle Token-/Kostenzahlen. (Testläufe: `stream-v1.jsonl` beim zweiten Anlauf.) |
 | `runs/b<N>/reviewer.jsonl` | Mitschnitt des Reviews (Prompt-Ereignisse, Antwort, Nutzerlimit-Werte) |
 | `runs/b<N>/auftrag.md` | Der vollständige Prompt des Workers (Vorspann + Auftrag + Queue) |
-| `runs/b<N>/result.json` | Kennzahlen des Laufs: Exit-Code, Dauer, Anfragen, Token, Kosten, Abbruchgrund — **die** Quelle für Laufzeit und Kosten des Batches |
+| `runs/b<N>/result.json` | Kennzahlen des Laufs: Exit-Code, Dauer, Anfragen, Token, Kosten, Abbruchgrund — **die** Quelle für Laufzeit und Kosten des Batches. Seit R13ao dazu `preflight_laeufe` und `preflight_frueh` (Preflight-Aufrufe des Laufs, s. §12p) |
+| `runs/b<N>/preflight-aufrufe.jsonl` | Eine Zeile je erkanntem Preflight-**Start** (`ts`, `min`, `frueh`, `werkzeug`) — der Hook schreibt sie, `result.json` zählt sie (R13ao, §12p) |
 | `runs/b<N>/harness-facts.md` | Der Messdatenblock, den der Review bekam — gehört zu Batch **N−1** (der Review von N−1 liegt in `runs/b<N>/`) |
 | `runs/b<N>/antwort.md` | Abschlussbericht des Workers (wortgleich im Review) |
 | `runs/b<N>/review.md`, `review-prompt-*.md` | Bewertung und der Prompt, mit dem sie entstand |

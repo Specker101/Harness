@@ -250,6 +250,11 @@ def write_worker_hooks(cfg, rd: Path, state_datei, log=None) -> str | None:
     # R13ah (Aussensicht B214, Befund 3): die Schwelle ist jetzt
     # `Alarm - max(15 min, Preflightdauer + 5 min)` (`umschalt_minuten`) und die
     # gemessene Preflightdauer steht als eigene Zahl in der Uhr-Zeile.
+    # R13ao (Teil B): `--run` nennt dem Hook das Laufverzeichnis. Daraus liest er
+    # `auftrag.md` (NACHRUECKLISTE) und schreibt `preflight-aufrufe.jsonl`, das
+    # `_finish_run` nach `result.json` zaehlt. Fehlt der Schalter (Einstellungsdatei
+    # aus einer aelteren Fassung, z.B. bei einem schon laufenden Batch), behauptet der
+    # Hook nichts und zaehlt nichts - der Lauf bleibt unberuehrt.
     u = umschalt_minuten(cfg, log)
     umschalt = u["umschalt_min"]
     kontext_limit = int(cfg.get("limits", "kontext_limit", 1000000))
@@ -262,7 +267,8 @@ def write_worker_hooks(cfg, rd: Path, state_datei, log=None) -> str | None:
                  "--umschalt", f"{umschalt:.0f}",
                  "--preflight-min", f"{u['preflight_min']:.1f}",
                  "--preflight-batch", str(u["preflight_batch"]),
-                 "--kontext-limit", str(kontext_limit)],
+                 "--kontext-limit", str(kontext_limit),
+                 "--run", str(rd)],
     }]}]}}
     ziel = Path(rd) / "worker-hooks.json"
     write_text_atomic(ziel, json.dumps(daten, indent=1) + "\n")
@@ -1003,6 +1009,45 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
     return _finish_run(cfg, state, res, stats, batch, profile_name, log, mock=mock)
 
 
+PREFLIGHT_ZAHL_DATEI = "preflight-aufrufe.jsonl"
+
+
+def zaehle_preflight_aufrufe(rd) -> tuple[int, int]:
+    """`(Aufrufe, davon zu frueh)` aus `runs/b<N>/preflight-aufrufe.jsonl` (R13ao).
+
+    **Definition der Zaehler** (R387: ein Zaehler ohne Definition zaehlt nichts):
+
+    * `preflight_laeufe` - Preflight-Aufrufe des Workers, die der PostToolUse-Hook
+      (`tools/batch_uhr.py`) als Shell-Aufruf mit `preflight.py` erkannt hat, **waehrend
+      die Batch-Uhr lief** (ohne Startzeit im Zustand schreibt der Hook nichts). Es ist
+      die Zahl der *Aufrufe*, nicht der *Laeufe*: derselbe Befehl zweimal = zwei.
+    * `preflight_frueh` - davon die Aufrufe **vor der Umschaltschwelle**, als
+      `auftrag.md` eine offene `NACHRUECKLISTE` trug (genau die Faelle, in denen der
+      Worker den Hinweis gesehen hat).
+
+    Ohne Datei (aeltere Batches, Attrappen, laufende Batches ohne `--run` im Hook):
+    `(0, 0)`. Eine halb geschriebene letzte Zeile wird verworfen.
+    """
+    p = Path(rd) / PREFLIGHT_ZAHL_DATEI
+    if not p.is_file():
+        return 0, 0
+    laeufe = 0
+    frueh = 0
+    for zeile in read_text(p).splitlines():
+        if not zeile.strip():
+            continue
+        try:
+            daten = json.loads(zeile)
+        except ValueError:
+            continue
+        if not isinstance(daten, dict):
+            continue
+        laeufe += 1
+        if daten.get("frueh"):
+            frueh += 1
+    return laeufe, frueh
+
+
 def _fehler_kurz(fehler: list[dict], grenze: int = 5) -> list[dict]:
     """Werkzeugfehler je Werkzeug zusammenfassen (Name, Anzahl, Arten).
 
@@ -1084,6 +1129,12 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
             state.save()
         res.stats["ghidra_save"] = res.ghidra_save
 
+    # R13ao (Auftrag Teil B): wie oft lief der Preflight, und wie oft zu frueh?
+    # Die Zahlen kommen aus `runs/b<N>/preflight-aufrufe.jsonl`, das der
+    # PostToolUse-Hook je erkanntem Aufruf eine Zeile schreibt - nicht aus dem
+    # Mitschnitt: ob die Nachrueckliste in DIESEM Moment offen war, steht nur dort.
+    preflight_laeufe, preflight_frueh = zaehle_preflight_aufrufe(rd)
+
     payload = {
         "batch": batch, "profile": profile_name, "program": res.program,
         "rc": res.rc, "duration_s": res.duration_s, "killed_reason": res.killed_reason,
@@ -1097,6 +1148,7 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
         "rebuilt": bool(rebuilt), "ghidra_save": res.ghidra_save,
         "duration_quelle": res.duration_quelle, "duration_cli_s": res.duration_cli_s,
         "duration_harness_s": res.duration_harness_s, "duration_api_s": res.duration_api_s,
+        "preflight_laeufe": preflight_laeufe, "preflight_frueh": preflight_frueh,
     }
     # R13al: der bewusste Start trotz Peak (`/approve jetzt`) gehoert in die Messdaten -
     # sonst sieht spaeter niemand, warum dieser Lauf zum doppelten Tarif lief. Der Harness

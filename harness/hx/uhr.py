@@ -133,6 +133,46 @@ def kontext_kurz(tokens) -> str:
     return str(n)
 
 
+# ---------------------------------------------------------------------------
+# R13ao (2026-09-29, Auftrag Teil B): HINWEIS BEI ZU FRUEHEM PREFLIGHT.
+# Der Preflight (`scripts/preflight.py`) gehoert ans Batch-Ende: er dauert ~10 min und
+# liest den Stand, den der Batch gerade erst herstellt. Laeuft er VOR der
+# Umschaltschwelle und liegt noch eine offene Nachrueckliste im Auftrag, ist er
+# wertlos und muss spaeter wiederholt werden - er kostet dann doppelt. Der Hook
+# (`tools/batch_uhr.py`) sagt das dem Worker, sobald der Aufruf vorbei ist:
+# **Hinweis, keine Sperre** (der Worker entscheidet selbst).
+#
+# Der Wortlaut ist der des Auftrags vom 2026-09-29 und wird zeichengleich uebernommen -
+# einschliesslich der Schreibweise "Umschwellschwelle" (so im Auftrag; das uebrige
+# Programm schreibt "Umschaltschwelle"). Nicht "korrigieren": der Text ist der Beleg.
+PREFLIGHT_HINWEIS = (
+    "Preflight vor der Umschwellschwelle ({minuten:.1f} von {umschalt:.0f} min). "
+    "Er ist nur zulässig, wenn alle Posten der NACHRUECKLISTE erledigt sind. Sonst erst "
+    "die Nachrückliste abarbeiten; ein früher Preflight muss später wiederholt werden und "
+    "kostet ~10 min."
+)
+
+
+def preflight_zu_frueh(minuten, umschalt_min) -> bool:
+    """Liegt die Batch-Uhr VOR der Umschaltschwelle? (R13ao)
+
+    Ohne Schwelle (`umschalt_min is None`) gibt es keine Aussage - dann `False`, damit
+    ein unvollstaendiger Hook-Aufruf nichts behauptet.
+    """
+    if umschalt_min is None:
+        return False
+    try:
+        return float(minuten) < float(umschalt_min)
+    except (TypeError, ValueError):
+        return False
+
+
+def preflight_hinweis(minuten, umschalt_min) -> str:
+    """Der Hinweistext bei zu fruehem Preflight (R13ao, Wortlaut aus dem Auftrag)."""
+    return PREFLIGHT_HINWEIS.format(minuten=float(minuten or 0.0),
+                                    umschalt=float(umschalt_min or 0.0))
+
+
 def uhr_text(state: dict, weich_min: float, hart_min: float,
              umschalt_min: float | None = None, kontext_limit: int | None = None,
              preflight_min: float | None = None, preflight_batch: int | None = None,

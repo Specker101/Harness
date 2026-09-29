@@ -299,6 +299,73 @@ def warte_sekunden(befehl) -> float:
     return summe
 
 
+# ---------------------------------------------------------------------------
+# R13ao (2026-09-29, Auftrag Teil B): PREFLIGHT-AUFRUFE ZAEHLEN.
+# Der Preflight (`scripts/preflight.py`, ~10 min) gehoert ans Batch-ENDE. Laeuft er
+# vorher, muss er spaeter wiederholt werden - er kostet dann doppelt. Der Hook
+# (`tools/batch_uhr.py`) weist den Worker darauf hin und schreibt je Aufruf eine Zeile;
+# `hx/worker.py:_finish_run` zaehlt sie nach `result.json`. Drei Leser, EINE Regel -
+# deshalb steht sie hier und nicht dreimal.
+PREFLIGHT_WORT = "preflight.py"
+# Die Werkzeugnamen, unter denen ein Shell-Aufruf im Mitschnitt steht (R13i/R13v).
+SHELL_WERKZEUGE = ("PowerShell", "Bash", "Shell", "Terminal")
+# Ein START ist ein Interpreter (`python`, `python.exe`, `py`) mit `preflight.py` als
+# Argument. GEMESSEN an B206-B215 (`docs/_r13ao_messung.txt`): die blosse Erwaehnung ist
+# haeufig - `Select-String -Path scripts/preflight.py`, `git add … scripts/preflight.py`,
+# `Get-CimInstance … -like '*preflight.py*before*'` (Ueberwachung des Laufs). Von 23
+# Treffern der reinen Textsuche waren so nur 8 echte Starts.
+_RE_PREFLIGHT_START = re.compile(
+    r"\b(?:python[0-9.]*(?:\.exe)?|py)\b[^|;&\n]{0,60}?preflight\.py", re.IGNORECASE)
+# Und ein FILTER ist die Suche/Ueberwachung im SELBEN Befehlsteil: sie nennt den Aufruf
+# nur (`-like`, `CommandLine`, `Select-String`, `Get-Content`, `git add`).
+_RE_PREFLIGHT_FILTER = re.compile(
+    r"-like\b|\bCommandLine\b|Select-String|Get-Content|\bgit\s+add\b", re.IGNORECASE)
+
+
+def _befehls_teile(befehl) -> list[str]:
+    """Einen Shell-Befehl an `;`, `|` und Zeilenumbruch in Teile zerlegen.
+
+    Wichtig fuer die Filter-Regel: der echte Preflight-Lauf in B206 steht in einem
+    Verbund, dessen SPAETERER Teil `Get-Content analysis/_preflight_206.txt` ist. Ueber
+    den ganzen Befehl geprueft haette dieser Filter den echten Lauf verschluckt.
+    """
+    return [t for t in re.split(r"[;|\n]|&&", str(befehl or "")) if t.strip()]
+
+
+def ist_preflight_aufruf(name, eingabe=None) -> bool:
+    """**Startet** dieser Werkzeugaufruf den Preflight? (R13ao)
+
+    Geprueft werden **beide** Seiten: das Shell-Werkzeug (`name`) UND die Befehlsspalte
+    `input.command` - nicht das ganze `input`: `description`-Texte nennen den Preflight
+    oft, ohne ihn zu starten; das ERGEBNIS eines `Read`/`Grep` (das denselben Text
+    enthaelt) ist nie ein Aufruf.
+
+    Ein Treffer muss ein **Start** sein (Interpreter + `preflight.py`) und darf kein
+    **Filter** sein (dieselbe Befehlsteil durchsucht/ueberwacht den Aufruf nur).
+    Definition und Messung: `docs/_r13ao_belege.md`, `docs/_r13ao_messung.txt`.
+    """
+    if str(name or "") not in SHELL_WERKZEUGE:
+        return False
+    if not isinstance(eingabe, dict):
+        return False
+    for teil in _befehls_teile(eingabe.get("command")):
+        if (_RE_PREFLIGHT_START.search(teil)
+                and not _RE_PREFLIGHT_FILTER.search(teil)):
+            return True
+    return False
+
+
+def nennt_preflight_nur(name, eingabe=None) -> bool:
+    """Nennt der Aufruf `preflight.py`, OHNE ihn zu starten? (R13ao, nur Bericht)
+
+    Fuer die Nachzaehlung: wie viele Treffer der reinen Textsuche sind keine Starts.
+    Fuer den Hook und die Zaehler ist das **kein** Aufruf.
+    """
+    if str(name or "") not in SHELL_WERKZEUGE or not isinstance(eingabe, dict):
+        return False
+    return PREFLIGHT_WORT in str(eingabe.get("command") or "")
+
+
 class SecretWatch:
     """Sucht Schluessel-ZUGRIFFE in Werkzeugaufrufen und Schluessel-WERTE im Mitschnitt.
 

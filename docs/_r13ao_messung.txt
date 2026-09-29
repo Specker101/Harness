@@ -1,0 +1,23 @@
+﻿R13ao: Preflight-Aufrufe je Batch (Nachzaehlung aus den Mitschnitten)
+Start-Regel: hx.streamjson.ist_preflight_aufruf (Shell-Werkzeug, Interpreter + 'preflight.py' als Argument, Befehlsteil kein Filter)
+Quelle: harness/runs/b<N>/stream.jsonl
+Umschaltschwelle heute: 75 min (Alarm 90 min minus Vorlauf 15.2 min; Preflight zuletzt ~10.2 min aus B215)
+
+Batch  Starts  nur genannt   1. Start ab Batch-Anfang  frueh?  NACHRUECKLISTE  Hinweis
+--------------------------------------------------------------------------------------
+  206       1            2                   53.4 min      ja               -  
+  207       1            0                   40.6 min      ja               -  
+  208       1            1                   14.3 min      ja               -  
+  209       1            0                   22.8 min      ja               -  
+  210       2            2                   32.4 min      ja               -  
+  211       1            0                   27.0 min      ja              ja  
+  212       1            1                   41.2 min      ja              ja  
+  213       1            0                   92.1 min    nein              ja  
+  214       2            3                   57.8 min      ja              ja  
+  215       3            0                   23.0 min      ja              ja  
+
+Summe ueber 10 Batches mit Mitschnitt: 14 echte Preflight-Starts
+daneben 9 Treffer, die 'preflight.py' nur GENANNT haben (keine Starts, nicht gezaehlt)
+davon Batches mit dem ersten Start VOR der Schwelle (rekonstruiert): 9
+
+Lesehilfe: 'Starts' ist die Zahl der WERKZEUGAUFRUFE, die den Preflight starten - derselbe Befehl zweimal zaehlt zweimal. Das ist die Definition von 'preflight_laeufe' im Hook; 'preflight_frueh' (vor der Schwelle MIT offener Nachrueckliste) laesst sich fuer diese Batches NICHT nachzaehlen und steht deshalb hier nicht. '1. Start ab Batch-Anfang' bezieht sich auf den ersten Zeitstempel im Mitschnitt (Naeherung auf ~1 min, der Harness-Start liegt Sekunden davor).
