@@ -1005,10 +1005,24 @@ Die Regeln stehen zusätzlich als Kurzfassung direkt neben dem `/ds`-Block im
 Review-Prompt (`hx/reviewer.py`, Abschnitt „NUTZER-NACHRICHTEN AN DEN WORKER DIESES
 BATCHES") — dort, wo die Nachrichten erscheinen, deren Teilpunkte verloren gehen können.
 
-**Offener Punkt (nicht geändert):** die `NACHRUECKLISTE`/`STREICHREIHENFOLGE` des
-bewerteten Batches stehen **nicht** im Review-Prompt; der Reviewer liest sie über
-`--add-dir <harness-root>` aus `runs/b<N>/auftrag.md`. Ein Einbau wie beim `/ds`-Block
-wäre die nächste Härtung, ist aber nicht beauftragt.
+**Seit R13ag stehen die Pflichtblöcke im Prompt.** Die `NACHRUECKLISTE` und die
+`STREICHREIHENFOLGE` des **bewerteten** Auftrags werden aus `runs/b<N>/auftrag.md` geholt
+(`hx/stand.py::pflichtbloecke`, Erkennung mit demselben Zeilenmuster wie
+`worker.hat_nachrueckliste`) und im Review-Prompt als eigener Block gezeigt:
+`=== PFLICHTBLOECKE DER BEWERTETEN INSTRUKTION (NACHRUECKLISTE + STREICHREIHENFOLGE,
+wortgleich) ===`, darunter wortgleich der Text, darunter die Regel *„Jeder Posten braucht im
+Review eine Zeile UEBERTRAG oder VERWORFEN oder erscheint als erledigt mit Beleg."*
+
+- Geschnitten wird nur an harten Blockgrenzen (Überschrift, `===`, `FERTIG WENN`, `NICHT
+  TUN`, `BATCH-ENDE`, der jeweils andere Pflichtblock, `/ds`-Kopf) — **lieber zu viel Kontext
+  als ein verlorener Posten**.
+- Fehlt ein Block, steht dort ausdrücklich `NACHRUECKLISTE: keine im Auftrag` bzw.
+  `STREICHREIHENFOLGE: keine im Auftrag`; ist `auftrag.md` nicht lesbar, sagt der Block das.
+  Meldet die Fortsetzungs-Erkennung (`worker.hat_nachrueckliste`, R13ad) eine Liste, die
+  hier nicht als Abschnitt lesbar ist, steht das als „Muster prüfen" da — statt „keine im
+  Auftrag" zu behaupten.
+- Vorher musste der Reviewer die Blöcke selbst aus `runs/b<N>/auftrag.md` holen; genau
+  dabei verschwand B213 Nachrückliste 1.
 
 ### 12b. Was der Nutzer selbst entscheiden muss
 

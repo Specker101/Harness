@@ -354,6 +354,12 @@ VERWORFEN: <Posten> - <Grund>
   Quellen: die `NACHRUECKLISTE`/`STREICHREIHENFOLGE` der bewerteten Instruktion
   (`runs/b<N>/auftrag.md`) und den Bericht des Workers (`runs/b<N>/antwort.md`). Auch ein
   **gar nicht begonnener** Posten ist ein Posten.
+- **Beide Blöcke stehen wortgleich im Prompt** (Abschnitt `=== PFLICHTBLOECKE DER BEWERTETEN
+  INSTRUKTION (NACHRUECKLISTE + STREICHREIHENFOLGE, wortgleich) ===`, R13ag) — du musst sie
+  nicht selbst zusammensuchen. Steht dort `NACHRUECKLISTE: keine im Auftrag` bzw.
+  `STREICHREIHENFOLGE: keine im Auftrag`, hatte der Auftrag diesen Block nicht; dann gibt es
+  aus ihm auch nichts zu übertragen. Ist der Auftrag nicht lesbar, steht das statt der
+  Zeilen dort.
 - Nichts zu übertragen? Dann steht dort ausdrücklich
   `UEBERTRAG: keiner - alle Posten erledigt`. Die **fehlende** Zeile ist keine Aussage.
 

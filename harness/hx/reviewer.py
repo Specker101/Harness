@@ -402,6 +402,15 @@ def build_prompt(cfg, kind: str, ctx: dict) -> str:
         "DS_INSTRUCTION stehen. Weicht die DS_INSTRUCTION vom Median ab, begruende das "
         "in EINEM Satz in der TELEGRAM_SUMMARY.",
         "",
+        # R13ag: die Pflichtbloecke des BEWERTETEN Auftrags stehen wortgleich hier - aus
+        # ihnen werden die `UEBERTRAG:`/`VERWORFEN:`-Zeilen. Vorher las der Reviewer sie
+        # selbst aus `runs/b<N>/auftrag.md`; dabei verschwand B213 Nachrueckliste 1.
+        "=== PFLICHTBLOECKE DER BEWERTETEN INSTRUKTION "
+        "(NACHRUECKLISTE + STREICHREIHENFOLGE, wortgleich) ===",
+        (ctx.get("pflichtbloecke") or "(nicht ermittelbar)").strip(),
+        "REGEL (R13ag): Jeder Posten braucht im Review eine Zeile UEBERTRAG oder "
+        "VERWORFEN oder erscheint als erledigt mit Beleg.",
+        "",
         "=== NACHRICHTEN AUS DER /claude-QUEUE ===",
         (ctx.get("queue_block") or "(keine)").strip(),
         "",

@@ -2227,6 +2227,11 @@ class Orchestrator:
             "protokoll_warnung": standmod.pflichtzeile_hinweis(self.cfg, batch),
             # R13t: die /ds-Nachrichten, die DIESER Batch im Auftrag hatte
             "ds_queue": standmod.ds_nachrichten(self.cfg, batch),
+            # R13ag: die Pflichtbloecke des bewerteten Auftrags, WORTGLEICH - aus ihnen
+            # entstehen die UEBERTRAG:/VERWORFEN:-Zeilen des Reviews. Bis R13ag musste der
+            # Reviewer sie selbst aus runs/b<N>/auftrag.md holen; dabei verschwand
+            # B213 Nachrueckliste 1 (/ask-Pruefung 2026-09-29).
+            "pflichtbloecke": standmod.pflichtbloecke(self.cfg, batch),
             # R13v3: wurde der Lauf abgebrochen, gehoert das ausdruecklich in den Review
             "abbruch": self.abbruch_block(),
             "markers": "\n".join(marker_lines),

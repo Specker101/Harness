@@ -925,6 +925,94 @@ def ds_nachrichten(cfg, batch: int) -> str:
     return text[i:].strip() if i >= 0 else ""
 
 
+# ------------------------------------ Pflichtbloecke der Instruktion (R13ag)
+# `NACHRUECKLISTE` und `STREICHREIHENFOLGE` sind die beiden Bloecke, aus denen die
+# `UEBERTRAG:`/`VERWORFEN:`-Zeilen des Reviews entstehen (R13af). Bis R13ag musste der
+# Reviewer sie sich selbst aus `runs/b<N>/auftrag.md` holen - und genau dabei verschwand
+# **B213 Nachrueckliste 1** (Befund der /ask-Pruefung 2026-09-29). Jetzt stehen sie
+# **wortgleich** im Review-Prompt.
+#
+# Erkennung: dieselbe Zeilenform wie `worker.hat_nachrueckliste` (R13ad, Bedingung (d)) -
+# optionaler `#`/`*`-Praefix, Label am Zeilenanfang, Umlaut- oder UE-Schreibweise. Die
+# Gleichheit wird in `tests/test_r13af_fixes.py` ueber die echten Auftraege geprueft, damit
+# "der Auftrag hat eine Nachrueckliste" und "der Block steht im Review" nicht auseinander
+# laufen.
+_RE_AUFTRAG_BLOCK: dict[str, re.Pattern[str]] = {
+    "NACHRUECKLISTE": re.compile(r"^[ \t]*(?:[#*]+[ \t]*)*NACHR(?:Ü|UE)CKLISTE\b",
+                                 re.IGNORECASE | re.MULTILINE),
+    "STREICHREIHENFOLGE": re.compile(r"^[ \t]*(?:[#*]+[ \t]*)*STREICHREIHENFOLGE\b",
+                                     re.IGNORECASE | re.MULTILINE),
+}
+# Ende eines Blocks: naechste Ueberschrift, `===`-Trennzeile, der andere Pflichtblock oder
+# ein anderer bekannter Blockanfang der Instruktion. Geschnitten wird **nur an harten
+# Grenzen** - lieber zu viel Kontext als ein verlorener Posten.
+_RE_BLOCK_ENDE = re.compile(
+    r"^[ \t]*(?:#{1,6}[ \t]+\S|={2,}|NACHR(?:Ü|UE)CKLISTE\b|STREICHREIHENFOLGE\b|"
+    r"FERTIG\s+WENN\b|NICHT\s+TUN\b|BATCH-ENDE\b|NACHRICHTEN\s+AUS\s+DER\s+QUEUE\b)",
+    re.IGNORECASE | re.MULTILINE)
+
+
+def _auftrag_abschnitt(text: str, pos: int) -> str:
+    """Der Block ab der Zeile mit `pos` bis zur naechsten harten Blockgrenze (R13ag)."""
+    zeilen_ende = text.find("\n", pos)
+    if zeilen_ende < 0:
+        return text[pos:].rstrip()
+    m = _RE_BLOCK_ENDE.search(text, zeilen_ende + 1)
+    return text[pos:(m.start() if m else len(text))].strip("\n").rstrip()
+
+
+def pflichtbloecke(cfg, batch: int) -> str:
+    """`NACHRUECKLISTE` und `STREICHREIHENFOLGE` der bewerteten Instruktion, wortgleich.
+
+    Quelle ist `runs/b<N>/auftrag.md` - derselbe Auftrag, den der Worker bekommen hat und
+    den der Reviewer fuer die `UEBERTRAG:`/`VERWORFEN:`-Zeilen braucht (R13ag).
+
+    Rueckgabe (mehrzeilig, Reihenfolge wie im Auftrag): je Block die Zeilen von der
+    Etikettzeile bis zur naechsten harten Grenze. Fehlt ein Block, steht dort ausdruecklich
+    `NACHRUECKLISTE: keine im Auftrag` bzw. `STREICHREIHENFOLGE: keine im Auftrag`; ist der
+    Auftrag nicht lesbar, sagt der Block genau das (kein stilles Nichts).
+    """
+    nr = int(batch or 0)
+    if nr <= 0:
+        return "(kein bewerteter Batch - Pflichtbloecke nicht ermittelbar)"
+    p = Path(cfg.root) / "runs" / f"b{nr:03d}" / "auftrag.md"
+    # `read_text` liefert fuer eine fehlende Datei "" (kein Fehler) - hier wird die
+    # Abwesenheit ausdruecklich geprueft, sonst behauptete der Block "keine im Auftrag".
+    if not p.is_file():
+        return (f"(Auftrag runs/b{nr:03d}/auftrag.md nicht lesbar - Pflichtbloecke "
+                "nicht ermittelbar)")
+    try:
+        text = read_text(p)
+    except OSError:
+        return (f"(Auftrag runs/b{nr:03d}/auftrag.md nicht lesbar - Pflichtbloecke "
+                "nicht ermittelbar)")
+    gefunden: list[tuple[int, str, str]] = []
+    for name, muster in _RE_AUFTRAG_BLOCK.items():
+        m = muster.search(text)
+        if m:
+            gefunden.append((m.start(), name, _auftrag_abschnitt(text, m.start())))
+    namen = {name for _p, name, _t in gefunden}
+    if not gefunden:
+        # Quergeprueft mit der Fortsetzungs-Erkennung (R13ad): meldet SIE eine Liste, die
+        # hier nicht als Abschnitt lesbar ist, ist das Muster auseinandergelaufen - das
+        # steht dann da, statt "keine im Auftrag" zu behaupten.
+        try:
+            from .worker import hat_nachrueckliste            # spaet: kein Importzyklus
+            erkannt = bool(hat_nachrueckliste(text))
+        except Exception:                                     # noqa: BLE001
+            erkannt = False
+        if erkannt:
+            return ("NACHRUECKLISTE: im Auftrag erkannt, aber nicht als Abschnitt lesbar "
+                    "- Muster pruefen (worker.hat_nachrueckliste)\n"
+                    "STREICHREIHENFOLGE: keine im Auftrag")
+        return ("NACHRUECKLISTE: keine im Auftrag\n"
+                "STREICHREIHENFOLGE: keine im Auftrag")
+    teile = [t for _p, _n, t in sorted(gefunden)]
+    teile += [f"{name}: keine im Auftrag"
+              for name in _RE_AUFTRAG_BLOCK if name not in namen]
+    return "\n\n".join(teile)
+
+
 # ------------------------------------------------- Strang je Batch (R13aa)
 # Auftrag (Aussensicht-Nachbesserung aus `runs/meta-209.md`, Punkt 1): der Ausloeser
 # "Kernzahl ohne Bewegung" hat B208/B209 als C-Batches gezaehlt - beide waren B-Batches,
