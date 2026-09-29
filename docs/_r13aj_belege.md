@@ -103,9 +103,27 @@ Zwischen „echter Nebenlauf“ und „Rundung“ liegt eine klare Lücke: die k
 
 ---
 
+## 3a. Regelseite: `prompts/reviewer.md`, Abschnitt „Lange Befehle“
+
+Damit der **Auftrag** die Messbarkeit nicht selbst zerstört, sagt die Rollenanweisung des
+Reviewers (der die `DS_INSTRUCTION` schreibt) dasselbe wie der Worker-Vorspann:
+
+* Preflight, `c_kopf.py mutalle` und `port_build` laufen als **normaler Bash-Aufruf mit
+  `timeout=1800000`** (vom Harness freigegeben — `BASH_MAX_TIMEOUT_MS`).
+* **Nicht** per `Start-Process` im Hintergrund mit späterem Nachfragen, nicht mit
+  Warteschleifen (`Start-Sleep`/Abfrageschleifen sind gesperrt und brechen den Lauf ab).
+* **Begründung im Text:** ein blockierender Aufruf ist messbar (seine Dauer ist die Zahl
+  für die Umschaltschwelle); im Hintergrund gemessen enthält sie die Wartezeit des
+  Nachbaraufrufs (`parallel > 1`) und wird für die Schwelle verworfen.
+
+Festgenagelt durch `TestReviewerRegelLangeBefehle` in `harness/tests/test_r13aj_fixes.py`
+(20 Tests in dieser Datei).
+
+---
+
 ## 4. Testreihe
 
-`harness/tests/test_r13aj_fixes.py` — **16 Tests**:
+`harness/tests/test_r13aj_fixes.py` — **20 Tests**:
 
 | Klasse | was geprüft wird |
 |---|---|

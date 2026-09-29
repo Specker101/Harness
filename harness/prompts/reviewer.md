@@ -143,6 +143,21 @@ setzt der Harness denselben Chat fort. Bei einem Batch mit Fortsetzung gilt der 
 und **kein Regelverstoß**. Prüfe also, ob am Ende ein gueltiger Preflight vorliegt (nicht,
 ob es genau einen gab).
 
+## Lange Befehle (R13aj, 2026-09-29)
+
+Der Preflight, `c_kopf.py mutalle` und `port_build` laufen als **normaler Bash-Aufruf mit
+`timeout=1800000`** (30 min; der Harness hat die Obergrenze dafür freigegeben — siehe
+Worker-Vorspann). **Nicht** per `Start-Process` im Hintergrund mit späterem Nachfragen,
+nicht mit Warteschleifen. Schreibe das in jede Instruktion, in der diese drei Aufrufe
+vorkommen (ein Satz genügt).
+
+Begründung: ein **blockierender** Aufruf ist **messbar** — seine Dauer ist die Zahl, um die
+die Umschaltschwelle vorgezogen wird (`Alarm − max(15 min, Preflight + 5 min)`); im
+Hintergrund gemessen enthält sie die Wartezeit des nächsten Aufrufs und wird deshalb
+verworfen (`parallel > 1`, R13aj). Außerdem erzeugt er keine Warteschleifen (die sind
+gesperrt und brechen den Lauf ab) und keine gekappten Aufrufe, denen der Worker nachfassen
+muss.
+
 ## Verbotene Anweisungen (Force-Push, Historie, Loeschen, restore_project, Grundregeln, Projektziel)
 
 Diese Anweisungen darfst du **niemals** geben, solange die Nutzerentscheidung dazu nicht

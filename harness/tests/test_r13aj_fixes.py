@@ -264,6 +264,42 @@ class TestSchwelleUhrUndHook(unittest.TestCase):
         self.assertIn("die Zahl ist dann die letzte saubere Messung", pre)
 
 
+class TestReviewerRegelLangeBefehle(unittest.TestCase):
+    """Der Reviewer verlangt die langen Aufrufe blockierend (R13aj, Nachtrag).
+
+    Nur ein blockierender Aufruf ist messbar - seine Dauer ist die Zahl, um die die
+    Umschaltschwelle vorgezogen wird. Im Hintergrund gemessen enthaelt sie die Wartezeit
+    des Nachbaraufrufs und wird verworfen (`parallel > 1`, s. o.).
+    """
+
+    def setUp(self):
+        self.p = ROOT / "prompts" / "reviewer.md"
+        if not self.p.is_file():
+            self.skipTest("prompts/reviewer.md fehlt")
+        self.text = self.p.read_text(encoding="utf-8")
+
+    def test_abschnitt_existiert(self):
+        self.assertIn("## Lange Befehle (R13aj, 2026-09-29)", self.text)
+
+    def test_die_drei_aufrufe_und_der_parameter(self):
+        abschnitt = self.text.split("## Lange Befehle")[1].split("\n## ")[0]
+        self.assertIn("timeout=1800000", abschnitt)
+        for name in ("Preflight", "c_kopf.py mutalle", "port_build"):
+            self.assertIn(name, abschnitt)
+        self.assertIn("Nicht** per `Start-Process`", abschnitt)
+
+    def test_begruendung_ist_die_messbarkeit(self):
+        abschnitt = self.text.split("## Lange Befehle")[1].split("\n## ")[0]
+        self.assertIn("messbar", abschnitt)
+        self.assertIn("Umschaltschwelle", abschnitt)
+        self.assertIn("Warteschleifen", abschnitt)
+
+    def test_vorspann_sagt_dasselbe(self):
+        """Die Regel steht auch im Worker-Vorspann - beide Seiten nennen 1800000."""
+        self.assertIn("timeout=1800000` setzen; sonst wird nach 600 s gekappt",
+                      worker.WORKER_PREAMBLE)
+
+
 class TestEchterMitschnitt(unittest.TestCase):
     """Regressionspflock am echten B212-Mitschnitt (nur lesend, R13aj).
 

@@ -1104,6 +1104,14 @@ So steht in der Schwelle nie wieder eine Zahl, die die Wartezeit eines Nachbarau
 enthält. Testreihe `harness/tests/test_r13aj_fixes.py` (16 Tests, u. a. der echte
 B212-Ausschnitt als Regressionspflock); volle Reihe 898 Tests OK.
 
+**Nachtrag (R13aj, 2026-09-29): der Reviewer verlangt die langen Aufrufe blockierend.**
+Die Rollenanweisung hat dafür den Abschnitt `## Lange Befehle`: Preflight, `c_kopf.py
+mutalle` und `port_build` laufen als **normaler Bash-Aufruf mit `timeout=1800000`**, nicht
+per `Start-Process` im Hintergrund mit Nachfragen. Nur der blockierende Aufruf ist messbar
+(seine Dauer ist die Zahl, um die die Umschaltschwelle vorgezogen wird); im Hintergrund
+gemessen bekommt er `parallel > 1` und wird für die Schwelle verworfen. Der Abschnitt ist
+im Test `TestReviewerRegelLangeBefehle` festgenagelt.
+
 ### 12b. Was der Nutzer selbst entscheiden muss
 
 Der grösste Hebel liegt ausserhalb des Harness: die 68K-Emulationsläufe im Decomp-Repo
