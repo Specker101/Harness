@@ -216,12 +216,57 @@ class Orchestrator:
         Das tut erst `commit_queue` - und zwar erst, wenn der Review wirklich einen
         gueltigen Protokollblock geliefert hat. Sonst waere eine Nachricht weg, obwohl
         niemand sie je gesehen hat (B159: Review gescheitert, Nachricht in inbox/done).
+
+        R13ak: Aussensicht-Nachrichten, deren Befund im Register schon beantwortet ist,
+        tragen einen Vermerk (`_queue_vermerke`) - sie werden nicht erneut als neu
+        vorgelegt.
         """
         delivered = list(self.state.data.get("delivered") or [])
-        block, ids = queue.deliver_block(self.qroot, target, delivered)
+        block, ids = queue.deliver_block(self.qroot, target, delivered,
+                                         vermerke=self._queue_vermerke(target))
         if mark and ids:
             self.commit_queue(target, ids)
         return block, ids
+
+    def _queue_vermerke(self, target: str) -> dict[str, str]:
+        """`{nachricht-id: "(bereits beantwortet …)"}` fuer schon entschiedene Befunde.
+
+        R13ak. Anlass: wird ein Gate **verworfen**, bleiben seine `/claude`-Nachrichten
+        ausdruecklich liegen (R13u) und werden im naechsten Review erneut zugestellt.
+        Fuer Aussensicht-Befunde, die der Reviewer im verworfenen Review schon
+        beantwortet hat (das Register wird VOR der Gate-Entscheidung gefuellt,
+        `aussensicht.antworten_uebernehmen`), war das eine Doppelzustellung bereits
+        verarbeiteter Posten: der Reviewer bekam dieselben Texte wortgleich noch einmal
+        und sollte sie beantworten. Jetzt steht das Verdikt aus dem Register dabei.
+
+        Gemessen (29.09.2026): genau so wurden M209-1/2/3b/4 und M210-1…5 am 28.09. um
+        20:38 und noch einmal um 20:51 zugestellt (`logs/review-prompt-…`), nachdem um
+        20:50:59 ein Auftrag verworfen wurde.
+        """
+        if str(target) != "claude":
+            return {}
+        try:
+            register = {str(b.get("id")): b for b in aussensicht.ledger(self.cfg)}
+        except Exception as exc:                                     # noqa: BLE001
+            self.log.warn("Queue-Vermerke nicht lesbar", fehler=str(exc)[:150])
+            return {}
+        if not register:
+            return {}
+        out: dict[str, str] = {}
+        for it in queue.pending(self.qroot, target):
+            if str(it.meta.get("source") or "") != "aussensicht":
+                continue
+            bid = aussensicht.kennung_aus_text(it.text)
+            eintrag = register.get(bid) if bid else None
+            if not eintrag:
+                continue
+            status = str(eintrag.get("status") or "").strip()
+            if status and aussensicht.klasse(eintrag) != "offen":
+                out[it.id] = f"(bereits beantwortet im verworfenen Review: {status})"
+        if out:
+            self.log.info("Queue-Vermerke gesetzt", anzahl=len(out),
+                          ids=sorted(out))
+        return out
 
     def commit_queue(self, target: str, ids: list[str]) -> int:
         """Zugestellt = verbuchen UND archivieren (erst nach gueltigem Review)."""

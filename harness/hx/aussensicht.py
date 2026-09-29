@@ -248,13 +248,24 @@ def offene(cfg) -> list[dict]:
 #   offen        alles Uebrige - auch ein UNBEKANNTES Wort. Ein Befund verschwindet
 #                nicht dadurch aus der offenen Liste, dass ein Status falsch geschrieben
 #                ist (dieselbe Haltung wie beim Ankerposten: nichts still umdeuten).
-UEBERNOMMEN_WORTE = ("uebernommen", "beantwortet", "erledigt")
+# R13ak (29.09.2026): `zurueckgestellt` gehoert in die Klasse `uebernommen`. Gemessen:
+# `runs/b211/review.md:15` antwortet "M209-3b: zurueckgestellt (Nutzer), spaetestens
+# B216" - der Befund war damit BEANTWORTET, stand aber weiter als "offen" im Register
+# (und wurde nicht mehr vorgelegt). Als offen gezaehlt waere er schlicht falsch; die
+# Absage ("abgelehnt") ist er auch nicht. Das Wort selbst bleibt im Register stehen
+# (`status`), nur die Quote zaehlt ihn zu den uebernommenen.
+UEBERNOMMEN_WORTE = ("uebernommen", "beantwortet", "erledigt", "zurueckgestellt")
 ABGELEHNT_WORTE = ("abgelehnt", "verworfen")
 
 
 def klasse(befund: dict) -> str:
-    """`uebernommen` | `abgelehnt` | `offen` - die Klasse, in die ein Befund zaehlt."""
-    wert = str((befund or {}).get("status") or "offen").strip().lower()
+    """`uebernommen` | `abgelehnt` | `offen` - die Klasse, in die ein Befund zaehlt.
+
+    R13ak: Umlaute werden vor dem Vergleich vereinheitlicht (`zurückgestellt` ==
+    `zurueckgestellt`) - sonst fiele ein Eintrag, den ein anderer Schreibweg mit Umlaut
+    abgelegt hat, still in die Klasse `offen` zurueck.
+    """
+    wert = str((befund or {}).get("status") or "offen").strip().lower().replace("ü", "ue")
     if wert in UEBERNOMMEN_WORTE:
         return "uebernommen"
     if wert in ABGELEHNT_WORTE:
@@ -1171,8 +1182,30 @@ def parse(text: str, max_befunde: int = 7) -> tuple[str, list[dict], list[dict],
     return summary, befunde, verworfen, pruefungen
 
 
-_RE_ANTWORT = re.compile(r"\bM(\d{3})-(\d+)([a-z]?)\s*:\s*(uebernommen|übernommen|abgelehnt|"
-                         r"erledigt|verworfen|offen)\b(?P<rest>[^\n]*)", re.IGNORECASE)
+# Der Reviewer antwortet mit `M<batch>-<n>: <Verdikt> …`. Das Muster war zu streng: es
+# verlangte das Verdikt DIREKT hinter dem Doppelpunkt. Gemessen (29.09.2026) waren zwei
+# beantwortete Befunde deshalb weiter "offen":
+#   runs/b211/review.md:15  "M209-3b: zurueckgestellt (Nutzer), spaetestens B216"
+#   runs/b213/review.md:11  "M212-1: fuer B213 abgelehnt (Werkzeug vor Serie), fuer
+#                            B216 uebernommen (SOLL-KOEPFE > 0, Liste aus B213)"
+# R13ak: der Text hinter der Kennung wird gelesen und **das LETZTE Verdikt darin**
+# entscheidet - der Reviewer darf erst verwerfen und spaeter uebernehmen. Ohne Verdikt
+# gilt die Zeile NICHT als Antwort (sonst wuerde jede Prosa-Erwaehnung eines Befunds ihn
+# stillschweigend zuklappen).
+_RE_ANTWORT = re.compile(r"\bM(\d{3})-(\d+)([a-z]?)\s*:\s*(?P<rest>[^\n]*)", re.IGNORECASE)
+_RE_VERDIKT = re.compile(r"\b(uebernommen|übernommen|abgelehnt|erledigt|verworfen|offen|"
+                         r"zurueckgestellt|zurückgestellt)\b", re.IGNORECASE)
+
+# Die Kennung im Text einer Aussensicht-Nachricht ("Aussensicht Batch 214 - Befund
+# M214-1 (Gewicht hoch):"). R13ak: damit findet der Harness den Registereintrag zu einer
+# Queue-Datei, ohne den Text zu deuten.
+_RE_BEFUND_KENNUNG = re.compile(r"Befund\s+(M\d{3}-\d+[ab]?)\b")
+
+
+def kennung_aus_text(text: str) -> str:
+    """Die Befundkennung (`M214-1`) aus dem Text einer Aussensicht-Nachricht ('' = keine)."""
+    m = _RE_BEFUND_KENNUNG.search(str(text or ""))
+    return m.group(1) if m else ""
 
 
 def finde_eintraege(index: dict, bid: str) -> list[dict]:
@@ -1195,6 +1228,11 @@ def antworten_uebernehmen(cfg, summary: str, batch: int) -> list[str]:
     ("M208-3: uebernommen (…)" / "M208-3: abgelehnt, Grund …"). Unbeantwortete Befunde
     bleiben `offen` und erscheinen weiter in `/bilanz`. Seit R13y gibt es geteilte
     Befunde (`M208-5a`/`M208-5b`) - die Kurzform gilt fuer beide.
+
+    R13ak: Tolerant gelesen wird ausserdem, wenn das Verdikt nicht direkt am Anfang der
+    Zeile steht ("fuer B213 abgelehnt, fuer B216 uebernommen") und wenn der Reviewer
+    schiebt statt zu entscheiden ("zurueckgestellt"). Massgeblich ist das **letzte**
+    Verdikt der Zeile.
     """
     alle = ledger(cfg)
     if not alle:
@@ -1202,18 +1240,23 @@ def antworten_uebernehmen(cfg, summary: str, batch: int) -> list[str]:
     index = {str(b.get("id")): b for b in alle}
     geaendert: list[str] = []
     for m in _RE_ANTWORT.finditer(summary or ""):
+        rest = str(m.group("rest") or "")
+        verdikte = list(_RE_VERDIKT.finditer(rest))
+        if not verdikte:
+            continue                     # Kennung genannt, aber kein Verdikt -> keine Antwort
         bid = f"M{m.group(1)}-{m.group(2)}{m.group(3) or ''}"
-        wort = m.group(4).lower()
+        wort = verdikte[-1].group(1).lower()
         # R13z: das Wort des Reviewers wird SO gespeichert, wie er es geschrieben hat
-        # ("uebernommen"/"abgelehnt"/"erledigt"/"verworfen"), nur die Umlautschreibweise
-        # wird vereinheitlicht. Vorher wurde "uebernommen" zu "beantwortet" umgeschrieben -
-        # dann stand in der Quote (R13z) ein Wort, das der Reviewer nie benutzt hat. Alte
-        # Eintraege mit "beantwortet" zaehlen ueber `klasse` weiter als uebernommen.
-        status = "uebernommen" if wort == "übernommen" else wort
+        # ("uebernommen"/"abgelehnt"/"erledigt"/"verworfen"/"zurueckgestellt"), nur
+        # die Umlautschreibweise wird vereinheitlicht. Vorher wurde "uebernommen" zu
+        # "beantwortet" umgeschrieben - dann stand in der Quote (R13z) ein Wort, das der
+        # Reviewer nie benutzt hat. Alte Eintraege mit "beantwortet" zaehlen ueber
+        # `klasse` weiter als uebernommen.
+        status = {"übernommen": "uebernommen",
+                  "zurückgestellt": "zurueckgestellt"}.get(wort, wort)
         for eintrag in finde_eintraege(index, bid):
             eintrag["status"] = status
-            eintrag["antwort"] = (str(m.group(5) or "").strip()[:400]
-                                  or str(summary).strip()[:200])
+            eintrag["antwort"] = (rest.strip()[:400] or str(summary).strip()[:200])
             eintrag["antwort_batch"] = int(batch)
             eintrag["antwort_ts"] = now_iso()
             geaendert.append(str(eintrag.get("id")))

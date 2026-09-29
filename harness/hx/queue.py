@@ -72,14 +72,33 @@ def pending(root: str | Path, target: str) -> list[QueueItem]:
     return sorted(items, key=lambda it: it.meta.get("ts", ""))
 
 
-def deliver_block(root: str | Path, target: str, delivered_ids: list[str]) -> tuple[str, list[str]]:
-    """Baut den Textblock fuer den naechsten Auftrag; gibt (block, ids) zurueck."""
+def deliver_block(root: str | Path, target: str, delivered_ids: list[str],
+                  vermerke: dict[str, str] | None = None) -> tuple[str, list[str]]:
+    """Baut den Textblock fuer den naechsten Auftrag; gibt (block, ids) zurueck.
+
+    `vermerke` (R13ak) ist eine Zuordnung `id -> Zusatz`, den der Aufrufer berechnet hat
+    (er kennt das Register; die Queue nicht). Der Zusatz steht **in der ersten Zeile** des
+    Eintrags, damit er nicht unter einem mehrzeiligen Befundtext verschwindet - so wird
+    eine Nachricht, deren Befund schon beantwortet ist, nicht erneut als neu vorgelegt.
+    """
     items = [it for it in pending(root, target) if it.id not in set(delivered_ids or [])]
     if not items:
         return "", []
+    vermerke = vermerke or {}
     lines = ["", "NACHRICHTEN AUS DER QUEUE (vom Nutzer, nicht verhandelbar):"]
+    markiert = 0
     for it in items:
-        lines.append(f"- {it.render()}")
+        zusatz = str(vermerke.get(it.id) or "").strip()
+        text = it.render()
+        if zusatz:
+            markiert += 1
+            kopf, trenner, rest = text.partition("\n")
+            text = f"{kopf} {zusatz}" + (f"{trenner}{rest}" if trenner else "")
+        lines.append(f"- {text}")
+    if markiert:
+        lines.append("Eintraege mit einem Vermerk in der ersten Zeile sind im Register "
+                     "schon entschieden - sie werden NICHT erneut beantwortet; der "
+                     "Vermerk nennt das Verdikt. Alle uebrigen Nachrichten sind neu.")
     return "\n".join(lines) + "\n", [it.id for it in items]
 
 

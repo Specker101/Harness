@@ -1112,6 +1112,34 @@ per `Start-Process` im Hintergrund mit Nachfragen. Nur der blockierende Aufruf i
 gemessen bekommt er `parallel > 1` und wird für die Schwelle verworfen. Der Abschnitt ist
 im Test `TestReviewerRegelLangeBefehle` festgenagelt.
 
+### 12m. Postfach: Antworten lesen, Doppelzustellung vermeiden (R13ak, 2026-09-29)
+
+**Antwortmuster.** Der Reviewer antwortet auf eine Aussensicht-Nachricht mit
+`M<batch>-<n>: <Verdikt> …`; `hx/aussensicht.py::antworten_uebernehmen` übernimmt das ins
+Register. Das Muster war zu streng (Verdikt musste **direkt** hinter dem Doppelpunkt
+stehen): zwei beantwortete Befunde standen deshalb weiter `offen` und wurden nicht mehr
+vorgelegt (`runs/b211/review.md:15` „M209-3b: **zurückgestellt** (Nutzer), spätestens
+B216“; `runs/b213/review.md:11` „M212-1: **für B213 abgelehnt** …, **für B216
+übernommen**“). Jetzt wird der Rest der Zeile gelesen und **das letzte Verdikt darin**
+entscheidet; ohne Verdikt gilt die Zeile nicht als Antwort. `zurueckgestellt` ist eine
+Antwort und zählt in der Quote zur Klasse `uebernommen` (das Wort selbst bleibt im
+Register stehen) — die Quote bleibt dreiteilig wie in R13z festgelegt. Die beiden alten
+Fälle sind nachgetragen (`docs/_r13ak_nachtrag.py`): Quote `34 uebernommen, 0 abgelehnt,
+6 offen` → **`36, 0, 4 offen`** (die vier Reste sind Nutzer-Posten).
+
+**Verworfenes Gate.** Verwirft der Nutzer einen Auftrag (`/review`), bleiben seine
+`/claude`-Nachrichten liegen (R13u) und werden im nächsten Review erneut zugestellt. Für
+Aussensicht-Befunde, die der Reviewer im verworfenen Review **schon beantwortet** hat (das
+Register wird vor der Gate-Entscheidung gefüllt), war das eine Doppelzustellung bereits
+verarbeiteter Posten. Solche Nachrichten tragen jetzt in der **ersten Zeile** den Vermerk
+`(bereits beantwortet im verworfenen Review: <Verdikt>)`, und der Block sagt dazu, dass
+sie **nicht erneut** beantwortet werden sollen (`hx/queue.py::deliver_block` mit
+`vermerke=`, berechnet in `hx/orchestrator.py::_queue_vermerke`). Gemessener Anlass: am
+28.09. wurden `M209-1/2/3b/4` und `M210-1…5` um 20:38 und noch einmal um 20:51 zugestellt,
+nachdem um 20:50:59 ein Auftrag verworfen wurde.
+
+Belege: `docs/_r13ak_belege.md`; Testreihe `harness/tests/test_r13ak_fixes.py` (19 Tests).
+
 ### 12b. Was der Nutzer selbst entscheiden muss
 
 Der grösste Hebel liegt ausserhalb des Harness: die 68K-Emulationsläufe im Decomp-Repo
