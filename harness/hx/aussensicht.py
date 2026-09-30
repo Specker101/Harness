@@ -1088,7 +1088,10 @@ def tiefenprobe_block(cfg, tiefe: dict) -> str:
         "",
         f"Pruefe DIESEN Batch in der Tiefe (nicht nur ueber die aufbereiteten Zahlen):",
         f"  * Auftrag     : runs/b{int(nummer):03d}/auftrag.md (die Forderungen)",
-        f"  * Abschluss   : runs/b{int(nummer):03d}/antwort.md (was der Worker behauptet)",
+        f"  * Abschluss   : runs/b{int(nummer):03d}/antwort.md (der ERSTE Bericht des "
+        f"Workers; seit R13aw bleibt er stehen) + runs/b{int(nummer):03d}/antwort-forts*.md "
+        "(die Antworten der Fortsetzungen; fuer B214-B218 liegt der nachgetragene Bericht "
+        "als antwort-bericht.md daneben - lies beide)",
         f"  * Ergebnis    : runs/b{int(nummer):03d}/result.json (rc, Dauer, Anfragen, "
         "Abbruch)",
         f"  * Denkbloecke : snapshots/b{int(nummer):03d}/reasoning.jsonl (was er sich "

@@ -72,6 +72,8 @@ class WorkerResult:
         self.preflight_archiv: str = ""
         # R13au: Rechnerlast waehrend des Batches (CPU, RAM, Fremdlast je Minute).
         self.last: dict = {}
+        # R13aw: welche Antwortdateien dieser Lauf geschrieben hat (Bericht + Fortsetzungen).
+        self.antwort_dateien: list[str] = []
 
     def describe(self) -> str:
         return (f"rc={self.rc} dauer={self.duration_s:.0f}s grenze={self.killed_reason or '-'} "
@@ -1083,6 +1085,67 @@ def fehler_text(kurz: list[dict]) -> str:
                      for e in (kurz or [])) or "keine"
 
 
+def antwort_teile(stats) -> list[str]:
+    """Die Antworttexte des Laufs in Reihenfolge: Bericht zuerst, dann die Fortsetzungen.
+
+    R13aw (Aussensicht B219, Befund 1): Bei einer Fortsetzung schreibt die CLI ein ZWEITES
+    `result`-Ereignis. `stats.final_text()` nimmt das LETZTE - in `runs/b214/antwort.md`
+    bis `b218/antwort.md` stand deshalb nur noch `NACHRUECKLISTE ERLEDIGT`, waehrend der
+    Pflichtbericht (Abschnitte 1-6) in keiner Datei mehr zu finden war. Gelesen werden
+    hier ALLE `result`-Texte (`stats.result_ereignisse`), damit der erste Bericht erhalten
+    bleibt.
+    """
+    texte: list[str] = []
+    for ev in (getattr(stats, "result_ereignisse", None) or []):
+        if isinstance(ev, dict) and isinstance(ev.get("result"), str) and ev["result"].strip():
+            texte.append(ev["result"])
+    if not texte:
+        einzeln = (getattr(stats, "final_text", lambda: "")() or "")
+        if einzeln.strip():
+            texte.append(einzeln)
+    return texte
+
+
+def _fortsetzungs_dateien(rd: Path) -> list[Path]:
+    """`antwort-forts<k>.md` in Reihenfolge (k numerisch, nicht alphabetisch)."""
+    aus: list[tuple[int, Path]] = []
+    for p in Path(rd).glob("antwort-forts*.md"):
+        m = re.search(r"antwort-forts(\d+)\.md$", p.name)
+        if m:
+            aus.append((int(m.group(1)), p))
+    return [p for _k, p in sorted(aus)]
+
+
+def antwort_text(rd) -> str:
+    """Der vollstaendige Bericht fuer Reviewer und Aussensicht (R13aw).
+
+    Reihenfolge: **erster Bericht**, dann die Fortsetzungsantworten mit Ueberschrift.
+    Fuer die Batches B214-B218, in denen `antwort.md` schon ueberschrieben war, liegt der
+    nachgetragene Bericht als `antwort-bericht.md` daneben (`docs/_r13aw_nachtrag.py`);
+    er wird dann ZUERST gezeigt und `antwort.md` als letzte Kurzantwort gefuehrt - sonst
+    fehlte er genau in den Batches, in denen der Fehler aufgetreten ist.
+    """
+    rd = Path(rd)
+    bloecke: list[str] = []
+    bericht = read_text(rd / "antwort.md").strip() if (rd / "antwort.md").is_file() else ""
+    nachtrag = (read_text(rd / "antwort-bericht.md").strip()
+                if (rd / "antwort-bericht.md").is_file() else "")
+    if nachtrag and nachtrag != bericht:
+        bloecke.append("## Bericht (antwort-bericht.md, nachgetragen)\n\n" + nachtrag)
+        if bericht:
+            bloecke.append("## Kurzantwort (antwort.md, vor der Umstellung "
+                           "ueberschrieben)\n\n" + bericht)
+    elif bericht:
+        bloecke.append("## Bericht des Workers (antwort.md)\n\n" + bericht)
+    elif nachtrag:
+        bloecke.append("## Bericht des Workers (antwort-bericht.md)\n\n" + nachtrag)
+    for k, p in enumerate(_fortsetzungs_dateien(rd), 1):
+        text = read_text(p).strip()
+        if text:
+            bloecke.append(f"## Fortsetzung {k} ({p.name})\n\n" + text)
+    return "\n\n".join(bloecke)
+
+
 def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebuilt: bool = False,
                 mock: bool = False, ghidra_save: bool = True):
     """Messdaten, result.json, antwort.md und Snapshot schreiben (R11-2).
@@ -1151,6 +1214,21 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
     # B218 lagen 18 Schreibzugriffe auf `port/` VOR diesem Commit (docs/_r13as_belege.md).
     reihenfolge_ergebnis = reihenfolge.pruefen(cfg, batch, stats.tools, log)
 
+    # R13aw (Befund M219-1): der ERSTE Antworttext bleibt in `antwort.md` stehen, jede
+    # Fortsetzung bekommt ihre eigene Datei. Vorher ueberschrieb jeder Teillauf die Datei -
+    # der Pflichtbericht war danach in keiner Datei mehr zu finden. Das geschieht VOR dem
+    # `payload`, damit `result.json` die Dateinamen nennen kann.
+    teile = antwort_teile(stats)
+    bericht = teile[0] if teile else res.final_text
+    write_text_atomic(rd / "antwort.md", bericht)
+    for k, text in enumerate(teile[1:], 1):
+        write_text_atomic(rd / f"antwort-forts{k}.md", text)
+    res.antwort_dateien = (["antwort.md"]
+                           + [f"antwort-forts{k}.md" for k in range(1, len(teile))])
+    # Snapshot und Demo zeigen den GANZEN Lauf (Bericht + Fortsetzungen) - der kurze
+    # letzte Text war bisher auch dort zu sehen.
+    res.final_text = antwort_text(rd) or res.final_text
+
     payload = {
         "batch": batch, "profile": profile_name, "program": res.program,
         "rc": res.rc, "duration_s": res.duration_s, "killed_reason": res.killed_reason,
@@ -1165,6 +1243,7 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
         "duration_quelle": res.duration_quelle, "duration_cli_s": res.duration_cli_s,
         "duration_harness_s": res.duration_harness_s, "duration_api_s": res.duration_api_s,
         "preflight_laeufe": preflight_laeufe, "preflight_frueh": preflight_frueh,
+        "antwort_dateien": list(res.antwort_dateien or []),
     }
     payload.update(reihenfolge.in_result(reihenfolge_ergebnis))
     payload.update(last.in_result(res.last))
@@ -1181,7 +1260,6 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
     if peak_hinweis:
         payload["peak_hinweis"] = peak_hinweis
     write_json_atomic(rd / "result.json", payload)
-    write_text_atomic(rd / "antwort.md", res.final_text)
     res.snapshot_path = write_snapshot(cfg, state, res, stats, log)
     return res
 

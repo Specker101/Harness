@@ -1173,7 +1173,8 @@ class Orchestrator:
             if not dirs:
                 self.say("Noch kein Worker-Lauf.")
                 return
-            ans = read_text(dirs[-1] / "antwort.md")
+            # R13aw: Bericht UND Fortsetzungsantworten zeigen (nicht nur antwort.md).
+            ans = wk.antwort_text(dirs[-1])
             self.say(ans[-n * 120:] if ans else "(leer)")
         else:
             gate = self.state.gate
@@ -2453,7 +2454,10 @@ class Orchestrator:
         """
         batch = int(self.state.batch or 0)
         edir = Path(self.cfg.sub("runs")) / f"b{batch:03d}"
-        report = read_text(edir / "antwort.md") if batch > 0 else ""
+        # R13aw (Aussensicht B219, Befund 1): NICHT nur `antwort.md` lesen - dort stand
+        # nach einer Fortsetzung nur noch `NACHRUECKLISTE ERLEDIGT`. Geliefert wird der
+        # erste Bericht UND darunter jede Fortsetzungsantwort mit Ueberschrift.
+        report = wk.antwort_text(edir) if batch > 0 else ""
         markers = protocol.parse_worker_markers(report) if report else {}
         marker_lines = []
         for name in ("tool_request", "program_request"):

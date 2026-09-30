@@ -1,0 +1,13 @@
+﻿R13aw-Nachtrag: erster Abschlussbericht aus dem Mitschnitt (SCHREIBEN) - Batches [214, 215, 216, 217, 218, 219]
+
+Batch    Bericht  antwort.md  gleich?  Urteil
+---------------------------------------------------------------------------
+b214        6056         719     nein  Bericht nachtragen (6056 Zeichen)
+b215        5584        1804     nein  Bericht nachtragen (5584 Zeichen)
+b216        3441        1227     nein  Bericht nachtragen (3441 Zeichen)
+b217        4688        1009     nein  Bericht nachtragen (4688 Zeichen)
+b218        6283        1664     nein  Bericht nachtragen (6283 Zeichen)
+b219        4654        4654       ja  antwort.md ist schon der Bericht - nichts zu tun
+
+geschrieben: antwort-bericht.md fuer 5 Batch(es): B214, B215, B216, B217, B218
+antwort.md wurde NICHT angefasst.
