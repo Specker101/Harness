@@ -1,0 +1,82 @@
+R13as: Reihenfolge-Waechter - rueckwirkende Auswertung B208..B219
+Repo: g:\Silent Scope Decomp
+
+Batch  Vorhersage             vorher  mtime Erkundung port ges.  Aufrufe  Befund
+--------------------------------------------------------------------------------------------------------------
+b208   2026-09-28T19:16:32+02:00     20      0         0        22      117  ABWEICHUNG
+b209   2026-09-28T20:07:20+02:00      8      0         0         8      184  ABWEICHUNG
+b210   2026-09-28T22:10:24+02:00      0      0         0        11      187  sauber
+b211   2026-09-28T23:33:13+02:00     32      0         0        33      229  ABWEICHUNG
+b212   2026-09-29T01:11:41+02:00      0      0         0        15      234  sauber
+b213   2026-09-29T14:22:09+02:00      4      0         0         5      211  ABWEICHUNG
+b214   2026-09-29T17:30:43+02:00     20      0         0        34      293  ABWEICHUNG
+b215   2026-09-29T20:01:07+02:00      0      0         0        11      228  sauber
+b216   2026-09-29T22:35:02+02:00      0      0         0        30      329  sauber
+b217   2026-09-30T00:27:36+02:00      0      0         0         5      139  sauber
+b218   2026-09-30T01:47:25+02:00     18      1         0        21      271  ABWEICHUNG
+b219   -                           0      0         0         0       81  kein Vorhersage-Commit
+
+Belege zu den Abweichungen (Zeile im Mitschnitt):
+   b208 stream.jsonl:32056 2026-09-28T17:06:48.312Z Write: port/hybrid/ppc_kern.h - Datei geschrieben
+   b208 stream.jsonl:34912 2026-09-28T17:07:17.724Z Write: port/hybrid/ppc_kern.cpp - Datei geschrieben
+   b208 stream.jsonl:37680 2026-09-28T17:07:31.384Z Edit: port/hybrid/ppc_kern.h - Datei geschrieben
+   b208 stream.jsonl:37682 2026-09-28T17:07:32.148Z Edit: port/hybrid/ppc_kern.h - Datei geschrieben
+   b208 stream.jsonl:37684 2026-09-28T17:07:32.404Z Edit: port/hybrid/ppc_kern.cpp - Datei geschrieben
+   b208 stream.jsonl:37686 2026-09-28T17:07:32.686Z Edit: port/hybrid/ppc_kern.cpp - Datei geschrieben
+   b208 ... und 14 weitere
+   b209 stream.jsonl:68919 2026-09-28T18:02:58.188Z Write: port/hybrid/maschine.h - Datei geschrieben
+   b209 stream.jsonl:68922 2026-09-28T18:03:05.346Z Write: port/hybrid/maschine.cpp - Datei geschrieben
+   b209 stream.jsonl:69565 2026-09-28T18:03:20.101Z Write: port/hybrid/hybrid_lauf.cpp - Datei geschrieben
+   b209 stream.jsonl:70240 2026-09-28T18:03:29.836Z Edit: port/hybrid/maschine.cpp - Datei geschrieben
+   b209 stream.jsonl:70243 2026-09-28T18:03:32.912Z Edit: port/hybrid/hybrid_lauf.cpp - Datei geschrieben
+   b209 stream.jsonl:70246 2026-09-28T18:03:35.751Z Edit: port/hybrid/hybrid_lauf.cpp - Datei geschrieben
+   b209 ... und 2 weitere
+   b211 stream.jsonl:33291 2026-09-28T21:11:09.441Z Edit: port/hybrid/ppc_kern.h - Datei geschrieben
+   b211 stream.jsonl:33839 2026-09-28T21:11:27.069Z Edit: port/hybrid/ppc_kern.cpp - Datei geschrieben
+   b211 stream.jsonl:33990 2026-09-28T21:11:30.666Z Edit: port/hybrid/ppc_kern.h - Datei geschrieben
+   b211 stream.jsonl:34646 2026-09-28T21:11:39.826Z Edit: port/hybrid/kern_diff.cpp - Datei geschrieben
+   b211 stream.jsonl:35063 2026-09-28T21:11:51.553Z Edit: port/hybrid/maschine.cpp - Datei geschrieben
+   b211 stream.jsonl:35917 2026-09-28T21:11:58.066Z Edit: port/hybrid/maschine.h - Datei geschrieben
+   b211 ... und 26 weitere
+   b213 stream.jsonl:59787 2026-09-29T11:59:40.261Z Edit: port/src/ckopf_leaves.cpp - Datei geschrieben
+   b213 stream.jsonl:71097 2026-09-29T12:08:12.311Z Edit: port/src/ckopf_leaves.cpp - Datei geschrieben
+   b213 stream.jsonl:71753 2026-09-29T12:15:14.602Z Edit: port/src/ckopf_leaves.cpp - Datei geschrieben
+   b213 stream.jsonl:75360 2026-09-29T12:21:13.812Z PowerShell: port/src/ckopf_leaves.cpp - git checkout auf port/src/ckopf_leaves.cpp
+   b214 stream.jsonl:39015 2026-09-29T15:02:36.177Z Edit: port/hybrid/hybrid_lauf.cpp - Datei geschrieben
+   b214 stream.jsonl:39232 2026-09-29T15:02:40.039Z Edit: port/hybrid/hybrid_lauf.cpp - Datei geschrieben
+   b214 stream.jsonl:39234 2026-09-29T15:02:41.017Z Edit: port/hybrid/hybrid_lauf.cpp - Datei geschrieben
+   b214 stream.jsonl:42418 2026-09-29T15:03:01.672Z Edit: port/hybrid/maschine.h - Datei geschrieben
+   b214 stream.jsonl:42420 2026-09-29T15:03:02.635Z Edit: port/hybrid/maschine.cpp - Datei geschrieben
+   b214 stream.jsonl:42444 2026-09-29T15:03:04.989Z Edit: port/hybrid/maschine.cpp - Datei geschrieben
+   b214 ... und 14 weitere
+   b218 stream.jsonl:24699 2026-09-29T23:26:53.758Z Edit: port/hybrid/ppc_kern.h - Datei geschrieben
+   b218 stream.jsonl:24760 2026-09-29T23:26:56.561Z Edit: port/hybrid/ppc_kern.h - Datei geschrieben
+   b218 stream.jsonl:24764 2026-09-29T23:26:59.443Z Edit: port/hybrid/ppc_kern.cpp - Datei geschrieben
+   b218 stream.jsonl:24950 2026-09-29T23:27:02.553Z Edit: port/hybrid/ppc_kern.cpp - Datei geschrieben
+   b218 stream.jsonl:24953 2026-09-29T23:27:05.136Z Edit: port/hybrid/ppc_kern.cpp - Datei geschrieben
+   b218 stream.jsonl:24957 2026-09-29T23:27:08.311Z Edit: port/hybrid/ppc_kern.cpp - Datei geschrieben
+   b218 ... und 12 weitere
+   b218 mtime stream.jsonl:80521 2026-09-29T23:58:14.129Z LastWriteTime-Zuweisung: Copy-Item analysis\_preflight_218.txt analysis\_m218\_preflight_218_fehllauf1.txt; $jetzt 
+
+Vollstaendige Pruefung B218 (so landet es in result.json):
+  Vorhersage-Commit: 2026-09-30T01:47:25+02:00
+    51e736aef 2026-09-30T01:47:25+02:00 B218: Vorhersage (Sollwert und Zaehlerdefinition je Bilanzzeile)
+  port/-Schreibzugriffe davor: 18
+  mtime-Befehle: 1
+  Erkundung: 0
+
+  REIHENFOLGE-WÄCHTER: ABWEICHUNG - 18 port/-Schreibzugriffe vor der Vorhersage, 1 mtime-Befehle
+
+Reihenfolge-Waechter B218: REIHENFOLGE-WÄCHTER: ABWEICHUNG - 18 port/-Schreibzugriffe vor der Vorhersage, 1 mtime-Befehle
+  stream.jsonl:24699 2026-09-29T23:26:53.758Z Edit: Datei geschrieben
+  stream.jsonl:24760 2026-09-29T23:26:56.561Z Edit: Datei geschrieben
+  stream.jsonl:24764 2026-09-29T23:26:59.443Z Edit: Datei geschrieben
+  stream.jsonl:24950 2026-09-29T23:27:02.553Z Edit: Datei geschrieben
+  stream.jsonl:24953 2026-09-29T23:27:05.136Z Edit: Datei geschrieben
+  stream.jsonl:24957 2026-09-29T23:27:08.311Z Edit: Datei geschrieben
+  stream.jsonl:25594 2026-09-29T23:27:16.068Z Edit: Datei geschrieben
+  stream.jsonl:25654 2026-09-29T23:27:22.738Z Edit: Datei geschrieben
+  mtime stream.jsonl:80521 2026-09-29T23:58:14.129Z: LastWriteTime-Zuweisung - Copy-Item analysis\_preflight_218.txt analysis\_m218\_preflight_218_fehllauf1.txt; $jetzt = Get-Date; foreach ($f in @("port\hybrid\ppc_kern.h","port\hybrid\ppc
+
+Erkundungs-Strang: es gibt weder Branch noch Worktree `erkundung-b*`
+(git branch -a / git worktree list im Decomp-Repo, Stand 2026-09-30).

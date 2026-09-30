@@ -1295,6 +1295,33 @@ Das Zuglimit war bisher nur eine Zahl im Prompt („spätestens nach max−5 Zü
 Messwerte, die `num_turns`-Frage und die Gegenprobe im Worker-Umfeld (dort wirkt
 `--max-turns` **nicht**): `docs/_r13ar_belege.md`.
 
+### 12t. Reihenfolge-Wächter: `port/` erst nach der Vorhersage (R13as, 2026-09-30)
+
+**Warum.** R391 verlangt, dass vor dem Commit `B<N>: Vorhersage` **keine** Datei unter
+`port/` geändert wird — die Vorhersage wäre sonst nachträglich. In B218 hat der Worker
+`port/hybrid/*` schon um 23:26 bearbeitet, gemessen, um 23:46:44 mit
+`git checkout -- port/` zurückgenommen und um 23:58:14 die **Änderungszeiten** wieder
+auf „jetzt" gesetzt; der Vorhersage-Commit kam erst 23:47:25. Die R391-Zeile im Denkblock
+meldete trotzdem OK. Der Harness hat den vollständigen Mitschnitt und prüft das jetzt
+mechanisch, ohne dem Worker zu glauben.
+
+| Punkt | Verhalten |
+|---|---|
+| **Wann** | nach jedem Batch, aus `runs/b<N>/stream.jsonl` (`worker._finish_run`), ohne den Lauf zu stören |
+| **Maßstab** | Zeitpunkt des **frühesten** Commits, dessen **Betreff** `B<N>: Vorhersage` lautet (`git log --all --format=%H%x1f%cI%x1f%s` im Decomp-Repo; BOM und Leerraum werden verkraftet, ein Treffer nur im Rumpf zählt nicht) |
+| **port/-Schreibzugriffe** | `Edit`/`Write`/`MultiEdit`/`NotebookEdit` auf `port/**`; Umleitung (`>`, `>>`, `*>`, `*>>`) nach `port/`; `Copy-Item`/`Move-Item`/`cp`/`mv`/`robocopy` mit `port/` als **Ziel**; `New-Item`/`Set-Content`/`Out-File`/`Add-Content`/`Remove-Item`/`del`/`rm`/`mkdir`/`ren` mit `port/`-Argument; `git checkout\|restore\|stash\|reset\|clean` auf `port/` oder auf den ganzen Arbeitsbaum |
+| **kein Treffer sind** | Lesen unter `port/` (`Read`, `Grep`, `Select-String -Path port\…`, `& port\build\hybrid_lauf.exe`, `git status --porcelain port/ Makefile`) und Bauartefakte (sie stehen nicht unter Versionskontrolle) — B218 hat davon Dutzende |
+| **mtime** | im **ganzen** Batch: `touch`, `.LastWriteTime = `, `SetLastWriteTime`, `SetFileTime`, `os.utime`, `Set-ItemProperty … LastWriteTime` (nur Setzer, keine Leser) |
+| **Erkundung** | Schreibzugriffe in einem Branch/Worktree `erkundung-b<N>` zählen **getrennt** und sind keine Abweichung (im Material bisher leer: kein solcher Branch, kein solcher Worktree, kein Befehl in B208–B219) |
+| **Ergebnis** | `runs/b<N>/result.json`: `reihenfolge_port_vor_vorhersage`, `erkundung`, `mtime_manipulation` (+ `reihenfolge_port_gesamt`, `reihenfolge_vorhersage_ts`, `reihenfolge_fehler`); Log `Reihenfolge-Waechter: ABWEICHUNG` bei Treffern |
+| **Review-Fakten** | `- REIHENFOLGE-WÄCHTER: sauber` bzw. `- REIHENFOLGE-WÄCHTER: ABWEICHUNG - <n> port/-Schreibzugriffe vor der Vorhersage, <m> mtime-Befehle`; bei Erkundung ergänzt `; Erkundung: <k> Zugriffe in erkundung-b* (getrennt gezählt, keine Abweichung)`. Fehlt der Vorhersage-Commit oder ist `git` nicht lesbar, steht das **ausdrücklich** da — nie ein stilles „sauber" |
+
+Rückblick B208–B219 (gemessen, Tabelle in `docs/_r13as_belege.txt`): Abweichungen in
+**B208 (20), B209 (8), B211 (32), B213 (4), B214 (20), B218 (18)**; sauber sind B210,
+B212, B215, B216, B217. Der **erste mtime-Befehl** der ganzen Reihe steht in B218.
+Jeder Batch lässt sich nachrechnen:
+`python -u docs/_r13as_belege.py schreiben` (schreibt die Tabelle selbst als UTF-8).
+
 ### 12b. Was der Nutzer selbst entscheiden muss
 
 Der grösste Hebel liegt ausserhalb des Harness: die 68K-Emulationsläufe im Decomp-Repo

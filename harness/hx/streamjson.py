@@ -678,7 +678,12 @@ class StreamStats:
         self.requests: list[dict] = []          # je Anfrage: {ts, id, miss, hit, creation, output}
         self._tool_ids: set[str] = set()
         self._tool_names: dict[str, str] = {}   # tool_use.id -> Werkzeugname
-        self.tools: list[dict] = []             # je Aufruf: {ts, id, name, input}
+        self.tools: list[dict] = []             # je Aufruf: {zeile, ts, id, name, input}
+        # R13as: die ZEILE im Mitschnitt. Der Reihenfolge-Waechter zitiert Fundstellen
+        # wie einen Beleg (`runs/b218/stream.jsonl:1071`), damit der Leser nachsehen kann.
+        # Gezaehlt wird jeder Aufruf von `feed` - genau einmal je gelesener Zeile
+        # (`hx/proc.py` liest zeilenweise und zaehlt dort dasselbe in `res.lines`).
+        self.zeilen: int = 0
         self.tool_counts: dict[str, int] = {}
         # R13ar (30.09.2026): WERKZEUGRUNDEN = Modellantworten MIT Werkzeugaufruf.
         # GEMESSEN: ein `--max-turns N` bricht nach N solchen Antworten ab
@@ -725,6 +730,7 @@ class StreamStats:
 
     # ------------------------------------------------------------------ Feed
     def feed(self, line: str) -> dict | None:
+        self.zeilen += 1
         line = line.strip()
         if not line:
             return None
@@ -823,8 +829,9 @@ class StreamStats:
                     name = block.get("name") or "?"
                     if tid:
                         self._tool_names[tid] = name
-                    self.tools.append({"ts": ev.get("timestamp") or "", "id": tid,
-                                       "name": name, "input": block.get("input") or {}})
+                    self.tools.append({"zeile": self.zeilen, "ts": ev.get("timestamp") or "",
+                                       "id": tid, "name": name,
+                                       "input": block.get("input") or {}})
                     self.tool_counts[name] = self.tool_counts.get(name, 0) + 1
                     # R13ar: diese Nachricht hat einen Werkzeugaufruf -> sie ist EINE
                     # Runde (mehrere Aufrufe in derselben Nachricht zaehlen einmal).

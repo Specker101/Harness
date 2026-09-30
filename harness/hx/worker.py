@@ -23,7 +23,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import aufraeumen, envs, pricing, retention, secrets, stand, streamjson, uhr
+from . import aufraeumen, envs, pricing, reihenfolge, retention, secrets, stand, streamjson, uhr
 from .gitsafe import Git
 
 # R13v3: Wie oft werden die Nachfahren des Workers aufgenommen? Der Nachweis "dieser
@@ -1135,6 +1135,11 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
     # Mitschnitt: ob die Nachrueckliste in DIESEM Moment offen war, steht nur dort.
     preflight_laeufe, preflight_frueh = zaehle_preflight_aufrufe(rd)
 
+    # R13as: Reihenfolge-Waechter (Aussensicht-Befund M218-1). Geprueft wird der
+    # Mitschnitt dieses Laufs gegen den Zeitpunkt des Commits `B<N>: Vorhersage` - in
+    # B218 lagen 18 Schreibzugriffe auf `port/` VOR diesem Commit (docs/_r13as_belege.md).
+    reihenfolge_ergebnis = reihenfolge.pruefen(cfg, batch, stats.tools, log)
+
     payload = {
         "batch": batch, "profile": profile_name, "program": res.program,
         "rc": res.rc, "duration_s": res.duration_s, "killed_reason": res.killed_reason,
@@ -1150,6 +1155,13 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
         "duration_harness_s": res.duration_harness_s, "duration_api_s": res.duration_api_s,
         "preflight_laeufe": preflight_laeufe, "preflight_frueh": preflight_frueh,
     }
+    payload.update(reihenfolge.in_result(reihenfolge_ergebnis))
+    if log and (len(reihenfolge_ergebnis.get("port_vor_vorhersage") or []) or len(
+            reihenfolge_ergebnis.get("mtime_manipulation") or [])):
+        log.warn("Reihenfolge-Waechter: ABWEICHUNG",
+                 port_vor_vorhersage=len(reihenfolge_ergebnis.get("port_vor_vorhersage") or []),
+                 mtime=len(reihenfolge_ergebnis.get("mtime_manipulation") or []),
+                 vorhersage_ts=reihenfolge_ergebnis.get("vorhersage_ts"))
     # R13al: der bewusste Start trotz Peak (`/approve jetzt`) gehoert in die Messdaten -
     # sonst sieht spaeter niemand, warum dieser Lauf zum doppelten Tarif lief. Der Harness
     # setzt den Vermerk vor dem Start und nimmt ihn nach dem Lauf wieder heraus.
