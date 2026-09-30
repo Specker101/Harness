@@ -1,0 +1,25 @@
+Nebenpruefung zum Lauf docs/_r13bc_volle_reihe.txt (2026-09-30 21:05:22)
+Kandidaten: 19 Testdateien mit skip-Stelle
+
+  test_r11_fixes.py          rc=0  OK
+  test_r13aa_fixes.py        rc=0  OK
+  test_r13ac_fixes.py        rc=0  OK
+  test_r13ad_fixes.py        rc=0  OK
+  test_r13ae_fixes.py        rc=0  OK
+  test_r13af_fixes.py        rc=0  OK
+test_r13ah_fixes.py: test_alle_drei_felder_der_echten_dateien (test_r13ah_fixes.TestHybridVerlauf.test_alle_drei_felder_der_echten_dateien) ... skipped 'echte Preflight-Dateien fehlen'
+  test_r13ah_fixes.py        rc=0  OK (skipped=1)
+  test_r13aj_fixes.py        rc=0  OK
+  test_r13ak_fixes.py        rc=0  OK
+  test_r13an_fixes.py        rc=0  OK
+  test_r13ap_fixes.py        rc=0  OK
+  test_r13aq_fixes.py        rc=0  OK
+  test_r13ar_fixes.py        rc=0  OK
+  test_r13az_fixes.py        rc=0  OK
+  test_r13d_fixes.py         rc=0  OK
+  test_r13e_fixes.py         rc=0  OK
+  test_r13i_fixes.py         rc=0  OK
+  test_r13v3_fixes.py        rc=0  OK
+  test_r13x_fixes.py         rc=0  OK
+
+Gefundene Skips: 1

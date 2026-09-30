@@ -19,6 +19,13 @@ in 3 B-Batches in Folge ist der Halt-PC (Feld 2 der Preflight-Zeile `Hybrid-Lauf
 
 Der laufende Batch wird nicht angefasst: alle Fixtures liegen in Wegwerfordnern unter
 `tests/_tmp_r13ah*`, die echten Dateien werden nur GELESEN.
+
+**R13bc (2026-09-30): Der Test gegen die echten Dateien ist auf die eingefrorene Fixture
+umgestellt.** `test_alle_drei_felder_der_echten_dateien` las `hybrid_verlauf(cfg, 8)` - ein
+**rollendes Fenster** der letzten 8 Preflight-Dateien. Stand B219 (Lauf 04:51) lagen B212/213/214
+noch darin; ab B226 nicht mehr, und der Test schaltete sich still ab
+(`OK (skipped=1)` in `docs/_r13bc_volle_reihe.txt`, gefunden mit `docs/_r13bc_skipfind.py`).
+Jetzt liest er die drei Dateien aus `tests/fixtures/stand_b224/` (Fenster 14 = B212 bis B225).
 """
 
 from __future__ import annotations
@@ -32,6 +39,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+
+# Eingefrorener Decomp-Stand (30.09.2026 / B224) - siehe tests/fixtures/stand_b224/README.md
+FIXTURE = Path(__file__).resolve().parent / "fixtures" / "stand_b224"
 
 from hx import aussensicht, envs, stand, uhr, worker               # noqa: E402
 from hx.config import load_config                                  # noqa: E402
@@ -368,11 +378,17 @@ class TestHybridVerlauf(Basis):
                                                               " OK"))
         self.assertEqual(e["nr"], "2000000")
 
-    def test_alle_drei_felder_der_echten_dateien(self):
-        cfg = load_config()
-        e = {x["batch"]: x for x in stand.hybrid_verlauf(cfg, 8)}
-        if 212 not in e or 214 not in e:
-            self.skipTest("echte Preflight-Dateien fehlen")
+    def test_alle_drei_felder_im_festen_stand(self):
+        """Stand 30.09.2026 / B224: B212 und B213 gleich, B214 neuer Halt-PC.
+
+        Fenster 14 statt 8: die Fixture reicht bis B225, die drei Dateien liegen also
+        nur in den aeltesten Plaetzen - mit dem alten Fenster waere der Test wieder leer.
+        """
+        for quelle in sorted((FIXTURE / "decomp" / "analysis").glob("_preflight_*.txt")):
+            shutil.copy2(quelle, self.ana / quelle.name)
+        e = {x["batch"]: x for x in stand.hybrid_verlauf(self.cfg, 14)}
+        self.assertEqual([212, 213, 214], [b for b in (212, 213, 214) if b in e],
+                         "die drei Dateien liegen im Fenster")
         self.assertEqual((e[212]["halt_pc"], e[212]["weg"]), ("800138F0", 28))
         self.assertEqual((e[213]["halt_pc"], e[213]["weg"]), ("800138F0", 28))
         self.assertEqual((e[214]["halt_pc"], e[214]["weg"]), ("8000CB98", 448))

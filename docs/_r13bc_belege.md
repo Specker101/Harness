@@ -72,7 +72,31 @@ tun haben).
   (`R13az`) stimmen. Sie schalten sich nur ab, wenn eine Datei fehlt; ein verschobenes Zitat
   macht sie **rot** (nicht still). Eine Fixture würde den Zweck zerstören.
 * **Abgeschlossene Nummernbereiche** (`test_r13x::TestEchteBelege` kopiert B202/203/206–208,
-  `test_r13ah` liest `_preflight_212..214.txt`, `test_r13ac`/`test_r13ae` vergleichen Kopien
-  gegen das Original, `test_r13aa` liest `runs/b207..209`): sie ziehen mit dem Stand **nicht**
-  weiter, der `skipTest` feuert nur, wenn eine Datei verschwindet. Kein Drift, keine
-  falschen Erwartungen.
+  `test_r13ac`/`test_r13ae` vergleichen Kopien gegen das Original, `test_r13aa` liest
+  `runs/b207..209`): sie ziehen mit dem Stand **nicht** weiter, der `skipTest` feuert nur,
+  wenn eine Datei verschwindet. Kein Drift, keine falschen Erwartungen.
+
+## Volle Testreihe am Gate (30.09.2026, 21:04)
+
+`docs/_r13bc_volle_reihe.txt` (Erzeuger `docs/_r13av_lauf.py`, Arbeitsregel `_r13au_belege.md` §1):
+Harness-Zustand vorher `GATE_APPROVAL`, `batch=226`, `worker=False`; HEAD `7ca1c40`.
+
+> Dauer 634,9 s | **Tests 1268 | Fehler 0 | Fehlschläge 0 | übersprungen 1 | ERGEBNIS: OK**
+
+Vorheriger Lauf (R13aw, 04:51, HEAD `2f05afa`, batch 219): 1174 Tests, 0 skips.
+
+**Der eine Skip war ein Rest der alten Bauart — und er stand zu Unrecht in meiner
+„nicht umgestellt“-Liste oben.** `test_r13ah_fixes::TestHybridVerlauf.
+``test_alle_drei_felder_der_echten_dateien`` las `hybrid_verlauf(cfg, 8)`, also ein
+**rollendes Fenster** der letzten 8 Preflight-Dateien (nicht einen geschlossenen
+Nummernkreis, wie ich in der ersten Fassung dieser Datei angenommen hatte): bei B219 lagen
+B212–B214 noch darin, ab B226 nicht mehr → `skipTest("echte Preflight-Dateien fehlen")`.
+Gefunden nicht durch Raten, sondern mit `docs/_r13bc_skipfind.py` →
+`docs/_r13bc_skipfind.txt` (fährt nur die 19 Testdateien mit `skip`-Stelle einzeln mit
+`verbosity=2` und sammelt die `skipped`-Zeilen; gefunden: genau 1).
+
+Nachgezogen: der Test heißt jetzt `test_alle_drei_felder_im_festen_stand`, kopiert die
+Preflight-Dateien aus der Fixture (Fenster 14 = B212–B225, weil die Fixture bis B225 reicht)
+und erwartet unverändert `(800138F0, 28)` für B212/B213 und `(8000CB98, 448)` für B214 —
+ohne `skipTest`. Die harte Fenstergrenze steht als eigene Zusicherung im Test, damit der
+Fehler „Fenster zu klein“ nicht wieder still wird.
