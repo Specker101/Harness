@@ -32,11 +32,10 @@ from hx import bilanz, stand                                        # noqa: E402
 from hx.config import load_config                                   # noqa: E402
 from hx.util import ensure_dir, write_text_atomic                   # noqa: E402
 
-ECHTER_CFG = load_config()
-DEC = Path(ECHTER_CFG.decomp)
-# Die echten Messdateien (B219 = heute, B210 = der letzte andere Stand).
-ECHT_219 = DEC / "analysis" / "_m219" / "_c_paket_e_nachher.txt"
-ECHT_210 = DEC / "analysis" / "_m210" / "_c_paket_e.txt"
+# R13bc: der feste Stand (30.09.2026) liegt eingefroren unter `tests/fixtures/stand_b224`.
+# Frueher las dieser Test die lebenden Dateien des Decomp-Repos und schaltete sich per
+# `skipTest` ab, sobald der naechste Batch etwas schrieb - siehe die README der Fixture.
+FIXTURE = Path(__file__).resolve().parent / "fixtures" / "stand_b224"
 
 
 def messdatei(ana: Path, batch: int, koepfe: int, insn: int, stand: str = "nachher",
@@ -282,30 +281,27 @@ class TestOffenerVorratGefroren(Basis):
         self.assertNotIn("Paket E offen: 38", text)
 
 
-@unittest.skipIf(not (ECHT_219.is_file() and ECHT_210.is_file()),
-                 "echte Paket-E-Messungen fehlen")
-class TestEchteWerte(unittest.TestCase):
-    """Die echten Zahlen von B219 (26 offen) - der Befund als Regressionsschutz."""
+class TestMedianDerZuwaechseGefroren(Basis):
+    """Die echten Zahlen des festen Stands B224 (Fixture) - der Befund als Regressionsschutz.
+
+    Der Median steht ueber den **Zuwaechsen** der Kopf-Batches: im Fenster der PLAN/IST-Tafel
+    (`n=12`) sind das `+3 (B224)`, `+5 (B219)`, `+7 (B216)` -> **5** (die alte Definition
+    "Median der Summen" haette 88 ergeben und ist damit widerlegt).
+    """
 
     def setUp(self):
-        self.cfg = load_config()
+        super().setUp()
+        shutil.copytree(FIXTURE / "root", self.root, dirs_exist_ok=True)
+        shutil.copytree(FIXTURE / "decomp", self.decomp, dirs_exist_ok=True)
+        self.ana = self.decomp / "analysis"
 
-    def test_median_der_echten_zuwaechse_ist_sechs(self):
-        """Der Median steht ueber den Zuwaechsen der Kopf-Batches - gemessen B219: 6.
-
-        R13bb: die Zahl haengt am Repo. B224 (Kopf-Batch, +3) ist dazugekommen, seither
-        ist der Median 5. Geprueft wird deshalb die Regel (Zuwaechse, nicht Summen) und
-        der echte Wert nur, solange er noch der B219-Stand ist.
-        """
+    def test_median_der_zuwaechse_ist_fuenf(self):
         text = stand.plan_ist_text(self.cfg, 12)
-        self.assertIn("MEDIAN der ", text)
-        self.assertNotIn("88 Koepfe", text)      # die alte Definition (Median der Summen)
-        if "+3 (B224)" in text:
-            self.assertIn("5 Koepfe je C-Batch", text)
-            return
-        self.assertIn("+7 (B216)", text)
-        self.assertIn("+5 (B219)", text)
-        self.assertIn("6 Koepfe je C-Batch", text)
+        self.assertIn("MEDIAN der 3 Zuwaechse der C Koepfe je C-Batch mit SOLL-KOEPFE > 0 "
+                      "(+3 (B224), +5 (B219), +7 (B216)): 5 Koepfe je C-Batch", text)
+        self.assertIn("Ziel des naechsten Batches: hoechstens ca. 6", text)
+        # Die alte Definition (Median der Summen) haette 88 ergeben.
+        self.assertNotIn("88 Koepfe", text)
 
 
 if __name__ == "__main__":

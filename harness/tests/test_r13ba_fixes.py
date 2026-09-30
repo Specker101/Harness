@@ -17,12 +17,14 @@ Jetzt:
 * Faellt der Median aus (kein Kopf-Batch im Fenster), tritt das Mittel an seine Stelle;
   `quelle` sagt, welche der beiden Zahlen gerechnet wurde.
 
-Der Test mit den **echten Werten** laeuft gegen das Decomp-Repo (nur lesend) und
-ueberspringt sich, wenn die echten Kopf-Batches weitergezogen sind.
+Der Test mit den **echten Werten** laeuft gegen den **eingefrorenen Stand**
+`tests/fixtures/stand_b224` (R13bc) - frueher gegen die lebenden Dateien des Decomp-Repos,
+mit `skipTest`, sobald der naechste Batch etwas schrieb.
 """
 
 from __future__ import annotations
 
+import inspect
 import shutil
 import sys
 import unittest
@@ -35,21 +37,21 @@ from hx import bilanz, stand                                       # noqa: E402
 from hx.config import load_config                                  # noqa: E402
 from hx.util import ensure_dir, write_text_atomic                  # noqa: E402
 
-ECHTER_CFG = load_config()
-DEC = Path(ECHTER_CFG.decomp)
-ECHTER_STAND = stand.c_rate(ECHTER_CFG)
-ECHTER_MESSUNG = stand.paket_e_messung(ECHTER_CFG)
-# Die echten Kopf-Batches vom 30.09.2026: B216 (+7), B219 (+5).
-ECHTER_MEDIAN = 6
-ECHTER_TEXT = ("Median Zuwachs (Kopf-Batches): 6 | "
-               "Mittel ueber alle C-Batches: 3,0")
+# R13bc: der feste Stand (30.09.2026, B224) - eingefroren, nicht nachziehen (s. README).
+FIXTURE = Path(__file__).resolve().parent / "fixtures" / "stand_b224"
+# Die Werte dieses Stands (gemessen mit `docs/_r13bc_fixture.py`).
+STAND_TEXT = ("Median Zuwachs (Kopf-Batches): 4 | "
+              "Mittel ueber alle C-Batches: 2,4")
+STAND_QUELLE = "Median der Zuwaechse der Kopf-Batches (+3 (B224), +5 (B219))"
+TEXT_219 = ("Median Zuwachs (Kopf-Batches): 6 | "
+            "Mittel ueber alle C-Batches: 3,0")
 
 
 class TestRateText(unittest.TestCase):
     """Die Zeile selbst - beide Werte mit ihrer Grundmenge im Namen (M221-5)."""
 
     def test_echte_werte(self):
-        self.assertEqual(stand.rate_text(6.0, 3.0), ECHTER_TEXT)
+        self.assertEqual(stand.rate_text(6.0, 3.0), TEXT_219)
 
     def test_beide_grundmengen_werden_genannt(self):
         t = stand.rate_text(6.0, 3.0)
@@ -157,7 +159,7 @@ class TestRateAusDenDaten(Basis):
         self.assertEqual(r["median"], 6, "Zuwaechse +7 (B216) und +5 (B219)")
         self.assertEqual(r["mittel"], 3.0, "0, 0, +7, +5 ueber alle C-Batch-Schritte")
         self.assertEqual(r["rate"], 6, "gerechnet wird mit dem Median")
-        self.assertEqual(r["text"], ECHTER_TEXT)
+        self.assertEqual(r["text"], TEXT_219)
         self.assertIn("+5 (B219)", r["quelle"])
         self.assertIn("+7 (B216)", r["quelle"])
 
@@ -227,7 +229,7 @@ class TestHochrechnungNutztDenMedian(Basis):
         self.echter_fall()
         self.messdatei(219, 26, 2114)
         text = "\n".join(stand.durchsatz_zeilen(self.cfg, 5))
-        self.assertIn("C-Rate je C-Batch: " + ECHTER_TEXT, text)
+        self.assertIn("C-Rate je C-Batch: " + TEXT_219, text)
         self.assertIn("-> 4 C-Batches bei +6.0 Koepfe je C-Batch", text)
         self.assertIn("Median der Zuwaechse der Kopf-Batches", text)
         self.assertNotIn("-> 9 C-Batches", text)
@@ -236,7 +238,7 @@ class TestHochrechnungNutztDenMedian(Basis):
         self.echter_fall()
         self.messdatei(219, 26, 2114)
         text = "\n".join(bilanz.gesamt_block(self.cfg))
-        self.assertIn("C-Rate je C-Batch: " + ECHTER_TEXT, text)
+        self.assertIn("C-Rate je C-Batch: " + TEXT_219, text)
         self.assertIn("bei +6.0 Koepfe je C-Batch", text)
         self.assertNotIn("bei +3.0 Koepfe je C-Batch", text)
 
@@ -335,81 +337,90 @@ class TestAuswahlDerMessdatei(Basis):
         self.assertEqual(stand.paket_e_datum(tief, 0.0)[1], "")
 
 
-class TestEchteDateienB222(unittest.TestCase):
-    """Die echten Dateien aus dem Auftrag (nur lesend; skip, wenn das Repo weiterzieht)."""
+class StandFixtureMixin:
+    """Den eingefrorenen Stand in das Wegwerf-Verzeichnis der Basis kopieren (R13bc)."""
 
-    def test_m222_gewinnt_offen_25_ohne_verdrehtes_paar(self):
-        m = ECHTER_MESSUNG
-        if int(m.get("batch") or 0) != 222:
-            self.skipTest(f"die neueste Messung ist B{m.get('batch')} ({m.get('datei')})")
-        self.assertEqual(m["batch"], 222)
-        self.assertIn("_m222/", m["datei"], "die neueste Messung liegt in _m222")
-        self.assertEqual(m["koepfe"], 25)
-        self.assertEqual(m["insn"], 2011)
-        vor = m.get("vorher") or {}
-        self.assertLess(vor.get("batch") or 0, 222, "das Paar ist nicht verdreht")
-        self.assertGreaterEqual(vor.get("koepfe", 0) - m["koepfe"], 0,
-                                "der offene Vorrat kann nicht negativ 'gebaut' werden")
-        text = "\n".join(bilanz.gesamt_block(ECHTER_CFG))
-        self.assertNotIn("(B222 -> B219", text)
-        self.assertIn(f"(B{vor['batch']} -> B222: {vor['koepfe'] - m['koepfe']} Koepfe /",
-                      text)
-
-    def test_echte_datei_ohne_datum_wird_gekennzeichnet(self):
-        m = ECHTER_MESSUNG
-        if int(m.get("batch") or 0) < 222:
-            self.skipTest(f"keine Messung ab B222: {m.get('datei')}")
-        if m["datum_quelle"] != "dateizeit":
-            # R13bb (Punkt 4): seit die Messdateien kodierungstolerant gelesen werden,
-            # steht das Datum im Kopf - dann gibt es nichts zu melden.
-            self.assertEqual(stand.paket_e_datum_hinweis(ECHTER_CFG), [])
-            return
-        hinweis = stand.paket_e_datum_hinweis(ECHTER_CFG)
-        self.assertTrue(hinweis and "PARSER: Messdatum in" in hinweis[0], hinweis)
-        self.assertIn("(Datum aus Dateizeit)", "\n".join(bilanz.gesamt_block(ECHTER_CFG)))
+    def stand_laden(self) -> None:
+        shutil.copytree(FIXTURE / "root", self.root, dirs_exist_ok=True)
+        shutil.copytree(FIXTURE / "decomp", self.decomp, dirs_exist_ok=True)
+        self.ana = self.decomp / "analysis"
 
 
-class TestEchteWerte(unittest.TestCase):
-    """Gegen das Decomp-Repo (nur lesend) - echte Zahlen vom 30.09.2026."""
+class TestFesterStandB224(Basis, StandFixtureMixin):
+    """Der feste Stand: neueste Messung, Datum, Vorher-Paar (R13ba-Nachtrag/R13bb Punkt 4)."""
 
-    def test_rate_ist_der_median_der_kopf_batches(self):
-        if not ECHTER_STAND.get("median"):
-            self.skipTest("kein Kopf-Batch im echten Fenster")
-        self.assertEqual(ECHTER_STAND["rate"], ECHTER_STAND["median"])
-        self.assertIn("Median", ECHTER_STAND["quelle"])
+    def setUp(self):
+        super().setUp()
+        self.stand_laden()
+        self.m = stand.paket_e_messung(self.cfg)
 
-    def test_echte_kopf_batches(self):
-        """B216 (+7) und B219 (+5) - der Median ist 6, das Mittel ueber alle 3.0."""
-        if dict(ECHTER_STAND["kopf_batches"]) != {216: 7, 219: 5}:
-            self.skipTest("die echten Kopf-Batches sind weitergezogen: "
-                          f"{ECHTER_STAND['kopf_batches']}")
-        self.assertEqual(ECHTER_STAND["median"], ECHTER_MEDIAN)
-        self.assertEqual(ECHTER_STAND["mittel"], 3.0)
-        self.assertEqual(ECHTER_STAND["text"], ECHTER_TEXT)
+    def test_neueste_messung_ist_b224_offen_20(self):
+        self.assertEqual(self.m["datei"], "_m224/_c_paket_e_nachher.txt")
+        self.assertEqual(self.m["batch"], 224)
+        self.assertEqual((self.m["koepfe"], self.m["insn"]), (20, 1657))
+        self.assertEqual(self.m["stand"], "nachher", "nachher schlaegt die blosse Messung")
+        self.assertEqual(self.m["datum"], "2026-09-30 16:55")
+        self.assertEqual(self.m["datum_quelle"], "kopf")
+        self.assertEqual(self.m["kodierung"], "utf-8-bom")
+        self.assertEqual(stand.paket_e_datum_hinweis(self.cfg), [])
 
-    def test_echte_durchsatzzeile(self):
-        text = "\n".join(stand.durchsatz_zeilen(ECHTER_CFG))
-        self.assertIn("C-Rate je C-Batch: " + ECHTER_STAND["text"], text)
-        # Die Hochrechnung nennt dieselbe Grundmenge wie die Rate.
-        self.assertIn("(Grundlage: " + ECHTER_STAND["quelle"] + ")", text)
+    def test_vorher_paar_ist_nicht_verdreht(self):
+        vor = self.m.get("vorher") or {}
+        self.assertEqual((vor.get("batch"), vor.get("koepfe"), vor.get("insn")),
+                         (222, 22, 1849))
+        self.assertLess(vor["batch"], self.m["batch"], "das Paar ist nicht verdreht")
+        self.assertEqual((self.m.get("vorher_gleich") or {}).get("datei"),
+                         "_m224/_c_paket_e.txt")
+        text = "\n".join(bilanz.gesamt_block(self.cfg))
+        self.assertIn("(B222 -> B224: 2 Koepfe / 192 Insn gebaut)", text)
+        self.assertNotIn("(B224 -> B222", text)
 
-    def test_echte_hochrechnung_ist_der_median(self):
-        d = stand.durchsatz(ECHTER_CFG)
-        raten = stand.c_rate(ECHTER_CFG)
-        if not d.get("offen_koepfe") or not raten.get("rate"):
-            self.skipTest("kein offener Vorrat oder keine Rate gemessen")
-        erwartet = d["offen_koepfe"] / raten["rate"]
-        zeilen = stand.kalender_zeilen(ECHTER_CFG, d["offen_koepfe"],
-                                       {"rate_c_koepfe": raten["rate"],
-                                        "rate_c_quelle": raten["quelle"]})
-        self.assertIn(f"-> {erwartet:.0f} C-Batches bei +{raten['rate']:.1f} Koepfe "
-                      "je C-Batch", zeilen[0])
+    def test_die_parser_meldung_haengt_an_dieser_funktion(self):
+        """Die Review-Fakten rufen genau den Hinweis auf, der hier geprueft wird."""
+        from hx.orchestrator import Orchestrator
+        quelle = inspect.getsource(Orchestrator.harness_facts)
+        self.assertIn("paket_e_datum_hinweis", quelle)
+        self.assertEqual([z for z in stand.paket_e_datum_hinweis(self.cfg)
+                          if "Messdatum" in z], [])
 
-    def test_echte_tafel_zeigt_beide_zahlen(self):
-        text = stand.plan_ist_text(ECHTER_CFG)
-        if "MEDIAN: nicht gemessen" in text:
-            self.skipTest("kein Kopf-Batch im echten Fenster")
-        self.assertIn(ECHTER_STAND["text"], text)
+
+class TestFesterStandRate(Basis, StandFixtureMixin):
+    """Die Rate des festen Stands - Median der Kopf-Batches, Mittel daneben."""
+
+    def setUp(self):
+        super().setUp()
+        self.stand_laden()
+        self.raten = stand.c_rate(self.cfg)
+
+    def test_kopf_batches_und_median(self):
+        self.assertEqual(self.raten["kopf_batches"], [(224, 3), (219, 5)])
+        self.assertEqual(self.raten["median"], 4.0)
+        self.assertEqual(self.raten["mittel"], 2.375)
+        self.assertEqual(self.raten["rate"], self.raten["median"])
+        self.assertEqual(self.raten["text"], STAND_TEXT)
+        self.assertEqual(self.raten["quelle"], STAND_QUELLE)
+        self.assertIn("Median", self.raten["quelle"])
+
+    def test_durchsatzzeile_nennt_beide_grundmengen(self):
+        text = "\n".join(stand.durchsatz_zeilen(self.cfg))
+        self.assertIn("C-Rate je C-Batch: " + STAND_TEXT, text)
+        self.assertIn("(Grundlage: " + STAND_QUELLE + ")", text)
+        self.assertIn("offen (Paket E, C-Arbeitsvorrat): 20 Koepfe / 1657 Insn", text)
+        self.assertIn("gemessen B224, 2026-09-30 16:55", text)
+
+    def test_hochrechnung_rechnet_mit_dem_median(self):
+        """Der Durchsatz-Block rechnet mit dem Median (nicht mit dem Mittel)."""
+        text = "\n".join(stand.durchsatz_zeilen(self.cfg))
+        self.assertIn("-> 5 C-Batches bei +4.0 Koepfe je C-Batch", text)
+        self.assertIn("(Grundlage: " + STAND_QUELLE + ")", text)
+        self.assertNotIn("-> 9 C-Batches", text)         # der alte Mittel-Wert (2,4)
+
+    def test_tafel_zeigt_beide_zahlen(self):
+        """Die PLAN/IST-Tafel rechnet mit einem groesseren Fenster (n=12): Median 5."""
+        text = stand.plan_ist_text(self.cfg, 12)
+        self.assertIn("MEDIAN der 3 Zuwaechse", text)
+        self.assertIn("(Median Zuwachs (Kopf-Batches): 5 | "
+                      "Mittel ueber alle C-Batches: 2,4)", text)
 
 
 if __name__ == "__main__":

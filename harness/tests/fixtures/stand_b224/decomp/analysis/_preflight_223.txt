@@ -1,0 +1,37 @@
+﻿=== PREFLIGHT (before) 2026-09-30 16:08 ===
+Lauf 2026-09-30 16:08:06 | HEAD a123586a0a73f074bbc9eb13f3fb2efc3e51b831
+Werkzeugkette g++ PATH=g++ (Rev4, Built by MSYS2 project) 16.2.0 | g++ BAU=g++.exe (Rev4, Built by MSYS2 project) 16.2.0 | ppc_poc.exe 575521 B, port_selftest.exe 7548773 B, port_gl.exe 7653691 B
+Pruefung           Ergebnis                                                 Urteil
+R207 tails         702 rueckwaerts (a 31 / b 0 / c 0)                       OK
+R207 check         gebaut 702 / benannt 11095 / NICHT benannt 0             OK
+R207 sanity        702 Koepfe / auffaellig 0                                OK
+R207 nachzuegler   70/32 (12/5) + (d) 9/3                                   Meldung
+R216 A abi         263                                                      Meldung
+R216 B impl        81                                                       Meldung
+R216 C doc         78                                                       Meldung
+R216 D doc4        689/112                                                  Meldung
+P100-Selbstprobe   OK (Fenster 1, Fund 1)                                   OK
+M5 Kopf            287 Faelle / 2860 Vergleichszeilen / 0 Abweichungen, T3 34/34, T4 34/34 (Binaer aktuell) OK
+C Koepfe           94 / 5114 / 0 referenzgleich                             OK
+C Einbindung       9 / 26 / 60                                              Meldung
+Bahnabdeckung      66/94 | Bloecke 438/577 | verifiziert 67 | teilgeprueft 27 OK
+R391 Commit-Reihenfolge OK                                                       OK
+C verifiziert      67                                                       OK
+Formen der C-Koepfe orakelgeprueft 46 / 57                                                  Meldung
+C Fallrueckgang    keiner                                                   Meldung
+Hybrid-Lauf        172867054 | 80013F78 | MMIO | 1773/42599 | nein          OK
+Hybrid-Lauf 20M    20000000 | 8000EC3C | Schranke | 1475/42599 | nein       OK
+Hybrid-SPU         2 Lesezugriffe, 9 Schreibzugriffe, erste PC L 80013DFC / S 80013FB4, 7 distinkte Offsets OK
+Hybrid-Attrappe4   128 Lesezugriffe, erste PC 8000C898, Werte 00800000      OK
+Hybrid-Anteil nativ 0/172867054 | Ersatz: 8741 | Summe gleich: ja            OK
+analysis neue .py  0                                                        Meldung
+Profile reproduzierbar gleich 84, abweichend 10, HEAD a123586, 10690/10A20/856B4 10690=ABWEICHEND 10A20=ABWEICHEND 856B4=ABWEICHEND OK
+Bauliste ⊆ Registry 731 Eintraege, 0 fehlend                                 OK
+Archiv vor Batch   0                                                        OK
+Archiv Kodierung   5 (Altbestand 5)                                         OK
+REG regression     OK, 32 Faelle + 271 Anker, 0 Fehler                      OK
+REG GL-Anker       9/9 OK, 0 GL-TIMEOUT, 0 GL-UMGEBUNG, 0 sonst. FEHLER     OK
+REG GL-Referenz    9/9 gleich                                               OK
+
+Befunde: 0   (Beleg-Archiv: 1 Altfassung(en) gesichert -> analysis\_archiv)
+=> BEFORE SAUBER

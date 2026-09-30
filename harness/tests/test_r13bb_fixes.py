@@ -29,6 +29,8 @@ from hx.orchestrator import Orchestrator                           # noqa: E402
 from hx.util import ensure_dir, read_text_erkannt                   # noqa: E402
 
 TOML = ROOT / "harness.toml"
+# R13bc: der eingefrorene Stand (30.09.2026, B224) - nicht nachziehen, s. README dort.
+FIXTURE = ROOT / "tests" / "fixtures" / "stand_b224"
 AUFTRAG = ("TEIL 1: etwas bauen.\n\n## NACHRUECKLISTE\n1. Posten eins\n2. Posten zwei\n")
 TEXT = ("Kein Fortsetzungsanstoss: Preflight bereits gelaufen, offene Nachrueckliste "
         "-> UEBERTRAG")
@@ -285,28 +287,35 @@ class TestPreflightZaehlerArchiv(Basis):
         self.assertIn('res.get("preflight_laeufe")', quelle)
 
 
-class TestRueckblickEchteBatches(unittest.TestCase):
-    """Die drei Batches aus M224-4 - gegen die echten Dateien (skip, wenn sie fehlen)."""
+class TestRueckblickFesterStand(Basis):
+    """Die drei Batches aus M224-4, gegen den **eingefrorenen Stand** `stand_b224`.
+
+    Frueher las der Rueckblick die lebenden Dateien und schaltete sich ab, sobald der
+    naechste Batch eigene Messdateien anlegte - ein Test, der sich abschaltet, prueft nichts.
+    """
 
     BATCHES = {218: (2, 1), 223: (1, 1), 224: (1, 1)}   # (Aufrufe im Mitschnitt, Fehllaeufe)
 
     def setUp(self):
-        self.cfg = load_config()
-        self.dec = Path(self.cfg.decomp)
+        super().setUp()
+        shutil.copytree(FIXTURE / "root", self.root, dirs_exist_ok=True)
+        shutil.copytree(FIXTURE / "decomp", self.decomp, dirs_exist_ok=True)
+        self.ana = self.decomp / "analysis"
 
     def test_rueckblick_stimmt(self):
         for batch, (aufrufe, fehllauf) in self.BATCHES.items():
-            p = (self.dec / "analysis" / f"_m{batch}"
-                 / f"_preflight_{batch}_fehllauf1.txt")
-            if not p.is_file():
-                self.skipTest(f"{p} fehlt")
             a = stand.preflight_archiv(self.cfg, batch)
             self.assertEqual(a["ungezaehlt"], fehllauf, batch)
-            gelesen = stand.zaehle_preflight_aufrufe(self.cfg, batch)
-            if gelesen[0] != aufrufe:
-                self.skipTest(f"b{batch}: Mitschnitt hat jetzt {gelesen}, nicht {aufrufe}")
+            self.assertEqual(a["fehllauf"],
+                             [f"analysis/_m{batch}/_preflight_{batch}_fehllauf1.txt"], batch)
+            self.assertEqual(stand.zaehle_preflight_aufrufe(self.cfg, batch)[0], aufrufe, batch)
             zeile = stand.preflight_zaehler_zeile(self.cfg, batch)[0]
             self.assertIn(f"-> {aufrufe + fehllauf} Laeufe", zeile)
+
+    def test_ueberholt_zaehlt_nicht_mit(self):
+        """Der feste Stand fuehrt keine ueberholten Dateien dieser Batches."""
+        for batch in self.BATCHES:
+            self.assertEqual(stand.preflight_archiv(self.cfg, batch)["ueberholt"], [], batch)
 
 
 class TestMischregelDerPrognose(Basis):
@@ -372,37 +381,47 @@ class TestMischregelDerPrognose(Basis):
         self.assertIn("Anteil 50 %", "\n".join(zeilen))
 
 
-class TestEchterPlanMischregel(unittest.TestCase):
-    """Der echte `hybrid-plan.md` (skip, wenn er keine Gilt-Zeile hat)."""
+class TestPlanMischregelFesterStand(Basis):
+    """Der Plan des festen Stands: die Gilt-Zeile gewinnt (Punkt 3, M224-5)."""
 
     def setUp(self):
-        self.cfg = load_config()
-        self.dec = Path(self.cfg.decomp)
-        self.pfad = self.dec / "analysis" / "hybrid-plan.md"
+        super().setUp()
+        shutil.copytree(FIXTURE / "root", self.root, dirs_exist_ok=True)
+        shutil.copytree(FIXTURE / "decomp", self.decomp, dirs_exist_ok=True)
+        self.ana = self.decomp / "analysis"
+        self.pfad = self.ana / "hybrid-plan.md"
 
     def test_geltende_regel_ist_1_zu_1(self):
-        if not self.pfad.is_file():
-            self.skipTest(f"{self.pfad} fehlt")
-        if "GILT 1 B : 1 C" not in self.pfad.read_text(encoding="utf-8", errors="replace"):
-            self.skipTest("der Plan hat keine Gilt-Zeile (mehr)")
         p = stand.plan_mischung(self.cfg)
         self.assertEqual(p["zustand"], "gilt")
         self.assertEqual(p["regel"], "1 B : 1 C")
         self.assertEqual(p["anteil"], 0.5)
         self.assertEqual(p["ab_batch"], 222)
+        self.assertEqual(p["zeile_nr"], 368)
+        self.assertEqual(p["stand"], "ab B222, NUTZERENTSCHEIDUNG R221-1, 2026-09-30")
+        self.assertEqual(p["paare"], {}, "die Gilt-Zeile nennt keine Einzelbatches")
         # Die genannte Zeile traegt wirklich das, was der Harness ihr zuschreibt.
         zeilen = self.pfad.read_text(encoding="utf-8", errors="replace").splitlines()
-        self.assertTrue(1 <= p["zeile_nr"] <= len(zeilen), p["zeile_nr"])
         self.assertIn("GILT 1 B : 1 C", zeilen[p["zeile_nr"] - 1])
 
-    def test_prognose_nennt_die_geltende_regel(self):
-        if not self.pfad.is_file():
-            self.skipTest(f"{self.pfad} fehlt")
+    def test_prognose_nennt_quelle_und_stand(self):
         d = stand.durchsatz(self.cfg)
-        if d.get("anteil_c") != 0.5:
-            self.skipTest(f"Anteil ist {d.get('anteil_c')} - Plan geaendert")
-        self.assertIn("1 B : 1 C", d["anteil_quelle"])
-        self.assertIn("hybrid-plan.md:", d["anteil_quelle"])
+        self.assertEqual(d["anteil_c"], 0.5)
+        self.assertIn("Regel hybrid-plan.md:368", d["anteil_quelle"])
+        self.assertIn('"1 B : 1 C"', d["anteil_quelle"])
+        self.assertIn("ab B222", d["anteil_quelle"])
+        self.assertNotIn("2 B : 1 C", d["anteil_quelle"])
+        text = "\n".join(stand.durchsatz_zeilen(self.cfg))
+        self.assertIn("jeder 2. Batch ist ein C-Batch (50 %)", text)
+        self.assertNotIn("jeder 3. Batch", text)          # die ueberholte 2:1-Regel
+
+    def test_kalenderzeile_nennt_die_grundlage(self):
+        d = stand.durchsatz(self.cfg)
+        raten = stand.c_rate(self.cfg)
+        d = dict(d, rate_c_koepfe=raten["rate"], rate_c_quelle=raten["quelle"])
+        zeilen = stand.kalender_zeilen(self.cfg, d["offen_koepfe"], d)
+        self.assertIn("Anteil 50 %", zeilen[1])
+        self.assertIn("ab B222", zeilen[1])
 
 
 class TestPaketEKopfzeile(Basis):
@@ -467,33 +486,33 @@ class TestPaketEKopfzeile(Basis):
         self.assertEqual(kodierung, "utf-8-bom")
 
 
-class TestEchtePaketEDateiB224(unittest.TestCase):
-    """Die echte B224-Datei aus dem Auftrag (skip, wenn das Repo weiterzieht)."""
+class TestPaketEDateiFesterStand(Basis):
+    """Die B224-Datei des festen Stands: UTF-8-BOM, Datum erkannt, keine PARSER-Meldung."""
 
     def setUp(self):
-        self.cfg = load_config()
+        super().setUp()
+        shutil.copytree(FIXTURE / "root", self.root, dirs_exist_ok=True)
+        shutil.copytree(FIXTURE / "decomp", self.decomp, dirs_exist_ok=True)
+        self.ana = self.decomp / "analysis"
         self.m = stand.paket_e_messung(self.cfg)
 
-    def skip_wenn_weitergezogen(self) -> None:
-        echt = Path(self.cfg.decomp) / "analysis" / "_m224" / "_c_paket_e_nachher.txt"
-        if not echt.is_file():
-            self.skipTest(f"{echt} fehlt")
-        if self.m.get("batch") != 224:
-            self.skipTest(f"die neueste Messung ist B{self.m.get('batch')} "
-                          f"({self.m.get('datei')})")
-
     def test_b224_nachher_datum_erkannt_ohne_parser_meldung(self):
-        self.skip_wenn_weitergezogen()
+        self.assertEqual(self.m["datei"], "_m224/_c_paket_e_nachher.txt")
         self.assertEqual(self.m["kodierung"], "utf-8-bom")
         self.assertEqual(self.m["datum"], "2026-09-30 16:55")
         self.assertEqual(self.m["datum_quelle"], "kopf")
-        self.assertEqual(self.m["datei"], "_m224/_c_paket_e_nachher.txt")
         self.assertEqual(stand.paket_e_datum_hinweis(self.cfg), [],
                          "die BOM-Datei gilt nicht mehr als datumslos")
+        # Gegenprobe im selben Stand: die blosse B224-Datei (UTF-8 ohne BOM) traegt
+        # denselben Wert; nur `nachher` gewinnt die Auswahl.
+        roh = self.ana / "_m224" / "_c_paket_e.txt"
+        text, kod = read_text_erkannt(roh)
+        self.assertEqual(kod, "utf-8")
+        self.assertTrue(stand.RE_PAKET_E_DATUM[0].search(text))
+        self.assertIn("20 Koepfe", text)
 
     def test_die_parser_meldung_haengt_an_dieser_funktion(self):
         """Die Review-Fakten rufen genau den Hinweis auf, der hier geprueft wird."""
-        self.skip_wenn_weitergezogen()
         quelle = inspect.getsource(Orchestrator.harness_facts)
         self.assertIn("paket_e_datum_hinweis", quelle)
         self.assertEqual([z for z in stand.paket_e_datum_hinweis(self.cfg)

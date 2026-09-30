@@ -1,0 +1,31 @@
+=== PREFLIGHT (before) 2026-09-30 02:15 ===
+Lauf 2026-09-30 02:15:04 | HEAD 4bcbafbcd74ec5c9eddc30f1250d7b7a203d3aea
+Werkzeugkette g++ PATH=g++ (Rev4, Built by MSYS2 project) 16.2.0 | g++ BAU=g++.exe (Rev4, Built by MSYS2 project) 16.2.0 | ppc_poc.exe 575521 B, port_selftest.exe 7539860 B, port_gl.exe 7653691 B
+Pruefung           Ergebnis                                                 Urteil
+R207 tails         693 rueckwaerts (a 30 / b 0 / c 0)                       OK
+R207 check         gebaut 693 / benannt 11068 / NICHT benannt 0             OK
+R207 sanity        693 Koepfe / auffaellig 0                                OK
+R207 nachzuegler   70/32 (12/5) + (d) 9/3                                   Meldung
+R216 A abi         263                                                      Meldung
+R216 B impl        81                                                       Meldung
+R216 C doc         78                                                       Meldung
+R216 D doc4        689/113                                                  Meldung
+P100-Selbstprobe   OK (Fenster 1, Fund 1)                                   OK
+M5 Kopf            287 Faelle / 2860 Vergleichszeilen / 0 Abweichungen, T3 34/34, T4 34/34 (Binaer aktuell) OK
+C Koepfe           85 / 4446 / 0 referenzgleich                             OK
+C Einbindung       9 / 22 / 55                                              Meldung
+Bahnabdeckung      62/85 | Bloecke 382/486 | verifiziert 65 | teilgeprueft 20 OK
+R391-Reihenfolge   OK                                                       OK
+C verifiziert      65                                                       OK
+Formen der C-Koepfe orakelgeprueft 46 / 54                                                  Meldung
+C Fallrueckgang    keiner                                                   Meldung
+Hybrid-Lauf        20000000 | 8000EC3C | Schranke | 1475/42599 | nein       OK
+analysis neue .py  0                                                        Meldung
+Archiv vor Batch   0                                                        OK
+Archiv Kodierung   5 (Altbestand 5)                                         OK
+REG regression     OK, 32 Faelle + 271 Anker, 0 Fehler                      OK
+REG GL-Anker       9/9 OK, 0 GL-TIMEOUT, 0 GL-UMGEBUNG, 0 sonst. FEHLER     OK
+REG GL-Referenz    9/9 gleich                                               OK
+
+Befunde: 0   (Beleg-Archiv: keine Altfassung ueberschrieben)
+=> BEFORE SAUBER

@@ -1,0 +1,147 @@
+# Batch 219 TEIL 2 - PAKET E, Stand nachher
+# Messung: 2026-09-30 03:33, HEAD 5b7eaf6, python scripts/c_kopf.py paket_e
+# Die B208-Ist-Spalte (38/2674) ist UEBERHOLT - massgeblich ist der Kopf dieser Datei.
+# Batch 198 (C) TEIL 1 - PAKET E GEMESSEN (offline, R398)
+# Erzeuger: python scripts/c_kopf.py paket_e
+
+== DEFINITION (schriftlich, wie im Auftrag verlangt) ==
+  Wurzel    : ein ROM-KOPF, der in einem PAKET-E-PORT-MODUL namentlich
+              belegt ist UND keine Kante aus Paket E selbst empfaengt
+              (also der Einstieg des Moduls ist, nicht ein Ziel darin).
+  Paket E   : jeder KOPF, der von einer solchen Wurzel ueber den
+              RUFGRAPHEN erreichbar ist (bl mit LK, Tail-b auf einen Kopf).
+  Spielpfad : derselbe Abschluss von den Spielmodulen aus - Koepfe in
+              BEIDEN Mengen stehen in der eigenen Spalte 'auch Spiel'.
+  Blatt     : Paket-E-Kopf, der keinen OFFENEN Paket-E-Kopf ruft.
+  Laenge    : GEMESSENER Rumpf (`rumpf_end`, ERREICHBARKEITSLAUF ab dem
+              Kopf - Vorgaenger/Nachfolger, bedingte Rueckgaben folgen
+              dem Durchfall, R521). NICHT die Huelle/Inventarspanne
+              (R514).
+  R215-Artefakte (Host-Modelle, Trampolin) werden NICHT mitgezaehlt.
+
+== PAKET-E-MODULE (die Wurzeln, je mit Rolle) ==
+  bookkeeping.cpp          BOOK KEEPING-Schirm (Buchhaltung + Uhr)
+  datascreens_check.cpp    die drei Datenschirme (5-E)
+  host_input.cpp           Testmodus-Eingang (TEST-Switch, Batch 82)
+  opmode_entry.cpp         HOME PAGE ADDRESS / PASSWORD (Eintraege 18/19)
+  ranking.cpp              RANKING-Schirm
+  service_check.cpp        Selbsttest des Servicemenues
+  service_dialog.cpp       Speicherdialog (Ja/Nein, Meldung)
+  service_menu.cpp         Menuedatenmodell + Navigation
+  service_rows.cpp         Zeilen-Handler-Mechanik (37 Zeilen)
+  service_screen.cpp       Bildschirm-Vertrag (a)/(b)
+  service_screens.cpp      die 20 Bildschirmrahmen
+  service_text.cpp         Bruecke Zeilenmechanik -> Textschicht
+  text_format.cpp          Text-Formatierer-Familie 800115BC
+  text_layer.cpp           Textschicht-Minimum
+  GEMESSEN: 274 Koepfe im ROM namentlich belegt, davon 85 Wurzeln
+
+  Die Wurzeln:
+    8000CE14    38 Insn  service_screens.cpp
+    8000D08C    45 Insn  service_screens.cpp
+    8000D140     7 Insn  service_screens.cpp
+    8000D15C     8 Insn  datascreens_check.cpp service_screens.cpp
+    8000D1A0     9 Insn  datascreens_check.cpp
+    8000D228    16 Insn  ranking.cpp
+    8000D3FC    76 Insn  service_dialog.cpp
+    8000DDD4    26 Insn  service_check.cpp service_rows.cpp service_screens.cpp
+    8000E190    12 Insn  ranking.cpp
+    8000E9DC    89 Insn  service_rows.cpp
+    8000EB88    10 Insn  service_screens.cpp
+    8000EC58    10 Insn  opmode_entry.cpp
+    8000F76C    30 Insn  service_screens.cpp service_text.cpp text_layer.cpp
+    8000FD7C    63 Insn  service_screens.cpp
+    80010934    10 Insn  service_rows.cpp text_layer.cpp
+    8001095C    40 Insn  text_layer.cpp
+    800109FC     9 Insn  service_screens.cpp text_layer.cpp
+    800113B0    25 Insn  text_format.cpp text_layer.cpp
+    80011414    23 Insn  text_format.cpp
+    80011474    23 Insn  text_format.cpp
+    800114D4    34 Insn  text_format.cpp
+    80011A3C     3 Insn  text_format.cpp
+    80011A48    11 Insn  text_format.cpp
+    800134D4    19 Insn  opmode_entry.cpp
+    800138B0    10 Insn  ranking.cpp
+    80015294     9 Insn  datascreens_check.cpp service_screens.cpp
+    80015A34     4 Insn  service_screens.cpp
+    80015B24    85 Insn  bookkeeping.cpp
+    80015FF0    43 Insn  bookkeeping.cpp datascreens_check.cpp
+    800161A8     3 Insn  bookkeeping.cpp datascreens_check.cpp
+    8001624C    41 Insn  service_screens.cpp
+    80016330     7 Insn  ranking.cpp service_dialog.cpp service_screens.cpp
+    8001634C    12 Insn  service_dialog.cpp service_screen.cpp service_screens.cpp text_layer.cpp
+    80017FE8    51 Insn  service_screens.cpp
+    800188A8    42 Insn  service_screens.cpp
+    80018950   108 Insn  service_screens.cpp
+    80021B40   107 Insn  service_screens.cpp
+    800236D0     7 Insn  datascreens_check.cpp
+    8002378C     4 Insn  datascreens_check.cpp
+    8002382C    14 Insn  datascreens_check.cpp
+    80023864    77 Insn  host_input.cpp
+    80023AF0    31 Insn  datascreens_check.cpp
+    80029F50    54 Insn  service_screens.cpp
+    8002A204    91 Insn  service_screens.cpp
+    8002AA9C    23 Insn  service_screens.cpp
+    8002C944     4 Insn  service_screens.cpp
+    8002D4B4     4 Insn  service_screens.cpp
+    8002D798    15 Insn  service_screens.cpp
+    8002D8A4     9 Insn  service_screens.cpp
+    8002E074     7 Insn  service_screens.cpp
+    8003C254    14 Insn  service_screens.cpp
+    8003C9EC     4 Insn  service_screens.cpp
+    8003D140    14 Insn  service_screens.cpp
+    8003D178    48 Insn  service_screens.cpp
+    8003D238    52 Insn  service_screens.cpp
+    8003D308   104 Insn  service_screens.cpp
+    8003E620    52 Insn  service_screens.cpp
+    8003E840    28 Insn  service_screens.cpp
+    8003F7F0     2 Insn  service_screens.cpp
+    80041BF0    24 Insn  service_screens.cpp
+    80041E28     4 Insn  service_screens.cpp
+    80041E38     4 Insn  service_screens.cpp
+    8004318C    14 Insn  service_screens.cpp
+    800431C4     4 Insn  service_screens.cpp
+    800432C0    46 Insn  service_screens.cpp
+    80044550    15 Insn  service_screens.cpp
+    80045E10     4 Insn  service_screens.cpp
+    8004601C    11 Insn  service_screens.cpp
+    800474C8    97 Insn  service_screens.cpp
+    80047E38    47 Insn  service_screens.cpp
+    80056684    32 Insn  service_screens.cpp
+    80056C60   432 Insn  service_screens.cpp
+    80057320    23 Insn  service_screens.cpp
+    800586FC    16 Insn  service_screens.cpp
+    80058A9C    25 Insn  service_screens.cpp
+    8005B74C    63 Insn  service_screens.cpp
+    8005CB48    67 Insn  service_screens.cpp
+    8006110C    11 Insn  service_screens.cpp
+    80082BA0    37 Insn  opmode_entry.cpp
+    800833B8    37 Insn  opmode_entry.cpp
+    800837D8    18 Insn  opmode_entry.cpp
+    80083820    11 Insn  opmode_entry.cpp
+    8008384C     3 Insn  opmode_entry.cpp
+    80084A84     4 Insn  service_screens.cpp
+    800859E8    35 Insn  service_screens.cpp
+
+== ERGEBNIS ==
+  Paket E, offen GESAMT   :   26 Koepfe /   2114 Insn
+  davon R215-Artefakt/Haken:    4
+  Paket E, echte Koepfe    :   22 /   2055 Insn
+  davon auch vom Spielpfad :   16
+  BLAETTER                 :    8 /    790 Insn
+
+== DIE BLAETTER, 'BLAETTER ZUERST, KLEINSTE ZUERST' ==
+addr        insn huell spiel Rolle
+8003BB2C    21    21 ja    FUN_8003bb2c
+8005B3E0    37    37 ja    FUN_8005b3e0
+8005BA84    90    90 ja    FUN_8005ba84
+80055D28   103    32 ja    FUN_80055d28
+8003D308   104   104 ja    FUN_8003d308
+80021B40   107   140 ja    FUN_80021b40
+800659F0   162   162 -     FUN_800659f0
+80065C78   166   166 -     FUN_80065c78
+
+== POSTEN AUDIO-REST (Meilenstein 4, NACH Paket E, NICHT in C) ==
+  68K-Treiber: gebaut 4627 / 7959 Insn (58 / 97 Koepfe), OFFEN 1808 Insn
+  Quelle: m174_audio_plan.stats() - dieselbe Zahl wie die
+  Bilanzzeile 'Betrieb-Chip'/'Mixer-Betrieb' (R387).

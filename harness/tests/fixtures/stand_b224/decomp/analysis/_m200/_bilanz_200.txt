@@ -1,0 +1,41 @@
+﻿[m149_bilanz] Vorflug UEBERNOMMEN: analysis\_preflight_200.txt (HEAD c41522a8b6d4, juenger als port\build\m193_head.exe)
+## PFLICHT-BILANZ ALLER GETRACKTEN AESTE (Pflicht ab Batch 129; Stand: **Batch 200**, alles heute gemessen)
+
+**Regel (R360):** Am Batch-Ende `python scripts/m149_bilanz.py` ausfuehren und die Ausgabe UNVERAENDERT in die Chat-Antwort und in den Anker uebernehmen. Handgeschriebene Tabellen sind unzulaessig.
+
+| Ast / Kern | Vorbatch (B199) | **heute (mit 200)** | Quelle |
+|---|---|---|---|
+| **2a-Kern** (Closure `80029F50`) | **0 offen** | **0 offen** | `m112_ast.py group` |
+| **Waehler-Gruppe** (97 Ziele der Liste) | **97 gebaut / 0 offen** (offen **0 B = 0 Insn**) | **97 gebaut / 0 offen** (offen **0 B = 0 Insn**) | `m112_ast.py group` |
+| **Waehler-Ast, Huelle bis zum gebauten Rand (A)** | **97 / 0** (**97** Knoten, offen **0 B = 0 Insn**, nur Unterbau 0) | **97 / 0** (**97** Knoten, offen **0 B = 0 Insn**, nur Unterbau 0) | `m112_ast.py ast` |
+| **Waehler-Ast, VOLLE Huelle (B)** | **328 / 5** (**333** Knoten), offen **344 B = 86 Insn**, nur Unterbau 5 | **328 / 5** (**333** Knoten), offen **344 B = 86 Insn**, nur Unterbau 5 | `m112_ast.py ast` |
+| davon **nur Unterbau** (offen, B) | **5 / 86** (344 B) | **5 / 86** (344 B) | `m112_ast.py ast` |
+| davon **nur Unterbau** (offen, A) | **0** (0 B) | **0** (0 B) | `m112_ast.py ast` |
+| **Strang A / Strang B** | je **1** Knoten / offen **0 / 0** | je **1** Knoten / offen **0 / 0** | `m129_hull.py hull` |
+| **Platte `B129_PLATE`** | **0/6** gebaut (heute gezaehlt, R360) | **0/6** gebaut (heute gezaehlt, R360) | `m104_built.B129_PLATE` x Bau-Liste |
+| **Sprungtabellen-Gruppen A-H** | ohne Bilanz (R305) | ohne Bilanz (R307) - die per-Gruppe-Aussagen A-H bleiben ohne Bilanz | R305/R307 |
+| **327er-Pool** | **105/327 = 32,1 %** (offen 222) | **105/327 = 32,1 %** (offen 222) | `m53_pool.py` |
+| **Programm-Inventar** (B60/B130+) | **S1-DOKU 1676 (80,9 %) von 2072** | **S1-DOKU 1676 (80,9 %) von 2072** | `m60_inventar.py` |
+| **R207 rueckwaerts** | **653** (a 30 / b 0 / c 0), `check` **653** gebaut / **10957** benannt / **0** NICHT; `sanity` **653 / 0**; `nachzuegler` **69/33 (9/6)** | **653** (a 30 / b 0 / c 0), `check` **653** gebaut / **10957** benannt / **0** NICHT; `sanity` **653 / 0**; `nachzuegler` **69/33 (9/6)** | `preflight.py` + `m104_built.py` |
+| **Modi** | **85** | **85** | `port_selftest.cpp` |
+| **Audio 68K-Treiber** (Planliste, B174) | **Insn 4627 gebaut / 1808 offen / 7959 gesamt** (protokolliert 1381, nicht-portiert-Hall 143); **Koepfe 58 gebaut / 97 gesamt** (25 offen) - Baupruefung **OK**: jede Zeile `gebaut` traegt die Marke `68K 0x<ADR>` in `port/src/audio68k_*.cpp` | **Insn 4627 gebaut / 1808 offen / 7959 gesamt** (protokolliert 1381, nicht-portiert-Hall 143); **Koepfe 58 gebaut / 97 gesamt** (25 offen) - Baupruefung **OK**: jede Zeile `gebaut` traegt die Marke `68K 0x<ADR>` in `port/src/audio68k_*.cpp` | `m174_audio_plan.py` (Planliste `m174_audio_plan.csv`) |
+
+**Aeste (Nutzerwunsch B174 - welcher Ast laeuft, wie weit, was fehlt):**
+
+| **Audio 68K-Treiber** | Zustand **aktiv (B200)** | **4627 / 7959 Insn (58 / 97 Koepfe)** | Rest **1808 Insn offen** | `m174_audio_plan.py stats` |
+| **PPC-Port (R207-Koepfe)** | Zustand **ruht seit B165** | **653 Koepfe gebaut** | Rest **ohne Zahl (der Zaehler fuehrt keine offene Menge)** | `preflight.py` (R207 check gebaut) |
+| **Waehler-Ast** | Zustand **ruht (mind. B149)** | **328 / 333 Knoten** | Rest **5 Knoten = 86 Insn offen** | `m112_ast.py ast` (VOLLE Huelle B) |
+| **327er-Pool** | Zustand **ruht (mind. B149)** | **105 / 327 = 32,1 %** | Rest **222 offen** | `m53_pool.py` |
+| **Programm-Inventar** | Zustand **ruht seit B165** | **S1-DOKU 1676 / 2072 (80,9 %)** | Rest **396 Funktionen** | `m60_inventar.py` |
+| **GL-Anker** | Zustand **aktiv (laeuft je Batch mit)** | **9 / 9 Anker OK** | Rest **0 GL-TIMEOUT + 0 GL-UMGEBUNG** | `preflight.py` (REG GL-Anker) |
+| **Uebergang `FUN_8005471C`** | Zustand **wartet auf Nutzer** | **836 / 836 Insn** | Rest **0 Insn offen** | B166-Messung (836 Insn, `readme.md`) |
+
+**Zusatz (R216 einzeln, heute):** A (`abi`) **259**, B (`impl`) **82**, C (`doc`) **81**, D (`doc4`) **687/119**; Regression **32 Faelle + 271 Anker, 0 Fehler** (GL-Anteil **9/9 OK, 0 GL-TIMEOUT, 0 GL-UMGEBUNG**, Referenz **9/9 gleich**); R207-Befunde **0**; Erwartungstafel **180** Faelle (alt 180), Abweichungen `kVl2Want` **0** / `kVl2Init` **0** / `kVl2Seam` **0**.
+python : [m149_bilanz] Schnappschuss B200 -> G:\Silent Scope Decomp\analysis\_bilanz_snapshot.json
+In Zeile:1 Zeichen:302
++ ... tch {} } }; python -u scripts/m149_bilanz.py --batch 200 --from-prefl ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([m149_bilanz] S...z_snapshot.json:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+[m149_bilanz] Anker aktualisiert: G:\Silent Scope Decomp\analysis\r1b-workstream.md

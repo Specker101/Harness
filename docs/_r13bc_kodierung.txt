@@ -1,0 +1,31 @@
+_preflight_200.txt                 utf-8-bom          1705 B  erste Bytes ef bb bf 3d  C Koepfe           45 / 1080 / 0            
+_preflight_201.txt                 utf-8-bom          1762 B  erste Bytes ef bb bf 3d  C Koepfe           45 / 1080 / 0            
+_preflight_202.txt                 utf-8-bom          1747 B  erste Bytes ef bb bf 3d  C Koepfe           45 / 1080 / 0            
+_preflight_203.txt                 utf-8-bom          1747 B  erste Bytes ef bb bf 3d  C Koepfe           59 / 1416 / 0            
+_preflight_204.txt                 utf-8-bom          1762 B  erste Bytes ef bb bf 3d  C Koepfe           64 / 1536 / 0            
+_preflight_205.txt                 utf-8-bom          1762 B  erste Bytes ef bb bf 3d  C Koepfe           73 / 1752 / 0            
+_preflight_206.txt                 utf-8-bom          1762 B  erste Bytes ef bb bf 3d  C Koepfe           78 / 1872 / 0            
+_preflight_207.txt                 utf-8-bom          1762 B  erste Bytes ef bb bf 3d  C Koepfe           78 / 2903 / 0            
+_preflight_208.txt                 utf-8-bom          1747 B  erste Bytes ef bb bf 3d  C Koepfe           78 / 2903 / 0            
+_preflight_209.txt                 utf-8-bom          1747 B  erste Bytes ef bb bf 3d  C Koepfe           78 / 2903 / 0            
+_preflight_210.txt                 utf-8              1906 B  erste Bytes 3d 3d 3d 20  C Koepfe           78 / 2795 / 0            
+_preflight_211.txt                 utf-8-bom          1909 B  erste Bytes ef bb bf 3d  C Koepfe           78 / 2795 / 0            
+_preflight_212.txt                 utf-8-bom          2345 B  erste Bytes ef bb bf 3d  C Koepfe referenzgleich 78 / 2795 / 0       
+_preflight_213.txt                 utf-8-bom          2345 B  erste Bytes ef bb bf 3d  C Koepfe referenzgleich 78 / 4006 / 0       
+_preflight_214.txt                 utf-8-bom          2449 B  erste Bytes ef bb bf 3d  C Koepfe           78 / 4006 / 0 referenzgle
+_preflight_215.txt                 utf-8-bom          2420 B  erste Bytes ef bb bf 3d  C Koepfe           78 / 4006 / 0 referenzgle
+_preflight_216.txt                 utf-16-le          4866 B  erste Bytes ff fe 3d 00  C Koepfe           85 / 4446 / 0 referenzgle
+_preflight_217.txt                 utf-8              2497 B  erste Bytes 3d 3d 3d 20  C Koepfe           85 / 4446 / 0 referenzgle
+_preflight_218.txt                 utf-8              2497 B  erste Bytes 3d 3d 3d 20  C Koepfe           85 / 4446 / 0 referenzgle
+_preflight_219.txt                 utf-8              2512 B  erste Bytes 3d 3d 3d 20  C Koepfe           90 / 4833 / 0 referenzgle
+_preflight_220.txt                 utf-8              2752 B  erste Bytes 3d 3d 3d 20  C Koepfe           91 / 4860 / 0 referenzgle
+_preflight_221.txt                 utf-8              2752 B  erste Bytes 3d 3d 3d 20  C Koepfe           91 / 4860 / 0 referenzgle
+_preflight_222.txt                 utf-8              2976 B  erste Bytes 3d 3d 3d 20  C Koepfe           94 / 5114 / 0 referenzgle
+_preflight_223.txt                 utf-8-bom          3092 B  erste Bytes ef bb bf 3d  C Koepfe           94 / 5114 / 0 referenzgle
+_preflight_224.txt                 utf-8-bom          3084 B  erste Bytes ef bb bf 3d  C Koepfe           97 / 5359 / 0 referenzgle
+_preflight_225.txt                 utf-8-bom          3159 B  erste Bytes ef bb bf 3d  C Koepfe           97 / 5359 / 0 referenzgle
+_m224/_c_paket_e.txt               utf-8              6816 B  erste Bytes 23 20 4d 65  Paket E, offen GESAMT   :   20 Koepfe / 
+_m224/_c_paket_e_nachher.txt       utf-8-bom          6961 B  erste Bytes ef bb bf 23  Paket E, offen GESAMT   :   20 Koepfe / 
+_m222/_c_paket_e.txt               utf-8              6814 B  erste Bytes 23 20 42 61  Paket E, offen GESAMT   :   22 Koepfe / 
+_m222/_c_paket_e_nachher.txt       utf-8              6945 B  erste Bytes 23 20 50 41  Paket E, offen GESAMT   :   22 Koepfe / 
+_m222/_c_paket_e_vorher.txt        utf-8              7024 B  erste Bytes 23 20 50 41  Paket E, offen GESAMT   :   25 Koepfe / 

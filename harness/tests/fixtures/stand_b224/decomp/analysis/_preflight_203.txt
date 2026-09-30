@@ -1,0 +1,22 @@
+﻿=== PREFLIGHT (before) 2026-09-27 22:30 ===
+Lauf 2026-09-27 22:30:00 | HEAD 5e7d247305a54cfe93ded04b891196935259ddf7
+Werkzeugkette g++ PATH=g++ (Rev4, Built by MSYS2 project) 16.2.0 | g++ BAU=g++.exe (Rev4, Built by MSYS2 project) 16.2.0 | ppc_poc.exe 575521 B, port_selftest.exe 7518245 B, port_gl.exe 7625514 B
+Pruefung           Ergebnis                                                 Urteil
+R207 tails         667 rueckwaerts (a 30 / b 0 / c 0)                       OK
+R207 check         gebaut 667 / benannt 10967 / NICHT benannt 0             OK
+R207 sanity        667 Koepfe / auffaellig 0                                OK
+R207 nachzuegler   66/30 (3/2) + (d) 9/3                                    Meldung
+R216 A abi         259                                                      Meldung
+R216 B impl        82                                                       Meldung
+R216 C doc         80                                                       Meldung
+R216 D doc4        689/116                                                  Meldung
+P100-Selbstprobe   OK (Fenster 1, Fund 1)                                   OK
+M5 Kopf            287 Faelle / 2860 Vergleichszeilen / 0 Abweichungen, T3 34/34, T4 34/34 (Binaer aktuell) OK
+C Koepfe           59 / 1416 / 0                                            OK
+C Einbindung       5 / 18 / 37                                              Meldung
+REG regression     OK, 32 Faelle + 271 Anker, 0 Fehler                      OK
+REG GL-Anker       9/9 OK, 0 GL-TIMEOUT, 0 GL-UMGEBUNG, 0 sonst. FEHLER     OK
+REG GL-Referenz    9/9 gleich                                               OK
+
+Befunde: 0   (Beleg-Archiv: keine Altfassung ueberschrieben)
+=> BEFORE SAUBER

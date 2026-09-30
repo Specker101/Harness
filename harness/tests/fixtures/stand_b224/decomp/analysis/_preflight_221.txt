@@ -1,0 +1,34 @@
+=== PREFLIGHT (before) 2026-09-30 07:06 ===
+Lauf 2026-09-30 07:06:48 | HEAD 6a67da3b3ab719f0c819a3a7cd1cf9950152fe41
+Werkzeugkette g++ PATH=g++ (Rev4, Built by MSYS2 project) 16.2.0 | g++ BAU=g++.exe (Rev4, Built by MSYS2 project) 16.2.0 | ppc_poc.exe 575521 B, port_selftest.exe 7539860 B, port_gl.exe 7653691 B
+Pruefung           Ergebnis                                                 Urteil
+R207 tails         699 rueckwaerts (a 31 / b 0 / c 0)                       OK
+R207 check         gebaut 699 / benannt 11090 / NICHT benannt 0             OK
+R207 sanity        699 Koepfe / auffaellig 0                                OK
+R207 nachzuegler   70/32 (12/5) + (d) 9/3                                   Meldung
+R216 A abi         263                                                      Meldung
+R216 B impl        81                                                       Meldung
+R216 C doc         78                                                       Meldung
+R216 D doc4        689/112                                                  Meldung
+P100-Selbstprobe   OK (Fenster 1, Fund 1)                                   OK
+M5 Kopf            287 Faelle / 2860 Vergleichszeilen / 0 Abweichungen, T3 34/34, T4 34/34 (Binaer aktuell) OK
+C Koepfe           91 / 4860 / 0 referenzgleich                             OK
+C Einbindung       9 / 25 / 58                                              Meldung
+Bahnabdeckung      63/91 | Bloecke 414/553 | verifiziert 64 | teilgeprueft 27 OK
+R391-Reihenfolge   OK                                                       OK
+C verifiziert      64                                                       OK
+Formen der C-Koepfe orakelgeprueft 46 / 57                                                  Meldung
+C Fallrueckgang    keiner                                                   Meldung
+Hybrid-Lauf        108546736 | 80013DFC | MMIO | 1716/42599 | nein          OK
+Hybrid-Lauf 20M    20000000 | 8000EC3C | Schranke | 1475/42599 | nein       OK
+Hybrid-Senke       7 Schreibzugriffe, erste PC 80013FB4, distinkt 7         OK
+Hybrid-Attrappe4   128 Lesezugriffe, erste PC 8000C898, Werte 00800000      OK
+analysis neue .py  0                                                        Meldung
+Archiv vor Batch   0                                                        OK
+Archiv Kodierung   5 (Altbestand 5)                                         OK
+REG regression     OK, 32 Faelle + 271 Anker, 0 Fehler                      OK
+REG GL-Anker       9/9 OK, 0 GL-TIMEOUT, 0 GL-UMGEBUNG, 0 sonst. FEHLER     OK
+REG GL-Referenz    9/9 gleich                                               OK
+
+Befunde: 0   (Beleg-Archiv: 1 Altfassung(en) gesichert -> analysis\_archiv)
+=> BEFORE SAUBER

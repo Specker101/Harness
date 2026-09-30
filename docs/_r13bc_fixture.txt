@@ -1,0 +1,47 @@
+R13bc: eingefrorener Stand tests/fixtures/stand_b224 - Messwerte
+Fixture: G:/Harness/harness/tests/fixtures/stand_b224
+Dateien: 86 (645 KB)
+
+1) Paket-E-Messung (stand.paket_e_messung)
+   gewaehlt: _m224/_c_paket_e_nachher.txt  B224  20 Koepfe / 1657 Insn  stand='nachher'  kodierung=utf-8-bom
+   Datum: '2026-09-30 16:55' (Quelle kopf)
+   vorher (anderer Wert): _m222/_c_paket_e_nachher.txt  B222  22 Koepfe -> Delta +2 Koepfe / +192 Insn
+   gleicher Wert im selben Batch: _m224/_c_paket_e.txt
+   PARSER-Meldung: keine
+   Paket E offen: 20 Koepfe / 1657 Insn   [gemessen B224, 2026-09-30 16:55: _m224/_c_paket_e_nachher.txt]   (B222 -> B224: 2 Koepfe / 192 Insn gebaut)
+   Quelle: analysis/_m224/_bilanz224.txt (Zeile "R207 rueckwaerts") + analysis/_m224/_c_paket_e_nachher.txt ("Paket E offen GESAMT", gemessen B224, 2026-09-30 16:55) + analysis/_preflight_224.t
+
+2) Rate je C-Batch (stand.c_rate, Fenster 5)
+   Median 4.0  Mittel 2.375  gerechnet 4.0
+   Kopf-Batches: [(224, 3), (219, 5)]
+   Zeile: Median Zuwachs (Kopf-Batches): 4 | Mittel ueber alle C-Batches: 2,4
+   Quelle: Median der Zuwaechse der Kopf-Batches (+3 (B224), +5 (B219))
+   PLAN/IST-Tafel (n=12, groesseres Fenster - daher Median 5):
+     MEDIAN der 3 Zuwaechse der C Koepfe je C-Batch mit SOLL-KOEPFE > 0 (+3 (B224), +5 (B219), +7 (B216)): 5 Koepfe je C-Batch (Ziel des naechsten Batches: hoechstens ca. 6)
+     (Median Zuwachs (Kopf-Batches): 5 | Mittel ueber alle C-Batches: 2,4)
+   Durchsatzzeilen (Auszug):
+     C-Rate je C-Batch: Median Zuwachs (Kopf-Batches): 4 | Mittel ueber alle C-Batches: 2,4
+     offen (Paket E, C-Arbeitsvorrat): 20 Koepfe / 1657 Insn   [gemessen B224, 2026-09-30 16:55: _m224/_c_paket_e_nachher.txt]
+     -> 5 C-Batches bei +4.0 Koepfe je C-Batch (Grundlage: Median der Zuwaechse der Kopf-Batches (+3 (B224), +5 (B219)))
+
+3) Mischregel (stand.plan_mischung)
+   Regel '1 B : 1 C'  Anteil 0.5  Zustand gilt  (hybrid-plan.md:368)
+   Stand: ab B222, NUTZERENTSCHEIDUNG R221-1, 2026-09-30   Paare: {}   Kandidaten: 11
+   Zeile: **AB B222 GILT 1 B : 1 C (NUTZERENTSCHEIDUNG R221-1, 2026-09-30,
+   Prognosequelle: Regel hybrid-plan.md:368 "1 B : 1 C" (ab B222, NUTZERENTSCHEIDUNG R221-1, 2026-09-30)
+
+4) Preflight-Zaehler gegen das Archiv (M224-4)
+   B218: PREFLIGHT-ZAEHLER: 2 Aufruf(e) im Mitschnitt (davon 2 zu frueh), 1 archivierte(r) Fehllauf/Fehllaeufe nicht gezaehlt (analysis/_m218/_preflight_218_fehllauf1.txt) -> 3 Laeufe
+   B223: PREFLIGHT-ZAEHLER: 1 Aufruf(e) im Mitschnitt (davon 1 zu frueh), 1 archivierte(r) Fehllauf/Fehllaeufe nicht gezaehlt (analysis/_m223/_preflight_223_fehllauf1.txt) -> 2 Laeufe
+   B224: PREFLIGHT-ZAEHLER: 1 Aufruf(e) im Mitschnitt (davon 1 zu frueh), 1 archivierte(r) Fehllauf/Fehllaeufe nicht gezaehlt (analysis/_m224/_preflight_224_fehllauf1.txt) -> 2 Laeufe
+
+5) Kodierungen der Messdateien (Byte-Kopien, deshalb erhalten)
+   decomp/analysis/_m210/_c_paket_e.txt             utf-8        kein Datum im Kopf
+   decomp/analysis/_m219/_c_paket_e.txt             utf-8        kein Datum im Kopf
+   decomp/analysis/_m219/_c_paket_e_nachher.txt     utf-8        Datum erkannt
+   decomp/analysis/_m219/_c_paket_e_vorher.txt      utf-8        Datum erkannt
+   decomp/analysis/_m222/_c_paket_e.txt             utf-8        kein Datum im Kopf
+   decomp/analysis/_m222/_c_paket_e_nachher.txt     utf-8        Datum erkannt
+   decomp/analysis/_m222/_c_paket_e_vorher.txt      utf-8        Datum erkannt
+   decomp/analysis/_m224/_c_paket_e.txt             utf-8        Datum erkannt
+   decomp/analysis/_m224/_c_paket_e_nachher.txt     utf-8-bom    Datum erkannt

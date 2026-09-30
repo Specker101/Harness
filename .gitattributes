@@ -39,6 +39,12 @@
 *.hpp   text
 
 # ---------------------------------------------------------------------------
+# Fixtures: eingefrorene Abzuege (R13bc) - KEINE Zeilenenden-Konvertierung, damit die
+# Kopien byteweise dieselben bleiben (BOM der Messdateien, CRLF, fehlende Datumszeilen).
+# ---------------------------------------------------------------------------
+harness/tests/fixtures/**  -text
+
+# ---------------------------------------------------------------------------
 # Git-Housekeeping
 # ---------------------------------------------------------------------------
 .gitignore      text
