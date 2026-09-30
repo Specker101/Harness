@@ -45,6 +45,13 @@ prüft (nachgemessen: ohne die Regel begann der Blob mit `23 20 4d 65`, mit der 
 `docs/_r13bc_kodierung.py`) — `_preflight_216.txt` ist UTF-16 LE, 215/223/224 sind
 UTF-8-BOM, die Messdatei B224 ebenfalls UTF-8-BOM.
 
+**Nachgeprüft, dass die Regel auch beim Auschecken greift** (`docs/_r13bc_checkout.py`,
+Ergebnis `docs/_r13bc_checkout.txt`): `git checkout-index -f --prefix=<temp>` legt die Dateien
+so ab, wie ein frischer Clone sie bekäme; verglichen mit der Arbeitskopie sind **6 von 6**
+byte-identisch — `_m224/_c_paket_e_nachher.txt` beginnt mit `ef bb bf 23`, `_preflight_216.txt`
+mit `ff fe 3d 00`, `hybrid-plan.md` (CRLF) unverändert. Ohne die `-text`-Regel fällt das BOM
+beim nächsten `git add`/Checkout weg.
+
 ## Umgestellte Tests (Liste)
 
 | Testdatei | vorher | jetzt |

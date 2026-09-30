@@ -1,0 +1,8 @@
+decomp/analysis/_m224/_c_paket_e_nachher.txt   6961 B  erste Bytes ef bb bf 23  sha 1d3d6d37ef3d  identisch=True
+decomp/analysis/_m224/_c_paket_e.txt           6816 B  erste Bytes 23 20 4d 65  sha 1b0b32960073  identisch=True
+decomp/analysis/_preflight_216.txt             4866 B  erste Bytes ff fe 3d 00  sha dd5fcf548425  identisch=True
+decomp/analysis/_preflight_224.txt             3084 B  erste Bytes ef bb bf 3d  sha 555d75e3345c  identisch=True
+decomp/analysis/hybrid-plan.md                35507 B  erste Bytes 23 20 50 6c  sha ead085dc791c  identisch=True
+root/runs/b224/preflight-aufrufe.jsonl           90 B  erste Bytes 7b 22 74 73  sha 1d97331be195  identisch=True
+
+6 von 6 Dateien byte-true nach frischem Checkout
