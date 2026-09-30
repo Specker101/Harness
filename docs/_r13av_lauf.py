@@ -7,6 +7,11 @@ selbst als UTF-8 mit LF.
 
 Aufruf: python -u docs/_r13av_lauf.py            (gibt eine Kurzfassung aus)
         python -u docs/_r13av_lauf.py schreiben  (schreibt docs/_r13av_volle_reihe.txt)
+
+R13bd (2026-09-30): Der Bericht nennt jetzt JEDEN uebersprungenen Test mit Grund.
+`verbosity=1` schreibt nur "OK (skipped=1)" - der Name fehlte, und in R13bc musste der
+eine Skip mit einem eigenen Werkzeug (`docs/_r13bc_skipfind.py`) gesucht werden. Wer die
+volle Reihe faehrt, hat damit in derselben Datei Anzahl UND Namen.
 """
 
 from __future__ import annotations
@@ -26,6 +31,24 @@ ROOT = HARNESS
 sys.path.insert(0, str(ROOT))
 
 ZIEL = HIER / "_r13av_volle_reihe.txt"
+
+
+class Skippergebnis(unittest.TextTestResult):
+    """Sammelt jeden uebersprungenen Test mit seinem Grund (R13bd).
+
+    `verbosity=1` fasst Skips nur als Zahl zusammen ("OK (skipped=1)"). Ein Test, der
+    sich abschaltet, ist aber genau der Verdachtsfall: er meldet keinen Fehler mehr.
+    """
+
+    def __init__(self, *args, **kwargs) -> None:                       # noqa: ANN002,ANN003
+        super().__init__(*args, **kwargs)
+        self.skips: list[tuple[str, str]] = []
+
+    def addSkip(self, test, reason) -> None:                           # noqa: ANN001
+        modul = test.__class__.__module__.split(".")[-1]
+        self.skips.append((f"{modul}.{test.__class__.__name__}.{test._testMethodName}",
+                           reason))
+        super().addSkip(test, reason)
 
 
 def kopf() -> list[str]:
@@ -58,7 +81,8 @@ def lauf() -> tuple[str, int]:
     os.chdir(ROOT)
     loader = unittest.TestLoader()
     suite = loader.discover("tests", pattern="test_*.py")
-    runner = unittest.TextTestRunner(stream=puffer, verbosity=1)
+    runner = unittest.TextTestRunner(stream=puffer, verbosity=1,
+                                     resultclass=Skippergebnis)
     t0 = time.time()
     ergebnis = runner.run(suite)
     dauer = time.time() - t0
@@ -71,7 +95,12 @@ def lauf() -> tuple[str, int]:
         f"| übersprungen: {len(ergebnis.skipped)}",
         "ERGEBNIS: " + ("OK" if ergebnis.wasSuccessful() else "FEHLGESCHLAGEN"),
     ]
-    text = "\n".join(kopfzeilen + bilanz[:1] + puffer.getvalue().splitlines() + bilanz[1:])
+    skips = getattr(ergebnis, "skips", [])
+    skipblock = ([f"Übersprungen ({len(skips)}) - Name und Grund:"]
+                 + [f"  - {name}  [{grund}]" for name, grund in skips]) if skips else \
+                ["Übersprungen: keine"]
+    text = "\n".join(kopfzeilen + bilanz[:1] + puffer.getvalue().splitlines()
+                      + bilanz[1:] + [""] + skipblock)
     return text, (0 if ergebnis.wasSuccessful() else 1)
 
 
@@ -91,7 +120,8 @@ def main() -> int:
         print(text)
     # Kurzfassung (unabhaengig davon, ob geschrieben wurde)
     for z in text.splitlines():
-        if z.startswith(("Tests:", "Dauer:", "ERGEBNIS:", "Harness-Zustand:", "HEAD:")):
+        if z.startswith(("Tests:", "Dauer:", "ERGEBNIS:", "Harness-Zustand:", "HEAD:",
+                         "Übersprungen")) or z.startswith("  - "):
             print(z)
     return rc
 

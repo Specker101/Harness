@@ -460,12 +460,21 @@ class TestHybridStillstand(Basis):
         self.reihe((212, "800138F0", 28), (214, "8000CB98", 448))
         self.assertEqual(aussensicht.hybrid_neuester_b(self.cfg), 214)
 
-    def test_echte_dateien_loesen_keinen_falschen_alarm_aus(self):
-        """B212/B213 sind gleich, B214 nicht - und B213 ist ein C-Batch."""
-        cfg = load_config()
-        if not (Path(cfg.decomp) / "analysis" / "_preflight_214.txt").is_file():
-            self.skipTest("echte Preflight-Dateien fehlen")
-        self.assertEqual(aussensicht.hybrid_stillstand(cfg), "")
+    def test_fester_stand_loest_keinen_falschen_alarm_aus(self):
+        """Stand 30.09.2026 / B224 aus der Fixture: B212/B213 gleich, B214 nicht.
+
+        R13bd: vorher las dieser Test `aussensicht.hybrid_stillstand(load_config())` auf dem
+        LEBENDEN Repo und pruefte nur `== ""`. Das ist leer-lauf-fest: sobald das rollende
+        Fenster die Baetche B212-B214 nicht mehr enthaelt, ist das Ergebnis ebenfalls "" und
+        der Test meldet nichts mehr (gemessen, `docs/_r13bd_leerlauf.txt`). Deshalb jetzt die
+        Fixture und eine eigene Zusicherung, dass die drei Baetche im Fenster liegen.
+        """
+        for quelle in sorted((FIXTURE / "decomp" / "analysis").glob("_preflight_*.txt")):
+            shutil.copy2(quelle, self.ana / quelle.name)
+        reihe = stand.hybrid_verlauf(self.cfg, 14)
+        self.assertEqual([e["batch"] for e in reihe if e["batch"] in (212, 213, 214)],
+                         [212, 213, 214], "B212, B213 und B214 liegen im Fenster")
+        self.assertEqual(aussensicht.hybrid_stillstand(self.cfg), "")
 
     # ------------------------------------------------------------- Entprellung
     def test_marke_wird_nur_einmal_gemeldet(self):

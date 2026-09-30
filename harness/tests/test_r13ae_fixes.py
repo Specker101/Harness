@@ -363,6 +363,17 @@ class TestEchteDateien(unittest.TestCase):
         self.assertEqual(stand.preflight_zeilen_pruefen(self.cfg, log=None, anzahl=1), [])
 
     def test_die_kopie_stimmt_mit_dem_laufenden_repo(self):
+        """Gegenprobe: die Kopie traegt dieselben `C Koepfe`-Zeilen wie das lebende Repo.
+
+        R13bd: beide Seiten werden aus den Zeilen mit `C Koepfe` gebildet. Fehlt diese Zeile
+        im lebenden Preflight (Format geaendert), sind BEIDE Listen leer, `assertEqual` haelt
+        und der Test prueft nichts mehr. Zweitens: ist `self.kopiert` leer (die lebenden
+        Dateien waren beim Kopieren nicht da), laeuft die Schleife gar nicht - der Test war
+        dann gruen, ohne eine einzige Zusicherung auszufuehren (gemessen, Modus
+        "datei-weg" in `docs/_r13bd_leerlauf_vorher.txt`).
+        """
+        self.assertTrue(self.kopiert, "die Kopie ist leer - ohne Dateien prueft die "
+                                      "Schleife unten nichts")
         for name in self.kopiert:
             p = self.echt / name
             if not p.is_file():
@@ -371,6 +382,8 @@ class TestEchteDateien(unittest.TestCase):
                         if z.startswith("C Koepfe")]
             kopie = [z for z in (self.ana / name).read_text(encoding="utf-8").splitlines()
                      if z.startswith("C Koepfe")]
+            self.assertTrue(moeglich, f"{name}: keine Zeile 'C Koepfe' im lebenden Repo - "
+                                       "ohne sie vergleicht dieser Test nur zwei leere Listen")
             self.assertEqual(kopie, moeglich)
 
 

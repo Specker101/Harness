@@ -301,7 +301,13 @@ class TestTrendMitEchtenDateien(unittest.TestCase):
         self.assertEqual(e[0]["quelle"], "Bahnabdeckung")
 
     def test_die_kopie_stimmt_mit_dem_lebenden_repo(self):
-        """Gegenprobe: die eingefrorenen Werte sind die des echten Repos."""
+        """Gegenprobe: die eingefrorenen Werte sind die des echten Repos.
+
+        R13bd: beide Seiten werden aus den Zeilen mit `C Koepfe` gebildet. Fehlt diese Zeile
+        im lebenden Preflight (Format geaendert), sind BEIDE Listen leer, `assertEqual` haelt
+        und der Test prueft nichts mehr - gemessen in `docs/_r13bd_leerlauf.txt`. Deshalb die
+        zusätzliche Zusicherung, dass die Zeile ueberhaupt gefunden wurde.
+        """
         for name in ("_preflight_198.txt", "_preflight_210.txt"):
             p = self.echt / name
             if not p.is_file():
@@ -310,6 +316,8 @@ class TestTrendMitEchtenDateien(unittest.TestCase):
                         if z.startswith("C Koepfe")]
             kopie = [z for z in (self.tmp / "decomp" / "analysis" / name)
                      .read_text(encoding="utf-8").splitlines() if z.startswith("C Koepfe")]
+            self.assertTrue(moeglich, f"{name}: keine Zeile 'C Koepfe' im lebenden Repo - "
+                                       "ohne sie vergleicht dieser Test nur zwei leere Listen")
             self.assertEqual(kopie, moeglich)
 
 

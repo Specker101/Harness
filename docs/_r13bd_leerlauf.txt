@@ -1,0 +1,185 @@
+R13bd-Leerlaufprobe 2026-09-30 22:08:25
+Modi: normal | A-fenster-leer | B-datei-leer | C-datei-weg
+Urteil: GRUEN und nicht uebersprungen = der Test prueft in diesem Zustand nichts.
+
+test_r11_fixes:TestTokenZaehlung.test_ganze_datei_b159   (Zusicherungen im Quelltext: 4)
+    normal           OK
+    A-fenster-leer   Modus nicht anwendbar (kein lebender Zugriff im Test)
+    B-datei-leer     rot (FAILED (failures=1)) - greift hart zu
+    C-datei-weg      uebersprungen (sichtbar, kein Fund)
+    E-format-geaendert rot (FAILED (failures=1)) - greift hart zu
+
+test_r13ac_fixes:TestBatchArtPflichtzeilen.test_echte_batches_211_und_212_sind_b   (Zusicherungen im Quelltext: 2)
+    normal           OK
+    A-fenster-leer   Modus nicht anwendbar (kein lebender Zugriff im Test)
+    B-datei-leer     rot (FAILED (failures=1)) - greift hart zu
+    C-datei-weg      uebersprungen (sichtbar, kein Fund)
+    E-format-geaendert rot (FAILED (failures=1)) - greift hart zu
+
+test_r13ac_fixes:TestGegenprobeEchteDaten.test_startzeit_aus_result_json_stimmt_mit_dem_bericht   (Zusicherungen im Quelltext: 4)
+    normal           OK
+    A-fenster-leer   Modus nicht anwendbar (kein lebender Zugriff im Test)
+    B-datei-leer     rot (FAILED (errors=1)) - greift hart zu
+    C-datei-weg      uebersprungen (sichtbar, kein Fund)
+    E-format-geaendert rot (FAILED (errors=1)) - greift hart zu
+
+test_r13ac_fixes:TestTrendLogik.test_r207_fenster_mit_luecke_wird_benannt   (Zusicherungen im Quelltext: 2)
+    normal           OK
+    A-fenster-leer   rot (FAILED (failures=1)) - greift hart zu
+    B-datei-leer     Modus nicht anwendbar (kein lebender Zugriff im Test)
+    C-datei-weg      Modus nicht anwendbar (kein lebender Zugriff im Test)
+    E-format-geaendert Modus nicht anwendbar (kein lebender Zugriff im Test)
+
+test_r13ac_fixes:TestTrendMitEchtenDateien.test_die_kopie_stimmt_mit_dem_lebenden_repo   (Zusicherungen im Quelltext: 3)
+    normal           OK
+    A-fenster-leer   Modus nicht anwendbar (kein lebender Zugriff im Test)
+    B-datei-leer     rot (FAILED (failures=1)) - greift hart zu
+    C-datei-weg      uebersprungen (sichtbar, kein Fund)
+    E-format-geaendert rot (FAILED (failures=1)) - greift hart zu
+
+test_r13ad_fixes:TestNachruecklisteErkennung.test_gegen_den_echten_b213_auftrag   (Zusicherungen im Quelltext: 5)
+    normal           OK
+    A-fenster-leer   Modus nicht anwendbar (kein lebender Zugriff im Test)
+    B-datei-leer     rot (FAILED (failures=1)) - greift hart zu
+    C-datei-weg      uebersprungen (sichtbar, kein Fund)
+    E-format-geaendert rot (FAILED (failures=1)) - greift hart zu
+
+test_r13ad_fixes:TestNachruecklisteErkennung.test_gegen_die_echten_b211_b212_auftraege   (Zusicherungen im Quelltext: 3)
+    normal           OK
+    A-fenster-leer   Modus nicht anwendbar (kein lebender Zugriff im Test)
+    B-datei-leer     rot (FAILED (failures=1)) - greift hart zu
+    C-datei-weg      uebersprungen (sichtbar, kein Fund)
+    E-format-geaendert rot (FAILED (failures=1)) - greift hart zu
+
+test_r13ae_fixes:TestEchteDateien.test_c_trend_endet_nicht_mehr_bei_b211   (Zusicherungen im Quelltext: 6)
+    normal           OK
+    A-fenster-leer   rot (FAILED (failures=1)) - greift hart zu
+    B-datei-leer     GRUEN OHNE SKIP   <-- prueft nichts
+    C-datei-weg      rot (FAILED (failures=1)) - greift hart zu
+    E-format-geaendert GRUEN OHNE SKIP   <-- prueft nichts
+
+test_r13ae_fixes:TestEchteDateien.test_die_kopie_stimmt_mit_dem_laufenden_repo   (Zusicherungen im Quelltext: 4)
+    normal           OK
+    A-fenster-leer   Modus nicht anwendbar (kein lebender Zugriff im Test)
+    B-datei-leer     rot (FAILED (failures=1)) - greift hart zu
+    C-datei-weg      rot (FAILED (failures=1)) - greift hart zu
+    E-format-geaendert rot (FAILED (failures=1)) - greift hart zu
+
+test_r13af_fixes:TestDokumentation.test_bedienung_hat_den_abschnitt   (Zusicherungen im Quelltext: 6)
+    normal           OK
+    A-fenster-leer   Modus nicht anwendbar (kein lebender Zugriff im Test)
+    B-datei-leer     rot (FAILED (failures=1)) - greift hart zu
+    C-datei-weg      uebersprungen (sichtbar, kein Fund)
+    E-format-geaendert rot (FAILED (failures=1)) - greift hart zu
+
+test_r13ah_fixes:TestGemesseneKappungen.test_b212_hat_gekappte_aufrufe_ohne_eigenes_timeout   (Zusicherungen im Quelltext: 3)
+    normal           OK
+    A-fenster-leer   Modus nicht anwendbar (kein lebender Zugriff im Test)
+    B-datei-leer     rot (FAILED (failures=1)) - greift hart zu
+    C-datei-weg      uebersprungen (sichtbar, kein Fund)
+    E-format-geaendert rot (FAILED (failures=1)) - greift hart zu
+
+test_r13ah_fixes:TestHybridStillstand.test_fester_stand_loest_keinen_falschen_alarm_aus   (Zusicherungen im Quelltext: 2)
+    normal           OK
+    A-fenster-leer   rot (FAILED (failures=1)) - greift hart zu
+    B-datei-leer     Modus nicht anwendbar (kein lebender Zugriff im Test)
+    C-datei-weg      Modus nicht anwendbar (kein lebender Zugriff im Test)
+    E-format-geaendert Modus nicht anwendbar (kein lebender Zugriff im Test)
+
+test_r13ah_fixes:TestHybridStillstand.test_echte_dateien_loesen_keinen_falschen_alarm_aus   (Zusicherungen im Quelltext: -1)
+    normal           ROT (FAILED (errors=1))
+    A-fenster-leer   Modus nicht anwendbar (kein lebender Zugriff im Test)
+    B-datei-leer     Modus nicht anwendbar (kein lebender Zugriff im Test)
+    C-datei-weg      Modus nicht anwendbar (kein lebender Zugriff im Test)
+    E-format-geaendert Modus nicht anwendbar (kein lebender Zugriff im Test)
+
+test_r13aj_fixes:TestEchterMitschnitt.test_b212_grep_paar_traegt_parallel_zwei   (Zusicherungen im Quelltext: 6)
+    normal           OK
+    A-fenster-leer   Modus nicht anwendbar (kein lebender Zugriff im Test)
+    B-datei-leer     rot (FAILED (failures=1)) - greift hart zu
+    C-datei-weg      uebersprungen (sichtbar, kein Fund)
+    E-format-geaendert rot (FAILED (failures=1)) - greift hart zu
+
+test_r13ak_fixes:TestTolerantesAntwortmuster.test_echte_zeilen_stehen_wirklich_so_im_repo   (Zusicherungen im Quelltext: 6)
+    normal           OK
+    A-fenster-leer   Modus nicht anwendbar (kein lebender Zugriff im Test)
+    B-datei-leer     rot (FAILED (errors=1)) - greift hart zu
+    C-datei-weg      uebersprungen (sichtbar, kein Fund)
+    E-format-geaendert rot (FAILED (errors=1)) - greift hart zu
+
+test_r13aq_fixes:TestGelaufen.test_der_echte_meta_217_ist_das_beispiel   (Zusicherungen im Quelltext: 7)
+    normal           OK
+    A-fenster-leer   Modus nicht anwendbar (kein lebender Zugriff im Test)
+    B-datei-leer     rot (FAILED (failures=1)) - greift hart zu
+    C-datei-weg      uebersprungen (sichtbar, kein Fund)
+    E-format-geaendert rot (FAILED (failures=1)) - greift hart zu
+
+test_r13aq_fixes:TestZurKenntnis.test_die_echte_zeile_aus_b217   (Zusicherungen im Quelltext: 3)
+    normal           OK
+    A-fenster-leer   Modus nicht anwendbar (kein lebender Zugriff im Test)
+    B-datei-leer     rot (FAILED (failures=1)) - greift hart zu
+    C-datei-weg      uebersprungen (sichtbar, kein Fund)
+    E-format-geaendert rot (FAILED (failures=1)) - greift hart zu
+
+test_r13ar_fixes:TestRunden.test_echte_laeufe_und_num_turns_sind_verschieden   (Zusicherungen im Quelltext: 4)
+    normal           OK
+    A-fenster-leer   Modus nicht anwendbar (kein lebender Zugriff im Test)
+    B-datei-leer     rot (FAILED (failures=1)) - greift hart zu
+    C-datei-weg      uebersprungen (sichtbar, kein Fund)
+    E-format-geaendert rot (FAILED (failures=1)) - greift hart zu
+
+test_r13az_fixes:TestAnlassImRepo.test_bericht_b221_zaehlt_null_prozent   (Zusicherungen im Quelltext: 3)
+    normal           OK
+    A-fenster-leer   Modus nicht anwendbar (kein lebender Zugriff im Test)
+    B-datei-leer     rot (FAILED (errors=1)) - greift hart zu
+    C-datei-weg      uebersprungen (sichtbar, kein Fund)
+    E-format-geaendert rot (FAILED (errors=1)) - greift hart zu
+
+test_r13az_fixes:TestAnlassImRepo.test_bucket_d_klart_0x40000000   (Zusicherungen im Quelltext: 4)
+    normal           OK
+    A-fenster-leer   Modus nicht anwendbar (kein lebender Zugriff im Test)
+    B-datei-leer     rot (FAILED (errors=1)) - greift hart zu
+    C-datei-weg      uebersprungen (sichtbar, kein Fund)
+    E-format-geaendert rot (FAILED (errors=1)) - greift hart zu
+
+test_r13az_fixes:TestAnlassImRepo.test_hybrid_plan_nennt_das_ziel   (Zusicherungen im Quelltext: 3)
+    normal           OK
+    A-fenster-leer   Modus nicht anwendbar (kein lebender Zugriff im Test)
+    B-datei-leer     rot (FAILED (failures=1)) - greift hart zu
+    C-datei-weg      uebersprungen (sichtbar, kein Fund)
+    E-format-geaendert rot (FAILED (failures=1)) - greift hart zu
+
+test_r13az_fixes:TestAnlassImRepo.test_reviewer_gesteht_den_fehler_ein   (Zusicherungen im Quelltext: 2)
+    normal           OK
+    A-fenster-leer   Modus nicht anwendbar (kein lebender Zugriff im Test)
+    B-datei-leer     rot (FAILED (errors=1)) - greift hart zu
+    C-datei-weg      uebersprungen (sichtbar, kein Fund)
+    E-format-geaendert rot (FAILED (failures=1)) - greift hart zu
+
+test_r13p_fixes:TestReviewHistorie.test_reviewer_darf_nur_lese_git   (Zusicherungen im Quelltext: 7)
+    normal           OK
+    A-fenster-leer   Modus nicht anwendbar (kein lebender Zugriff im Test)
+    B-datei-leer     GRUEN OHNE SKIP   <-- prueft nichts
+    C-datei-weg      GRUEN OHNE SKIP   <-- prueft nichts
+    E-format-geaendert GRUEN OHNE SKIP   <-- prueft nichts
+
+test_r13x_fixes:TestEchteBelege.test_dokument_widerspruch_verliert_gegen_den_preflight   (Zusicherungen im Quelltext: 6)
+    normal           OK
+    A-fenster-leer   rot (FAILED (errors=1)) - greift hart zu
+    B-datei-leer     uebersprungen (sichtbar, kein Fund)
+    C-datei-weg      uebersprungen (sichtbar, kein Fund)
+    E-format-geaendert uebersprungen (sichtbar, kein Fund)
+
+test_r13x_fixes:TestEchteBelege.test_ohne_messung_kein_alter_wert   (Zusicherungen im Quelltext: 2)
+    normal           OK
+    A-fenster-leer   rot (FAILED (failures=1)) - greift hart zu
+    B-datei-leer     uebersprungen (sichtbar, kein Fund)
+    C-datei-weg      uebersprungen (sichtbar, kein Fund)
+    E-format-geaendert uebersprungen (sichtbar, kein Fund)
+
+Funde (gruen durchgelaufen, obwohl die Quelle leer oder weg ist): 5
+  - test_r13ae_fixes:TestEchteDateien.test_c_trend_endet_nicht_mehr_bei_b211   in Modus B-datei-leer
+  - test_r13ae_fixes:TestEchteDateien.test_c_trend_endet_nicht_mehr_bei_b211   in Modus E-format-geaendert
+  - test_r13p_fixes:TestReviewHistorie.test_reviewer_darf_nur_lese_git   in Modus B-datei-leer
+  - test_r13p_fixes:TestReviewHistorie.test_reviewer_darf_nur_lese_git   in Modus C-datei-weg
+  - test_r13p_fixes:TestReviewHistorie.test_reviewer_darf_nur_lese_git   in Modus E-format-geaendert
