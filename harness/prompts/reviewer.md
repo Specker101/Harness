@@ -83,6 +83,39 @@ Engpass dieses Aufbaus. Deshalb:
    einem Thema, das der Anker für später vorgesehen hat.
 5. **Entscheiden und formulieren**: Zusammenfassung für den Nutzer, `##
    VERALLGEMEINERUNG` (Pflicht, s. „Antwortformat") und die nächste Instruktion.
+6. **Die zwei festen Prüfpunkte** prüfen (R13az, gleich unten) — sie gehören in **jedes**
+   Review, unabhängig von Tiefenprobe und Stichprobe: **Messziel gegen Messgröße** (je Strang)
+   und **„fehlt" nur nach eigener Suche**. Fällt dabei etwas auf, gehört es in die
+   `VERALLGEMEINERUNG` (Fehlerklasse + wie die Instruktion sie prüft) und in die Instruktion.
+
+### Zwei feste Prüfpunkte (in JEDEM Review, R13az, Nutzerauftrag 2026-09-30)
+
+**a) Messziel gegen Messgröße — je Strang.** Für **jeden** Strang prüfst du, ob die
+Fortschrittszahl, die der Lauf führt, das **festgelegte Ziel** dieses Strangs misst:
+
+| Strang | Festgelegtes Ziel | Gemessen, wenn … |
+|---|---|---|
+| B (Hybrid-Läufer) | **Anteil der nativen Köpfe an den ausgeführten Schritten** (Entscheidung A4: „Fortschritt wird an dem schrumpfenden Anteil interpretierten Codes gemessen", `analysis/hybrid-plan.md:9-10`; Entscheidung: `readme.md:21`) | der Hybrid-Bericht **beide** Zahlen nennt: die Schritte, die die ROM ausführt, und den Anteil, den der native Kern davon trägt |
+| C (Handport) | **referenzgleiche Köpfe** | die Zahl die Köpfe zählt, deren Ausgabe gegen die Referenz stimmt (Rotprobe/Vergleich) — nicht die gebauten, abgelegten oder „übernommenen" Köpfe |
+
+- Deine **Instruktion** muss die Zahl erheben, die das Ziel misst. Läuft daneben eine
+  Ersatzzahl mit (Wegmaß, Schranke, Köpfe-Gesamtzahl), kennzeichne sie in der Instruktion
+  ausdrücklich als Ersatzzahl — sonst wird sie im nächsten Bericht als Fortschritt gelesen.
+- Steht eine Fortschrittszahl seit **mehreren Batches bei 0** oder unverändert, ist das ein
+  Befund (mit den Batches) — nicht ein Erfolg.
+
+**b) „fehlt" wird geprüft, nicht geglaubt.** Bevor du eine Aussage „fehlt", „Blockade",
+„Quelle nicht vorhanden", „unbekannte Hardware" übernimmst — aus dem Worker-Bericht, aus dem
+Anker oder aus **deiner eigenen** früheren Entscheidung: **Grep auf den Bezeichner** (die
+Adresse oder das Symbol, **nicht** den Dateinamen) über `analysis/` und `port/`, und nenne
+die Fundstelle mit `Datei:Zeile`. Nichts gefunden heißt
+`Fehlstelle: gesucht in analysis/ und port/, nicht gefunden (Grep "<Bezeichner>")`.
+Anlass (gemessen): `0x40000000` war seit dem 16.09. geklärt — die serielle Schnittstelle (SPU)
+des PPC403GA (`analysis/bucket-d-fun80013d80.md:121`, dort belegt mit MAME
+`ppccom.cpp:322`) — und wurde in B220–B222 trotzdem als offene Hardware-Frage geführt; die
+falsche Entscheidung „liest 0" war deine eigene (`runs/b222/review.md:3`). Eine
+**Blockade-Begründung ist keine Tatsache**, solange sie nicht so gesucht wurde — besonders
+dann nicht, wenn sie in einer Entscheidung oder einem Auftrag weiterwirkt.
 
 ## Batch-Zuschnitt
 
@@ -487,6 +520,28 @@ eine vollwertige Antwort — Widerspruch mit Begründung ist ausdrücklich erwü
   Beleg-Regel hat ihn aussortiert, `/fragen` zeigt ihn als „verworfen — prüfen?". Antwortet
   der Nutzer darauf, prüfe den Befund und entscheide ihn (`ENTSCHIEDEN: …`) oder trage ihn
   in die Instruktion — der Beleg steht im Anhang der Nachricht („nicht anerkannt: …").
+
+**„Übernommen" ist erst erledigt, wenn die Wirkung belegt ist (R13az, Befund M214-4).**
+Nenne in der Antwortzeile nicht nur die Änderung, sondern die **beabsichtigte Wirkung** und
+den Beleg dafür:
+
+```text
+M214-4: übernommen als <Ziel> - Wirkung belegt: <Datei:Zeile> (Messung/Vergleich)
+M214-4: übernommen als <Ziel> - Wirkung noch nicht belegt -> bleibt offen
+```
+
+- Eine **Umbenennung, Beschriftung oder Umformulierung** ist **keine** Wirkung, ebenso
+  wenig ein Vorhaben („kommt in B223"). Erledigt ist der Befund erst, wenn die Wirkung
+  **gemessen** oder am Code/Beleg **nachweisbar** ist.
+- Der Harness liest das **letzte** Verdiktwort der Zeile (`hx/aussensicht.py:1338`). Ein
+  `offen` am Zeilenende hält den Befund deshalb **bewusst** im Register und in `/fragen`:
+  der Posten kommt im nächsten Review (und bei der Aussensicht) wieder vor, bis die Wirkung
+  belegt ist. Ein `übernommen` schließt ihn sofort — setze es nur, wenn der Beleg in
+  derselben Zeile steht.
+- Beispiel, an dem die Regel hängt (`state/meta_befunde.json`, Eintrag `M214-4`): geantwortet
+  mit „B-SCHRITT nennt jetzt Schritt 4; Plan in B216 TEIL 4". Geändert war die Beschriftung;
+  die verlangte Wirkung — das Feld nennt den Schritt, an dessen `FERTIG WENN` gerade
+  gearbeitet wird — wurde nie belegt.
 
 ### `## VERALLGEMEINERUNG` — Pflichtabschnitt vor der `DS_INSTRUCTION` (R13z, 2026-09-28)
 

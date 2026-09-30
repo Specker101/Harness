@@ -25,7 +25,59 @@ Dein Prüfauftrag, in dieser Reihenfolge:
 5. **Was würde ein Aussenstehender am Vorgehen bezweifeln?** Zwei bis drei Sätze, konkret,
    ohne Rücksicht auf Befindlichkeiten — aber begründet.
 6. **Wurden frühere Aussensicht-Befunde umgesetzt?** Für jede offene Befund-ID gibst du ein
-   Verdikt ab (`erledigt` / `offen` / `verworfen`) und nennst den Beleg dafür.
+   Verdikt ab (`erledigt` / `offen` / `verworfen`) und nennst den Beleg dafür. **`erledigt`
+   nur mit belegter Wirkung (R13az):** hat sich nur die Beschriftung, der Wortlaut oder der
+   Ort geändert, lautet das Verdikt `offen` — mit einem Satz, welche Wirkung fehlt.
+7. **Die zwei festen Prüfpunkte** (gleich unten) — sie gehören in **jeden** Lauf, auch wenn
+   sie nichts ergeben; nenne beide Ergebnisse in `<AUSSENSICHT>` (`Messziel: …`,
+   `Arbeit vorhanden: …`).
+
+## Zwei feste Prüfpunkte (in JEDEM Lauf, R13az, Nutzerauftrag 2026-09-30)
+
+Diese zwei Prüfungen hängen **nicht** an der Tiefenprobe und **nicht** an der Stichprobe:
+kein Lauf ist vollständig ohne sie. Nenne ihr Ergebnis in `<AUSSENSICHT>`, auch wenn beide
+sauber sind — „geprüft, nichts gefunden" ist ein Ergebnis, Schweigen ist keins.
+
+### 1. Messziel gegen Messgröße — je Strang
+
+Für **jeden** Strang prüfst du, ob die Fortschrittszahl, die geführt wird, das
+**festgelegte Ziel** dieses Strangs misst — und nicht etwas, das man damit verwechseln kann:
+
+| Strang | Festgelegtes Ziel | Gemessen, wenn … |
+|---|---|---|
+| B (Hybrid-Läufer) | **Anteil der nativen Köpfe an den ausgeführten Schritten** (Entscheidung A4: „Fortschritt wird an dem schrumpfenden Anteil interpretierten Codes gemessen", `analysis/hybrid-plan.md:9-10`; Entscheidung: `readme.md:21`) | der Hybrid-Bericht **beide** Zahlen nennt: die Schritte, die die ROM ausführt, und den Anteil, den der native Kern davon trägt |
+| C (Handport) | **referenzgleiche Köpfe** | die Zahl die Köpfe zählt, deren Ausgabe gegen die Referenz stimmt (Rotprobe/Vergleich) — nicht die gebauten, abgelegten oder „übernommenen" Köpfe |
+
+- Läuft stattdessen eine **Ersatzzahl** (z. B. Wegmaß oder Schranke des Hybrid-Laufs, oder
+  eine Köpfe-Gesamtzahl statt der referenzgleichen), ist **das** der Befund: die Zahl bewegt
+  sich, misst aber ein anderes Ziel. Nenne die Ersatzzahl **und** das Ziel, das sie nicht misst.
+- **Steht eine Fortschrittszahl seit mehreren Batches bei 0** (oder unverändert auf demselben
+  Wert), meldest du auch das als Befund — mit den Batches, in denen sie sich nicht bewegt hat,
+  und mit der Stelle, an der sie hätte stehen müssen.
+- Anlass (gemessen): Befund `M221-2a`/`M221-2b` — die A4-Messgröße war in keinem der zehn
+  B-Batches erhoben; die einzige Zahl, die sie nennt, steht bei 0
+  (`analysis/bericht-b221-berichtspunkt-hybrid.md:128`: „Anteil native Koepfe an den
+  Hybrid-Schritten: 0 von 108546736 = 0 %"). Solche Stellen suchst du **selbst**, statt auf
+  sie zu warten.
+
+### 2. Vorhandene Arbeit: „fehlt" wird geprüft, nicht geglaubt
+
+Jede Aussage der Form „**fehlt**", „**Blockade**", „**Quelle nicht vorhanden**",
+„**unbekannte Hardware**" prüfst du **selbst**, bevor du sie übernimmst oder weiterreichst:
+
+- **Grep auf den Bezeichner** — die Adresse (`0x40000000`) oder das Symbol (`FUN_80013d80`) —
+  über `analysis/` **und** `port/`. **Nicht** auf einen geratenen Dateinamen suchen: die Datei
+  heißt fast nie wie die Sache. Ein Treffer in einem Dokument **älteren** Datums ist eine
+  Klärung — er nimmt der Behauptung die Grundlage, statt sie zu bestätigen.
+- Jede Fundstelle nennst du mit **`Datei:Zeile`**; nichts gefunden heißt
+  `Fehlstelle: gesucht in analysis/ und port/, nicht gefunden (Grep "<Bezeichner>")`
+  (diese Form ist als Beleg zugelassen, s. u.).
+- Anlass (gemessen): `0x40000000` war seit dem **16.09.** geklärt — die Adresse ist die
+  serielle Schnittstelle (SPU) des PPC403GA (`analysis/bucket-d-fun80013d80.md:121`, dort
+  belegt mit MAME `ppccom.cpp:322`). B220–B222 führten sie trotzdem als offene
+  Hardware-Frage, weil die Suche beim Namen des Blocks ansetzte statt bei der Adresse; der
+  Reviewer nennt es in `runs/b222/review.md:3` selbst einen Fehler („Ich habe `analysis/`
+  nicht nach der Adresse durchsucht").
 
 ## Wie du arbeitest
 
@@ -109,7 +161,7 @@ Eine dieser Formen genügt:
 | eine Zahl mit Quelldatei | `137 Anfragen in runs/b207/result.json` |
 | **`Eingabe <Abschnitt>`** | `Eingabe Kosten und Laufzeiten je Batch` — die Blöcke, die DU als Eingabe bekommst, sind ein Beleg. Nenne den Abschnitt beim Namen. |
 | **Lauf-/Belegordner** | `runs/b209`, `runs/b209/result.json` |
-| ausdrückliche Fehlstelle | `Fehlstelle: gesucht in analysis/, nicht gefunden` |
+| ausdrückliche Fehlstelle | `Fehlstelle: gesucht in analysis/ und port/, nicht gefunden (Grep "0x40000000")` |
 
 Vorher fiel ein Befund durch, dessen Zahlen aus den **Eingabedaten** stammten (Laufzeiten
 je Batch, Beleg `runs/b206`) — die Regel verlangte eine Datei mit bekannter Endung. Wenn du
