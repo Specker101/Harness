@@ -1,0 +1,18 @@
+R13at: Runden statt num_turns - die Zahlen der letzten Aussensicht-Laeufe
+
+Lauf        rc  num_turns  Runden (jsonl) Runden (Transcript)  Aufrufe  Limit  Anteil
+-------------------------------------------------------------------------------------------------
+meta-208     0         28              18                  18       27     30  60 %
+meta-209     0         17              10                  10       15     30  33 %
+meta-210     0         26              19                  19       25     30  63 %
+meta-211     0         25              15                  15       24     30  50 %
+meta-212     0         24              16                  16       23     30  53 %
+meta-213     0         29              18                  18       28     30  60 %
+meta-214     0         35              23                  23       34     30  77 %
+meta-217     1         31              30                  30       41     30  100 %
+meta-218     0         41              30                  30       40     50  60 %
+
+Lesehilfe: `num_turns` ist das Feld `zuege` aus runs/meta-<N>.json (= das
+Ergebnis-Feld `num_turns` der CLI, Werkzeugergebnisse + 1). Die CLI prueft
+`--max-turns` gegen die WERKZEUGRUNDEN - beide Spalten davor. Limit war 30
+(R13w..R13aq) und 50 (ab R13aq); seit R13at steht es auf 70.

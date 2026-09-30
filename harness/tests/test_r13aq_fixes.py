@@ -164,19 +164,21 @@ class TestZuglimit(Basis):
         self.assertEqual(cmd[cmd.index("--max-turns") + 1], "44")
 
     def test_toml_ist_angehoben(self):
+        """R13aq: 30 -> 50. R13at: 50 -> 70 (meta-218 brauchte 41 von 50 = 82 %)."""
         toml = read_text(ROOT / "harness.toml")
-        self.assertIn("max_turns        = 50", toml)
+        self.assertIn("max_turns        = 70", toml)
+        self.assertGreaterEqual(aussensicht.max_turns(load_config()), 70)
 
     def test_prompt_nennt_die_frist(self):
         self.cfg.data["meta"]["meta_max_turns"] = 50
         text = aussensicht.build_prompt(self.cfg, self._state(), "Test")
-        self.assertIn("spaetestens nach 45 Zuegen", text)
+        self.assertIn(f"spaetestens nach {50 - aussensicht.FRIST_ABSTAND} Zuegen", text)
         self.assertIn("Unvollstaendiges als nicht geprueft kennzeichnen", text)
 
     def test_frist_wandert_mit_dem_limit(self):
         self.cfg.data["meta"]["meta_max_turns"] = 40
         text = aussensicht.build_prompt(self.cfg, self._state(), "Test")
-        self.assertIn("spaetestens nach 35 Zuegen", text)
+        self.assertIn(f"spaetestens nach {40 - aussensicht.FRIST_ABSTAND} Zuegen", text)
 
     def _state(self):
         from hx.state import State

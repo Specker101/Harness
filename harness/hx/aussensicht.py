@@ -125,6 +125,14 @@ HYBRID_GRUND = "Hybrid-Lauf"
 HYBRID_STILLSTAND_BATCHES = 3
 
 
+# R13at (30.09.2026): Abstand zwischen der FRUEHWARNUNG im Prompt/de Uhr und dem harten
+# Zuglimit. Vorher 5 (R13aq/R13ar), jetzt 8: der Lauf meta-218 brauchte 41 von 50 Zuegen
+# (82 %), das Limit steht seit R13at auf 70 - die letzten Zuege muessen fuer die Antwort
+# im Blockformat reichen. EINE Quelle: `build_prompt` schreibt die Zahl in den Auftrag,
+# `write_hook_settings` gibt sie der Zuguhr mit (`--frist`).
+FRIST_ABSTAND = 8
+
+
 def max_turns(cfg) -> int:
     """Zuglimit der Aussensicht (R13aq) - konfigurierbar, mit Reserve.
 
@@ -1123,8 +1131,10 @@ def build_prompt(cfg, state, grund, tiefe: dict | None = None) -> str:
         "kein Beleg. Wenn du etwas nicht pruefen kannst, sage das ausdruecklich.",
         "",
         # R13aq: meta-217 verbrauchte alle Zuege mit Vorarbeit und schrieb am Ende nur
-        # einen Zwischenstand - der Lauf war verloren. Deshalb eine Frist VOR dem Limit.
-        f"ZEITLIMIT: Schreibe spaetestens nach {max(1, int(g['max_turns']) - 5)} Zuegen "
+        # einen Zwischenstand - der Lauf war verloren. Deshalb eine Frist VOR dem Limit
+        # (R13at: acht Zuege, `FRIST_ABSTAND`).
+        f"ZEITLIMIT: Schreibe spaetestens nach {max(1, int(g['max_turns']) - FRIST_ABSTAND)} "
+        "Zuegen "
         "die Antwort im Blockformat, auch wenn die Tiefenprobe unvollstaendig ist; "
         "Unvollstaendiges als nicht geprueft kennzeichnen.",
         "",
@@ -1176,8 +1186,8 @@ def write_hook_settings(cfg, batch: int) -> str | None:
     am Ende nur einen Zwischenstand - der Lauf war verloren. Der einzige Text, den das
     Modell WAEHREND des Laufs zu sehen bekommt, ist der Hook-Kontext (R13ac hat den Weg
     mit echtem Lauf belegt: `docs/_r13ac_hook.txt`). Die Uhr zeigt die Zugarzahl, die
-    die CLI selbst zaehlt (Werkzeugrunden), und ab `Limit - 5` die Aufforderung, im
-    Blockformat zu antworten.
+    die CLI selbst zaehlt (Werkzeugrunden), und ab `Limit - FRIST_ABSTAND` (R13at: 8)
+    die Aufforderung, im Blockformat zu antworten.
 
     Fehlt das Skript, wird KEIN Hook gehaengt (der Lauf bleibt unberuehrt).
     """
@@ -1189,7 +1199,7 @@ def write_hook_settings(cfg, batch: int) -> str | None:
         "type": "command",
         "timeout": 10,
         "command": sys.executable,
-        "args": [str(skript), "--limit", str(grenze)],
+        "args": [str(skript), "--limit", str(grenze), "--frist", str(FRIST_ABSTAND)],
     }]}]}}
     ziel = Path(cfg.root) / "runs" / f"meta-{int(batch):03d}-hooks.json"
     write_text_atomic(ziel, json.dumps(daten, indent=1) + "\n")

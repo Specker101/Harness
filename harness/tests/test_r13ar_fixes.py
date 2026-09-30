@@ -118,7 +118,8 @@ class TestHook(unittest.TestCase):
         return self.transcript
 
     def hook(self, *, limit: str | None = "50", transcript: Path | None = None,
-             eingabe: dict | None = None, zeilen: tuple[str, ...] = ()):
+             eingabe: dict | None = None, zeilen: tuple[str, ...] = (),
+             frist: str | None = "8"):
         if zeilen:
             self.schreibe(*zeilen)
         daten = eingabe if eingabe is not None else {
@@ -127,6 +128,8 @@ class TestHook(unittest.TestCase):
         args = [sys.executable, str(HOOK)]
         if limit is not None:
             args += ["--limit", str(limit)]
+        if frist is not None:
+            args += ["--frist", str(frist)]
         p = subprocess.run(args, input=json.dumps(daten).encode("utf-8"),
                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
         self.assertEqual(p.returncode, 0, p.stderr.decode("utf-8", "replace")[:300])
@@ -139,22 +142,50 @@ class TestHook(unittest.TestCase):
         text = self.hook(zeilen=(zeile("m1", tools=1), zeile("m2", tools=2)))
         self.assertEqual(text, "AUSSENSICHT-UHR: Zug 2 von 50 (Werkzeugrunden).")
 
-    def test_ab_limit_minus_fuenf_kommt_die_frist(self):
+    def test_ab_limit_minus_acht_kommt_die_frist(self):
+        """R13at: der Abstand ist 8 (vorher 5) - bei Limit 70 also ab Zug 62."""
         zeilen = tuple(zeile(f"m{i}", tools=1) for i in range(1, 8))   # 7 Runden
         text = self.hook(limit="10", zeilen=zeilen)
         self.assertIn("Zug 7 von 10", text)
         self.assertIn("Noch 3 Zuege bis zum Abbruch.", text)
         self.assertIn(DRINGEND, text)
 
+    def test_frist_abstand_kommt_aus_dem_harness(self):
+        """Ein GROESSERER Abstand feuert FRUEHER: 4 Runden bei Limit 10 feuern mit
+        `--frist 8` (ab Zug 2), mit `--frist 3` (ab Zug 7) nicht."""
+        vier = tuple(zeile(f"m{i}", tools=1) for i in range(1, 5))
+        self.assertIn(DRINGEND, self.hook(limit="10", zeilen=vier))
+        self.assertNotIn(DRINGEND, self.hook(limit="10", zeilen=vier, frist="3"))
+
+    def test_ohne_frist_gilt_acht(self):
+        """Rueckfall, wenn der Harness `--frist` nicht mitgibt: 8."""
+        drei = tuple(zeile(f"m{i}", tools=1) for i in range(1, 4))     # 3 < 12 - 8
+        text = self.hook(limit="12", zeilen=drei, frist=None)
+        self.assertIn("Zug 3 von 12", text)
+        self.assertNotIn("JETZT", text)
+        vier = tuple(zeile(f"m{i}", tools=1) for i in range(1, 5))     # 4 = 12 - 8
+        self.assertIn(DRINGEND, self.hook(limit="12", zeilen=vier, frist=None))
+
     def test_vor_der_frist_kommt_sie_nicht(self):
-        zeilen = tuple(zeile(f"m{i}", tools=1) for i in range(1, 5))   # 4 Runden
+        zeilen = tuple(zeile(f"m{i}", tools=1) for i in range(1, 2))   # 1 < 10 - 8
         text = self.hook(limit="10", zeilen=zeilen)
-        self.assertIn("Zug 4 von 10", text)
+        self.assertIn("Zug 1 von 10", text)
         self.assertNotIn("JETZT", text)
 
     def test_genau_an_der_grenze(self):
-        zeilen = tuple(zeile(f"m{i}", tools=1) for i in range(1, 6))   # 5 = 10 - 5
+        zeilen = tuple(zeile(f"m{i}", tools=1) for i in range(1, 3))   # 2 = 10 - 8
         text = self.hook(limit="10", zeilen=zeilen)
+        self.assertIn(DRINGEND, text)
+        eine = tuple(zeile(f"m{i}", tools=1) for i in range(1, 2))     # 1 < 10 - 8
+        self.assertNotIn(DRINGEND, self.hook(limit="10", zeilen=eine))
+
+    def test_echtes_limit_70(self):
+        """Der laufende Fall (R13at): Limit 70 -> Frist ab Zug 62."""
+        sechzig = tuple(zeile(f"m{i}", tools=1) for i in range(1, 62))  # 61 Runden
+        self.assertNotIn("JETZT", self.hook(limit="70", zeilen=sechzig))
+        einundsechzig = tuple(zeile(f"m{i}", tools=1) for i in range(1, 63))
+        text = self.hook(limit="70", zeilen=einundsechzig)
+        self.assertIn("Zug 62 von 70", text)
         self.assertIn(DRINGEND, text)
 
     def test_parallele_aufrufe_geben_keine_extrazeile(self):
@@ -197,6 +228,8 @@ class TestEinstellungen(unittest.TestCase):
         args = daten["hooks"]["PostToolUse"][0]["hooks"][0]["args"]
         self.assertIn("aussensicht_uhr.py", " ".join(args))
         self.assertEqual(args[args.index("--limit") + 1], "44")
+        # R13at: die Frist kommt ebenfalls aus dem Harness (EINE Quelle).
+        self.assertEqual(args[args.index("--frist") + 1], str(aussensicht.FRIST_ABSTAND))
         self.assertTrue(str(pfad).endswith("meta-217-hooks.json"))
 
     def test_kommando_haengt_die_einstellungen_an(self):

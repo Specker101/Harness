@@ -1279,21 +1279,23 @@ die Zahl, gegen die die CLI ihr `--max-turns` prüft: sie zählt **Werkzeugrunde
 `meta-214` hatte `num_turns=35`, aber nur **23** Runden (Limit 30 ⇒ lief durch), `meta-217`
 hatte **30** Runden (⇒ Abbruch). Messung und Beweise: `docs/_r13ar_belege.md` §1.
 
-### 12s. Zuguhr der Aussensicht (R13ar, 2026-09-30)
+### 12s. Zuguhr der Aussensicht (R13ar, 2026-09-30; Zuglimit R13at)
 
-Das Zuglimit war bisher nur eine Zahl im Prompt („spätestens nach max−5 Zügen antworten",
+Das Zuglimit war bisher nur eine Zahl im Prompt („spätestens nach max−8 Zügen antworten",
 §12r). Jetzt steht es **mechanisch** im Lauf:
 
 | Punkt | Verhalten |
 |---|---|
-| **Zuguhr** | PostToolUse-Hook `tools/aussensicht_uhr.py`, gehängt über `--settings runs/meta-<N>-hooks.json` (`aussensicht.write_hook_settings`): nach jedem Werkzeugaufruf `AUSSENSICHT-UHR: Zug X von Y (Werkzeugrunden). Noch R Zuege bis zum Abbruch.` |
-| **Frist** | ab `Zug >= Limit - 5` zusätzlich `JETZT die Antwort im Blockformat schreiben, Unvollständiges als nicht geprüft kennzeichnen.` |
+| **Limit** | `[meta] max_turns` = **70** (Alias `meta_max_turns` hat Vorrang, `aussensicht.max_turns`); der Lauf wird damit mit `--max-turns 70` gestartet. R13aq: 30 → 50, **R13at: 50 → 70** — Begründung und die gemessenen Zahlen stehen in `docs/_r13at_belege.md` (der Auftragstext nennt `num_turns=41` = 82 %, die CLI zählt **30 von 50 Runden** = 60 %) |
+| **Zuguhr** | PostToolUse-Hook `tools/aussensicht_uhr.py`, gehängt über `--settings runs/meta-<N>-hooks.json` (`aussensicht.write_hook_settings`, gibt `--limit` **und** `--frist` mit): nach jedem Werkzeugaufruf `AUSSENSICHT-UHR: Zug X von Y (Werkzeugrunden). Noch R Zuege bis zum Abbruch.` |
+| **Frist** | ab `Zug >= Limit - FRIST_ABSTAND` zusätzlich `JETZT die Antwort im Blockformat schreiben, Unvollständiges als nicht geprüft kennzeichnen.` — **R13at: `FRIST_ABSTAND = 8`** (vorher 5), EINE Quelle in `hx/aussensicht.py`: der Auftrag (`ZEITLIMIT: Schreibe spaetestens nach … Zuegen`) und der Hook lesen dieselbe Zahl. Wer `--frist` nicht mitgibt, bekommt 8 |
 | **Was X ist** | die Zahl, die die CLI selbst zählt: **Werkzeugrunden** — gezählt im Transcript der Sitzung (`transcript_path` aus der Hook-Eingabe, `hx.streamjson.runden_aus_zeilen`), damit parallele Aufrufe in einer Antwort nicht doppelt zählen. Gemessen mit echtem Lauf: das Modell nennt die Zeile wörtlich (`docs/_r13ar_probe_hook.txt`) |
-| **Frühwarnung** | braucht ein **gelungener** Lauf mehr als 80 % des Limits: Telegram `Aussensicht B<N>: X von Y Zuegen genutzt - Limit pruefen` + dieselbe Zeile im Bericht (`- LIMIT PRUEFEN: …`), Log `Zuglimit fast erreicht`. Immer im Bericht: `- Zuege (Werkzeugrunden): X von Y - num_turns laut CLI: N`; `runs/meta-<N>.json` trägt `zug_runden` |
+| **Frühwarnung** | braucht ein **gelungener** Lauf mehr als 80 % des Limits (in Runden): Telegram `Aussensicht B<N>: X von Y Zuegen genutzt - Limit pruefen` + dieselbe Zeile im Bericht (`- LIMIT PRUEFEN: …`), Log `Zuglimit fast erreicht`. Immer im Bericht: `- Zuege (Werkzeugrunden): X von Y - num_turns laut CLI: N`; `runs/meta-<N>.json` trägt `zug_runden` |
 | **Kein Fehler stört** | fehlt/unlesbar ist das Transcript oder fehlt `--limit`, gibt der Hook nichts aus (Exit 0) |
 
-Messwerte, die `num_turns`-Frage und die Gegenprobe im Worker-Umfeld (dort wirkt
-`--max-turns` **nicht**): `docs/_r13ar_belege.md`.
+Messwerte (Runden gegen `num_turns`, alle Läufe meta-208…meta-218, Limit je Lauf), die
+`num_turns`-Frage und die Gegenprobe im Worker-Umfeld (dort wirkt `--max-turns` **nicht**):
+`docs/_r13ar_belege.md`, `docs/_r13at_belege.md` + `docs/_r13at_messung.txt`.
 
 ### 12t. Reihenfolge-Wächter: `port/` erst nach der Vorhersage (R13as, 2026-09-30)
 

@@ -5,7 +5,11 @@ Wird vom Harness als `PostToolUse`-Hook in den Lauf der Aussensicht gehaengt
 laeuft nach JEDEM Werkzeugaufruf und gibt eine Zeile `additionalContext` aus; die CLI
 haengt sie als System-Reminder neben das Werkzeugergebnis.
 
-    python tools/aussensicht_uhr.py --limit 50
+    python tools/aussensicht_uhr.py --limit 70 --frist 8
+
+`--frist` ist der Abstand zum Limit, ab dem die Aufforderung kommt (R13at: 8). Die Zahl
+kommt aus dem Harness (`aussensicht.FRIST_ABSTAND`, dort EINE Quelle - auch der Auftrag
+traegt sie: "spaetestens nach <Limit - 8> Zuegen"). Fehlt `--frist`, gilt 8.
 
 **Was gezaehlt wird - gemessen, nicht geraten.** Die CLI prueft `--max-turns` gegen die
 Zahl der **Werkzeugrunden** (Modellantworten MIT Werkzeugaufruf). Belege:
@@ -36,9 +40,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-# Der Satz ab (Limit - 5) Zuegen - Wortlaut aus dem Auftrag vom 30.09.2026.
+# Der Satz ab (Limit - FRIST_ABSTAND) Zuegen - Wortlaut aus dem Auftrag vom 30.09.2026.
 DRINGEND = ("JETZT die Antwort im Blockformat schreiben, Unvollständiges als nicht "
             "geprüft kennzeichnen.")
+# Rueckfall, wenn der Harness `--frist` nicht mitgibt (R13at).
+FRIST_STANDARD = 8
 # Sicherheitsdeckel: groesser wird kein Transcript gelesen (Arbeitsspeicher/Schutz).
 MAX_TRANSCRIPT_BYTES = 16 * 1024 * 1024
 
@@ -73,22 +79,32 @@ def zuege(transcript: str | Path) -> int:
     return streamjson.runden_aus_zeilen(text.splitlines())
 
 
-def zeile(runden: int, grenze: int) -> str:
-    """Die Kontextzeile: immer die Uhr, ab (Grenze - 5) zusaetzlich die Aufforderung."""
+def zeile(runden: int, grenze: int, abstand: int = FRIST_STANDARD) -> str:
+    """Die Kontextzeile: immer die Uhr, ab (Grenze - abstand) zusaetzlich die Aufforderung."""
     text = f"AUSSENSICHT-UHR: Zug {int(runden)} von {int(grenze)} (Werkzeugrunden)."
-    if grenze > 0 and runden >= grenze - 5:
+    if grenze > 0 and runden >= grenze - max(0, int(abstand)):
         rest = max(0, int(grenze) - int(runden))
         text += f" Noch {rest} Zuege bis zum Abbruch. {DRINGEND}"
     return text
 
 
+def _zahl(argv: list[str], name: str, standard: int) -> int:
+    """Zahl-Option aus der Kommandozeile (`--limit`, `--frist`) - sonst der Rueckfall."""
+    if name not in argv:
+        return int(standard)
+    try:
+        return int(float(argv[argv.index(name) + 1]))
+    except (ValueError, IndexError):
+        return int(standard)
+
+
 def main(argv: list[str]) -> int:
     if "--limit" not in argv:
         return 0
-    try:
-        grenze = int(float(argv[argv.index("--limit") + 1]))
-    except (ValueError, IndexError):
+    grenze = _zahl(argv, "--limit", 0)
+    if grenze <= 0:
         return 0
+    abstand = _zahl(argv, "--frist", FRIST_STANDARD)
     eingabe = _stdin_json()
     transcript = str(eingabe.get("transcript_path") or "")
     try:
@@ -97,7 +113,7 @@ def main(argv: list[str]) -> int:
             return 0
         io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8").write(json.dumps(
             {"hookSpecificOutput": {"hookEventName": "PostToolUse",
-                                    "additionalContext": zeile(runden, grenze)}},
+                                    "additionalContext": zeile(runden, grenze, abstand)}},
             ensure_ascii=False))
     except Exception:                                                    # noqa: BLE001
         return 0
