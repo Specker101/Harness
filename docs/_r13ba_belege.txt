@@ -1,0 +1,41 @@
+R13ba: die Rate 'Koepfe je C-Batch' - zwei Grundmengen, Median gerechnet
+Decomp-Repo: g:\Silent Scope Decomp
+
+1) Die Rate (stand.c_rate)
+  Median (Kopf-Batches)      : 6.0
+  Mittel (alle C-Batches)    : 3.0
+  gerechnet wird mit         : 6.0  (Median der Zuwaechse der Kopf-Batches (+5 (B219), +7 (B216)))
+  Zeile                      : Median Zuwachs (Kopf-Batches): 6 | Mittel ueber alle C-Batches: 3,0
+  Kopf-Batches (Batch, Zuwachs): [(219, 5), (216, 7)]
+  C-Batch-Schritte der Preflight-Reihe (Delta je Schritt): +0, +0, +7, +5
+
+2) Die Hochrechnung fuer Paket E: vorher (Mittel) und jetzt (Median)
+  offener Paket-E-Vorrat: 26 Koepfe (aus der Messung, s. Durchsatzzeile)
+  VORHER (Mittel): -> 9 C-Batches bei +3.0 Koepfe je C-Batch (Grundlage: Mittel ueber alle C-Batches (die alte Rechengrundlage))
+  NACHHER (Median): -> 4 C-Batches bei +6.0 Koepfe je C-Batch (Grundlage: Median der Zuwaechse der Kopf-Batches (+5 (B219), +7 (B216)))
+
+3) Der echte Durchsatz-Block (stand.durchsatz_zeilen) - die neuen Zeilen
+                 C-Batches im R207-Fenster: +6.0 Koepfe je C-Batch (R207-Zaehler, 2 von 4: B219, B216)
+                 C-Rate je C-Batch: Median Zuwachs (Kopf-Batches): 6 | Mittel ueber alle C-Batches: 3,0
+                 offen (Paket E, C-Arbeitsvorrat): 26 Koepfe / 2114 Insn   [gemessen B219, 2026-09-30 03:33: _m219/_c_paket_e_nachher.txt]
+                 HYPOTHESIS (Paket E, Arbeitsvorrat):
+                   -> 4 C-Batches bei +6.0 Koepfe je C-Batch (Grundlage: Median der Zuwaechse der Kopf-Batches (+5 (B219), +7 (B216)))
+                   -> 234 C-Batches bei +6.0 Koepfe je C-Batch (Grundlage: Median der Zuwaechse der Kopf-Batches (+5 (B219), +7 (B216)))
+  C-Arbeitsvorrat: 1403 Koepfe nicht gebaut (von 2072 im Inventar)
+                 (1) ausgefuehrt, noch nicht gebaut  :  677 Koepfe /  28976 Insn -> ca. 113 C-Batches
+
+4) Die PLAN/IST-Tafel (stand.plan_ist_text) - die letzten Zeilen
+  MEDIAN der 2 Zuwaechse der C Koepfe je C-Batch mit SOLL-KOEPFE > 0 (+5 (B219), +7 (B216)): 6 Koepfe je C-Batch (Ziel des naechsten Batches: hoechstens ca. 8)
+    (Median Zuwachs (Kopf-Batches): 6 | Mittel ueber alle C-Batches: 3,0)
+
+5) Wo die Rate ueberall gerechnet wird (Verbraucher des Medians)
+  Paket-E-Hochrechnung       stand.kalender_zeilen (durchsatz_zeilen)
+  C-gesamt-Hochrechnung      stand._c_gesamt_zeilen
+  Klasse 'nicht ausgefuehrt' stand._relevanz_zeilen
+  PLAN/IST-Tafel             stand.plan_ist_text (MEDIAN-Zeile)
+  BILANZ (GESAMT)            bilanz.gesamt_block -> stand.durchsatz_zeilen
+
+6) Die BILANZ-Zeilen mit der Rate (bilanz.gesamt_block)
+  C-Rate je C-Batch: Median Zuwachs (Kopf-Batches): 6 | Mittel ueber alle C-Batches: 3,0
+  -> 4 C-Batches bei +6.0 Koepfe je C-Batch (Grundlage: Median der Zuwaechse der Kopf-Batches (+5 (B219), +7 (B216)))
+  -> 234 C-Batches bei +6.0 Koepfe je C-Batch (Grundlage: Median der Zuwaechse der Kopf-Batches (+5 (B219), +7 (B216)))

@@ -1423,6 +1423,36 @@ statt von Zuwächsen.
 Belege: `docs/_r13aw_belege.md`, `docs/_r13ax_belege.md`, `docs/_r13ay_belege.md`;
 Tests `tests/test_r13aw_fixes.py` (18), `test_r13ax_fixes.py` (15), `test_r13ay_fixes.py` (16).
 
+### 12y. Eine Rate je C-Batch: Median und Mittel nebeneinander (R13ba, 2026-09-30)
+
+**Befund M221-5 (Aussensicht B221, Frage aus dem Review B222).** Dieselbe Eingabe nannte für
+denselben Restvorrat zwei Raten mit **verschiedener Grundmenge**: die PLAN/IST-Tafel den
+**Median** über die C-Batches mit `SOLL-KOEPFE > 0` (6), die Durchsatzzeile der BILANZ das
+**Mittel** über *alle* C-Batches (3,0). Ergebnis: „9 C-Batches" gegen „etwa 5" für Paket E.
+
+Jetzt bildet **eine** Rechnung (`stand.c_rate`) beide Zahlen und schreibt sie nebeneinander —
+in der Durchsatzzeile (BILANZ, Aussensicht-Eingabe) und in der PLAN/IST-Tafel:
+
+```text
+                 C-Rate je C-Batch: Median Zuwachs (Kopf-Batches): 6 | Mittel ueber alle C-Batches: 3,0
+```
+
+| | Grundmenge | Real (B219, 30.09.2026) |
+|---|---|---|
+| **Median Zuwachs (Kopf-Batches)** | Zuwächse der C-Batches mit `SOLL-KOEPFE > 0` (+7 B216, +5 B219); B- und Aufräum-Batches zählen nicht mit | **6** |
+| **Mittel ueber alle C-Batches** | jeder gemessene C-Batch-Schritt der Preflight-Reihe, auch die ohne Köpfe (0, 0, +7, +5) | **3,0** |
+
+**Gerechnet wird mit dem Median** — in der Paket-E-Hochrechnung, in der C-gesamt-Hochrechnung,
+in der Klasse „nicht ausgeführt" und in der PLAN/IST-Tafel; jede Hochrechnungszeile nennt ihre
+Grundlage in `(Grundlage: …)`. Fällt der Median aus (kein Kopf-Batch im Fenster), tritt das
+Mittel an seine Stelle, und `quelle` sagt das. Die frühere Zeile
+`(Summen-Mittel derselben Batches, nur zur Einordnung: …)` (§12x) ist damit **ersetzt**: sie
+nannte einen dritten Wert (Summen, keine Rate).
+
+Beleg: `docs/_r13ba_belege.md` (Erzeuger `docs/_r13ba_belege.py`, Ausgabe
+`docs/_r13ba_belege.txt`); Tests `tests/test_r13ba_fixes.py` (20) mit den echten Werten
+(Median 6, Mittel 3,0).
+
 ### 12b. Was der Nutzer selbst entscheiden muss
 
 Der grösste Hebel liegt ausserhalb des Harness: die 68K-Emulationsläufe im Decomp-Repo

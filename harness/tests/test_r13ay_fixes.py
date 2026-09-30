@@ -222,8 +222,10 @@ class TestMedianDerZuwaechse(Basis):
         self.assertIn("+5 (B219)", text)
         self.assertIn("6 Koepfe je C-Batch", text)
         self.assertIn("Ziel des naechsten Batches: hoechstens ca. 8", text)
-        # Die Summen stehen nur noch als Einordnung daneben.
-        self.assertIn("Summen-Mittel derselben Batches", text)
+        # R13ba (M221-5): die zweite Grundmenge steht mit Definition daneben -
+        # die Summenzeile ist durch die Rate-Zeile ersetzt.
+        self.assertIn("Median Zuwachs (Kopf-Batches): 6", text)
+        self.assertIn("Mittel ueber alle C-Batches", text)
 
     def test_ohne_vorgaengerwert_kein_median(self):
         self.preflight(219, 90)
@@ -249,7 +251,11 @@ class TestEchteWerte(unittest.TestCase):
         self.assertEqual((m["koepfe"], m["insn"]), (26, 2114))
         self.assertEqual(m["batch"], 219)
         self.assertTrue(m["datum"].startswith("2026-09-30"))
-        self.assertEqual(m["vorher"]["koepfe"], 38)
+        # R13ba: der Vorgaenger ist die naechstaeltere MESSUNG - welche das ist, haengt
+        # am Repo (B222 hat eigene Dateien angelegt). Festgehalten wird der Punkt von
+        # M219-3: es ist NICHT die 38 aus der Ist-Spalte des Dokuments.
+        self.assertIsNotNone(m.get("vorher"))
+        self.assertNotEqual(m["vorher"]["koepfe"], 38)
 
     def test_bilanz_zeigt_die_gemessene_zahl(self):
         text = "\n".join(bilanz.gesamt_block(self.cfg))

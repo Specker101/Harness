@@ -429,6 +429,64 @@ def paket_e_offen_text(messung: dict | None, letzter_dok_batch: int | None = Non
     return (f"nicht gemessen{seit} (keine Datei analysis/_m*/_c_paket_e*.txt)")
 
 
+def rate_text(median: float | None, mittel: float | None) -> str:
+    """`Median Zuwachs (Kopf-Batches): 6 | Mittel ueber alle C-Batches: 3,0` (M221-5).
+
+    Beide Zahlen mit ihrer Grundmenge im Namen - die Definition steht in der Zeile,
+    nicht in einer Fussnote (die Aussensicht liest nur die Zeile).
+    """
+    med = f"{median:.0f}" if median is not None else "nicht gemessen"
+    alle = f"{mittel:.1f}".replace(".", ",") if mittel is not None else "nicht gemessen"
+    return (f"Median Zuwachs (Kopf-Batches): {med} | "
+            f"Mittel ueber alle C-Batches: {alle}")
+
+
+def c_rate(cfg, n: int = STANDARD_FENSTER, reihen: list[dict] | None = None) -> dict:
+    """Die Rate "Koepfe je C-Batch" - ZWEI Grundmengen, getrennt ausgewiesen (R13ba).
+
+    Anlass (Aussensicht **M221-5**, gemessen 30.09.2026): derselbe Restvorrat (26 Koepfe)
+    wurde in EINER Eingabe mit zwei Raten hochgerechnet - `MEDIAN ... 6 Koepfe je C-Batch`
+    (PLAN/IST-Tafel) gegen `+3.0 je C-Batch ... -> 9 C-Batches` (Durchsatzzeile der
+    BILANZ). Der Unterschied ist die **Grundmenge**:
+
+      * **Median (Kopf-Batches)**: die Zuwaechse der C-Batches mit `SOLL-KOEPFE > 0` -
+        die Batches, in denen C Koepfe bauen SOLLTE. B-Batches und Aufraeum-Batches
+        zaehlen nicht mit (sie trugen den Nenner vorher auf 0 bzw. auf 3.0).
+        Real: +7 (B216), +5 (B219) -> **6**.
+      * **Mittel (alle C-Batches)**: jeder gemessene C-Batch-Schritt der Preflight-Reihe,
+        auch die ohne Koepfe. Real: 0, 0, +7, +5 -> **3.0**.
+
+    **Gerechnet wird mit dem Median**; das Mittel steht daneben, damit die Zahl
+    nachpruefbar bleibt. Faellt der Median aus (kein Kopf-Batch im Fenster), tritt das
+    Mittel an seine Stelle - `quelle` sagt, welche der beiden Zahlen gerechnet wurde.
+
+    Kein Aufruf aus `durchsatz()` heraus (das waere ein Kreis: `c_rate` -> `plan_ist` ->
+    `durchsatz`); die Textbauer holen die Rate ueber `durchsatz_zeilen`.
+    """
+    rows = reihen if reihen is not None else plan_ist(cfg, n)
+    kopf = [(int(r["batch"]), int(r["c_delta"])) for r in rows
+            if (r.get("strang") or "?") != "B" and (r.get("soll_koepfe") or 0) > 0
+            and r.get("c_delta") is not None]
+    med = median([d for _b, d in kopf])
+    trend = c_trend(cfg, TREND_FENSTER)
+    schritte = list(trend.get("c_schritte") or [])
+    mittel = ((sum(s["delta"] for s in schritte) / len(schritte)) if schritte else None)
+    med_quelle = ("Median der Zuwaechse der Kopf-Batches ("
+                  + ", ".join(f"{d:+d} (B{b})" for b, d in kopf) + ")"
+                  if kopf else "Median: kein C-Batch mit SOLL-KOEPFE > 0 im Fenster")
+    mittel_quelle = ("Mittel ueber alle C-Batches der Preflight-Reihe B"
+                      f"{trend['erst']['batch']}..B{trend['letzt']['batch']} ("
+                      + ", ".join(f"{s['delta']:+d}" for s in schritte) + ")"
+                      if (schritte and trend.get("erst") and trend.get("letzt")) else
+                      "Mittel ueber alle C-Batches: nicht gemessen ("
+                      + str(trend.get("grund") or "keine Preflight-Reihe") + ")")
+    return {"median": med, "mittel": mittel, "rate": med if med is not None else mittel,
+            "kopf_batches": kopf, "c_schritte": schritte,
+            "quelle": (med_quelle if med is not None else
+                       (mittel_quelle if mittel is not None else "keine Rate messbar")),
+            "text": rate_text(med, mittel)}
+
+
 def durchsatz(cfg, n: int = STANDARD_FENSTER) -> dict:
     """Verifizierte Koepfe und Insn je Batch plus Hochrechnung (R13s).
 
@@ -530,14 +588,19 @@ def kalender_zeilen(cfg, offen: float, d: dict, einheit: str = "Koepfe",
       * **Anteil** der C-Batches (Mischverhaeltnis aus `hybrid-plan.md`, sonst gemessen),
       * daraus die **Kalender-Batches** (C-Batches ÷ Anteil).
     Fehlt eine Zahl, wird nichts gerechnet (keine Schaetzung ohne Grundlage).
+
+    **Gerechnet wird mit `d['rate_c_koepfe']`** - dem MEDIAN der Kopf-Batches (R13ba,
+    M221-5). Vorher stand hier das Mittel ueber ALLE C-Batches (3.0 gegen 6), und dieselbe
+    Eingabe nannte fuer denselben Vorrat zwei verschiedene Zahlen.
     """
-    mittel_c = float(d.get("mittel_c_koepfe") or 0)
+    mittel_c = float(d.get("rate_c_koepfe") or d.get("mittel_c_koepfe") or 0)
+    quelle = d.get("rate_c_quelle") or d.get("mittel_c_quelle") or ""
     if not offen or mittel_c <= 0:
         return []
     c_need = float(offen) / mittel_c
     reihe = ", ".join(f"B{e['batch']}" for e in (d.get("c_fenster") or []))
     zeilen = [f"{einzug}-> {c_need:.0f} C-Batches bei +{mittel_c:.1f} {einheit} je C-Batch"
-              + (f" (Grundlage: {d['mittel_c_quelle']})" if d.get("mittel_c_quelle") else "")]
+              + (f" (Grundlage: {quelle})" if quelle else "")]
     anteil = d.get("anteil_c")
     if anteil:
         zeilen.append(f"{einzug}-> ca. {c_need / anteil:.0f} KALENDER-Batches "
@@ -1597,6 +1660,13 @@ def durchsatz_zeilen(cfg, n: int = STANDARD_FENSTER) -> list[str]:
     Aussensicht zu B210 als "mischt zwei Zaehler" beanstandet.
     """
     d = durchsatz(cfg, n)
+    # R13ba (M221-5): EINE Rate je C-Batch fuer alle Hochrechnungen - der MEDIAN der
+    # Kopf-Batches, nicht das Mittel ueber alle C-Batches. Die beiden Grundmengen stehen
+    # als eigene Zeile darunter (`rate_text`), damit die Zahl nachpruefbar bleibt.
+    raten = c_rate(cfg, n)
+    d["c_rate"] = raten
+    d["rate_c_koepfe"] = raten["rate"]
+    d["rate_c_quelle"] = raten["quelle"]
     if not d["fenster"]:
         return ["  Durchsatz    : nicht ermittelbar (keine Bilanzdatei gefunden)"]
     letzter = d["letzter"]
@@ -1662,6 +1732,8 @@ def durchsatz_zeilen(cfg, n: int = STANDARD_FENSTER) -> list[str]:
                       f"+{d.get('mittel_c_koepfe_r207', 0.0):.1f} Koepfe je C-Batch "
                       f"(R207-Zaehler, {len(c_batches)} von {d['n']}: {namen})")
     zeilen += _mischung_zeile(cfg, d)
+    if raten.get("text"):
+        zeilen.append(f"                 C-Rate je C-Batch: {raten['text']}")
     messung = d.get("paket_e_messung") or {}
     if messung:
         zeilen.append("                 offen (Paket E, C-Arbeitsvorrat): "
@@ -1758,8 +1830,10 @@ def _relevanz_zeilen(cfg, d: dict | None = None) -> list[str]:
         return ["  Port-Relevanz: nicht gemessen (tools/r13t_cov_relevanz.py fahren)"]
     d = d or {}
     # R13aa: gerechnet wird mit dem Durchsatz JE C-BATCH - die Klasse "nicht gebaut"
-    # wird nur in C-Batches abgearbeitet, nicht in jedem Kalender-Batch.
-    mittel = d.get("mittel_c_koepfe") or 0.0
+    # wird nur in C-Batches abgearbeitet, nicht in jedem Kalender-Batch. R13ba: das ist
+    # der MEDIAN der Kopf-Batches (dieselbe Zahl wie in der Hochrechnung), nicht das
+    # Mittel ueber alle C-Batches.
+    mittel = d.get("rate_c_koepfe") or d.get("mittel_c_koepfe") or 0.0
     zeilen = [
         f"  Port-Relevanz: ausgefuehrt {r['ausgefuehrt']} | davon gebaut "
         f"{r['gebaut_ausgefuehrt']} | davon verifiziert {r['verifiziert_ausgefuehrt']}"
@@ -2019,23 +2093,20 @@ def plan_ist_text(cfg, n: int = STANDARD_FENSTER) -> str:
     # R13aw (M219-3): der MEDIAN wird ueber die ZUWaeCHSE der C Koepfe je C-Batch
     # gebildet, nicht ueber die Gesamtzahl. GEMESSEN: die Summen sind 88, 96, 90 … -
     # ein Median daraus (88) beschreibt keinen Zuwachs, sondern den halben Bestand; die
-    # echten Zuwaechse waren +7 (B216) und +5 (B219).
-    basis = [r for r in reihen
-             if (r.get("strang") or "?") != "B" and (r.get("soll_koepfe") or 0) > 0]
-    zuwaechse = [r["c_delta"] for r in basis if r.get("c_delta") is not None]
-    med = median(zuwaechse)
+    # echten Zuwaechse waren +7 (B216) und +5 (B219). R13ba (M221-5): dieselbe Rechnung
+    # liefert `c_rate` - die Durchsatzzeile der BILANZ rechnet mit DIESER Zahl.
+    raten = c_rate(cfg, n, reihen=reihen)
+    basis = [{"batch": b, "c_delta": dlt} for b, dlt in raten["kopf_batches"]]
+    med = raten["median"]
     if med is None:
         zeilen.append("MEDIAN: nicht gemessen (kein C-Batch im Fenster mit "
                       "SOLL-KOEPFE > 0 und gemessenem Zuwachs)")
     else:
-        einzeln = ", ".join(f"{r['c_delta']:+d} (B{r['batch']})"
-                            for r in basis if r.get("c_delta") is not None)
-        zeilen.append(f"MEDIAN der {len(zuwaechse)} Zuwaechse der C Koepfe je C-Batch "
+        einzeln = ", ".join(f"{r['c_delta']:+d} (B{r['batch']})" for r in basis)
+        zeilen.append(f"MEDIAN der {len(basis)} Zuwaechse der C Koepfe je C-Batch "
                       f"mit SOLL-KOEPFE > 0 ({einzeln}): {med:.0f} Koepfe je C-Batch "
                       f"(Ziel des naechsten Batches: hoechstens ca. {med * 1.3:.0f})")
-        zeilen.append("  (Summen-Mittel derselben Batches, nur zur Einordnung: "
-                      + ", ".join(f"B{r['batch']} {r['c_koepfe']}"
-                                  for r in basis if r.get("c_koepfe") is not None) + ")")
+        zeilen.append("  (" + raten["text"] + ")")
     if rueckfall:
         zeilen.append("* Laufzeit NICHT aus runs/b<N>/result.json, sondern aus dem "
                       "Rueckfall (" + "; ".join(rueckfall) + ")")

@@ -436,7 +436,8 @@ class TestPlanUndMedian(Basis):
         self.assertRegex(text,
                          r"MEDIAN der 1 Zuwaechse der C Koepfe je C-Batch mit SOLL-KOEPFE > 0")
         self.assertIn("+5 (B210)", text)
-        self.assertIn("Summen-Mittel derselben Batches", text)
+        # R13ba (M221-5): die zweite Grundmenge steht mit Definition daneben.
+        self.assertIn("Mittel ueber alle C-Batches", text)
 
     def test_median_ohne_soll_ist_nicht_gemessen(self):
         self.bilanz_datei(210, 681, 686)
