@@ -1,0 +1,46 @@
+R13au: Rechnerlast - Maschine, Ghidra/Java, Worker (Messung 2026-09-30)
+
+1) Rechner
+  Kerne: 4 physisch / 8 Threads (Quelle: psutil)
+  RAM gesamt: 6135 MB
+  Ghidra-Heap laut Startskript: & $JDK21 "-Dghidra.home=$GH" "-Dapplication.name=GhidraMCP" -Xmx2g "-cp" $cp `
+
+2) Laufende Prozesse (RSS, gruppiert wie im Waechter)
+  eigene PIDs (Harness-Baum): 1 -> [14856]
+  fremd  claude   pid=16152   RSS=   213 MB  C:/Users/Benji/.local/bin/claude.exe -p --output-format stream-json --verbose --strict-mcp
+  fremd  python   pid=17928   RSS=   135 MB  C:\Users\Benji\AppData\Local\Programs\Python\Python312\python.exe c:\Users\Benji\.vscode\e
+  fremd  python   pid=10872   RSS=    65 MB  C:\Users\Benji\AppData\Local\Programs\Python\Python312\python.exe -u scripts/c_kopf.py pro
+  fremd  python   pid=2000    RSS=    26 MB  C:\Users\Benji\AppData\Local\Programs\Python\Python312\python.exe -m hx.cli watch
+  fremd  python   pid=7504    RSS=    26 MB  C:\Users\Benji\AppData\Local\Programs\Python\Python312\python.exe -u -m hx.cli --config G:
+  GHIDRA java     pid=10532   RSS=    25 MB  G:\Silent Scope Decomp\tools\jdk21\bin\java.exe -Dghidra.home=G:\Silent Scope Decomp\ghidr
+  fremd  python   pid=9276    RSS=    19 MB  C:\Users\Benji\AppData\Local\Programs\Python\Python312\python.exe g:\Silent Scope Decomp\t
+  EIGEN  python   pid=14856   RSS=    18 MB  C:\Users\Benji\AppData\Local\Programs\Python\Python312\python.exe -u docs\_r13au_belege.py
+  fremd  python   pid=7804    RSS=    14 MB  C:\Users\Benji\AppData\Local\Programs\Python\Python312\python.exe c:\Users\Benji\.vscode\e
+  fremd  python   pid=4288    RSS=     3 MB  F:\Silent Scope Decomp\tools\bridge-venv\Scripts\python.exe g:\Silent Scope Decomp\tools\b
+
+2b) Summen und die groessten Prozesse
+  Summe RSS je Gruppe:
+    java           1 Prozess(e), zusammen      25 MB
+    node/claude    1 Prozess(e), zusammen     213 MB
+    python         8 Prozess(e), zusammen     307 MB
+    andere       228 Prozess(e), zusammen    4645 MB
+    RAM gesamt 6135 MB, belegt 79 %, frei 1262 MB
+  groesste acht Prozesse:
+       1090 MB  Code.exe (pid 19488)
+        699 MB  Code.exe (pid 10764)
+        213 MB  claude.exe (pid 16152)
+        135 MB  python.exe (pid 17928)
+        122 MB  endpointprotection.exe (pid 4760)
+         81 MB  explorer.exe (pid 356)
+         75 MB  Code.exe (pid 10544)
+         71 MB  svchost.exe (pid 1304)
+
+3) Eine Aufnahme des Recorders (das ist die Zeile je Minute)
+  Quelle psutil: CPU 26.5 %, RAM frei 1267 MB, eigene 1, Ghidra 1, fremd 7 (python.exe)
+
+4) Wie die Zahlen im Bericht aussehen (Beispielwerte des laufenden Batches)
+  RECHNERLAST: CPU 31.2 % (Spitze 68.0 %), RAM frei min 4210 MB, FREMDLAST in 3 von 47 Minuten (bis 0 Prozesse: python.exe), Ghidra lief mit (1 Java-Prozess)
+
+5) Was der Harness daraus in result.json schreibt
+  cpu_max, cpu_mittel, fremdlast_minuten, last_eigene_max, last_fehler, last_fremd_max, last_fremde_namen, last_ghidra_max, last_intervall_s, last_proben, last_quelle, ram_frei_min
+  (der Wächter misst alle 60 s; Einstellung im Modul)

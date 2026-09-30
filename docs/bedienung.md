@@ -9,6 +9,9 @@ Alles liegt unter `g:\Harness\harness`. Zwei Bedienwege, **gleichwertig**:
 Zustand und Logs liegen in `state\`, `logs\`, `runs\`, `inbox\` — **kein** Zustand steckt
 im Chat oder im Terminal.
 
+**Während ein Batch läuft, nur die betroffenen Testdateien fahren** (volle Reihe nur am
+Gate oder bei gestopptem Harness) — Begründung und Messwerte in §12u.
+
 ---
 
 ## 1. Starten und Beenden
@@ -1296,6 +1299,44 @@ Das Zuglimit war bisher nur eine Zahl im Prompt („spätestens nach max−8 Zü
 Messwerte (Runden gegen `num_turns`, alle Läufe meta-208…meta-218, Limit je Lauf), die
 `num_turns`-Frage und die Gegenprobe im Worker-Umfeld (dort wirkt `--max-turns` **nicht**):
 `docs/_r13ar_belege.md`, `docs/_r13at_belege.md` + `docs/_r13at_messung.txt`.
+
+### 12u. Rechnerlast mitschreiben (R13au, 2026-09-30)
+
+**Arbeitsregel (verbindlich, gilt für jede Arbeit am Harness):**
+
+> **Während ein Batch läuft, werden nur die direkt betroffenen Testdateien gefahren.**
+> Die **volle** Reihe (`python -u -m unittest discover -s tests`) läuft nur, wenn der
+> Harness **am Gate steht** oder **gestoppt** ist. Der Zustand wird vorher aus
+> `state/run.json` **abgelesen und genannt** (`state`, `batch`, `worker`).
+
+Grund: der Rechner hat **4 Kerne / 8 Threads und 6 GB RAM** (gemessen, `docs/_r13au_belege.txt`),
+und während eines Batches laufen Worker, Ghidra, MCP-Bridge, `watch` und VS Code schon
+nebeneinander — im Messlauf waren **84 % des RAM belegt (986 MB frei)**. Eine parallele
+Testreihe nimmt dem Lauf CPU **und** Speicher; danach weiß niemand mehr, ob ein Batch
+langsam war, weil er schwer war oder weil ihm die Maschine fehlte.
+
+Damit das nicht geraten werden muss, misst der Harness selbst:
+
+| Punkt | Verhalten |
+|---|---|
+| **Wann** | jede Minute während des Worker-Laufs (`hx/last.py`, `last.Recorder`, gestartet in `worker.run_batch`, beendet im `finally`) |
+| **Was** | CPU gesamt in % (`psutil.cpu_percent(interval=1.0)`), freier RAM in MB (`virtual_memory().available`), Zahl der `python`-/`java`-Prozesse |
+| **Drei Gruppen** | **eigene** = Harness-Baum (der Worker ist ein Kind des Harness, Fortsetzungen ebenso); **ghidra** = der Java-Server des Projekts (an der Kommandozeile erkannt: `ghidra`, `GhidraMCP`, `-Dghidra.home`); **fremd** = alles andere an `python`/`java` (zweiter Testlauf, hängender Emulator, fremdes Skript). Nur **fremd** erzeugt `fremdlast_minuten` |
+| **`result.json`** | `cpu_mittel`, `cpu_max`, `ram_frei_min`, `fremdlast_minuten` (+ `last_proben`, `last_fremd_max`, `last_fremde_namen`, `last_ghidra_max`, `last_eigene_max`, `last_quelle`, `last_fehler`) |
+| **Review-Fakten** | `- RECHNERLAST: CPU 31.2 % (Spitze 68.0 %), RAM frei min 4210 MB, FREMDLAST in 3 von 47 Minuten (bis 9 Prozesse: python.exe), Ghidra lief mit (1 Java-Prozess)`; ohne Messung steht `nicht gemessen (<Grund>)` |
+| **Rückfall** | fehlt `psutil`, wird über die Windows-Zähler gemessen (`GetSystemTimes`, `GlobalMemoryStatusEx` über `ctypes`); die Prozessliste kommt dann nur über `tasklist` nach Namen, ohne Baumzugehörigkeit — die `quelle` steht in den Messdaten |
+| **Kein Fehler stört** | jede Ausnahme endet in „nicht gemessen" mit Grund — nie in einer geratenen Zahl |
+
+**Die Fremdlast ist ein Grundrauschen, keine Warnung.** Gemessen am 30.09.2026 liefen
+außerhalb des Harness-Baums dauerhaft mit: `hx.cli watch` (26 MB), der Harness selbst in
+einem zweiten Fenster (26 MB), die MCP-Bridge (3 MB), VS-Code-Helfer (135 + 14 MB) und
+`scripts/c_kopf.py` (46 MB) — dazu Ghidra (Java, `-Xmx2g`, Heap-Grenze aus
+`scripts/start-ghidra-headless.ps1:100`). Die **Spitze** (`bis N Prozesse`) steht deshalb
+in der Zeile: erst die Höhe über dem Grundrauschen sagt etwas über Fremdlast.
+
+Was der Worker selbst braucht: der `claude.exe`-Prozess (Node) lag im Messlauf bei
+**211 MB** RSS. Ghidra/Java läuft mit einer Heap-Grenze von 2 GB; der größte Einzelposten
+im Messlauf war VS Code (drei `Code.exe` mit zusammen ~2,2 GB).
 
 ### 12t. Reihenfolge-Wächter: `port/` erst nach der Vorhersage (R13as, 2026-09-30)
 

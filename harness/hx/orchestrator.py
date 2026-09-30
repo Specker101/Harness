@@ -23,6 +23,7 @@ from . import aussensicht
 from . import ask as askmod
 from . import bilanz as bilanzmod
 from . import denken as denkenmod
+from . import last as lastmod
 from . import reihenfolge as reimod
 from . import stand as standmod
 from .gitsafe import Git
@@ -2301,6 +2302,9 @@ class Orchestrator:
             # R13as (Aussensicht M218-1): hat der Lauf `port/` VOR dem Vorhersage-Commit
             # angefasst? Die Zeile ist Pflicht - "sauber" heisst geprueft, nicht ungeprueft.
             f"- {reimod.fakten_zeile(reimod.aus_result(res))}",
+            # R13au: Rechnerlast waehrend des Batches (CPU, RAM, Fremdlast je Minute).
+            # Sie erklaert, warum ein Lauf langsam war - und ob die Maschine geteilt wurde.
+            f"- {lastmod.fakten_zeile(res)}",
             f"- Profil: {res.get('profile')} | Programm: {res.get('program')}",
             f"- Exit-Code: {res.get('rc')} | Laufzeit: {self.dauer_line(res)} "
             f"| Abbruchgrund: {res.get('killed_reason') or 'kein Abbruch'}",

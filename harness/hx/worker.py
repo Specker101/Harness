@@ -23,7 +23,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import aufraeumen, envs, pricing, reihenfolge, retention, secrets, stand, streamjson, uhr
+from . import aufraeumen, envs, last, pricing, reihenfolge, retention, secrets, stand, streamjson, uhr
 from .gitsafe import Git
 
 # R13v3: Wie oft werden die Nachfahren des Workers aufgenommen? Der Nachweis "dieser
@@ -70,6 +70,8 @@ class WorkerResult:
         self.fortsetzungen: list[dict] = []
         # R13ah: Archiv des Preflights VOR der Fortsetzung (Pfad, "" = keiner noetig).
         self.preflight_archiv: str = ""
+        # R13au: Rechnerlast waehrend des Batches (CPU, RAM, Fremdlast je Minute).
+        self.last: dict = {}
 
     def describe(self) -> str:
         return (f"rc={self.rc} dauer={self.duration_s:.0f}s grenze={self.killed_reason or '-'} "
@@ -843,6 +845,10 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
             res.alarms.append(f"HINWEIS: Job-Objekt nicht verfuegbar ({job.grund}); "
                               "Prozessreste werden nur nachgesucht.")
         batch_start = time.time()
+        # R13au: die Rechnerlast waehrend des Batches mitschreiben (jede Minute, siehe
+        # hx/last.py). Der Recorder ist ein Daemon und endet mit dem Lauf - ein Fehler
+        # in der Messung darf den Batch nicht stueren (er landet als "nicht gemessen").
+        last_recorder = last.Recorder(log=log).start()
 
         def on_start_erster(pid: int) -> None:
             """Erster Teillauf: Startzeit UND PID in den Zustand (das ist die Batch-Uhr)."""
@@ -934,6 +940,11 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
             if ticker is not None:
                 ticker.stop()
                 log.info("Takt-Thread beendet", aufrufe=ticker.aufrufe)
+            last_recorder.stop()
+            res.last = last_recorder.werte()
+            log.info("Rechnerlast gemessen", **{k: res.last.get(k) for k in
+                                                ("cpu_mittel", "cpu_max", "ram_frei_min",
+                                                 "fremdlast_minuten", "proben", "quelle")})
             # Job schliessen = alle Reste darin beenden (KILL_ON_JOB_CLOSE). Das gilt
             # fuer JEDEN Ausgang: ein nach dem Worker-Ende weiterlaufender Hintergrund-
             # prozess wuerde sonst in den naechsten Batch hineinschreiben.
@@ -1156,6 +1167,7 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
         "preflight_laeufe": preflight_laeufe, "preflight_frueh": preflight_frueh,
     }
     payload.update(reihenfolge.in_result(reihenfolge_ergebnis))
+    payload.update(last.in_result(res.last))
     if log and (len(reihenfolge_ergebnis.get("port_vor_vorhersage") or []) or len(
             reihenfolge_ergebnis.get("mtime_manipulation") or [])):
         log.warn("Reihenfolge-Waechter: ABWEICHUNG",
