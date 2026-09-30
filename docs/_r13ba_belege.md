@@ -63,7 +63,7 @@ Definition daneben.
 
 ## Tests
 
-* neu `harness/tests/test_r13ba_fixes.py` (20): `rate_text` (echte Werte, Komma, „nicht
+* neu `harness/tests/test_r13ba_fixes.py` (20; im Nachtrag unten auf 31 erweitert): `rate_text` (echte Werte, Komma, „nicht
   gemessen"), `c_rate` (Median über die Kopf-Batches, Mittel über alle C-Batch-Schritte,
   `SOLL-KOEPFE: 0` zählt nicht mit, Rückfall auf das Mittel), die Hochrechnung mit Median
   (4 C-Batches) gegen den alten Mittel-Fall (9 C-Batches), `durchsatz_zeilen` und
@@ -73,18 +73,60 @@ Definition daneben.
   `Summen-Mittel`-Zeile ist durch die Rate-Zeile ersetzt), `test_r13ac_fixes.py` (gleiche
   Zeile im Median-Test).
 
-## Nebenbefund (nicht in diesem Batch behoben — gehört dem Reviewer)
+## Nachtrag (30.09.2026): der Nebenbefund ist behoben
 
-`stand.paket_e_messung` wählt die **neueste** Messung nach `(datum, mtime, …)`. Die Dateien
-von B222 tragen aber **keine** `# Messung: <Datum>`-Zeile (`_m222/_c_paket_e_vorher.txt:1@HEAD`:
-`# PAKET-E-STAND VORHER - Batch 222, Datum 2026-09-30, HEAD babf57c`), die B219-Datei schon
-(`_m219/_c_paket_e_nachher.txt:2@HEAD`). Ergebnis: die **neuere** Messung B222 (25 Koepfe /
-2011 Insn, `_m222/_c_paket_e.txt`) wird nicht gewählt, die B219-Zahl (26) bleibt stehen, und
-der Vorher-Vergleich wird **negativ**: `Paket E offen: 26 Koepfe / 2114 Insn … (B222 -> B219:
--1 Koepfe / -103 Insn gebaut)` (echte Zeile aus `bilanz.gesamt_block`, `docs/_r13ba_belege.txt`
-Abschnitt 6). Ein Datum, das fehlt, darf nicht „älter" als ein vorhandenes sein — der
-Batch-Ordner (`_m222` > `_m219`) und die Änderungszeit sagen das Gegenteil. Der Test
-`test_r13ay_fixes.py::test_offener_vorrat_ist_26_nicht_38` war dadurch rot (die Vorgänger-
-Messung ist nicht mehr B210/38); er prüft jetzt nur noch den Punkt von M219-3 (die Zahl kommt
-aus der Messung, nicht aus der Ist-Spalte des Dokuments) und nicht mehr, **welche** Messung
-der Vorgänger ist.
+**Auftrag.** „Durchsatzzeile angleichen … Nachtrag zu R13ba, Nebenbefund Paket-E-Messung
+(`hx/stand.py`, `paket_e_messung`): Auswahl der jüngsten Messdatei primär nach der
+Batchnummer aus dem Ordnernamen (`_m<N>`), danach ‚nachher' vor ‚vorher'; Datum aus dem
+Dateikopf nur noch als Anzeige und Gleichstand-Entscheider, nie als Hauptkriterium. Datum
+tolerant lesen (Formate der B219- und B222-Dateien; im Kopf nachsehen, nicht raten). Fehlt
+es: Datum = Änderungszeit, gekennzeichnet ‚(Datum aus Dateizeit)', und ein Hinweis in den
+Review-Fakten ‚PARSER: Messdatum in `<Datei>` nicht erkannt'. Test mit den echten Dateien
+`_m219/_c_paket_e_nachher.txt` und `_m222/_c_paket_e_vorher.txt`: gewählt wird `_m222`,
+offen = 25, kein negativer Vorher-Vergleich. `test_r13ay_fixes::test_offener_vorrat_ist_26_nicht_38`
+wieder auf eine eingefrorene Fixture stellen statt auf die lebenden Dateien."
+
+### Was geändert wurde
+
+| Stelle | vorher | jetzt |
+|---|---|---|
+| Auswahl (`stand.py:435@HEAD`) | `(datum, mtime, stand, name)` — ein **fehlendes** Datum sortierte als kleinstes, also hinter jede datierte Datei | `(batch, stand-Rang, datum, mtime, name)` mit Rang `nachher` (2) > bloße Messung (1) > `vorher` (0): **Batchnummer zuerst**, das Datum entscheidet nur innerhalb eines Batches |
+| Datum (`paket_e_datum`, `stand.py:355@HEAD`) | nur `^# Messung: <Tag>` (Regex `RE_PAKET_E_MESSKOPF`, entfernt) | **zwei** Formen, nur im Kopf (erste `PAKET_E_KOPF_ZEILEN` = 15 Zeilen, `stand.py:345`/`:352`): `# Messung: 2026-09-30 03:33` (B219) und `… Datum 2026-09-30` (B222). Fehlt beides → **Dateizeit**, `datum_quelle="dateizeit"` |
+| Anzeige (`paket_e_offen_text`, `stand.py:489@HEAD`) | „Datum aus der Aenderungszeit" | `gemessen B222, 2026-09-30 13:44 (Datum aus Dateizeit)` |
+| Review-Fakten (`paket_e_datum_hinweis`, `stand.py:466@HEAD`; Aufruf `orchestrator.py:2370@HEAD`) | keine Zeile | `PARSER: Messdatum in _m222/_c_paket_e.txt nicht erkannt - es gilt die Dateizeit (…); gemessen B222, 25 Koepfe / 2011 Insn` — **nur** der Fehlerfall, damit die Fakten nicht bei jedem Lauf wachsen (der Erfolgsfall steht in der BILANZ-Zeile) |
+
+### Beleg (Abschnitt 7 in `docs/_r13ba_belege.txt`)
+
+```
+  gewaehlt            : _m222/_c_paket_e.txt  (B222, 25 Koepfe / 2011 Insn, Dateiname-Rang stand='bloss')
+  Datum               : '2026-09-30 13:44'  Quelle dateizeit  -> Anzeige '(Datum aus Dateizeit)'
+  Vorher (anderer Wert): _m219/_c_paket_e_nachher.txt  (B219, 26 Koepfe)  -> Paar B219 -> B222
+  gleicher Wert im selben Batch: _m222/_c_paket_e_vorher.txt
+  Paket E offen: 25 Koepfe / 2011 Insn   [gemessen B222, 2026-09-30 13:44 (Datum aus Dateizeit): _m222/_c_paket_e.txt]   (B219 -> B222: 1 Koepfe / 103 Insn gebaut)
+  Review-Fakten       : PARSER: Messdatum in _m222/_c_paket_e.txt nicht erkannt - es gilt die Dateizeit (2026-09-30 13:44); gemessen B222, 25 Koepfe / 2011 Insn
+```
+
+Vorher stand dort `Paket E offen: 26 Koepfe / 2114 Insn … (B222 -> B219: -1 Koepfe / -103 Insn
+gebaut)` — falsche Zahl, verdrehtes Paar, negative „gebaut"-Zahl. Jetzt: **25** Koepfe,
+Paar `B219 -> B222`, `+1 Koepfe / +103 Insn gebaut` (`bilanz.py:554@HEAD`; `dk = vor["koepfe"]
+- messung["koepfe"]`).
+
+Die Rate aus dem Hauptteil bleibt unberührt (Median 6 / Mittel 3,0 → `-> 4 C-Batches`, jetzt
+über 25 statt 26 Köpfe gerechnet, unverändert 4).
+
+### Tests
+
+* `tests/test_r13ba_fixes.py` von 20 auf **31** erweitert: `paket_e_datum` (beide Formen, kein
+  Datum, ein Datum **weit unten** zählt nicht), Batchnummer schlägt das Datum
+  (`_m222` ohne Datum gegen `_m219` mit Datum), Rang `nachher` > bloß > `vorher` auch gegen ein
+  späteres Datum, Datum als Gleichstand-Entscheider, kein verdrehtes Vorher-Paar
+  (`(B219 -> B222: 1 Koepfe / 103 Insn gebaut)`, `(B222 -> B219` kommt nicht vor),
+  PARSER-Hinweis nur bei fehlendem Datum, und **die echten Dateien** des Auftrags
+  (`_m222` gewählt, 25/2011, Paar nicht verdreht, Hinweis + „(Datum aus Dateizeit)").
+* `tests/test_r13ay_fixes.py`: die zwei Prüfungen gegen lebende Dateien
+  (`test_offener_vorrat_ist_26_nicht_38`, `test_bilanz_zeigt_die_gemessene_zahl`) liegen jetzt
+  in `TestOffenerVorratGefroren` auf einer **eingefrorenen Fixture** (Dokument sagt 38/2674,
+  Messung 26/2114 → die Messung gewinnt). Der Live-Lauf hatte sich mit B222 selbst
+  ungültig gemacht (B222 legt eigene Messdateien an); `test_median_der_echten_zuwaechse_ist_sechs`
+  bleibt gegen die echten Preflight-Dateien.
+

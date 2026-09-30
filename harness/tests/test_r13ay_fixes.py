@@ -238,6 +238,50 @@ class TestMedianDerZuwaechse(Basis):
         self.assertIn("MEDIAN: nicht gemessen", text)
 
 
+class TestOffenerVorratGefroren(Basis):
+    """M219-3 als Regressionsschutz - auf einer **eingefrorenen** Fixture (R13ba-Nachtrag).
+
+    Vorher liefen diese Pruefungen gegen die lebenden Dateien des Decomp-Repos. Das war
+    nicht haltbar: B222 hat waehrend des Baus eigene Messdateien angelegt (`_m222/...`),
+    damit war die "Vorgaenger"-Messung nicht mehr B210/38 und die Pruefung rot - obwohl der
+    Harness richtig rechnete. Die Aussage von M219-3 haengt nicht am Repo, sondern an der
+    Regel "die Zahl kommt aus der MESSUNG, nicht aus der Ist-Spalte des Dokuments".
+    """
+
+    def dokument(self, n: int, pek: int = 38, pei: int = 2674) -> None:
+        """Ein Batch-Dokument mit der (ueberholten) Soll/Ist-Zeile `Paket E offen`."""
+        write_text_atomic(self.ana / f"port-batch{n}-attrappe.md",
+                          "# Batch\n\n| Zeile | Zaehlerdefinition | Soll | Ist | Abweichung |\n"
+                          "|---|---|---|---|---|\n"
+                          "| Paket E offen | `c_kopf.py paket_e` | 43 / 3025 "
+                          f"(Bl 20 / 1434) | **{pek} / {pei} (Bl 17 / 1202)** | 5 |\n")
+
+    def messdatei(self, n: int, koepfe: int, insn: int) -> None:
+        d = ensure_dir(self.ana / f"_m{n}")
+        write_text_atomic(d / f"_c_paket_e_nachher.txt",
+                          f"# Batch {n} TEIL 2 - PAKET E, Stand nachher\n"
+                          f"# Messung: 2026-09-30 03:33, HEAD 5b7eaf6\n"
+                          "== ERGEBNIS ==\n"
+                          f"  Paket E, offen GESAMT   :   {koepfe} Koepfe / "
+                          f"  {insn} Insn\n")
+
+    def test_offener_vorrat_ist_26_nicht_38(self):
+        self.dokument(208)
+        self.messdatei(219, 26, 2114)
+        m = stand.paket_e_messung(self.cfg)
+        self.assertEqual((m["koepfe"], m["insn"]), (26, 2114))
+        self.assertEqual(m["batch"], 219)
+        self.assertEqual(m["datum"], "2026-09-30 03:33")
+
+    def test_bilanz_zeigt_die_gemessene_zahl(self):
+        self.dokument(208)
+        self.messdatei(219, 26, 2114)
+        text = "\n".join(bilanz.gesamt_block(self.cfg))
+        self.assertIn("Paket E offen: 26 Koepfe / 2114 Insn", text)
+        self.assertIn("gemessen B219", text)
+        self.assertNotIn("Paket E offen: 38", text)
+
+
 @unittest.skipIf(not (ECHT_219.is_file() and ECHT_210.is_file()),
                  "echte Paket-E-Messungen fehlen")
 class TestEchteWerte(unittest.TestCase):
@@ -245,23 +289,6 @@ class TestEchteWerte(unittest.TestCase):
 
     def setUp(self):
         self.cfg = load_config()
-
-    def test_offener_vorrat_ist_26_nicht_38(self):
-        m = stand.paket_e_messung(self.cfg)
-        self.assertEqual((m["koepfe"], m["insn"]), (26, 2114))
-        self.assertEqual(m["batch"], 219)
-        self.assertTrue(m["datum"].startswith("2026-09-30"))
-        # R13ba: der Vorgaenger ist die naechstaeltere MESSUNG - welche das ist, haengt
-        # am Repo (B222 hat eigene Dateien angelegt). Festgehalten wird der Punkt von
-        # M219-3: es ist NICHT die 38 aus der Ist-Spalte des Dokuments.
-        self.assertIsNotNone(m.get("vorher"))
-        self.assertNotEqual(m["vorher"]["koepfe"], 38)
-
-    def test_bilanz_zeigt_die_gemessene_zahl(self):
-        text = "\n".join(bilanz.gesamt_block(self.cfg))
-        self.assertIn("Paket E offen: 26 Koepfe / 2114 Insn", text)
-        self.assertIn("gemessen B219", text)
-        self.assertNotIn("Paket E offen: 38", text)
 
     def test_median_der_echten_zuwaechse_ist_sechs(self):
         text = stand.plan_ist_text(self.cfg, 12)

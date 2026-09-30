@@ -2364,6 +2364,10 @@ class Orchestrator:
         # die positive Zeile oben stehen bleibt.
         lines += [f"- {z}" for z in
                   standmod.preflight_kodierung_hinweis(self.cfg, 1, self.log)]
+        # R13ba-Nachtrag: ein nicht lesbares Messdatum in der juengsten Paket-E-Messdatei
+        # wird als PARSER-Hinweis gemeldet (dann gilt die Dateizeit, und die BILANZ sagt
+        # "(Datum aus Dateizeit)") - ein stiller Rueckfall waere nicht nachpruefbar.
+        lines += [f"- {z}" for z in standmod.paket_e_datum_hinweis(self.cfg, self.log)]
         tools = st.get("tool_counts") or {}
         if tools:
             top = sorted(tools.items(), key=lambda kv: -kv[1])[:10]

@@ -82,6 +82,25 @@ def bericht() -> None:
     for zeile in bilanz.gesamt_block(cfg):
         if "C-Rate" in zeile or "bei +" in zeile:
             print("  " + zeile.strip())
+    print()
+    print("7) NACHTRAG - Auswahl der Messdatei (Befund aus R13ba, behoben)")
+    m = stand.paket_e_messung(cfg)
+    vor = m.get("vorher") or {}
+    print(f"  gewaehlt            : {m['datei']}  (B{m['batch']}, {m['koepfe']} Koepfe / "
+          f"{m['insn']} Insn, Dateiname-Rang stand={m['stand'] or 'bloss'!r})")
+    print(f"  Datum               : {m['datum']!r}  Quelle {m['datum_quelle']}"
+          + ("  -> Anzeige '(Datum aus Dateizeit)'" if m["datum_quelle"] == "dateizeit" else ""))
+    print(f"  Vorher (anderer Wert): {vor.get('datei')}  (B{vor.get('batch')}, "
+          f"{vor.get('koepfe')} Koepfe)  -> Paar B{vor.get('batch')} -> B{m['batch']}")
+    print(f"  gleicher Wert im selben Batch: {(m.get('vorher_gleich') or {}).get('datei')}")
+    for zeile in bilanz.gesamt_block(cfg):
+        if "Paket E offen" in zeile:
+            print("  " + zeile.strip())
+    hinweis = stand.paket_e_datum_hinweis(cfg)
+    print("  Review-Fakten       : " + (hinweis[0] if hinweis else "(kein PARSER-Hinweis)"))
+    print("  Auswahlsregel       : Batchnummer aus dem Ordnernamen zuerst, dann 'nachher'")
+    print("                        vor der blossen Messung vor 'vorher'; das Datum ist")
+    print("                        Anzeige und Gleichstand-Entscheider, nie Hauptkriterium.")
 
 
 def main() -> int:

@@ -1450,8 +1450,20 @@ Mittel an seine Stelle, und `quelle` sagt das. Die frühere Zeile
 nannte einen dritten Wert (Summen, keine Rate).
 
 Beleg: `docs/_r13ba_belege.md` (Erzeuger `docs/_r13ba_belege.py`, Ausgabe
-`docs/_r13ba_belege.txt`); Tests `tests/test_r13ba_fixes.py` (20) mit den echten Werten
+`docs/_r13ba_belege.txt`); Tests `tests/test_r13ba_fixes.py` (31) mit den echten Werten
 (Median 6, Mittel 3,0).
+
+**Nachtrag zur Auswahl der Messdatei (30.09.2026).** „Jüngste Messung“ heißt **nicht**
+„jüngstes Datum im Dateikopf“, sondern: **Batchnummer aus dem Ordnernamen** (`_m222` schlägt
+`_m219`), innerhalb eines Batches `_nachher` vor der bloßen Messung vor `_vorher`, und erst
+dann das Datum (Gleichstand-Entscheider) und die Dateizeit. Das Datum wird **tolerant**
+gelesen: `# Messung: 2026-09-30 03:33` (B219) und `… Datum 2026-09-30 …` (B222) — nur im
+Kopf, nicht irgendwo in der Datei. Fehlt es ganz, gilt die **Dateizeit** und die Anzeige sagt
+`(Datum aus Dateizeit)`; zusätzlich steht dann in den Review-Fakten
+`PARSER: Messdatum in <Datei> nicht erkannt …`. Anlass: die B222-Dateien tragen kein
+Datums-Feld, deshalb blieb die B219-Zahl (26 statt 25) stehen und der Vergleich kippte zu
+`(B222 -> B219: -1 Koepfe / -103 Insn gebaut)` — jetzt `(B219 -> B222: 1 Koepfe / 103 Insn
+gebaut)`.
 
 ### 12b. Was der Nutzer selbst entscheiden muss
 

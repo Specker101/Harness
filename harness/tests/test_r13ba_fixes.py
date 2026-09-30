@@ -38,6 +38,7 @@ from hx.util import ensure_dir, write_text_atomic                  # noqa: E402
 ECHTER_CFG = load_config()
 DEC = Path(ECHTER_CFG.decomp)
 ECHTER_STAND = stand.c_rate(ECHTER_CFG)
+ECHTER_MESSUNG = stand.paket_e_messung(ECHTER_CFG)
 # Die echten Kopf-Batches vom 30.09.2026: B216 (+7), B219 (+5).
 ECHTER_MEDIAN = 6
 ECHTER_TEXT = ("Median Zuwachs (Kopf-Batches): 6 | "
@@ -116,12 +117,23 @@ class Basis(unittest.TestCase):
                           "| **C Koepfe** | `c_kopf.py` | 78 / 2903 / 0 | "
                           "**78 / 2903 / 0** | 0 |\n")
 
-    def messdatei(self, n: int, koepfe: int, insn: int) -> None:
-        """Eine Paket-E-Messung, wie `c_kopf.py paket_e` sie ablegt."""
+    def messdatei(self, n: int, koepfe: int, insn: int, stand: str = "nachher",
+                  datum: str | None = "2026-09-30 03:33", form: str = "messung") -> None:
+        """Eine Paket-E-Messung, wie sie im Repo liegt.
+
+        `form="messung"` -> `# Messung: <datum>` (so schreibt B219), `form="vorher-kopf"`
+        -> `# PAKET-E-STAND VORHER - Batch <n>, Datum <datum>` (so liegt B222);
+        `datum=None` -> **kein** Datum im Kopf (die blosse B222-Datei).
+        """
         d = ensure_dir(self.ana / f"_m{n}")
-        write_text_atomic(d / f"_c_paket_e_nachher.txt",
-                          f"# Batch {n} TEIL 2 - PAKET E, Stand nachher\n"
-                          f"# Messung: 2026-09-30 03:33, HEAD 5b7eaf6\n"
+        name = f"_c_paket_e_{stand}.txt" if stand else "_c_paket_e.txt"
+        if datum and form == "messung":
+            kopf = f"# Messung: {datum}, HEAD 5b7eaf6\n"
+        elif datum:
+            kopf = f"# PAKET-E-STAND VORHER - Batch {n}, Datum {datum}, HEAD babf57c\n"
+        else:
+            kopf = "# Batch 198 (C) TEIL 1 - PAKET E GEMESSEN (offline, R398)\n"
+        write_text_atomic(d / name, kopf + "# Erzeuger: python scripts/c_kopf.py paket_e\n"
                           "== ERGEBNIS ==\n"
                           f"  Paket E, offen GESAMT   :   {koepfe} Koepfe / "
                           f"  {insn} Insn\n")
@@ -227,6 +239,132 @@ class TestHochrechnungNutztDenMedian(Basis):
         self.assertIn("C-Rate je C-Batch: " + ECHTER_TEXT, text)
         self.assertIn("bei +6.0 Koepfe je C-Batch", text)
         self.assertNotIn("bei +3.0 Koepfe je C-Batch", text)
+
+
+class TestAuswahlDerMessdatei(Basis):
+    """R13ba-Nachtrag: Batchnummer zuerst, `nachher` vor der blossen Messung vor `vorher`;
+    das Datum ist Anzeige und Gleichstand-Entscheider - nie Hauptkriterium."""
+
+    def test_batchnummer_schlaegt_das_datum(self):
+        """B222 ohne Datum gegen B219 mit Datum - B222 gewinnt (der alte Fehler)."""
+        self.messdatei(219, 26, 2114, stand="nachher")
+        self.messdatei(222, 25, 2011, stand="", datum=None)
+        m = stand.paket_e_messung(self.cfg)
+        self.assertEqual((m["batch"], m["koepfe"]), (222, 25))
+        self.assertEqual(m["datei"], "_m222/_c_paket_e.txt")
+        self.assertEqual(m["datum_quelle"], "dateizeit")
+
+    def test_datum_der_b222_form_wird_gelesen(self):
+        """`# PAKET-E-STAND VORHER - Batch 222, Datum 2026-09-30, HEAD …`."""
+        self.messdatei(222, 25, 2011, stand="vorher", datum="2026-09-30",
+                       form="vorher-kopf")
+        m = stand.paket_e_messung(self.cfg)
+        self.assertEqual(m["datum"], "2026-09-30")
+        self.assertEqual(m["datum_quelle"], "kopf")
+        self.assertTrue(m["kopf"])
+
+    def test_datum_der_b219_form_wird_gelesen(self):
+        """`# Messung: 2026-09-30 03:33, HEAD …`."""
+        self.messdatei(219, 26, 2114, stand="nachher")
+        m = stand.paket_e_messung(self.cfg)
+        self.assertEqual(m["datum"], "2026-09-30 03:33")
+        self.assertEqual(m["datum_quelle"], "kopf")
+
+    def test_nachher_vor_bloss_und_bloss_vor_vorher(self):
+        """Innerhalb eines Batches entscheidet der Name - auch gegen ein spaeteres Datum."""
+        self.messdatei(219, 26, 2114, stand="nachher", datum="2026-09-30 03:33")
+        self.messdatei(219, 30, 2200, stand="", datum="2026-09-30 09:00")
+        self.messdatei(219, 31, 2210, stand="vorher", datum="2026-09-30 10:00")
+        self.assertEqual((stand.paket_e_messung(self.cfg)["stand"],
+                          stand.paket_e_messung(self.cfg)["koepfe"]), ("nachher", 26))
+        # Ohne die `nachher`-Datei gewinnt die blosse Messung gegen `vorher`.
+        (self.ana / "_m219" / "_c_paket_e_nachher.txt").unlink()
+        m = stand.paket_e_messung(self.cfg)
+        self.assertEqual((m["stand"], m["koepfe"]), ("", 30))
+
+    def test_datum_entscheidet_bei_gleichem_rang(self):
+        """Gleichstand: zwei Messungen desselben Batches ohne `nachher`/`vorher` - das
+        spaetere Datum gewinnt."""
+        self.messdatei(219, 26, 2114, stand="", datum="2026-09-30 03:33")
+        write_text_atomic(self.ana / "_m219" / "_c_paket_e_zweit.txt",
+                          "# Messung: 2026-09-30 07:10, HEAD 5b7eaf6\n"
+                          "  Paket E, offen GESAMT   :   24 Koepfe /   1990 Insn\n")
+        m = stand.paket_e_messung(self.cfg)
+        self.assertEqual((m["koepfe"], m["datum"]), (24, "2026-09-30 07:10"))
+
+    def test_kein_verdrehtes_vorher_paar(self):
+        """Die Fixture des echten Falls: B219/_nachher 26, B222/_vorher 25."""
+        self.messdatei(219, 26, 2114, stand="nachher")
+        self.messdatei(222, 25, 2011, stand="vorher", datum="2026-09-30",
+                       form="vorher-kopf")
+        m = stand.paket_e_messung(self.cfg)
+        self.assertEqual((m["batch"], m["koepfe"]), (222, 25))
+        vor = m["vorher"]
+        self.assertEqual((vor["batch"], vor["koepfe"]), (219, 26))
+        self.assertLess(vor["batch"], m["batch"], "das Paar ist nicht verdreht")
+        text = "\n".join(bilanz.gesamt_block(self.cfg))
+        self.assertIn("(B219 -> B222: 1 Koepfe / 103 Insn gebaut)", text)
+        self.assertNotIn("(B222 -> B219", text)
+
+    def test_parser_hinweis_bei_fehlendem_datum(self):
+        self.messdatei(222, 25, 2011, stand="", datum=None)
+        hinweis = stand.paket_e_datum_hinweis(self.cfg)
+        self.assertEqual(len(hinweis), 1, hinweis)
+        self.assertTrue(hinweis[0].startswith(
+            "PARSER: Messdatum in _m222/_c_paket_e.txt nicht erkannt"), hinweis[0])
+        text = "\n".join(bilanz.gesamt_block(self.cfg))
+        self.assertIn("(Datum aus Dateizeit)", text)
+        self.assertIn("gemessen B222, ", text)
+
+    def test_kein_hinweis_wenn_das_datum_im_kopf_steht(self):
+        self.messdatei(222, 25, 2011, stand="vorher", datum="2026-09-30",
+                       form="vorher-kopf")
+        self.assertEqual(stand.paket_e_datum_hinweis(self.cfg), [])
+        self.assertNotIn("Dateizeit", "\n".join(bilanz.gesamt_block(self.cfg)))
+
+    def test_paket_e_datum_formen(self):
+        self.assertEqual(stand.paket_e_datum("# Messung: 2026-09-30 03:33, HEAD x"),
+                         ("2026-09-30 03:33", "kopf"))
+        self.assertEqual(stand.paket_e_datum("# PAKET-E-STAND VORHER - Batch 222, "
+                                             "Datum 2026-09-30, HEAD x"),
+                         ("2026-09-30", "kopf"))
+        self.assertEqual(stand.paket_e_datum("# nichts hier", 0.0), ("", ""))
+        # Ein Datum WEIT unten in der Datei zaehlt nicht - es wird nur der Kopf gelesen.
+        tief = "\n".join(["# ohne Datum"] + ["x"] * 20
+                          + ["# Messung: 2026-09-30 03:33"])
+        self.assertEqual(stand.paket_e_datum(tief, 0.0)[1], "")
+
+
+class TestEchteDateienB222(unittest.TestCase):
+    """Die echten Dateien aus dem Auftrag (nur lesend; skip, wenn das Repo weiterzieht)."""
+
+    def test_m222_gewinnt_offen_25_ohne_verdrehtes_paar(self):
+        m = ECHTER_MESSUNG
+        if int(m.get("batch") or 0) < 222:
+            self.skipTest(f"keine Messung ab B222: {m.get('datei')}")
+        self.assertEqual(m["batch"], 222)
+        self.assertIn("_m222/", m["datei"], "die neueste Messung liegt in _m222")
+        self.assertEqual(m["koepfe"], 25)
+        self.assertEqual(m["insn"], 2011)
+        vor = m.get("vorher") or {}
+        self.assertLess(vor.get("batch") or 0, 222, "das Paar ist nicht verdreht")
+        self.assertGreaterEqual(vor.get("koepfe", 0) - m["koepfe"], 0,
+                                "der offene Vorrat kann nicht negativ 'gebaut' werden")
+        text = "\n".join(bilanz.gesamt_block(ECHTER_CFG))
+        self.assertNotIn("(B222 -> B219", text)
+        self.assertIn(f"(B{vor['batch']} -> B222: {vor['koepfe'] - m['koepfe']} Koepfe /",
+                      text)
+
+    def test_echte_datei_ohne_datum_wird_gekennzeichnet(self):
+        m = ECHTER_MESSUNG
+        if int(m.get("batch") or 0) < 222:
+            self.skipTest(f"keine Messung ab B222: {m.get('datei')}")
+        hinweis = stand.paket_e_datum_hinweis(ECHTER_CFG)
+        if m["datum_quelle"] != "dateizeit":
+            self.assertEqual(hinweis, [])
+            return
+        self.assertTrue(hinweis and "PARSER: Messdatum in" in hinweis[0], hinweis)
+        self.assertIn("(Datum aus Dateizeit)", "\n".join(bilanz.gesamt_block(ECHTER_CFG)))
 
 
 class TestEchteWerte(unittest.TestCase):

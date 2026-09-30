@@ -32,6 +32,7 @@ bzw. "UNKLAR FORMULIERT" in der Ausgabe (Nutzerentscheid 2026-09-28).
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from pathlib import Path
 
 from . import protocol
@@ -334,9 +335,43 @@ def _r207_aus_dokumenten(cfg, reihe: list[dict]) -> None:
 # `analysis/_m<N>/_c_paket_e*.txt` schreibt - mit Datum und HEAD im Kopf.
 RE_PAKET_E_GESAMT = re.compile(
     r"Paket E,\s*offen GESAMT\s*:\s*(\d+)\s*Koepfe\s*/\s*(\d+)\s*Insn")
-RE_PAKET_E_MESSKOPF = re.compile(
-    r"^#\s*Messung:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})[ ,T]*([0-9]{1,2}:[0-9]{2})?", re.M)
 RE_PAKET_E_ORDNER = re.compile(r"^_m(\d+)$")
+# R13ba-Nachtrag: das Messdatum steht in zwei Formaten in den Dateien (im Kopf nachgesehen,
+# 30.09.2026 - nicht geraten):
+#   `_m219/_c_paket_e_nachher.txt:2`  "# Messung: 2026-09-30 03:33, HEAD 5b7eaf6, …"
+#   `_m222/_c_paket_e_vorher.txt:1`   "# PAKET-E-STAND VORHER - Batch 222, Datum
+#                                      2026-09-30, HEAD babf57c"
+# `_m222/_c_paket_e.txt` traegt GAR KEIN Datum - dafuer gilt die Dateizeit (s. u.).
+RE_PAKET_E_DATUM = (
+    re.compile(r"^#\s*Messung:\s*([0-9]{4})-([0-9]{2})-([0-9]{2})"
+               r"(?:[ ,T]+([0-9]{1,2}:[0-9]{2}))?", re.M),
+    re.compile(r"\bDatum:?\s+([0-9]{4})-([0-9]{2})-([0-9]{2})"
+               r"(?:[ ,T]+([0-9]{1,2}:[0-9]{2}))?", re.I),
+)
+# "im Kopf nachsehen": nur die ersten Zeilen werden fuer das Datum gelesen.
+PAKET_E_KOPF_ZEILEN = 15
+
+
+def paket_e_datum(text: str, mtime: float = 0.0) -> tuple[str, str]:
+    """`(datum, quelle)` aus dem Kopf einer Paket-E-Messdatei (R13ba-Nachtrag).
+
+    Gelesen werden nur die ersten `PAKET_E_KOPF_ZEILEN` Zeilen und nur die zwei Formate,
+    die die Messdateien wirklich tragen (`# Messung: <Tag> [Zeit]`, `Datum <Tag> [Zeit]`).
+    Fehlt beides, gilt die **Aenderungszeit der Datei** - `quelle` heisst dann
+    `"dateizeit"`, die Anzeige schreibt "(Datum aus Dateizeit)", und die Review-Fakten
+    melden `PARSER: Messdatum in <Datei> nicht erkannt`.
+
+    `("", "")` heisst: weder Datum noch Dateizeit lesbar (Datei nicht mehr da).
+    """
+    kopf = "\n".join((text or "").splitlines()[:PAKET_E_KOPF_ZEILEN])
+    for muster in RE_PAKET_E_DATUM:
+        m = muster.search(kopf)
+        if m:
+            tag = "-".join(m.group(1, 2, 3))
+            return (f"{tag} {(m.group(4) or '').strip()}".strip(), "kopf")
+    if mtime:
+        return (datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M"), "dateizeit")
+    return ("", "")
 
 
 def paket_e_messung(cfg, log=None) -> dict:
@@ -344,15 +379,24 @@ def paket_e_messung(cfg, log=None) -> dict:
 
     Rueckgabe `{}`, wenn es keine gibt. Sonst:
 
-        {"koepfe": 26, "insn": 2114, "batch": 219, "zeile": 127,
-         "datei": "_m219/_c_paket_e_nachher.txt", "datum": "2026-09-30 03:33",
-         "kopf": True, "stand": "nachher", "vorher": {...} oder None}
+        {"koepfe": 25, "insn": 2011, "batch": 222, "zeile": 127,
+         "datei": "_m222/_c_paket_e.txt", "datum": "2026-09-30 13:44",
+         "kopf": False, "datum_quelle": "dateizeit", "stand": "",
+         "vorher": {...} oder None}
 
-    Ausgewaehlt wird nach (Messdatum aus dem Dateikopf, Aenderungszeit, `nachher` vor
-    `vorher`, Name) - gemessen in B219 tragen `_vorher` und `_nachher` DASSELBE Datum und
-    denselben HEAD (Befund M219-4: die "Vorher"-Messung war keine), deshalb entscheidet
-    der Dateiname. `vorher` ist die naechstaeltere Messung mit ANDEREM Wert (fuer das
-    Delta "gebaut").
+    **Auswahl (R13ba-Nachtrag, Nutzerauftrag 30.09.2026):** primaer nach der
+    **Batchnummer aus dem Ordnernamen** (`_m<N>`), dann `nachher` vor der blossen Messung
+    vor `vorher`; das Datum aus dem Dateikopf ist nur noch **Anzeige** und
+    **Gleichstand-Entscheider** (innerhalb eines Batches), **nie** Hauptkriterium.
+    Anlass (Befund aus R13ba): die B222-Dateien tragen kein `# Messung:`-Datum, deshalb
+    standen sie mit dem alten Schluessel `(datum, mtime, …)` HINTEN - gewaehlt wurde
+    weiter B219 (26 statt 25 Koepfe), und der Vorher-Vergleich kippte zu
+    `(B222 -> B219: -1 Koepfe / -103 Insn gebaut)`.
+
+    Das Datum wird **tolerant** gelesen (`paket_e_datum`); fehlt es, gilt die Dateizeit
+    (gekennzeichnet). `vorher` ist die naechstaeltere Messung mit ANDEREM Wert (fuer das
+    Delta "gebaut"), `vorher_gleich` eine aeltere Datei mit demselben Wert (Befund
+    M219-4: die "Vorher"-Messung des Werkzeugs war keine).
     """
     basis = Path(cfg.decomp) / "analysis"
     kandidaten: list[dict] = []
@@ -370,8 +414,6 @@ def paket_e_messung(cfg, log=None) -> dict:
         m = RE_PAKET_E_GESAMT.search(text)
         if not m:
             continue
-        kopf = RE_PAKET_E_MESSKOPF.search(text)
-        datum = " ".join(g for g in kopf.groups() if g) if kopf else ""
         zeile = next((i for i, z in enumerate(text.splitlines(), 1)
                       if RE_PAKET_E_GESAMT.search(z)), 0)
         stand = ("nachher" if "nachher" in p.name.lower()
@@ -380,12 +422,18 @@ def paket_e_messung(cfg, log=None) -> dict:
             mtime = p.stat().st_mtime
         except OSError:
             mtime = 0.0
+        datum, datum_quelle = paket_e_datum(text, mtime)
+        batch = int(p.parent.name[2:])
         kandidaten.append({
             "koepfe": int(m.group(1)), "insn": int(m.group(2)),
-            "batch": int(p.parent.name[2:]), "zeile": zeile,
+            "batch": batch, "zeile": zeile,
             "datei": p.relative_to(basis).as_posix(), "datum": datum,
-            "kopf": bool(kopf), "stand": stand,
-            "_sort": (datum, mtime, 1 if stand == "nachher" else 0, p.name)})
+            "datum_quelle": datum_quelle, "kopf": datum_quelle == "kopf",
+            "stand": stand,
+            # Rang des Dateinamens INNERHALB eines Batches: nachher (2) vor der blossen
+            # Messung (1) vor vorher (0); danach erst das Datum, dann die Zeit, der Name.
+            "_sort": (batch, 2 if stand == "nachher" else (1 if not stand else 0),
+                      datum, mtime, p.name)})
     if not kandidaten:
         if log:
             log.info("Paket-E-Messung: keine Datei gefunden",
@@ -410,9 +458,32 @@ def paket_e_messung(cfg, log=None) -> dict:
                              if gleich else None)
     if log:
         log.info("Paket-E-Messung gelesen", datei=aus["datei"], koepfe=aus["koepfe"],
-                 insn=aus["insn"], datum=aus["datum"] or "(kein Kopf)",
-                 stand=aus["stand"] or "-")
+                 insn=aus["insn"], datum=aus["datum"] or "(kein Datum)",
+                 datum_quelle=aus["datum_quelle"], stand=aus["stand"] or "-")
     return aus
+
+
+def paket_e_datum_hinweis(cfg, log=None) -> list[str]:
+    """PARSER-Hinweis fuer die Review-Fakten: Messdatum nicht erkannt (R13ba-Nachtrag).
+
+    Nur der Fehlerfall wird gemeldet: die gewaehlte Messdatei traegt kein lesbares Datum,
+    es gilt die **Dateizeit** (die Anzeige sagt es mit "(Datum aus Dateizeit)"). Der
+    Fachbegriff steht am Zeilenanfang (`PARSER:`), damit er maschinell auffindbar ist.
+    """
+    m = paket_e_messung(cfg, log=log)
+    if not m:
+        return []
+    if m.get("datum_quelle") == "dateizeit":
+        zeile = (f"PARSER: Messdatum in {m['datei']} nicht erkannt - es gilt die Dateizeit "
+                 f"({m['datum']}); gemessen B{m['batch']}, {m['koepfe']} Koepfe / "
+                 f"{m['insn']} Insn")
+        if log:
+            log.info("PARSER: Messdatum nicht erkannt", datei=m["datei"],
+                     dateizeit=m["datum"], batch=m["batch"])
+        return [zeile]
+    if not m.get("datum"):
+        return [f"PARSER: Weder Messdatum noch Dateizeit in {m['datei']} lesbar"]
+    return []
 
 
 def paket_e_offen_text(messung: dict | None, letzter_dok_batch: int | None = None) -> str:
@@ -421,8 +492,8 @@ def paket_e_offen_text(messung: dict | None, letzter_dok_batch: int | None = Non
         herkunft = f"gemessen B{messung['batch']}"
         if messung.get("datum"):
             herkunft += f", {messung['datum']}"
-        elif not messung.get("kopf"):
-            herkunft += ", Datum aus der Aenderungszeit"
+        if messung.get("datum_quelle") == "dateizeit":
+            herkunft += " (Datum aus Dateizeit)"
         return (f"{messung['koepfe']} Koepfe / {messung['insn']} Insn"
                 f"   [{herkunft}: {messung['datei']}]")
     seit = f" seit B{int(letzter_dok_batch)}" if letzter_dok_batch else ""
