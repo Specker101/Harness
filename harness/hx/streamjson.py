@@ -81,6 +81,26 @@ def _norm(text: str) -> str:
     return re.sub(r"/+", "/", str(text).lower().replace("\\", "/"))
 
 
+def runden_aus_zeilen(zeilen) -> int:
+    """Werkzeugrunden aus beliebigen stream-json-Zeilen (R13ar).
+
+    Gelesen wird damit das **Transcript** einer Sitzung (Feld `transcript_path` der
+    Hook-Eingabe, gemessen in `docs/_r13ar_hook_eingabe.txt`) - dieselbe Zaehlweise wie
+    `StreamStats.runden()`, damit Hook und Bericht dieselbe Zahl nennen. Unbekannte
+    Zeilentypen (das Transcript traegt auch `queue-operation`, `attachment`, …) werden
+    von `StreamStats.feed` ignoriert. Kaputte Zeilen zaehlen nicht.
+    """
+    st = StreamStats()
+    for z in zeilen:
+        if not str(z).strip():
+            continue
+        try:
+            st.feed(z)
+        except Exception:                                            # noqa: BLE001
+            continue
+    return st.runden()
+
+
 class TaktThread:
     """Ruft `takt()` auch dann weiter, wenn KEINE Zeile im Mitschnitt ankommt (R13h).
 
@@ -660,6 +680,15 @@ class StreamStats:
         self._tool_names: dict[str, str] = {}   # tool_use.id -> Werkzeugname
         self.tools: list[dict] = []             # je Aufruf: {ts, id, name, input}
         self.tool_counts: dict[str, int] = {}
+        # R13ar (30.09.2026): WERKZEUGRUNDEN = Modellantworten MIT Werkzeugaufruf.
+        # GEMESSEN: ein `--max-turns N` bricht nach N solchen Antworten ab
+        # (`error_max_turns`, Beleg `docs/_r13ar_limit_probe_reviewer.txt`: Limit 2 ->
+        # Abbruch nach 2 Runden, `num_turns=3`). `num_turns` im Ergebnis-Ereignis ist
+        # eine ANDERE Zahl (Werkzeugergebnisse + 1: `runs/meta-214` 34 Aufrufe -> 35,
+        # aber nur 23 Runden). Gezaehlt wird nach `message.id` - die CLI schreibt je
+        # Inhaltsblock ein eigenes `assistant`-Ereignis (Modul-Docstring).
+        self._runden_ids: set[str] = set()
+        self.runden_ohne_id: int = 0
 
         self.texts: list[str] = []
         self.tool_results: list[str] = []
@@ -797,6 +826,12 @@ class StreamStats:
                     self.tools.append({"ts": ev.get("timestamp") or "", "id": tid,
                                        "name": name, "input": block.get("input") or {}})
                     self.tool_counts[name] = self.tool_counts.get(name, 0) + 1
+                    # R13ar: diese Nachricht hat einen Werkzeugaufruf -> sie ist EINE
+                    # Runde (mehrere Aufrufe in derselben Nachricht zaehlen einmal).
+                    if mid:
+                        self._runden_ids.add(str(mid))
+                    else:
+                        self.runden_ohne_id += 1
                     if self.secret_watch is not None:
                         self._secret_pfad(name, block.get("input") or {}, tid)
                     # R13i: Prozessabbau nach Muster erkennen (vor der Ausfuehrung:
@@ -1162,6 +1197,15 @@ class StreamStats:
         werte = [int(ev.get("num_turns")) for ev in self._result_liste()
                  if isinstance(ev.get("num_turns"), int)]
         return sum(werte) if werte else None
+
+    def runden(self) -> int:
+        """Werkzeugrunden: Modellantworten MIT Werkzeugaufruf (R13ar).
+
+        Das ist die Zahl, gegen die die CLI ihr `--max-turns` prueft (gemessen,
+        `docs/_r13ar_limit_probe_reviewer.txt`), NICHT `num_turns` aus dem
+        Ergebnis-Ereignis (Werkzeugergebnisse + 1).
+        """
+        return len(self._runden_ids) + int(self.runden_ohne_id or 0)
 
     def total_cost_usd_field(self) -> float | None:
         werte = [float(ev.get("total_cost_usd")) for ev in self._result_liste()

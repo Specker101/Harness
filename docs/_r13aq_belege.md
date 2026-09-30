@@ -31,10 +31,16 @@ Messwerte: `docs/_r13aq_messung.txt` (Werkzeug `docs/_r13aq_probe.py`, nur lesen
 
 | Lauf | 208 | 209 | 210 | 211 | 212 | 213 | 214 | 217 |
 |---|---|---|---|---|---|---|---|---|
-| Züge | 28 | 17 | 26 | 25 | 24 | 29 | **35** | 31 (Abbruch) |
+| Züge (`num_turns`) | 28 | 17 | 26 | 25 | 24 | 29 | **35** | 31 (Abbruch) |
 
 Der **größte** bisherige Lauf war also **35** Züge (meta-214) — genau der Grund, warum 30
 zu knapp war. (Neu: **50** = 35 gemessen + Reserve, s. §3.)
+
+**Nachtrag R13ar (30.09.2026):** `num_turns` ist **nicht** die Zahl, gegen die die CLI ihr
+`--max-turns` prüft — sie zählt **Werkzeugrunden**. meta-214 brauchte nur **23** Runden
+(deshalb lief er mit Limit 30 durch), meta-217 genau **30** (deshalb der Abbruch).
+Messung: `docs/_r13ar_belege.md` §1. Das Zuglimit von 50 bleibt davon unberührt (23 bzw.
+30 Runden liegen darunter).
 
 ## 2. Marken nach dem gescheiterten Lauf (Punkt 2 des Auftrags)
 

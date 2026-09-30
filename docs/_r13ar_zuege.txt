@@ -1,0 +1,21 @@
+﻿R13ar: Zaehlweisen der Aussensicht-Laeufe (Limit war 30 bis R13aq)
+
+Lauf       num_turns           subtype  Runden-IDs  tool_use  max/Block   user  Message-IDs
+-------------------------------------------------------------------------------------------
+meta-208          28           success          18        27          1     27           19
+meta-209          17           success          10        15          1     16           11
+meta-210          26           success          19        25          1     25           20
+meta-211          25           success          15        24          1     24           16
+meta-212          24           success          16        23          1     23           17
+meta-213          29           success          18        28          1     28           19
+meta-214          35           success          23        34          1     34           24
+meta-217          31   error_max_turns          30        41          1     41           30
+
+Lesehilfe: `num_turns` ist die Zahl aus dem Ergebnis-Ereignis der CLI.
+`Runden-IDs` = Modellantworten MIT Werkzeugaufruf, nach Message-ID gezaehlt
+(mehrere Aufrufe in derselben Antwort = EINE Runde); `max/Block` ist die
+groesste Zahl paralleler Aufrufe in einer Antwort.
+
+Transcript-Gegenprobe (zweite Quelle, zaehlt wie die Zuguhr):
+  meta-214: 23 Runden  <- cc-reviewer/projects/g--Silent-Scope-Decomp/46a7be7b-5b57-457d-96a6-7aa215de7fc8.jsonl
+  meta-217: 30 Runden  <- cc-reviewer/projects/g--Silent-Scope-Decomp/d19c9eda-fe57-4fae-8cbc-8c154e7745db.jsonl

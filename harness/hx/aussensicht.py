@@ -49,6 +49,7 @@ import json
 import os
 import random
 import re
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -1133,10 +1134,12 @@ def build_prompt(cfg, state, grund, tiefe: dict | None = None) -> str:
 
 
 # ------------------------------------------------------------------ Kommando
-def build_command(cfg) -> list[str]:
+def build_command(cfg, hooks_settings: str | None = None) -> list[str]:
     """Kommandozeile fuer die Aussensicht - IMMER frische Session, nur lesend.
 
     Gleiches Modell wie der Reviewer (Abo-Token), gleiche Pfad- und Secret-Regeln.
+    `hooks_settings` (R13ar) ist die Einstellungsdatei mit der Zuguhr
+    (`write_hook_settings`); fehlt sie, laeuft der Aufruf wie vorher ohne Hook.
     """
     exe = str(cfg.get("claude", "exe"))
     tools_value = ",".join(["Read", "Grep", "Glob", GIT_TOOL])
@@ -1161,7 +1164,50 @@ def build_command(cfg) -> list[str]:
     sp = Path(cfg.prompts_dir) / "aussensicht.md"
     if sp.is_file():
         cmd += ["--append-system-prompt-file", str(sp)]
+    if hooks_settings:
+        cmd += ["--settings", str(hooks_settings)]
     return cmd
+
+
+def write_hook_settings(cfg, batch: int) -> str | None:
+    """Die Zuguhr als PostToolUse-Hook fuer DIESEN Lauf (R13ar) -> Pfad.
+
+    Anlass (gemessen): `runs/meta-217` verbrauchte alle Zuege mit Vorarbeit und schrieb
+    am Ende nur einen Zwischenstand - der Lauf war verloren. Der einzige Text, den das
+    Modell WAEHREND des Laufs zu sehen bekommt, ist der Hook-Kontext (R13ac hat den Weg
+    mit echtem Lauf belegt: `docs/_r13ac_hook.txt`). Die Uhr zeigt die Zugarzahl, die
+    die CLI selbst zaehlt (Werkzeugrunden), und ab `Limit - 5` die Aufforderung, im
+    Blockformat zu antworten.
+
+    Fehlt das Skript, wird KEIN Hook gehaengt (der Lauf bleibt unberuehrt).
+    """
+    skript = Path(__file__).resolve().parents[1] / "tools" / "aussensicht_uhr.py"
+    if not skript.is_file():
+        return None
+    grenze = int(grenzen(cfg)["max_turns"])
+    daten = {"hooks": {"PostToolUse": [{"hooks": [{
+        "type": "command",
+        "timeout": 10,
+        "command": sys.executable,
+        "args": [str(skript), "--limit", str(grenze)],
+    }]}]}}
+    ziel = Path(cfg.root) / "runs" / f"meta-{int(batch):03d}-hooks.json"
+    write_text_atomic(ziel, json.dumps(daten, indent=1) + "\n")
+    return str(ziel)
+
+
+def limit_hinweis(batch: int, runden: int, grenze: int) -> str:
+    """Warnung, wenn ein Lauf mehr als 80 % des Zuglimits gebraucht hat (R13ar).
+
+    Rueckgabe '' heisst: kein Hinweis. Der Satz steht so in der Telegram-Meldung UND
+    als Zeile im Bericht (`bericht`) - eine Quelle, zwei Anzeigen.
+    """
+    if grenze <= 0 or runden <= 0:
+        return ""
+    if runden > 0.8 * grenze:
+        return (f"Aussensicht B{int(batch)}: {int(runden)} von {int(grenze)} Zuegen "
+                "genutzt - Limit pruefen")
+    return ""
 
 
 # ------------------------------------------------------------------ Auswertung
@@ -1440,11 +1486,14 @@ class Ergebnis:
         self.subtype: str = ""
         self.zuege: int | None = None
         self.gescheitert: str = ""
+        # R13ar: Werkzeugrunden - die Zahl, gegen die die CLI ihr Zuglimit prueft.
+        self.zug_runden: int = 0
 
     def describe(self) -> str:
         return (f"rc={self.rc} dauer={self.dauer_s:.0f}s modell={self.modell or '-'} "
                 f"befunde={len(self.befunde)} verworfen={len(self.verworfen)}"
                 + (f" zuege={self.zuege}" if self.zuege else "")
+                + (f" runden={self.zug_runden}" if self.zug_runden else "")
                 + (f" subtype={self.subtype}" if self.subtype else "")
                 + (f" tiefenprobe=B{self.tiefe.get('batch')}"
                    if self.tiefe.get("batch") else ""))
@@ -1511,7 +1560,9 @@ def run(cfg, log, state, grund: str, mock: bool = False,
     else:
         oauth = secrets.load(cfg.secrets_dir, secrets.CLAUDE_OAUTH)
         env = envs.reviewer_env(cfg, os.environ, oauth)
-        cmd = build_command(cfg)
+        # R13ar: die Zuguhr als PostToolUse-Hook (Zug X von Y, ab Limit-5 die Frist).
+        hooks = write_hook_settings(cfg, batch)
+        cmd = build_command(cfg, hooks_settings=hooks)
         t0 = time.time()
         run = run_stream(cmd, env, cwd=str(cfg.decomp), out_path=ziel,
                          on_event=None, hard_wall_s=float(grenzen(cfg)["wall_s"]),
@@ -1528,6 +1579,9 @@ def run(cfg, log, state, grund: str, mock: bool = False,
         # in der Meldung, wenn der Lauf nicht als Aussensicht zaehlt.
         res.subtype = str((stats.result or {}).get("subtype") or "")
         res.zuege = stats.num_turns()
+        # R13ar: die Werkzeugrunden (Zahl der CLI fuer ihr Zuglimit) - Grundlage der
+        # Fruehwarnung "ueber 80 % des Limits genutzt".
+        res.zug_runden = stats.runden()
         streamjson.schreibe_rate_limit(cfg, stats.rate_limit, f"Aussensicht b{batch}")
         if log:
             log.info("Aussensicht fertig", batch=batch, rc=res.rc,
@@ -1638,6 +1692,15 @@ def bericht(cfg, batch: int, grund: str, res: Ergebnis, verteilung: dict,
         f"- Ausloeser-Gruende: {'; '.join(gruende[:6]) or '-'}",
         f"- Lauf: {res.describe()}",
     ]
+    # R13ar: Zugarzahl und -verbrauch (die CLI prueft gegen die Werkzeugrunden) sowie
+    # die Fruehwarnung, wenn ein Lauf ueber 80 % des Limits gebraucht hat.
+    if res.zug_runden:
+        grenze = int(grenzen(cfg)["max_turns"])
+        zeilen.append(f"- Zuege (Werkzeugrunden): {res.zug_runden} von {grenze}"
+                      + (f" - num_turns laut CLI: {res.zuege}" if res.zuege else ""))
+        warnung = limit_hinweis(batch, res.zug_runden, grenze)
+        if warnung:
+            zeilen.append(f"- LIMIT PRUEFEN: {warnung}")
     ok, warum = gelaufen(res)
     if not ok:
         zeilen.append(f"- ERGEBNIS: GESCHEITERT ({warum}) - zaehlt NICHT als Aussensicht, "
@@ -1703,6 +1766,7 @@ def bericht_schreiben(cfg, batch: int, grund: str, res: Ergebnis, verteilung: di
         # R13aq: der Lauf ist maschinenlesbar als gescheitert markiert (subtype/Zuege).
         "gelaufen": bool(ok), "gescheitert_grund": warum,
         "subtype": res.subtype, "zuege": res.zuege,
+        "zug_runden": res.zug_runden,
         "text": res.text,
     })
     return p

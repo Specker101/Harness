@@ -1,0 +1,19 @@
+﻿Probelauf: rc=0 dauer=4.7s
+Hook-Eingaben: G:\Harness\docs\_r13ar_hook\stdin.jsonl
+Anzahl Hook-Aufrufe: 2
+  Felder: ['cwd', 'duration_ms', 'effort', 'hook_event_name', 'permission_mode', 'prompt_id', 'session_id', 'tool_input', 'tool_name', 'tool_response', 'tool_use_id', 'transcript_path']
+    hook_event_name = PostToolUse
+    tool_name = Read
+    session_id = a494ffbb-7b50-42f9-8b6f-b4c553e6f742
+    transcript_path = g:\Harness\harness\cc-worker\projects\G--Harness-docs--r13ar-hook\a494ffbb-7b50-42f9-8b6f-b4c553e6f742.jsonl
+    cwd = G:\Harness\docs\_r13ar_hook
+    permission_mode = default
+    tool_input-Schluessel = ['file_path']
+  Felder: ['cwd', 'duration_ms', 'effort', 'hook_event_name', 'permission_mode', 'prompt_id', 'session_id', 'tool_input', 'tool_name', 'tool_response', 'tool_use_id', 'transcript_path']
+    hook_event_name = PostToolUse
+    tool_name = Read
+    session_id = a494ffbb-7b50-42f9-8b6f-b4c553e6f742
+    transcript_path = g:\Harness\harness\cc-worker\projects\G--Harness-docs--r13ar-hook\a494ffbb-7b50-42f9-8b6f-b4c553e6f742.jsonl
+    cwd = G:\Harness\docs\_r13ar_hook
+    permission_mode = default
+    tool_input-Schluessel = ['file_path']

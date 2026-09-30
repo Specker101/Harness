@@ -1271,6 +1271,30 @@ Bericht ist die zweite Quelle der Wiederholung (der Zustandsvermerk fehlt bei L�
 Belege: `docs/_r13aq_belege.md`, `docs/_r13aq_messung.txt`, `docs/_r13aq_nachtrag.txt`,
 Tests `harness/tests/test_r13aq_fixes.py`.
 
+#### Nachtrag R13ar: was „Zug" heisst
+
+Die Zahlen „17…35 Züge" oben sind `num_turns` aus dem Ergebnis-Ereignis. Das ist **nicht**
+die Zahl, gegen die die CLI ihr `--max-turns` prüft: sie zählt **Werkzeugrunden**
+(Modellantworten mit Werkzeugaufruf), `num_turns` zählt Werkzeugergebnisse + 1. Gemessen:
+`meta-214` hatte `num_turns=35`, aber nur **23** Runden (Limit 30 ⇒ lief durch), `meta-217`
+hatte **30** Runden (⇒ Abbruch). Messung und Beweise: `docs/_r13ar_belege.md` §1.
+
+### 12s. Zuguhr der Aussensicht (R13ar, 2026-09-30)
+
+Das Zuglimit war bisher nur eine Zahl im Prompt („spätestens nach max−5 Zügen antworten",
+§12r). Jetzt steht es **mechanisch** im Lauf:
+
+| Punkt | Verhalten |
+|---|---|
+| **Zuguhr** | PostToolUse-Hook `tools/aussensicht_uhr.py`, gehängt über `--settings runs/meta-<N>-hooks.json` (`aussensicht.write_hook_settings`): nach jedem Werkzeugaufruf `AUSSENSICHT-UHR: Zug X von Y (Werkzeugrunden). Noch R Zuege bis zum Abbruch.` |
+| **Frist** | ab `Zug >= Limit - 5` zusätzlich `JETZT die Antwort im Blockformat schreiben, Unvollständiges als nicht geprüft kennzeichnen.` |
+| **Was X ist** | die Zahl, die die CLI selbst zählt: **Werkzeugrunden** — gezählt im Transcript der Sitzung (`transcript_path` aus der Hook-Eingabe, `hx.streamjson.runden_aus_zeilen`), damit parallele Aufrufe in einer Antwort nicht doppelt zählen. Gemessen mit echtem Lauf: das Modell nennt die Zeile wörtlich (`docs/_r13ar_probe_hook.txt`) |
+| **Frühwarnung** | braucht ein **gelungener** Lauf mehr als 80 % des Limits: Telegram `Aussensicht B<N>: X von Y Zuegen genutzt - Limit pruefen` + dieselbe Zeile im Bericht (`- LIMIT PRUEFEN: …`), Log `Zuglimit fast erreicht`. Immer im Bericht: `- Zuege (Werkzeugrunden): X von Y - num_turns laut CLI: N`; `runs/meta-<N>.json` trägt `zug_runden` |
+| **Kein Fehler stört** | fehlt/unlesbar ist das Transcript oder fehlt `--limit`, gibt der Hook nichts aus (Exit 0) |
+
+Messwerte, die `num_turns`-Frage und die Gegenprobe im Worker-Umfeld (dort wirkt
+`--max-turns` **nicht**): `docs/_r13ar_belege.md`.
+
 ### 12b. Was der Nutzer selbst entscheiden muss
 
 Der grösste Hebel liegt ausserhalb des Harness: die 68K-Emulationsläufe im Decomp-Repo

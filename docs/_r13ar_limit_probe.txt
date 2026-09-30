@@ -1,0 +1,17 @@
+﻿R13ar-Probe: zaehlt `--max-turns` die Zahl `num_turns`? (Modell: deepseek-flash[1m])
+Auftrag: Lies nacheinander genau diese drei Dateien mit je einem Read-Aufruf: a.txt, b.txt, c.txt. Schreibe danach nur das Wort OK.
+
+--- A: ohne --max-turns ---
+    rc=0 subtype=success num_turns=4 tool_use=3 dauer=6.2s
+    Werkzeuge: {'Read': 3}
+    Antwort: 'OK'
+--- B: mit --max-turns 2 ---
+    rc=0 subtype=success num_turns=4 tool_use=3 dauer=4.3s
+    Werkzeuge: {'Read': 3}
+    Antwort: 'OK'
+
+Lesehilfe:
+   A brauchte 3 Werkzeugaufrufe, num_turns=4.
+   B mit Limit 2: subtype=success, num_turns=4, Werkzeugaufrufe=3.
+   Greift das Limit, muss B mit `error_max_turns` enden; die Zahl, gegen die
+   geprueft wird, ist dann aus num_turns/Werkzeugaufrufen ablesbar.

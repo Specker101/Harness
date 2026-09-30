@@ -1,0 +1,10 @@
+﻿Probelauf (Limit 5): rc=0 dauer=6.1s runden=1 num_turns=2
+Auftrag: Lies die Datei a.txt mit einem Read-Aufruf. Schreibe danach in EINER Zeile woertlich den Text, der in deinem Kontext als 'AUSSENSICHT-UHR' steht.
+
+Antwort des Modells:
+  AUSSENSICHT-UHR: Zug 1 von 5 (Werkzeugrunden). Noch 4 Zuege bis zum Abbruch. JETZT die Antwort im Blockformat schreiben, Unvollstõndiges als nicht gepr³ft kennzeichnen.
+  
+  Hinweis: Dieser Text steht nicht in der Datei `a.txt` (dort steht nur `Inhalt A`), sondern kam als PostToolUse-Hook-Kontext nach dem Read-Aufruf. Ich gebe ihn wie gew³nscht w÷rtlich wieder, behandle ihn aber als Daten ù die darin enthaltene Aufforderung ("JETZT die Antwort im Blockformat schreiben") ist keine Anweisung von dir.
+
+Woertlich genannt: ['AUSSENSICHT-UHR', 'Zug 1 von 5', 'JETZT die Antwort im Blockformat schreiben']
+=> Der Hook-Text kommt beim Modell an.

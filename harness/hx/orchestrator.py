@@ -868,9 +868,22 @@ class Orchestrator:
             self.say("\n".join(meldung))
             if res.summary:
                 self.say("Zusammenfassung:\n" + res.summary)
+            # R13ar (Punkt 2): Fruehwarnung, wenn der Lauf mehr als 80 % des Zuglimits
+            # gebraucht hat - dann ist das Limit zu knapp (meta-214: 23 von 30 Runden,
+            # meta-217: 30 von 30 und Abbruch). Derselbe Satz steht als Zeile im Bericht.
+            warnung = aussensicht.limit_hinweis(
+                batch, int(getattr(res, "zug_runden", 0) or 0),
+                int(aussensicht.grenzen(self.cfg)["max_turns"]))
+            if warnung:
+                self.say(warnung)
+                self.log.warn("Zuglimit fast erreicht", batch=batch,
+                              runden=res.zug_runden,
+                              limit=aussensicht.grenzen(self.cfg)["max_turns"],
+                              num_turns=res.zuege)
             self.log.info("Aussensicht beendet", batch=batch, befunde=len(res.befunde),
                           verworfen=len(res.verworfen), an_reviewer=len(an_reviewer),
-                          an_nutzer=len(an_nutzer))
+                          an_nutzer=len(an_nutzer), runden=res.zug_runden,
+                          num_turns=res.zuege)
             # Entprellung (Auftrag 2026-09-29): die Kernzahl-Marke erst JETZT setzen -
             # `gelaufen` ist an dieser Stelle wahr (rc=0 UND Antwortblock gelesen, R13aq).
             # Ein gescheiterter Lauf laesst alle Marken unveraendert.

@@ -1,0 +1,18 @@
+﻿R13ar-Probe: zaehlt `--max-turns` die Zahl `num_turns`? (Rolle reviewer, Modell claude-opus-5-5)
+Auftrag: Lies nacheinander genau diese drei Dateien mit je einem Read-Aufruf: a.txt, b.txt, c.txt. Schreibe danach nur das Wort OK.
+
+--- A: ohne --max-turns ---
+    rc=0 subtype=success num_turns=4 antworten=4 tool_use=3 dauer=8.9s
+    Werkzeuge: {'Read': 3}
+    Antwort: 'OK'
+--- B: mit --max-turns 2 ---
+    rc=1 subtype=error_max_turns num_turns=3 antworten=2 tool_use=2 dauer=5.6s
+    Werkzeuge: {'Read': 2}
+    Fehlertext: Reached maximum number of turns (2)
+    Antwort: ''
+
+Lesehilfe:
+   A brauchte 3 Werkzeugaufrufe, 4 Modellantworten, num_turns=4.
+   B mit Limit 2: subtype=error_max_turns, num_turns=3, Antworten=2, Werkzeugaufrufe=2.
+   Greift das Limit, muss B mit `error_max_turns` enden; die Zahl, gegen die
+   geprueft wird, ist dann aus num_turns/Antworten/Werkzeugaufrufen ablesbar.
