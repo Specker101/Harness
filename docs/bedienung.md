@@ -1385,27 +1385,34 @@ vorn, `antwort.md` erscheint dann als „Kurzantwort (vor der Umstellung übersc
 Marker `<TOOL_REQUEST>`/`<PROGRAM_REQUEST>` werden damit wieder gefunden (sie standen im
 Bericht, der vorher verschwand).
 
-### 12w. Kein Fortsetzungsanstoß nach einem Preflight (R13ax, 2026-09-30)
+### 12w. Fortsetzung nach einem Preflight: Zeit entscheidet (R13ax, geaendert R13bb)
 
-**Befund M219-5.** B217 startete in der Fortsetzung einen zweiten Preflight, B218 drei,
-B219 lief in einen abgebrochenen hinein; in B219 lag der Preflight bei 60 von 75 min,
+**Befund M219-5 (R13ax).** B217 startete in der Fortsetzung einen zweiten Preflight, B218
+drei, B219 lief in einen abgebrochenen hinein; in B219 lag der Preflight bei 60 von 75 min,
 obwohl NACHRUECKLISTE 1 offen war.
 
-Regel: hat der Worker in diesem Batch schon einen Preflight **gestartet**
-(`streamjson.ist_preflight_aufruf`), gibt es keinen Anstoß mehr — die offene
-Nachrückliste wird **übertragen**. Das ist die vorgesehene Übergabe, kein Abbruch und kein
-Regelverstoß.
+**Regel (R13ax):** hat der Worker in diesem Batch schon einen Preflight **gestartet**
+(`streamjson.ist_preflight_aufruf`), gibt es keinen Anstoß mehr — die offene Nachrückliste
+wird **übertragen**.
 
-* Log und Review-Fakten: `Kein Fortsetzungsanstoss: Preflight bereits gelaufen, offene
-  Nachrueckliste -> UEBERTRAG` (angehängt an die Fortsetzungszeile, auch wenn es vorher
-  Anstöße gab).
+**Lockerung (R13bb, 30.09.2026).** Der Preflight dauert jetzt ~5 min, und B224 endete bei
+45 min mit 3 von 5 Köpfen. Deshalb gilt jetzt:
+
+| Rest bis zur Umschaltschwelle | Verhalten |
+|---|---|
+| **≥ `limits.fortsetzung_min_rest_min`** (Default **20** min) | **Anstoß** — der Stand von vor der Fortsetzung wird vorher archiviert (R13ah, `_m<N>/_preflight_<N>_vor_fortsetzung<k>.txt`), der Anstoß verlangt am Ende einen **neuen** Preflight: *„Nach der Nacharbeit neuer Preflight, der letzte gilt (der frühere ist überholt); danach Bilanz aktualisieren und committen."* Der Anstoß steht in `result.json` als `fortsetzungen[k].preflight_erneut`, im Log als `Fortsetzung trotz Preflight` |
+| **< 20 min** | **Übertrag** wie bisher |
+
+* Log und Review-Fakten im Übertrag-Fall: `Kein Fortsetzungsanstoss: Preflight bereits
+  gelaufen, offene Nachrueckliste -> UEBERTRAG` (angehängt an die Fortsetzungszeile, auch
+  wenn es vorher Anstöße gab).
 * `result.json`: `fortsetzung_grund` und `fortsetzung_uebertrag` (oben und in `stats`).
 * Nur ein **Start** zählt — eine bloße Nennung in `description`, ein `Select-String`-Filter
   oder ein `Read` der Preflight-Datei nicht (dieselbe Definition wie beim Preflight-Zähler).
-* Die Archivierung „Preflight vor Fortsetzung" (R13ah) bleibt als Code stehen; sie wird
-  praktisch nicht mehr erreicht.
-* `prompts/reviewer.md` sagt dem Reviewer, dass er stattdessen prüft, ob die übertragenen
-  Posten im nächsten Auftrag/Anker wieder auftauchen.
+* Die Archivierung „Preflight vor Fortsetzung" (R13ah) ist damit wieder im Regelfall aktiv.
+* `prompts/reviewer.md` sagt dem Reviewer: bei einem Übertrag prüft er, ob die übertragenen
+  Posten im nächsten Auftrag/Anker wieder auftauchen; nach einem Anstoß prüft er, dass am
+  Ende **ein** gültiger Preflight steht (der letzte gilt).
 
 ### 12x. Kennzahlen: Paket E offen und SOLL-KOEPFE-Median (R13ay, 2026-09-30)
 

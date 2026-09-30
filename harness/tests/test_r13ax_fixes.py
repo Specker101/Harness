@@ -127,8 +127,20 @@ class TestFortsetzungPruefen(unittest.TestCase):
         self.assertTrue(e["ja"], e)
         self.assertFalse(e.get("uebertrag"))
 
-    def test_nach_preflight_kein_anstoss(self):
-        e = self.entsch(preflight=True)
+    def test_nach_preflight_mit_genug_zeit_wird_angestossen(self):
+        """R13bb (Aussensicht B224): bleibt genug Zeit, ist der Anstoss erlaubt - der neue
+        Preflight am Ende gilt. Die alte Sperre (R13aw) greift nur noch bei wenig Rest."""
+        u = worker.umschalt_minuten(self.cfg)["umschalt_min"]
+        e = worker.fortsetzung_pruefen(self.cfg, self._run(), self._stats(preflight=True),
+                                      self.AUFTRAG, u - 25, [])
+        self.assertTrue(e["ja"], e)
+        self.assertTrue(e["preflight_erneut"])
+        self.assertFalse(e.get("uebertrag"))
+
+    def test_nach_preflight_unter_20_min_bleibt_uebertrag(self):
+        u = worker.umschalt_minuten(self.cfg)["umschalt_min"]
+        e = worker.fortsetzung_pruefen(self.cfg, self._run(), self._stats(preflight=True),
+                                      self.AUFTRAG, u - 10, [])
         self.assertFalse(e["ja"])
         self.assertEqual(e["grund"], worker.UEBERTRAG_GRUND)
         self.assertTrue(e["uebertrag"])

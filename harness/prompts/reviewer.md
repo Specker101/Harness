@@ -176,18 +176,27 @@ Fortsetzung gilt der **LETZTE** `preflight`-Lauf als der eine gueltige; frühere
 desselben Batches sind **überholt** und **kein Regelverstoß**. Prüfe also, ob am Ende ein
 gueltiger Preflight vorliegt (nicht, ob es genau einen gab).
 
-**Nach einem Preflight wird NICHT mehr fortgesetzt (R13aw, Befund M219-5).** Hat der
-Worker in diesem Batch schon einen `preflight`-Lauf **gestartet**, setzt der Harness ihn
-nicht mehr fort, auch wenn die `NACHRUECKLISTE` noch offen ist: der Preflight-Stand ist
-gemessen, „nach dem Preflight kein `port/`" bleibt damit gewahrt, und ein zweiter
-Preflight im selben Batch wäre eine Doppelmessung. Die offenen Posten werden **in den
-naechsten Batch uebertragen**; in den Messdaten steht dann
+**Nach einem Preflight wird nur noch bei wenig Rest NICHT fortgesetzt (R13aw, geaendert
+R13bb, Aussensicht B224).** Hat der Worker in diesem Batch schon einen `preflight`-Lauf
+**gestartet**, setzt der Harness ihn nur dann nicht mehr fort, wenn bis zur
+Umschaltschwelle **weniger als `limits.fortsetzung_min_rest_min` Minuten** (Default 20)
+bleiben. Dann werden die offenen Posten **in den naechsten Batch uebertragen**; in den
+Messdaten steht
 `Kein Fortsetzungsanstoss: Preflight bereits gelaufen, offene Nachrueckliste -> UEBERTRAG`.
-Das ist **kein Regelverstoß und kein Abbruch** — es ist die vorgesehene Uebergabe. Prüfe
+Das ist **kein Regelverstoß und kein Abbruch** — es ist die vorgesehene Uebergabe. Pruefe
 deshalb, ob die uebertragenen Posten im naechsten Auftrag/Anker wieder auftauchen
-(`UEBERTRAG:`-Zeile), statt den fehlenden zweiten Preflight zu bemaengeln. Eine
-`NACHRUECKLISTE` bleibt trotzdem Pflicht: sie greift bei einem **fruehen** Ende ohne
-Preflight.
+(`UEBERTRAG:`-Zeile), statt den fehlenden zweiten Preflight zu bemaengeln.
+
+**Bleibt genug Zeit, wird fortgesetzt (R13bb, 30.09.2026).** Der Preflight dauert jetzt
+~5 min; B224 endete bei 45 min mit 3 von 5 Koepfen. Der Harness stoesst dann an, sichert den
+Stand von **vor** der Fortsetzung (`_m<N>/_preflight_<N>_vor_fortsetzung<k>.txt`), und der
+Anstoss verlangt am Ende einen **neuen** Preflight („Nach der Nacharbeit neuer Preflight,
+der letzte gilt"). In den Messdaten steht das als `fortsetzungen[k].preflight_erneut`, im Log
+als `Fortsetzung trotz Preflight`. In diesem Fall pruefst du **nicht** „genau ein
+gueltiger Lauf", sondern dass am Ende **einer** gueltig ist (der letzte; fruehere sind
+ueberholt) und dass der archivierte Stand vor der Fortsetzung existiert. Eine
+`NACHRUECKLISTE` bleibt Pflicht: sie greift bei einem **fruehen** Ende ohne Preflight und im
+UEBERTRAG-Fall.
 
 ## Lange Befehle (R13aj, 2026-09-29)
 

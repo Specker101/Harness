@@ -304,8 +304,8 @@ class TestFortsetzung(unittest.TestCase):
         self.assertIn("NACHRUECKLISTE ERLEDIGT", text)
         self.assertIn("Aufwand ist kein Grund", text)
         mit = worker.fortsetzungs_text(34.0, 310000, 90.0, 80.0, preflight_erneut=True)
-        self.assertIn("Nach der Nacharbeit: Preflight erneut laufen lassen", mit)
-        self.assertIn("Der letzte Preflight gilt, der frühere ist überholt.", mit)
+        self.assertIn("Nach der Nacharbeit neuer Preflight, der letzte gilt", mit)
+        self.assertIn("der frühere ist überholt", mit)
 
     def test_limits_werden_ueber_fortsetzungen_kumuliert(self):
         # Zeit: die harte Wanduhr wird je Teillauf um die verbrauchte Zeit gekuerzt.

@@ -514,13 +514,22 @@ def fortsetzung_pruefen(cfg, run, stats, auftrag_text: str, minuten: float,
       c) `kontext_letzte_anfrage` < `kontext_schwelle`,
       d) der Auftrag enthaelt einen Abschnitt `NACHRUECKLISTE`,
       e) es gab weniger als `max_fortsetzungen` Anstoesse,
-      f) R13aw: es lief in diesem Batch noch KEIN Preflight (`UEBERTRAG_GRUND`).
+      f) R13aw/R13bb: ein schon gelaufener Preflight steht dem Anstoss nur noch entgegen,
+         wenn bis zur Umschaltschwelle **weniger als `limits.fortsetzung_min_rest_min`**
+         Minuten bleiben (Rueckgabe dann `uebertrag=True`).
 
     Grund fuer (f) (gemessen, `runs/b217`, `b218`, `b219`): die Fortsetzung lief nach einem
     gueltigen Preflight weiter und startete zum Teil einen ZWEITEN (B217) oder DRITTEN
     (B218) Preflight - die Nachrueckliste haette in den naechsten Batch gehoert, der
-    Preflight-Stand ist ohnehin schon gemessen. Das Ergebnis wird ausdruecklich als
-    UEBERTRAG benannt, nicht als Abbruch.
+    Preflight-Stand ist ohnehin schon gemessen.
+
+    **R13bb (Aussensicht B224, Nutzerauftrag 30.09.2026) - die Regel ist gelockert.**
+    Gemessen: der Preflight dauert jetzt ~5 min, und B224 endete bei 45 min mit 3 von 5
+    Koepfen. Bleibt danach genug Zeit, ist die Fortsetzung **erlaubt**: der Stand von vor
+    der Fortsetzung wird vorher archiviert (`archiviere_preflight_vor_fortsetzung`, R13ah),
+    und am Ende laeuft ein **neuer** Preflight, dessen Ergebnis gilt (`preflight_erneut` im
+    Anstoss-Text). Unter `fortsetzung_min_rest_min` bleibt es beim UEBERTRAG - der neue
+    Preflight muss vollstaendig in den Rest passen.
     """
     max_f = int(cfg.get("limits", "max_fortsetzungen", 2))
     if len(fortsetzungen) >= max_f:
@@ -546,7 +555,11 @@ def fortsetzung_pruefen(cfg, run, stats, auftrag_text: str, minuten: float,
     if not hat_nachrueckliste(auftrag_text):
         return {"ja": False, "grund": "kein Abschnitt NACHRUECKLISTE im Auftrag"}
     if preflight_gestartet(stats):
-        return {"ja": False, "grund": UEBERTRAG_GRUND, "uebertrag": True}
+        rest = umschalt_min - minuten
+        min_rest = float(cfg.get("limits", "fortsetzung_min_rest_min", 20))
+        if rest >= min_rest:
+            return {"ja": True, "grund": "", "preflight_erneut": True, "rest_min": rest}
+        return {"ja": False, "grund": UEBERTRAG_GRUND, "uebertrag": True, "rest_min": rest}
     return {"ja": True, "grund": ""}
 
 
@@ -571,9 +584,8 @@ def fortsetzungs_text(minuten: float, kontext: int, alarm_min: float, umschalt_m
              "vollständig erledigt, antworte nur mit NACHRUECKLISTE ERLEDIGT und je Posten "
              "dem Commit-Hash.")
     if preflight_erneut:
-        text += (" Nach der Nacharbeit: Preflight erneut laufen lassen, Bilanz "
-                 "aktualisieren, committen. Der letzte Preflight gilt, der frühere ist "
-                 "überholt.")
+        text += (" Nach der Nacharbeit neuer Preflight, der letzte gilt (der frühere ist "
+                 "überholt); danach Bilanz aktualisieren und committen.")
     return text
 
 
@@ -964,6 +976,9 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
                 kontext = stats.kontext_stats()["kontext_letzte_anfrage"]
                 fortsetzungen.append({"minute": round(minuten, 1), "kontext": kontext,
                                       "antwort_kurz": "", "dauer_s": None, "rc": None,
+                                      # R13bb: dieser Anstoss laeuft NACH einem Preflight -
+                                      # am Ende gilt der neue (s. Anstoss-Text).
+                                      "preflight_erneut": bool(entsch.get("preflight_erneut")),
                                       "stream": f"stream-forts{nummer + 1}.jsonl"})
                 # R13ah: den Preflight-Stand VOR der Fortsetzung wegsichern (unveraendert
                 # plus eigener Commit) - sonst ueberschreibt der naechste Preflight-Lauf
@@ -971,12 +986,23 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
                 # (`harness/b<N>-start`), NICHT aus `state.batch` oder dem Text.
                 res.preflight_archiv = archiviere_preflight_vor_fortsetzung(
                     cfg, state, len(fortsetzungen), log=log)
+                # R13bb: warum hier trotz gelaufenem Preflight weitergearbeitet wird, gehoert
+                # ins Log - sonst sieht es aus wie die alte Regel.
+                if entsch.get("preflight_erneut"):
+                    log.info("Fortsetzung trotz Preflight",
+                             rest_min=round(float(entsch.get("rest_min") or 0.0), 1),
+                             vorher_archiviert=bool(res.preflight_archiv))
                 fortsetz_text = fortsetzungs_text(
                     minuten, kontext, lim["alarm_wall"] / 60.0,
                     uhr_schwelle["umschalt_min"],
                     batch=batch_aus_checkpoint(state),
-                    preflight_erneut=(stats.werkzeug_enthaelt("preflight")
-                                      and stats.werkzeug_enthaelt("bilanz")))
+                    # R13bb: der Anstoss nennt den neuen Preflight, wenn der alte schon
+                    # gelaufen ist - entweder weil die Entscheidung ihn ausdruecklich
+                    # zulaesst (`preflight_erneut`) oder weil der Lauf Preflight UND
+                    # Bilanz enthaelt (R13ah-Heuristik, bleibt gueltig).
+                    preflight_erneut=(bool(entsch.get("preflight_erneut"))
+                                      or (stats.werkzeug_enthaelt("preflight")
+                                          and stats.werkzeug_enthaelt("bilanz"))))
                 resume = True
         finally:
             if ticker is not None:
