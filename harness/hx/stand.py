@@ -742,8 +742,15 @@ def durchsatz(cfg, n: int = STANDARD_FENSTER) -> dict:
                                    (trend.get("grund") or "keine Preflight-Reihe") + ")")
     erg["anteil_gemessen"] = (len(c_fenster) / len(fenster)) if fenster else None
     erg["anteil_c"] = plan.get("anteil")
-    erg["anteil_quelle"] = (f"Regel {plan['datei']}: \"{plan.get('regel') or ''}\""
-                            if plan.get("anteil") else "")
+    # R13bb (M224-5): die Zeile nennt Quelle (Datei:Zeile) UND Stand der Regel (z. B.
+    # "ab B222, Nutzerentscheidung R221-1, 2026-09-30") - vorher stand nur der Wortlaut da,
+    # und der kam aus der ueberholten 2:1-Zeile.
+    if plan.get("anteil"):
+        ort = f"{plan['datei']}:{plan['zeile_nr']}" if plan.get("zeile_nr") else plan["datei"]
+        erg["anteil_quelle"] = (f"Regel {ort} \"{plan.get('regel') or ''}\""
+                                + (f" ({plan['stand']})" if plan.get("stand") else ""))
+    else:
+        erg["anteil_quelle"] = ""
     if not erg["anteil_c"] and erg["anteil_gemessen"]:
         erg["anteil_c"] = erg["anteil_gemessen"]
         erg["anteil_quelle"] = "gemessen im Fenster (kein Mischverhaeltnis in hybrid-plan.md)"
@@ -1504,6 +1511,10 @@ _RE_B_SCHRITT_C = re.compile(r"B-SCHRITT:\s*(?:kein|keinen)\s+B-Batch"
 _RE_B_MARKER = re.compile(r"Strang\s+B\b|\bB-Batch\b|\bB-Schritt\b", re.IGNORECASE)
 _RE_C_MARKER = re.compile(r"Strang\s+C\b|\bC-Batch\b", re.IGNORECASE)
 _RE_MISCHUNG = re.compile(r"mischverh(?:ae|ä)ltnis", re.IGNORECASE)
+# R13bb (M224-5): die GELTENDE Regel steht als "AB B222 GILT 1 B : 1 C (NUTZERENTSCHEIDUNG
+# R221-1, 2026-09-30, wortgetreu):" im Plan - ohne das Wort "Mischverhaeltnis". Genau diese
+# Zeile muss die Prognose nehmen, sonst rechnet sie mit dem ueberholten 2:1 weiter.
+_RE_MISCH_GILT = re.compile(r"\b(?:gilt|g(?:ue|ü)ltig)\b", re.IGNORECASE)
 _RE_MISCH_PAAR = re.compile(r"\bB(\d{1,4})\s*[=:]?\s*([BC])\b")
 _RE_MISCH_ZAHL = re.compile(r"(\d+)\s*B\s*[:\-/]\s*(\d+)\s*C\b", re.IGNORECASE)
 # Zeile, die MIT dem Strang beginnt ("Strang B, Batch 2 von hoechstens 20; …") - in
@@ -1582,12 +1593,15 @@ def review_zu_batch(cfg, batch: int) -> str:
 
 
 def plan_mischung(cfg) -> dict:
-    """Das Mischverhaeltnis aus `analysis/hybrid-plan.md`.
+    """Das **geltende** Mischverhaeltnis aus `analysis/hybrid-plan.md` (R13an, R13bb).
 
-    Gesucht wird die Zeile mit dem Wort "Mischverhaeltnis" **und** einem Verhaeltnis der
-    Form `n B : m C` (auch `n B:m C`, beliebige Leerzeichen). Gibt es mehrere solche
-    Zeilen, gilt die mit dem Wort `ENTSCHEIDUNG`, sonst die **letzte** von ihnen - sie ist
-    die juengste Fassung.
+    Gesucht werden Zeilen mit dem Wort "Mischverhaeltnis" **oder** einem Gilt-Wort
+    ("AB B222 GILT 1 B : 1 C …") und einem Verhaeltnis der Form `n B : m C` (auch
+    `n B:m C`, beliebige Leerzeichen). Ausgewaehlt wird in dieser Reihenfolge:
+
+      1. die **letzte Zeile mit Gilt-Wort** - das ist die geltende Regel,
+      2. sonst die letzte Zeile mit dem Wort `ENTSCHEIDUNG`,
+      3. sonst die letzte Zeile mit einem Verhaeltnis.
 
     Anlass (gemessen 2026-09-29, B216): der Plan bekam eine NEUE Zeile
     `Mischverhaeltnis 2:1 ab B217 voraussichtlich **B221** (B217 B, …)` **vor** die
@@ -1596,32 +1610,55 @@ def plan_mischung(cfg) -> dict:
     `n B : m C` und lieferte still `anteil=None` (der Test `test_mischverhaeltnis_aus_dem_
     plan` lief deshalb auf einen `TypeError`).
 
+    **R13bb (Aussensicht M224-5).** Danach galt weiter die **alte** Regel 2 B : 1 C: die
+    historische Zeile trug das Wort "ENTSCHEIDUNG" und war die letzte mit Verhaeltnis,
+    waehrend die **gueltige** Zeile `**AB B222 GILT 1 B : 1 C (NUTZERENTSCHEIDUNG
+    R221-1, 2026-09-30, wortgetreu):**` das Wort "Mischverhaeltnis" gar nicht enthaelt.
+    Die Prognose rechnete deshalb mit Anteil 33 % statt 50 % (Paket E ca. 15 statt ca. 10
+    Kalender-Batches). Jetzt gewinnt das Gilt-Wort; die Zeile nennt Quelle **und Stand**:
+    `zeile_nr`, `ab_batch` und `stand` ("ab B222, Nutzerentscheidung R221-1, 2026-09-30")
+    gehen an die Anzeige.
+
     Rueckgabe: `{"paare": {batch: "B"|"C"}, "anteil": float|None, "regel": str,
-    "zeile": str, "datei": "hybrid-plan.md", "erkannt": bool, "grund": str,
-    "kandidaten": int}`. `erkannt=False` heisst: keine Zeile trug ein Verhaeltnis - der
-    Aufrufer meldet das (`plan_mischung_pruefen`), es bleibt nicht still.
+    "zeile": str, "zeile_nr": int, "ab_batch": int|None, "stand": str, "zustand": str,
+    "datei": "hybrid-plan.md", "erkannt": bool, "grund": str, "kandidaten": int}`.
+    `erkannt=False` heisst: keine Zeile trug ein Verhaeltnis - der Aufrufer meldet das
+    (`plan_mischung_pruefen`), es bleibt nicht still.
     """
     try:
         text = read_text(Path(cfg.decomp) / "analysis" / "hybrid-plan.md")
     except OSError:
         text = ""
-    kandidaten = [z for z in (text or "").splitlines() if _RE_MISCHUNG.search(z)]
+    alle = list(enumerate((text or "").splitlines(), 1))
+    kandidaten = [(nr, z) for nr, z in alle
+                  if _RE_MISCHUNG.search(z) or _RE_MISCH_GILT.search(z)]
     if not kandidaten:
-        return {"paare": {}, "anteil": None, "regel": "", "zeile": "",
+        return {"paare": {}, "anteil": None, "regel": "", "zeile": "", "zeile_nr": 0,
+                "ab_batch": None, "stand": "", "zustand": "",
                 "datei": "hybrid-plan.md", "erkannt": False,
                 "grund": ("Datei nicht lesbar" if not text
                           else "keine Zeile mit \"Mischverhaeltnis\" gefunden"),
                 "kandidaten": 0}
-    mit_zahl = [z for z in kandidaten if _RE_MISCH_ZAHL.search(z)]
-    if mit_zahl:
-        entschieden = [z for z in mit_zahl if "entscheidung" in z.lower()]
-        zeile = entschieden[-1] if entschieden else mit_zahl[-1]
-        erkannt, grund = True, ""
+    mit_zahl = [(nr, z) for nr, z in kandidaten if _RE_MISCH_ZAHL.search(z)]
+    gueltig = [(nr, z) for nr, z in mit_zahl if _RE_MISCH_GILT.search(z)]
+    entschieden = [(nr, z) for nr, z in mit_zahl if "entscheidung" in z.lower()]
+    if gueltig:
+        zeile_nr, zeile = gueltig[-1]
+        zustand, erkannt, grund = "gilt", True, ""
+    elif entschieden:
+        zeile_nr, zeile = entschieden[-1]
+        zustand, erkannt, grund = "entschieden", True, ""
+    elif mit_zahl:
+        zeile_nr, zeile = mit_zahl[-1]
+        zustand, erkannt, grund = "letzte", True, ""
     else:
-        zeile = kandidaten[-1]            # ohne Verhaeltnis: die Paare der letzten Zeile
-        erkannt = False
+        zeile_nr, zeile = kandidaten[-1]     # ohne Verhaeltnis: die Paare der letzten Zeile
+        zustand, erkannt = "", False
         grund = ("kein Verhaeltnis \"n B : m C\" in einer der "
                  f"{len(kandidaten)} Mischverhaeltnis-Zeilen")
+    # Die Paarliste kommt NUR aus der gewaehlten Zeile (R13an): die ueberholte Aufzaehlung
+    # darf keinen Batch umdeuten. Die geltende Zeile nennt keine Einzelbatches -> leer;
+    # `strang_von_batch` faellt dann auf Instruktion/Review/Auftrag zurueck.
     paare = {int(m.group(1)): m.group(2).upper() for m in _RE_MISCH_PAAR.finditer(zeile)}
     m = _RE_MISCH_ZAHL.search(zeile)
     anteil = None
@@ -1630,8 +1667,20 @@ def plan_mischung(cfg) -> dict:
         b, c = int(m.group(1)), int(m.group(2))
         anteil = c / (b + c) if (b + c) else None
         regel = " ".join(m.group(0).split())
+    ab = re.search(r"\bAB\s+B(\d+)\b", zeile, re.IGNORECASE)
+    teile: list[str] = []
+    if ab:
+        teile.append(f"ab B{int(ab.group(1))}")
+    wer = re.search(r"\b(NUTZERENTSCHEIDUNG|ENTSCHEIDUNG)\b[^,)]*", zeile, re.IGNORECASE)
+    if wer:
+        teile.append(" ".join(wer.group(0).split()))
+    datum = re.search(r"\b(\d{4}-\d{2}-\d{2})\b", zeile)
+    if datum:
+        teile.append(datum.group(1))
     return {"paare": paare, "anteil": anteil, "regel": regel,
-            "zeile": " ".join(zeile.split())[:160], "datei": "hybrid-plan.md",
+            "zeile": " ".join(zeile.split())[:160], "zeile_nr": zeile_nr,
+            "ab_batch": int(ab.group(1)) if ab else None, "stand": ", ".join(teile),
+            "zustand": zustand, "datei": "hybrid-plan.md",
             "erkannt": bool(erkannt), "grund": grund, "kandidaten": len(kandidaten)}
 
 

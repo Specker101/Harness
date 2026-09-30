@@ -133,7 +133,9 @@ class TestAuswahlregel(Basis):
         self.assertAlmostEqual(p["anteil"], 1 / 3, places=3)
         self.assertEqual(p["paare"].get(208), "B")
         self.assertEqual(p["paare"].get(210), "C")
-        self.assertEqual(p["kandidaten"], 1)
+        # R13bb: der Kandidatenfilter nimmt zusaetzlich Zeilen mit Gilt-Wort mit
+        # ("AB B222 GILT 1 B : 1 C") - die Zahl der Kandidaten steigt, die Auswahl nicht.
+        self.assertEqual(p["kandidaten"], 3)
 
     def test_heutiger_stand_mit_beiden_zeilen(self):
         """Die neue Zeile :299 wird uebersprungen, die Entscheidung :301 gewinnt."""
@@ -144,7 +146,8 @@ class TestAuswahlregel(Basis):
         self.assertEqual(p["regel"], "2 B : 1 C")
         self.assertEqual([p["paare"].get(b) for b in (208, 209, 210)], ["B", "B", "C"])
         self.assertNotIn(217, p["paare"], "die Zeile ohne Verhaeltnis darf nicht gewinnen")
-        self.assertEqual(p["kandidaten"], 2)
+        # R13bb: siehe `test_stand_vor_b216` - Gilt-Zeilen zaehlen als Kandidaten mit.
+        self.assertEqual(p["kandidaten"], 4)
         self.assertIn("ENTSCHEIDUNG", p["zeile"])
 
     def test_letzte_zeile_gewinnt_ohne_entscheidungswort(self):

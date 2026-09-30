@@ -54,6 +54,29 @@ def bericht() -> None:
     print("   Gegenprobe (Batches ohne Fund):")
     for b in (215, 220):
         print(f"     B{b}: " + stand.preflight_zaehler_zeile(cfg, b)[0])
+    print()
+    print("3) MISCHREGEL DER PROGNOSE (Befund M224-5)")
+    p = stand.plan_mischung(cfg)
+    print(f"   geltende Regel : {p['regel']!r}  Anteil {p['anteil']:.3f}  "
+          f"({p['datei']}:{p['zeile_nr']}, Zustand {p['zustand']})")
+    print(f"   Stand          : {p['stand']}")
+    print(f"   Zeile          : {p['zeile']}")
+    print(f"   Kandidaten     : {p['kandidaten']}  Paare {p['paare']}")
+    # Wie in `stand.durchsatz_zeilen`: die Rate des Medians einsetzen (R13ba).
+    raten = stand.c_rate(cfg)
+    d = dict(stand.durchsatz(cfg), rate_c_koepfe=raten["rate"],
+             rate_c_quelle=raten["quelle"])
+    print(f"   Quelle in der Prognosezeile: {d.get('anteil_quelle')}")
+    alt = dict(d, anteil_c=1 / 3,
+               anteil_quelle='Regel hybrid-plan.md "2 B : 1 C" (ueberholt)')
+    offen = d.get("offen_koepfe") or 0
+    for name, dd in (("VORHER 2:1 (Anteil 33 %)", alt), ("NACHHER geltend", d)):
+        zeilen = stand.kalender_zeilen(cfg, offen, dd)
+        print(f"   {name:26}: " + (zeilen[0].strip() if zeilen else "(keine)"))
+        for z in zeilen[1:]:
+            print(f"   {'':26}  " + z.strip())
+    print(f"   offener Paket-E-Vorrat: {offen} Koepfe; Rate {d.get('rate_c_koepfe')} "
+          f"(Median der Kopf-Batches)")
 
 
 def main() -> int:

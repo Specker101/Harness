@@ -340,8 +340,8 @@ class TestEchteDateienB222(unittest.TestCase):
 
     def test_m222_gewinnt_offen_25_ohne_verdrehtes_paar(self):
         m = ECHTER_MESSUNG
-        if int(m.get("batch") or 0) < 222:
-            self.skipTest(f"keine Messung ab B222: {m.get('datei')}")
+        if int(m.get("batch") or 0) != 222:
+            self.skipTest(f"die neueste Messung ist B{m.get('batch')} ({m.get('datei')})")
         self.assertEqual(m["batch"], 222)
         self.assertIn("_m222/", m["datei"], "die neueste Messung liegt in _m222")
         self.assertEqual(m["koepfe"], 25)
@@ -359,10 +359,12 @@ class TestEchteDateienB222(unittest.TestCase):
         m = ECHTER_MESSUNG
         if int(m.get("batch") or 0) < 222:
             self.skipTest(f"keine Messung ab B222: {m.get('datei')}")
-        hinweis = stand.paket_e_datum_hinweis(ECHTER_CFG)
         if m["datum_quelle"] != "dateizeit":
-            self.assertEqual(hinweis, [])
+            # R13bb (Punkt 4): seit die Messdateien kodierungstolerant gelesen werden,
+            # steht das Datum im Kopf - dann gibt es nichts zu melden.
+            self.assertEqual(stand.paket_e_datum_hinweis(ECHTER_CFG), [])
             return
+        hinweis = stand.paket_e_datum_hinweis(ECHTER_CFG)
         self.assertTrue(hinweis and "PARSER: Messdatum in" in hinweis[0], hinweis)
         self.assertIn("(Datum aus Dateizeit)", "\n".join(bilanz.gesamt_block(ECHTER_CFG)))
 

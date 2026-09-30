@@ -20,3 +20,15 @@ Decomp-Repo: g:\Silent Scope Decomp
    Gegenprobe (Batches ohne Fund):
      B215: PREFLIGHT-ZAEHLER: 0 Aufruf(e) im Mitschnitt (davon 0 zu frueh), 1 archivierte(r) Fehllauf/Fehllaeufe nicht gezaehlt (analysis/_m215/_preflight_215_fehllauf1.txt) -> 1 Laeufe; 1 ueberholt abgelegt (analysis/_m215/_preflight_215_lauf2_ueberholt.txt - dort evtl. schon gezaehlt)
      B220: PREFLIGHT-ZAEHLER: 2 Aufruf(e) im Mitschnitt (davon 2 zu frueh), keine archivierten Fehllaeufe (_m220); 1 ueberholt abgelegt (analysis/_m220/_preflight_220_ueberholt1.txt - dort evtl. schon gezaehlt)
+
+3) MISCHREGEL DER PROGNOSE (Befund M224-5)
+   geltende Regel : '1 B : 1 C'  Anteil 0.500  (hybrid-plan.md:354, Zustand gilt)
+   Stand          : ab B222, NUTZERENTSCHEIDUNG R221-1, 2026-09-30
+   Zeile          : **AB B222 GILT 1 B : 1 C (NUTZERENTSCHEIDUNG R221-1, 2026-09-30,
+   Kandidaten     : 7  Paare {}
+   Quelle in der Prognosezeile: Regel hybrid-plan.md:354 "1 B : 1 C" (ab B222, NUTZERENTSCHEIDUNG R221-1, 2026-09-30)
+   VORHER 2:1 (Anteil 33 %)  : -> 5 C-Batches bei +4.0 Koepfe je C-Batch (Grundlage: Median der Zuwaechse der Kopf-Batches (+3 (B224), +5 (B219)))
+                               -> ca. 15 KALENDER-Batches (5 C-Batches / Anteil 33 % = Regel hybrid-plan.md "2 B : 1 C" (ueberholt))
+   NACHHER geltend           : -> 5 C-Batches bei +4.0 Koepfe je C-Batch (Grundlage: Median der Zuwaechse der Kopf-Batches (+3 (B224), +5 (B219)))
+                               -> ca. 10 KALENDER-Batches (5 C-Batches / Anteil 50 % = Regel hybrid-plan.md:354 "1 B : 1 C" (ab B222, NUTZERENTSCHEIDUNG R221-1, 2026-09-30))
+   offener Paket-E-Vorrat: 20 Koepfe; Rate 4.0 (Median der Kopf-Batches)

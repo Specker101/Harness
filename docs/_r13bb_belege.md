@@ -51,3 +51,33 @@ Worker abgelegt, können aber im Mitschnitt schon gezählt sein
 (`analysis/_m220/_preflight_220_ueberholt1.txt` gegen 2 Aufrufe in
 `runs/b220/preflight-aufrufe.jsonl`). Die Zahl, die das nicht riskiert, ist
 `preflight_laeufe_gesamt` **ohne** die überholten — sie ist damit eine **untere** Schranke.
+
+## Punkt 3 — Mischregel der Prognose (Befund M224-5)
+
+Die BILANZ rechnete mit dem **überholten** Mischverhältnis 2 B : 1 C
+(`- **Mischverhaeltnis 2 B : 1 C (ENTSCHEIDUNG Reviewer):** …`), obwohl seit B222
+`1 B : 1 C` gilt (`analysis/hybrid-plan.md:354-355`: „**AB B222 GILT 1 B : 1 C
+(NUTZERENTSCHEIDUNG R221-1, 2026-09-30, wortgetreu):**"). Ursache: die geltende Zeile
+enthält das Wort **„Mischverhaeltnis" nicht** — der Kandidatenfilter fand sie nie, und
+zwischen den gefundenen Zeilen gewann die mit `ENTSCHEIDUNG` (die alte).
+
+**Neu (`stand.plan_mischung`):** gesucht werden Zeilen mit „Mischverhaeltnis" **oder**
+einem Gilt-Wort; ausgewählt wird (1) die letzte Zeile mit **Gilt**, (2) sonst die letzte mit
+`ENTSCHEIDUNG`, (3) sonst die letzte mit Verhältnis. Die Auswahl nennt jetzt **Quelle und
+Stand**: `zeile_nr` (Dateizeile), `ab_batch` (aus „AB B222") und `stand`
+(„ab B222, NUTZERENTSCHEIDUNG R221-1, 2026-09-30"). Die **Paarliste** bleibt bewusst nur an
+der gewählten Zeile (R13an): die überholte Aufzählung darf keinen Batch umdeuten — die
+geltende Zeile nennt keine Einzelbatches, `strang_von_batch` fällt dann auf
+Instruktion/Review/Auftrag zurück.
+
+**Gemessen** (`docs/_r13bb_belege.txt`, Abschnitt 3):
+
+| | Regel | Anteil | Paket E (20 Köpfe offen, Rate 4,0) |
+|---|---|---|---|
+| vorher | `hybrid-plan.md:352` „2 B : 1 C" (überholt) | 33 % | **ca. 15** Kalender-Batches |
+| jetzt | `hybrid-plan.md:354` „1 B : 1 C" (ab B222, NUTZERENTSCHEIDUNG R221-1, 2026-09-30) | 50 % | **ca. 10** Kalender-Batches |
+
+Die Zeile sagt jetzt: `-> ca. 10 KALENDER-Batches (5 C-Batches / Anteil 50 % = Regel
+hybrid-plan.md:354 "1 B : 1 C" (ab B222, NUTZERENTSCHEIDUNG R221-1, 2026-09-30))` —
+Quelle **und** Stand der Regel. Für die Hypothese „C gesamt" verschiebt sich die Zahl von
+ca. 1052 auf ca. 702 Kalender-Batches (M224-5).

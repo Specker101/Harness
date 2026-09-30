@@ -1187,6 +1187,21 @@ Jetzt gilt:
 Belege: `docs/_r13an_belege.md`, `docs/_r13an_bestand.txt` (Bestandsaufnahme aller Tests,
 die den echten Workspace berühren), `docs/_r13an_volle_reihe.txt`.
 
+**Nachtrag R13bb (Befund M224-5): die Prognose nimmt die GELTENDE Regel.** Der Plan trägt
+die gültige Regel als `**AB B222 GILT 1 B : 1 C (NUTZERENTSCHEIDUNG R221-1, 2026-09-30,
+wortgetreu):**` — ohne das Wort „Mischverhältnis", das der Parser suchte. Zwischen den
+gefundenen Zeilen gewann die mit `ENTSCHEIDUNG`, also die **überholte** 2:1-Zeile; die
+BILANZ rechnete mit Anteil 33 % statt 50 % (Paket E ca. 15 statt ca. 10 Kalender-Batches,
+C gesamt ca. 1052 statt ca. 702).
+
+Jetzt gilt: gesucht werden Zeilen mit „Mischverhältnis" **oder** einem Gilt-Wort; gewählt
+wird (1) die letzte Zeile mit **Gilt**, (2) sonst die letzte mit `ENTSCHEIDUNG`, (3) sonst die
+letzte mit einem Verhältnis. Die Zeile nennt **Quelle und Stand**:
+`Mischung … ; Regel hybrid-plan.md:354 "1 B : 1 C" (ab B222, NUTZERENTSCHEIDUNG R221-1,
+2026-09-30) -> jeder 2. Batch ist ein C-Batch (50 %)`. Die Paarliste (`B208 B, B209 B,
+B210 C`) kommt weiterhin **nur** aus der gewählten Zeile (R13an) — die überholte Aufzählung
+darf keinen Batch umdeuten. Beleg: `docs/_r13bb_belege.md`, Abschnitt 3.
+
 ### 12p. Preflight zu früh: Hinweis statt Sperre (R13ao, 2026-09-29)
 
 Der Preflight (`scripts/preflight.py`, gemessen ~10 min) gehört ans **Batch-Ende** — er

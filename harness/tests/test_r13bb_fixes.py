@@ -178,8 +178,8 @@ class TestAnstossTextUndAblauf(unittest.TestCase):
                       quelle)
 
 
-class TestPreflightZaehlerArchiv(unittest.TestCase):
-    """Punkt 2 (Befund M224-4): der Preflight-Zaehler gegen die archivierten Laeufe."""
+class Basis(unittest.TestCase):
+    """Wegwerf-Harness mit Wegwerf-Decomp-Repo (fuer die Punkte 2-4)."""
 
     def setUp(self):
         self.tmp = Path(ROOT) / "tests" / "_tmp_r13bb"
@@ -196,6 +196,10 @@ class TestPreflightZaehlerArchiv(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
+
+
+class TestPreflightZaehlerArchiv(Basis):
+    """Punkt 2 (Befund M224-4): der Preflight-Zaehler gegen die archivierten Laeufe."""
 
     def archiv(self, batch: int, name: str) -> Path:
         d = ensure_dir(self.ana / f"_m{batch}")
@@ -230,7 +234,8 @@ class TestPreflightZaehlerArchiv(unittest.TestCase):
         a = stand.preflight_archiv(self.cfg, 218)
         self.assertEqual(a["ungezaehlt"], 0)
         self.assertNotIn("vor_fortsetzung", " ".join(a["dateien"]))
-        self.assertIn("keine archivierten Fehllaeufe", stand.preflight_zaehler_zeile(self.cfg, 218)[0])
+        self.assertIn("keine archivierten Fehllaeufe",
+                      stand.preflight_zaehler_zeile(self.cfg, 218)[0])
 
     def test_nicht_lauf_dateien_zaehlen_nicht(self):
         self.aufruf(224, 1)
@@ -260,7 +265,8 @@ class TestPreflightZaehlerArchiv(unittest.TestCase):
 
     def test_ungueltige_zeilen_zaehlen_nicht(self):
         d = ensure_dir(Path(self.root) / "runs" / "b227")
-        (d / "preflight-aufrufe.jsonl").write_text('{"ts": "x"}\nkaputt\n\n', encoding="utf-8")
+        (d / "preflight-aufrufe.jsonl").write_text('{"ts": "x"}\nkaputt\n\n',
+                                                   encoding="utf-8")
         self.assertEqual(stand.zaehle_preflight_aufrufe(self.cfg, 227), (1, 0))
 
     def test_result_json_traegt_die_differenz(self):
@@ -300,6 +306,102 @@ class TestRueckblickEchteBatches(unittest.TestCase):
                 self.skipTest(f"b{batch}: Mitschnitt hat jetzt {gelesen}, nicht {aufrufe}")
             zeile = stand.preflight_zaehler_zeile(self.cfg, batch)[0]
             self.assertIn(f"-> {aufrufe + fehllauf} Laeufe", zeile)
+
+
+class TestMischregelDerPrognose(Basis):
+    """Punkt 3 (Befund M224-5): die Prognose nimmt die **geltende** Regel des Plans."""
+
+    ALT = ("- **Mischverhaeltnis 2 B : 1 C (ENTSCHEIDUNG Reviewer):** B208 B, B209 B, B210 C\n"
+           "  (A1 MEM-Varianten), danach wieder 2:1.\n")
+    NEU = ("  **AB B222 GILT 1 B : 1 C (NUTZERENTSCHEIDUNG R221-1, 2026-09-30, wortgetreu):**\n"
+           '  "1 B : 1 C". Praezisierung (1): vor dem Anbinden wird GEMESSEN.\n')
+
+    def plan_schreiben(self, *teile: str) -> None:
+        (self.ana / "hybrid-plan.md").write_text(
+            "# Plan fuer Strang B - Hybrid-Laeufer (Entscheidung A4)\n\n" + "".join(teile),
+            encoding="utf-8", newline="\n")
+
+    def test_geltende_zeile_gewinnt_gegen_entscheidung(self):
+        self.plan_schreiben(self.ALT, self.NEU)
+        p = stand.plan_mischung(self.cfg)
+        self.assertEqual(p["regel"], "1 B : 1 C")
+        self.assertEqual(p["anteil"], 0.5)
+        self.assertEqual(p["zustand"], "gilt")
+        self.assertEqual(p["ab_batch"], 222)
+        self.assertIn("R221-1", p["stand"])
+        self.assertIn("2026-09-30", p["stand"])
+        self.assertTrue(p["erkannt"])
+
+    def test_alte_zeile_bleibt_gueltig_wenn_keine_gilt_zeile_da_ist(self):
+        self.plan_schreiben(self.ALT)
+        p = stand.plan_mischung(self.cfg)
+        self.assertEqual(p["regel"], "2 B : 1 C")
+        self.assertEqual(round(p["anteil"], 4), 0.3333)
+        self.assertEqual(p["zustand"], "entschieden")
+        self.assertIsNone(p["ab_batch"])
+
+    def test_paarliste_bleibt_lesbar(self):
+        """Die Paarliste kommt NUR aus der gewaehlten Zeile (R13an) - die alte Aufzaehlung
+        darf keinen Batch umdeuten. Die geltende Zeile nennt keine Einzelbatches."""
+        self.plan_schreiben(self.ALT, self.NEU)
+        p = stand.plan_mischung(self.cfg)
+        self.assertEqual(p["regel"], "1 B : 1 C")
+        self.assertEqual(p["paare"], {}, "die ueberholte Zeile liefert keine Paare mehr")
+
+    def test_ohne_verhaeltnis_bleibt_erkannt_falsch(self):
+        self.plan_schreiben("- **Mischverhaeltnis 2:1 ab B217 voraussichtlich B221**\n")
+        p = stand.plan_mischung(self.cfg)
+        self.assertFalse(p["erkannt"])
+        self.assertIsNone(p["anteil"])
+        self.assertIn("kein Verhaeltnis", p["grund"])
+
+    def test_prognosezeile_nennt_quelle_und_stand(self):
+        self.plan_schreiben(self.ALT, self.NEU)
+        d = stand.durchsatz(self.cfg)
+        self.assertEqual(d["anteil_c"], 0.5)
+        self.assertIn("Regel hybrid-plan.md:", d["anteil_quelle"])
+        self.assertIn('"1 B : 1 C"', d["anteil_quelle"])
+        self.assertIn("ab B222", d["anteil_quelle"])
+        self.assertNotIn("2 B : 1 C", d["anteil_quelle"])
+        # Die Kalender-Zeile uebernimmt Quelle und Stand der Regel.
+        zeilen = stand.kalender_zeilen(self.cfg, 30, dict(d, rate_c_koepfe=6.0,
+                                                          rate_c_quelle="Median (Test)"))
+        self.assertTrue(zeilen, zeilen)
+        self.assertIn("ab B222", "\n".join(zeilen))
+        self.assertIn("Anteil 50 %", "\n".join(zeilen))
+
+
+class TestEchterPlanMischregel(unittest.TestCase):
+    """Der echte `hybrid-plan.md` (skip, wenn er keine Gilt-Zeile hat)."""
+
+    def setUp(self):
+        self.cfg = load_config()
+        self.dec = Path(self.cfg.decomp)
+        self.pfad = self.dec / "analysis" / "hybrid-plan.md"
+
+    def test_geltende_regel_ist_1_zu_1(self):
+        if not self.pfad.is_file():
+            self.skipTest(f"{self.pfad} fehlt")
+        if "GILT 1 B : 1 C" not in self.pfad.read_text(encoding="utf-8", errors="replace"):
+            self.skipTest("der Plan hat keine Gilt-Zeile (mehr)")
+        p = stand.plan_mischung(self.cfg)
+        self.assertEqual(p["zustand"], "gilt")
+        self.assertEqual(p["regel"], "1 B : 1 C")
+        self.assertEqual(p["anteil"], 0.5)
+        self.assertEqual(p["ab_batch"], 222)
+        # Die genannte Zeile traegt wirklich das, was der Harness ihr zuschreibt.
+        zeilen = self.pfad.read_text(encoding="utf-8", errors="replace").splitlines()
+        self.assertTrue(1 <= p["zeile_nr"] <= len(zeilen), p["zeile_nr"])
+        self.assertIn("GILT 1 B : 1 C", zeilen[p["zeile_nr"] - 1])
+
+    def test_prognose_nennt_die_geltende_regel(self):
+        if not self.pfad.is_file():
+            self.skipTest(f"{self.pfad} fehlt")
+        d = stand.durchsatz(self.cfg)
+        if d.get("anteil_c") != 0.5:
+            self.skipTest(f"Anteil ist {d.get('anteil_c')} - Plan geaendert")
+        self.assertIn("1 B : 1 C", d["anteil_quelle"])
+        self.assertIn("hybrid-plan.md:", d["anteil_quelle"])
 
 
 if __name__ == "__main__":

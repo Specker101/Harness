@@ -291,12 +291,21 @@ class TestEchteWerte(unittest.TestCase):
         self.cfg = load_config()
 
     def test_median_der_echten_zuwaechse_ist_sechs(self):
+        """Der Median steht ueber den Zuwaechsen der Kopf-Batches - gemessen B219: 6.
+
+        R13bb: die Zahl haengt am Repo. B224 (Kopf-Batch, +3) ist dazugekommen, seither
+        ist der Median 5. Geprueft wird deshalb die Regel (Zuwaechse, nicht Summen) und
+        der echte Wert nur, solange er noch der B219-Stand ist.
+        """
         text = stand.plan_ist_text(self.cfg, 12)
+        self.assertIn("MEDIAN der ", text)
+        self.assertNotIn("88 Koepfe", text)      # die alte Definition (Median der Summen)
+        if "+3 (B224)" in text:
+            self.assertIn("5 Koepfe je C-Batch", text)
+            return
         self.assertIn("+7 (B216)", text)
         self.assertIn("+5 (B219)", text)
         self.assertIn("6 Koepfe je C-Batch", text)
-        # Die alte Definition (Median der Summen) haette 88 ergeben.
-        self.assertNotIn("88 Koepfe", text)
 
 
 if __name__ == "__main__":
