@@ -1279,6 +1279,16 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
     # PostToolUse-Hook je erkanntem Aufruf eine Zeile schreibt - nicht aus dem
     # Mitschnitt: ob die Nachrueckliste in DIESEM Moment offen war, steht nur dort.
     preflight_laeufe, preflight_frueh = zaehle_preflight_aufrufe(rd)
+    # R13bb (Befund M224-4, Nutzerauftrag): der Zaehler sieht nur, was der Hook gesehen
+    # hat - die ARCHIVIERTEN Laeufe desselben Batches kommen dagegen. Gemessen fehlte je
+    # ein Fehllauf in B218, B223 und B224 (genau die Laeufe, die die Regel „ein gueltiger
+    # Preflight je Batch" ueberwacht). Die Differenz steht in `result.json` und in den
+    # Review-Fakten.
+    pf_archiv = stand.preflight_archiv(cfg, batch)
+    if pf_archiv["ungezaehlt"] and log:
+        log.warn("Preflight-Zaehler: archivierte Fehllaeufe nicht gezaehlt",
+                 gezaehlt=preflight_laeufe, ungezaehlt=pf_archiv["ungezaehlt"],
+                 dateien=pf_archiv["fehllauf"])
 
     # R13as: Reihenfolge-Waechter (Aussensicht-Befund M218-1). Geprueft wird der
     # Mitschnitt dieses Laufs gegen den Zeitpunkt des Commits `B<N>: Vorhersage` - in
@@ -1314,6 +1324,12 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
         "duration_quelle": res.duration_quelle, "duration_cli_s": res.duration_cli_s,
         "duration_harness_s": res.duration_harness_s, "duration_api_s": res.duration_api_s,
         "preflight_laeufe": preflight_laeufe, "preflight_frueh": preflight_frueh,
+        # R13bb (M224-4): was das Archiv zusaetzlich belegt (Fehllaeufe zaehlen NICHT im
+        # Mitschnitt-Zaehler mit, `preflight_laeufe_gesamt` ist die belastbare Zahl).
+        "preflight_archiv_fehllauf": pf_archiv["fehllauf"],
+        "preflight_archiv_ueberholt": pf_archiv["ueberholt"],
+        "preflight_ungezaehlt": pf_archiv["ungezaehlt"],
+        "preflight_laeufe_gesamt": int(preflight_laeufe) + pf_archiv["ungezaehlt"],
         "fortsetzung_grund": res.fortsetzung_grund,
         "fortsetzung_uebertrag": bool(res.fortsetzung_uebertrag),
         "antwort_dateien": list(res.antwort_dateien or []),

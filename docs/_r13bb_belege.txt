@@ -1,0 +1,22 @@
+R13bb: vier Harness-Punkte (Aussensicht B224 / Review B225) - Beleg
+Decomp-Repo: g:\Silent Scope Decomp
+
+2) PREFLIGHT-ZAEHLER gegen die archivierten Laeufe (Befund M224-4)
+   Batch | Aufrufe im Mitschnitt | Fehllaeufe im Archiv | Laeufe gesamt | ueberholt
+     218 |                    2 |                    1 |             3 | 0
+     223 |                    1 |                    1 |             2 | 0
+     224 |                    1 |                    1 |             2 | 0
+
+   Die Fehllauf-Dateien:
+     analysis/_m218/_preflight_218_fehllauf1.txt
+     analysis/_m223/_preflight_223_fehllauf1.txt
+     analysis/_m224/_preflight_224_fehllauf1.txt
+
+   Die Review-Fakten-Zeilen dieses Rueckblicks (Wortlaut):
+     B218: PREFLIGHT-ZAEHLER: 2 Aufruf(e) im Mitschnitt (davon 2 zu frueh), 1 archivierte(r) Fehllauf/Fehllaeufe nicht gezaehlt (analysis/_m218/_preflight_218_fehllauf1.txt) -> 3 Laeufe
+     B223: PREFLIGHT-ZAEHLER: 1 Aufruf(e) im Mitschnitt (davon 1 zu frueh), 1 archivierte(r) Fehllauf/Fehllaeufe nicht gezaehlt (analysis/_m223/_preflight_223_fehllauf1.txt) -> 2 Laeufe
+     B224: PREFLIGHT-ZAEHLER: 1 Aufruf(e) im Mitschnitt (davon 1 zu frueh), 1 archivierte(r) Fehllauf/Fehllaeufe nicht gezaehlt (analysis/_m224/_preflight_224_fehllauf1.txt) -> 2 Laeufe
+
+   Gegenprobe (Batches ohne Fund):
+     B215: PREFLIGHT-ZAEHLER: 0 Aufruf(e) im Mitschnitt (davon 0 zu frueh), 1 archivierte(r) Fehllauf/Fehllaeufe nicht gezaehlt (analysis/_m215/_preflight_215_fehllauf1.txt) -> 1 Laeufe; 1 ueberholt abgelegt (analysis/_m215/_preflight_215_lauf2_ueberholt.txt - dort evtl. schon gezaehlt)
+     B220: PREFLIGHT-ZAEHLER: 2 Aufruf(e) im Mitschnitt (davon 2 zu frueh), keine archivierten Fehllaeufe (_m220); 1 ueberholt abgelegt (analysis/_m220/_preflight_220_ueberholt1.txt - dort evtl. schon gezaehlt)

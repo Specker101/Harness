@@ -2364,6 +2364,10 @@ class Orchestrator:
         # die positive Zeile oben stehen bleibt.
         lines += [f"- {z}" for z in
                   standmod.preflight_kodierung_hinweis(self.cfg, 1, self.log)]
+        # R13bb (Befund M224-4): der Preflight-Zaehler gegen die archivierten Laeufe
+        # abgleichen - in B218/B223/B224 fehlte je ein Fehllauf im Mitschnitt.
+        lines += [f"- {z}" for z in standmod.preflight_zaehler_zeile(
+            self.cfg, batch, res.get("preflight_laeufe"), res.get("preflight_frueh"))]
         # R13ba-Nachtrag: ein nicht lesbares Messdatum in der juengsten Paket-E-Messdatei
         # wird als PARSER-Hinweis gemeldet (dann gilt die Dateizeit, und die BILANZ sagt
         # "(Datum aus Dateizeit)") - ein stiller Rueckfall waere nicht nachpruefbar.

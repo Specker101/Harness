@@ -31,6 +31,7 @@ bzw. "UNKLAR FORMULIERT" in der Ausgabe (Nutzerentscheid 2026-09-28).
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime
 from pathlib import Path
@@ -498,6 +499,105 @@ def paket_e_offen_text(messung: dict | None, letzter_dok_batch: int | None = Non
                 f"   [{herkunft}: {messung['datei']}]")
     seit = f" seit B{int(letzter_dok_batch)}" if letzter_dok_batch else ""
     return (f"nicht gemessen{seit} (keine Datei analysis/_m*/_c_paket_e*.txt)")
+
+
+def preflight_archiv(cfg, batch: int) -> dict:
+    """Archivierte Preflight-Laeufe EINES Batches aus `analysis/_m<N>/` (M224-4, R13bb).
+
+    Gezaehlt werden:
+
+      * `_preflight_<N>_fehllauf*.txt` - ein Lauf, der nicht als gueltig gilt. Genau diese
+        Laeufe fehlten dem Zaehler des Harness in B218, B223 und B224 (Befund M224-4): der
+        PostToolUse-Hook schreibt nur, was er sieht.
+      * `_preflight_<N>*ueberholt*.txt` - ein Lauf, den ein spaeterer ueberholt hat.
+
+    **Nicht** gezaehlt wird `_preflight_<N>_vor_fortsetzung<k>.txt`: das ist die byteweise
+    Kopie eines Laufs, der schon gezaehlt ist (R13ah). Ebenfalls aussen vor bleiben die
+    Nicht-Lauf-Dateien desselben Ordners (`_preflight_zeiten.txt`, `_preflight_vergleich.txt`,
+    `_preflight_stderr*.txt`, `*zwischenlauf*`).
+
+    Rueckgabe: `{"fehllauf": [rel…], "ueberholt": [rel…], "ungezaehlt": int, "dateien":
+    [rel…], "ordner": "_m<N>", "gefunden": bool}`. `ungezaehlt` ist die **Differenz**, um
+    die der gezaehlte Wert zu niedrig liegt.
+    """
+    ordner = Path(cfg.decomp) / "analysis" / f"_m{int(batch)}"
+    fehllauf: list[str] = []
+    ueberholt: list[str] = []
+    try:
+        dateien = sorted(ordner.glob(f"_preflight_{int(batch)}*.txt"))
+    except OSError:
+        dateien = []
+    for p in dateien:
+        if "vor_fortsetzung" in p.name:
+            continue
+        rel = p.relative_to(Path(cfg.decomp)).as_posix()
+        if "fehllauf" in p.name:
+            fehllauf.append(rel)
+        elif "ueberholt" in p.name:
+            ueberholt.append(rel)
+    return {"fehllauf": fehllauf, "ueberholt": ueberholt, "ungezaehlt": len(fehllauf),
+            "dateien": fehllauf + ueberholt, "ordner": f"_m{int(batch)}",
+            "gefunden": bool(fehllauf or ueberholt)}
+
+
+def preflight_zaehler_zeile(cfg, batch: int, laeufe: int | None = None,
+                            frueh: int | None = None) -> list[str]:
+    """Eine Zeile fuer die Review-Fakten: Preflight-Zaehler gegen das Archiv (R13bb).
+
+    `laeufe`/`frueh` kommen aus `runs/b<N>/preflight-aufrufe.jsonl` (`zaehle_preflight_
+    aufrufe` im Worker). Sind sie `None`, wird die Datei hier gelesen - so benutzt der
+    Rueckblick fuer aeltere Batches dieselbe Funktion.
+
+    Wortlaut: `PREFLIGHT-ZAEHLER: 1 Aufruf(e) im Mitschnitt (davon 1 zu frueh), 1
+    archivierter Fehllauf nicht gezaehlt (_m224/_preflight_224_fehllauf1.txt) -> 2 Laeufe`.
+    Ohne Fund im Archiv: `… , keine archivierten Fehllaeufe`. `ueberholt`-Dateien werden
+    separat genannt, weil sie in den Aufrufen schon enthalten sein koennen.
+    """
+    if laeufe is None or frueh is None:
+        gelesen, gelesen_frueh = zaehle_preflight_aufrufe(cfg, batch)
+        laeufe = gelesen if laeufe is None else laeufe
+        frueh = gelesen_frueh if frueh is None else frueh
+    arch = preflight_archiv(cfg, batch)
+    teile = (f"PREFLIGHT-ZAEHLER: {int(laeufe)} Aufruf(e) im Mitschnitt "
+             f"(davon {int(frueh)} zu frueh)")
+    if arch["fehllauf"]:
+        gezeigt = ", ".join(arch["fehllauf"][:3])
+        if len(arch["fehllauf"]) > 3:
+            gezeigt += f", +{len(arch['fehllauf']) - 3} weitere"
+        teile += (f", {arch['ungezaehlt']} archivierte(r) Fehllauf/Fehllaeufe nicht gezaehlt "
+                  f"({gezeigt}) -> {int(laeufe) + arch['ungezaehlt']} Laeufe")
+    else:
+        teile += f", keine archivierten Fehllaeufe ({arch['ordner']})"
+    if arch["ueberholt"]:
+        teile += (f"; {len(arch['ueberholt'])} ueberholt abgelegt "
+                  f"({', '.join(arch['ueberholt'][:3])} - dort evtl. schon gezaehlt)")
+    return [teile]
+
+
+def zaehle_preflight_aufrufe(cfg, batch: int) -> tuple[int, int]:
+    """`(Aufrufe, davon frueh)` aus `runs/b<N>/preflight-aufrufe.jsonl` (R13bb).
+
+    Dieselbe Definition wie im Worker (`worker.zaehle_preflight_aufrufe`) - hier nur mit der
+    Batchnummer statt dem Ordner, damit der Rueckblick aelterer Batches nichts nachbaut.
+    """
+    p = Path(cfg.sub("runs")) / f"b{int(batch):03d}" / "preflight-aufrufe.jsonl"
+    if not p.is_file():
+        return 0, 0
+    laeufe = 0
+    frueh = 0
+    for zeile in (read_text(p) or "").splitlines():
+        if not zeile.strip():
+            continue
+        try:
+            daten = json.loads(zeile)
+        except ValueError:
+            continue
+        if not isinstance(daten, dict):
+            continue
+        laeufe += 1
+        if daten.get("frueh"):
+            frueh += 1
+    return laeufe, frueh
 
 
 def rate_text(median: float | None, mittel: float | None) -> str:

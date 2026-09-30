@@ -1215,6 +1215,25 @@ PREFLIGHT-HINWEIS: Preflight vor der Umschaltschwelle (34.0 von 75 min). Er ist 
 
 Wortlaut, Messung und die Definition der Zähler: `docs/_r13ao_belege.md`.
 
+**Nachtrag R13bb (Befund M224-4): der Zähler wird gegen das Archiv abgeglichen.** Der Hook
+sieht nur, was er sieht — in B218 fehlte ihm ein Lauf (3 gelaufen, 2 gezählt), in B223 und
+B224 je einer. Deshalb zählt `stand.preflight_archiv` zusätzlich die Dateien
+`analysis/_m<N>/_preflight_<N>_fehllauf*.txt` (ein Lauf, der nicht gültig wurde) und
+`_preflight_<N>*ueberholt*.txt` (von einem späteren überholt). `_vor_fortsetzung<k>.txt`
+zählt **nicht** mit: das ist die byteweise Kopie eines schon gezählten Laufs (R13ah).
+
+| Feld (`result.json`) | Bedeutung |
+|---|---|
+| `preflight_laeufe` / `preflight_frueh` | unverändert: Aufrufe im Mitschnitt (`preflight-aufrufe.jsonl`) |
+| `preflight_archiv_fehllauf` / `preflight_archiv_ueberholt` | die gefundenen Dateien (relativ zum Decomp-Repo) |
+| `preflight_ungezaehlt` | **die Differenz** = Zahl der Fehlläufe, die der Zähler verpasst hat |
+| `preflight_laeufe_gesamt` | `preflight_laeufe + preflight_ungezaehlt` — die belastbare Zahl |
+
+In den Review-Fakten steht eine Zeile:
+`PREFLIGHT-ZAEHLER: 1 Aufruf(e) im Mitschnitt (davon 1 zu frueh), 1 archivierte(r) Fehllauf/Fehllaeufe nicht gezaehlt (analysis/_m224/_preflight_224_fehllauf1.txt) -> 2 Laeufe`.
+Überholte Läufe werden **getrennt** genannt („dort evtl. schon gezählt"), nicht addiert.
+Rückblick für B218/B223/B224: `docs/_r13bb_belege.md`.
+
 ### 12q. Preflight-Dateien kodierungstolerant lesen (R13ap, 2026-09-30)
 
 Die Preflight-Dateien `analysis/_preflight_<N>.txt` werden vom Decomp-Werkzeug geschrieben —

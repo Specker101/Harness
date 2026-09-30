@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import shutil
 import sys
 import unittest
 from pathlib import Path
@@ -22,8 +23,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from hx import streamjson, worker                                   # noqa: E402
+from hx import stand, streamjson, worker                            # noqa: E402
 from hx.config import load_config                                   # noqa: E402
+from hx.util import ensure_dir                                      # noqa: E402
 
 TOML = ROOT / "harness.toml"
 AUFTRAG = ("TEIL 1: etwas bauen.\n\n## NACHRUECKLISTE\n1. Posten eins\n2. Posten zwei\n")
@@ -174,6 +176,130 @@ class TestAnstossTextUndAblauf(unittest.TestCase):
         self.assertIn('log.info("Fortsetzung trotz Preflight"', quelle)
         self.assertIn('preflight_erneut=(bool(entsch.get("preflight_erneut"))',
                       quelle)
+
+
+class TestPreflightZaehlerArchiv(unittest.TestCase):
+    """Punkt 2 (Befund M224-4): der Preflight-Zaehler gegen die archivierten Laeufe."""
+
+    def setUp(self):
+        self.tmp = Path(ROOT) / "tests" / "_tmp_r13bb"
+        shutil.rmtree(self.tmp, ignore_errors=True)
+        self.root = ensure_dir(self.tmp / "root")
+        self.decomp = ensure_dir(self.tmp / "decomp")
+        self.ana = ensure_dir(self.decomp / "analysis")
+        cfg = load_config()
+        cfg.data["paths"]["root"] = str(self.root)
+        cfg.data["paths"]["decomp"] = str(self.decomp)
+        cfg.data["paths"]["harness_home"] = str(self.tmp)
+        cfg.data["mock"]["enabled"] = True
+        self.cfg = cfg
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def archiv(self, batch: int, name: str) -> Path:
+        d = ensure_dir(self.ana / f"_m{batch}")
+        p = d / name
+        p.write_text(f"# Preflight {batch}\n", encoding="utf-8")
+        return p
+
+    def aufruf(self, batch: int, n: int, frueh: bool = True) -> None:
+        d = ensure_dir(Path(self.root) / "runs" / f"b{batch:03d}")
+        zeilen = [json.dumps({"ts": f"2026-09-30T0{i}:00:00+00:00", "min": 40.0 + i,
+                              "frueh": frueh, "werkzeug": "PowerShell"})
+                  for i in range(n)]
+        (d / "preflight-aufrufe.jsonl").write_text("\n".join(zeilen) + "\n", encoding="utf-8")
+
+    def test_fehllauf_ist_die_differenz(self):
+        self.aufruf(224, 1)
+        self.archiv(224, "_preflight_224_fehllauf1.txt")
+        self.archiv(224, "_preflight_224.txt")
+        a = stand.preflight_archiv(self.cfg, 224)
+        self.assertEqual(a["fehllauf"], ["analysis/_m224/_preflight_224_fehllauf1.txt"])
+        self.assertEqual(a["ungezaehlt"], 1)
+        zeile = stand.preflight_zaehler_zeile(self.cfg, 224)[0]
+        self.assertIn("1 Aufruf(e) im Mitschnitt", zeile)
+        self.assertIn("_preflight_224_fehllauf1.txt", zeile)
+        self.assertIn("-> 2 Laeufe", zeile)
+
+    def test_vor_fortsetzung_zaehlt_nicht(self):
+        """R13ah-Kopien sind byteweise Kopien eines gezaehlten Laufs."""
+        self.aufruf(218, 2)
+        self.archiv(218, "_preflight_218_vor_fortsetzung1.txt")
+        self.archiv(218, "_preflight_218.txt")
+        a = stand.preflight_archiv(self.cfg, 218)
+        self.assertEqual(a["ungezaehlt"], 0)
+        self.assertNotIn("vor_fortsetzung", " ".join(a["dateien"]))
+        self.assertIn("keine archivierten Fehllaeufe", stand.preflight_zaehler_zeile(self.cfg, 218)[0])
+
+    def test_nicht_lauf_dateien_zaehlen_nicht(self):
+        self.aufruf(224, 1)
+        for name in ("_preflight_224_zeiten.txt", "_preflight_224_vergleich.txt",
+                     "_preflight_224_stderr.txt"):
+            self.archiv(224, name)
+        self.assertEqual(stand.preflight_archiv(self.cfg, 224)["ungezaehlt"], 0)
+
+    def test_ueberholt_wird_benannt_aber_nicht_addiert(self):
+        """Ein ueberholter Lauf kann im Mitschnitt schon gezaehlt sein - darum getrennt."""
+        self.aufruf(220, 2)
+        self.archiv(220, "_preflight_220_ueberholt1.txt")
+        self.archiv(220, "_preflight_220_lauf2_ueberholt.txt")
+        a = stand.preflight_archiv(self.cfg, 220)
+        self.assertEqual(a["ungezaehlt"], 0)
+        self.assertEqual(len(a["ueberholt"]), 2)
+        zeile = stand.preflight_zaehler_zeile(self.cfg, 220)[0]
+        self.assertIn("2 Aufruf(e) im Mitschnitt", zeile)
+        self.assertIn("ueberholt abgelegt", zeile)
+        self.assertNotIn("-> 4 Laeufe", zeile)
+
+    def test_ohne_archiv_keine_differenz(self):
+        self.aufruf(226, 1, frueh=False)
+        zeile = stand.preflight_zaehler_zeile(self.cfg, 226)[0]
+        self.assertIn("1 Aufruf(e) im Mitschnitt (davon 0 zu frueh)", zeile)
+        self.assertIn("keine archivierten Fehllaeufe (_m226)", zeile)
+
+    def test_ungueltige_zeilen_zaehlen_nicht(self):
+        d = ensure_dir(Path(self.root) / "runs" / "b227")
+        (d / "preflight-aufrufe.jsonl").write_text('{"ts": "x"}\nkaputt\n\n', encoding="utf-8")
+        self.assertEqual(stand.zaehle_preflight_aufrufe(self.cfg, 227), (1, 0))
+
+    def test_result_json_traegt_die_differenz(self):
+        quelle = inspect.getsource(worker._finish_run)
+        self.assertIn('pf_archiv = stand.preflight_archiv(cfg, batch)', quelle)
+        self.assertIn('"preflight_ungezaehlt": pf_archiv["ungezaehlt"]', quelle)
+        self.assertIn('"preflight_laeufe_gesamt": int(preflight_laeufe)', quelle)
+        self.assertIn('"preflight_archiv_fehllauf"', quelle)
+        self.assertIn("archivierte Fehllaeufe nicht gezaehlt", quelle)
+
+    def test_review_fakten_nennen_den_abgleich(self):
+        from hx.orchestrator import Orchestrator
+        quelle = inspect.getsource(Orchestrator.harness_facts)
+        self.assertIn("standmod.preflight_zaehler_zeile(", quelle)
+        self.assertIn('res.get("preflight_laeufe")', quelle)
+
+
+class TestRueckblickEchteBatches(unittest.TestCase):
+    """Die drei Batches aus M224-4 - gegen die echten Dateien (skip, wenn sie fehlen)."""
+
+    BATCHES = {218: (2, 1), 223: (1, 1), 224: (1, 1)}   # (Aufrufe im Mitschnitt, Fehllaeufe)
+
+    def setUp(self):
+        self.cfg = load_config()
+        self.dec = Path(self.cfg.decomp)
+
+    def test_rueckblick_stimmt(self):
+        for batch, (aufrufe, fehllauf) in self.BATCHES.items():
+            p = (self.dec / "analysis" / f"_m{batch}"
+                 / f"_preflight_{batch}_fehllauf1.txt")
+            if not p.is_file():
+                self.skipTest(f"{p} fehlt")
+            a = stand.preflight_archiv(self.cfg, batch)
+            self.assertEqual(a["ungezaehlt"], fehllauf, batch)
+            gelesen = stand.zaehle_preflight_aufrufe(self.cfg, batch)
+            if gelesen[0] != aufrufe:
+                self.skipTest(f"b{batch}: Mitschnitt hat jetzt {gelesen}, nicht {aufrufe}")
+            zeile = stand.preflight_zaehler_zeile(self.cfg, batch)[0]
+            self.assertIn(f"-> {aufrufe + fehllauf} Laeufe", zeile)
 
 
 if __name__ == "__main__":
