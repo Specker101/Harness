@@ -25,7 +25,8 @@ sys.path.insert(0, str(ROOT))
 
 from hx import stand, streamjson, worker                            # noqa: E402
 from hx.config import load_config                                   # noqa: E402
-from hx.util import ensure_dir                                      # noqa: E402
+from hx.orchestrator import Orchestrator                           # noqa: E402
+from hx.util import ensure_dir, read_text_erkannt                   # noqa: E402
 
 TOML = ROOT / "harness.toml"
 AUFTRAG = ("TEIL 1: etwas bauen.\n\n## NACHRUECKLISTE\n1. Posten eins\n2. Posten zwei\n")
@@ -402,6 +403,101 @@ class TestEchterPlanMischregel(unittest.TestCase):
             self.skipTest(f"Anteil ist {d.get('anteil_c')} - Plan geaendert")
         self.assertIn("1 B : 1 C", d["anteil_quelle"])
         self.assertIn("hybrid-plan.md:", d["anteil_quelle"])
+
+
+class TestPaketEKopfzeile(Basis):
+    """Punkt 4 (M224-4): die Paket-E-Messdatei wird kodierungstolerant gelesen.
+
+    `_m224/_c_paket_e_nachher.txt` ist **UTF-8-BOM**: mit `read_text` (UTF-8) stand das BOM
+    vor dem `#`, das Messdatum passte nicht auf das Muster, und die Datei galt als
+    datumslos (PARSER-Meldung + "Datum aus Dateizeit").
+    """
+
+    KOPF = "# Messung: 2026-09-30 16:55, HEAD 217cce8\r\n"
+
+    def messdatei(self, batch: int, name: str, kopf: str, kodierung: str = "utf-8",
+                  stand: str = "nachher", koepfe: int = 20, insn: int = 1657) -> Path:
+        d = ensure_dir(self.ana / f"_m{batch}")
+        p = d / name
+        text = (kopf + "== ERGEBNIS ==\r\n"
+                f"  Paket E, offen GESAMT   :   {koepfe} Koepfe /   {insn} Insn\r\n")
+        if kodierung == "utf-16-le":
+            p.write_bytes(b"\xff\xfe" + text.encode("utf-16-le"))
+        else:
+            p.write_text(text, encoding=kodierung, newline="")
+        return p
+
+    def test_bom_datei_datum_wird_erkannt(self):
+        """Genau der B224-Fall: BOM statt UTF-8."""
+        self.messdatei(224, "_c_paket_e_nachher.txt", self.KOPF, kodierung="utf-8-sig")
+        m = stand.paket_e_messung(self.cfg)
+        self.assertEqual(m["batch"], 224)
+        self.assertEqual(m["datum"], "2026-09-30 16:55")
+        self.assertEqual(m["datum_quelle"], "kopf")
+        self.assertEqual(m["kodierung"], "utf-8-bom")
+        self.assertEqual(stand.paket_e_datum_hinweis(self.cfg), [],
+                         "kein PARSER-Hinweis bei erkanntem Datum")
+
+    def test_utf16_datei_datum_wird_erkannt(self):
+        self.messdatei(224, "_c_paket_e_nachher.txt", self.KOPF, kodierung="utf-16-le")
+        m = stand.paket_e_messung(self.cfg)
+        self.assertEqual(m["datum"], "2026-09-30 16:55")
+        self.assertEqual(m["kodierung"], "utf-16-le")
+        hinweis = stand.paket_e_datum_hinweis(self.cfg)
+        self.assertEqual(len(hinweis), 1)
+        self.assertIn("in utf-16-le gelesen", hinweis[0])
+        self.assertIn("Datum erkannt", hinweis[0])
+
+    def test_ohne_datum_bleibt_der_parser_hinweis(self):
+        """Gegenprobe: fehlt die Datumszeile wirklich, wird weiter gemeldet."""
+        self.messdatei(222, "_c_paket_e.txt", "# Erzeuger: c_kopf.py paket_e\r\n",
+                       kodierung="utf-8")
+        hinweis = stand.paket_e_datum_hinweis(self.cfg)
+        self.assertEqual(len(hinweis), 1)
+        self.assertIn("PARSER: Messdatum in _m222/_c_paket_e.txt nicht erkannt", hinweis[0])
+
+    def test_bom_ohne_erkennung_waere_der_fehler(self):
+        """Der Beweis: mit reinem UTF-8-Lesen passt das Muster nicht (BOM vor dem #)."""
+        p = self.messdatei(224, "_c_paket_e_nachher.txt", self.KOPF, kodierung="utf-8-sig")
+        roh_utf8 = p.read_bytes().decode("utf-8")
+        self.assertFalse(stand.RE_PAKET_E_DATUM[0].search(roh_utf8),
+                         "mit BOM vor dem # findet der alte Weg kein Datum")
+        text, kodierung = read_text_erkannt(p)
+        self.assertTrue(stand.RE_PAKET_E_DATUM[0].search(text))
+        self.assertEqual(kodierung, "utf-8-bom")
+
+
+class TestEchtePaketEDateiB224(unittest.TestCase):
+    """Die echte B224-Datei aus dem Auftrag (skip, wenn das Repo weiterzieht)."""
+
+    def setUp(self):
+        self.cfg = load_config()
+        self.m = stand.paket_e_messung(self.cfg)
+
+    def skip_wenn_weitergezogen(self) -> None:
+        echt = Path(self.cfg.decomp) / "analysis" / "_m224" / "_c_paket_e_nachher.txt"
+        if not echt.is_file():
+            self.skipTest(f"{echt} fehlt")
+        if self.m.get("batch") != 224:
+            self.skipTest(f"die neueste Messung ist B{self.m.get('batch')} "
+                          f"({self.m.get('datei')})")
+
+    def test_b224_nachher_datum_erkannt_ohne_parser_meldung(self):
+        self.skip_wenn_weitergezogen()
+        self.assertEqual(self.m["kodierung"], "utf-8-bom")
+        self.assertEqual(self.m["datum"], "2026-09-30 16:55")
+        self.assertEqual(self.m["datum_quelle"], "kopf")
+        self.assertEqual(self.m["datei"], "_m224/_c_paket_e_nachher.txt")
+        self.assertEqual(stand.paket_e_datum_hinweis(self.cfg), [],
+                         "die BOM-Datei gilt nicht mehr als datumslos")
+
+    def test_die_parser_meldung_haengt_an_dieser_funktion(self):
+        """Die Review-Fakten rufen genau den Hinweis auf, der hier geprueft wird."""
+        self.skip_wenn_weitergezogen()
+        quelle = inspect.getsource(Orchestrator.harness_facts)
+        self.assertIn("paket_e_datum_hinweis", quelle)
+        self.assertEqual([z for z in stand.paket_e_datum_hinweis(self.cfg)
+                          if "Messdatum" in z], [])
 
 
 if __name__ == "__main__":

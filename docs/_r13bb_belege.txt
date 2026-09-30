@@ -32,3 +32,11 @@ Decomp-Repo: g:\Silent Scope Decomp
    NACHHER geltend           : -> 5 C-Batches bei +4.0 Koepfe je C-Batch (Grundlage: Median der Zuwaechse der Kopf-Batches (+3 (B224), +5 (B219)))
                                -> ca. 10 KALENDER-Batches (5 C-Batches / Anteil 50 % = Regel hybrid-plan.md:354 "1 B : 1 C" (ab B222, NUTZERENTSCHEIDUNG R221-1, 2026-09-30))
    offener Paket-E-Vorrat: 20 Koepfe; Rate 4.0 (Median der Kopf-Batches)
+
+4) PAKET-E-KOPFZEILE KODIERUNGSTOLERANT (M224-4)
+   gewaehlte Datei: _m224/_c_paket_e_nachher.txt  (B224)
+   Kodierung      : utf-8-bom   Datum: '2026-09-30 16:55' (Quelle kopf)
+   Review-Fakten  : (kein PARSER-Hinweis)
+   _m224/_c_paket_e_nachher.txt: utf-8-bom    -> Datum erkannt; mit reinem UTF-8-Lesen NICHT erkannt (der alte Fehler)
+   _m224/_c_paket_e.txt: utf-8        -> Datum erkannt; auch mit reinem UTF-8-Lesen erkannt
+   _m222/_c_paket_e.txt: utf-8        -> kein Datum im Kopf; mit reinem UTF-8-Lesen NICHT erkannt (der alte Fehler)

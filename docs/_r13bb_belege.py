@@ -23,6 +23,7 @@ sys.path.insert(0, str(HARNESS))
 
 from hx import stand                                           # noqa: E402
 from hx.config import load_config                              # noqa: E402
+from hx.util import read_text_erkannt                          # noqa: E402
 
 ZIEL = HIER / "_r13bb_belege.txt"
 RUECKBLICK = (218, 223, 224)
@@ -77,6 +78,28 @@ def bericht() -> None:
             print(f"   {'':26}  " + z.strip())
     print(f"   offener Paket-E-Vorrat: {offen} Koepfe; Rate {d.get('rate_c_koepfe')} "
           f"(Median der Kopf-Batches)")
+    print()
+    print("4) PAKET-E-KOPFZEILE KODIERUNGSTOLERANT (M224-4)")
+    m = stand.paket_e_messung(cfg)
+    print(f"   gewaehlte Datei: {m.get('datei')}  (B{m.get('batch')})")
+    print(f"   Kodierung      : {m.get('kodierung')}   Datum: {m.get('datum')!r} "
+          f"(Quelle {m.get('datum_quelle')})")
+    hinweis = stand.paket_e_datum_hinweis(cfg)
+    print("   Review-Fakten  : " + (hinweis[0] if hinweis else "(kein PARSER-Hinweis)"))
+    for datei in ("_m224/_c_paket_e_nachher.txt", "_m224/_c_paket_e.txt",
+                  "_m222/_c_paket_e.txt"):
+        p = Path(cfg.decomp) / "analysis" / datei
+        if not p.is_file():
+            print(f"   {datei}: fehlt")
+            continue
+        text, kod = read_text_erkannt(p)
+        kopf = "Datum erkannt" if any(mu.search(text) for mu in stand.RE_PAKET_E_DATUM) \
+            else "kein Datum im Kopf"
+        roh = p.read_bytes().decode("utf-8", errors="replace")
+        alt = "auch mit reinem UTF-8-Lesen erkannt" \
+            if any(mu.search(roh) for mu in stand.RE_PAKET_E_DATUM) \
+            else "mit reinem UTF-8-Lesen NICHT erkannt (der alte Fehler)"
+        print(f"   {datei}: {kod:12} -> {kopf}; {alt}")
 
 
 def main() -> int:

@@ -1464,6 +1464,17 @@ statt von Zuwächsen.
 Belege: `docs/_r13aw_belege.md`, `docs/_r13ax_belege.md`, `docs/_r13ay_belege.md`;
 Tests `tests/test_r13aw_fixes.py` (18), `test_r13ax_fixes.py` (15), `test_r13ay_fixes.py` (16).
 
+**Nachtrag R13bb (Punkt 4, M224-4): die Messdatei wird kodierungstolerant gelesen.** Der
+Pfad oben las mit `read_text` (UTF-8). `analysis/_m224/_c_paket_e_nachher.txt` ist
+**UTF-8-BOM**: das BOM stand vor dem `#`, `^#\s*Messung:` passte nicht, die Datei galt als
+datumslos (PARSER-Meldung, „(Datum aus Dateizeit)"). Jetzt liest `paket_e_messung` über
+`util.read_text_erkannt` — dieselbe Funktion wie bei den Preflight-Dateien (§12q). Die
+Kodierung steht als `kodierung` im Ergebnis; ist sie UTF-16 und das Datum lesbar, nennt eine
+Review-Fakten-Zeile sie (`PAKET-E-KOPFZEILE: … in utf-16-le gelesen - Datum erkannt (…)`),
+und eine PARSER-Meldung nennt die Kodierung mit. Gemessen: `_m224/_c_paket_e_nachher.txt`
+liefert `2026-09-30 16:55` und **keine** PARSER-Meldung (`docs/_r13bb_belege.txt`,
+Abschnitt 4).
+
 ### 12y. Eine Rate je C-Batch: Median und Mittel nebeneinander (R13ba, 2026-09-30)
 
 **Befund M221-5 (Aussensicht B221, Frage aus dem Review B222).** Dieselbe Eingabe nannte für

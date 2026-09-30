@@ -81,3 +81,22 @@ Die Zeile sagt jetzt: `-> ca. 10 KALENDER-Batches (5 C-Batches / Anteil 50 % = R
 hybrid-plan.md:354 "1 B : 1 C" (ab B222, NUTZERENTSCHEIDUNG R221-1, 2026-09-30))` —
 Quelle **und** Stand der Regel. Für die Hypothese „C gesamt" verschiebt sich die Zahl von
 ca. 1052 auf ca. 702 Kalender-Batches (M224-5).
+
+## Punkt 4 — Paket-E-Kopfzeile kodierungstolerant lesen (M224-4)
+
+`analysis/_m224/_c_paket_e_nachher.txt` ist **UTF-8-BOM** (`read_bytes_shared` →
+`erkenne_kodierung` = `utf-8-bom`). `paket_e_messung` las die Datei mit `read_text` (UTF-8):
+das BOM stand vor dem `#` der ersten Zeile, `^#\s*Messung:` passte nicht, die Datei galt als
+datumslos — PARSER-Meldung und „(Datum aus Dateizeit)" statt des echten Datums.
+
+**Neu:** dieselbe Lesefunktion wie bei den Preflight-Dateien (R13ap) —
+`util.read_text_erkannt` (BOM/UTF-16-Erkennung). Die Kodierung steht als `kodierung` im
+Ergebnis; wird die Datei als UTF-16 gelesen und das Datum ist lesbar, steht das in den
+Review-Fakten (`PAKET-E-KOPFZEILE: <Datei> in utf-16-le gelesen - Datum erkannt (…)`);
+bleibt das Datum trotzdem unlesbar, nennt die PARSER-Meldung die Kodierung mit.
+
+**Gemessen** (`docs/_r13bb_belege.txt`, Abschnitt 4): die gewählte Datei ist
+`_m224/_c_paket_e_nachher.txt` (UTF-8-BOM, B224), das Datum `2026-09-30 16:55` wird
+**erkannt**, und `paket_e_datum_hinweis` liefert **keine** PARSER-Meldung. Der Beleg zeigt
+zugleich den Gegenbeweis für beide anderen Dateien (`_m224/_c_paket_e.txt` ohne BOM,
+`_m222/_c_paket_e.txt` ohne Datumszeile).

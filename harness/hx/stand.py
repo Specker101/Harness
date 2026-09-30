@@ -37,7 +37,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import protocol
-from .util import read_json, read_text, read_text_erkannt, ist_utf16
+from .util import (read_json, read_text, read_text_erkannt, ist_utf16)
 
 # Bloecke des Ankerkopfs (Projektkonvention, AGENTS.md "Session-Kontinuitaet").
 BLOECKE = ("Stand", "Fertig", "Naechster Schritt", "Offene Entscheidung", "Fallstricke")
@@ -408,8 +408,12 @@ def paket_e_messung(cfg, log=None) -> dict:
     for p in dateien:
         if not RE_PAKET_E_ORDNER.match(p.parent.name):
             continue
+        # R13bb (M224-4, Punkt 4): dieselbe Lesefunktion wie bei den Preflight-Dateien -
+        # `_m224/_c_paket_e_nachher.txt` ist UTF-8-**BOM**, und mit `read_text` (UTF-8) stand
+        # das BOM vor dem `#`, das Messdatum passte nicht und die Datei galt als datumslos.
         try:
-            text = read_text(p)[:200000]
+            text, kodierung = read_text_erkannt(p)
+            text = text[:200000]
         except OSError:
             continue
         m = RE_PAKET_E_GESAMT.search(text)
@@ -430,7 +434,7 @@ def paket_e_messung(cfg, log=None) -> dict:
             "batch": batch, "zeile": zeile,
             "datei": p.relative_to(basis).as_posix(), "datum": datum,
             "datum_quelle": datum_quelle, "kopf": datum_quelle == "kopf",
-            "stand": stand,
+            "stand": stand, "kodierung": kodierung,
             # Rang des Dateinamens INNERHALB eines Batches: nachher (2) vor der blossen
             # Messung (1) vor vorher (0); danach erst das Datum, dann die Zeit, der Name.
             "_sort": (batch, 2 if stand == "nachher" else (1 if not stand else 0),
@@ -470,20 +474,30 @@ def paket_e_datum_hinweis(cfg, log=None) -> list[str]:
     Nur der Fehlerfall wird gemeldet: die gewaehlte Messdatei traegt kein lesbares Datum,
     es gilt die **Dateizeit** (die Anzeige sagt es mit "(Datum aus Dateizeit)"). Der
     Fachbegriff steht am Zeilenanfang (`PARSER:`), damit er maschinell auffindbar ist.
+
+    R13bb (Punkt 4): wurde die Datei als **UTF-16** gelesen, steht das in der Meldung -
+    dann ist die Kodierung die Ursache und keine fehlende Datumszeile. Ist das Datum trotz
+    UTF-16 lesbar (der Regelfall seit R13bb), meldet die Funktion die Kodierung als eigene
+    Zeile, damit die Lesetoleranz nachpruefbar bleibt.
     """
     m = paket_e_messung(cfg, log=log)
     if not m:
         return []
+    utf16 = ist_utf16(m.get("kodierung"))
     if m.get("datum_quelle") == "dateizeit":
-        zeile = (f"PARSER: Messdatum in {m['datei']} nicht erkannt - es gilt die Dateizeit "
-                 f"({m['datum']}); gemessen B{m['batch']}, {m['koepfe']} Koepfe / "
-                 f"{m['insn']} Insn")
+        zeile = (f"PARSER: Messdatum in {m['datei']} nicht erkannt"
+                 + (f" ({m.get('kodierung')} gelesen)" if utf16 else "")
+                 + f" - es gilt die Dateizeit ({m['datum']}); gemessen B{m['batch']}, "
+                 f"{m['koepfe']} Koepfe / {m['insn']} Insn")
         if log:
             log.info("PARSER: Messdatum nicht erkannt", datei=m["datei"],
-                     dateizeit=m["datum"], batch=m["batch"])
+                     dateizeit=m["datum"], batch=m["batch"], kodierung=m.get("kodierung"))
         return [zeile]
     if not m.get("datum"):
         return [f"PARSER: Weder Messdatum noch Dateizeit in {m['datei']} lesbar"]
+    if utf16:
+        return [(f"PAKET-E-KOPFZEILE: {m['datei']} in {m['kodierung']} gelesen - "
+                 f"Datum erkannt ({m['datum']}), gemessen B{m['batch']}")]
     return []
 
 
