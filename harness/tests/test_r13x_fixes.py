@@ -91,6 +91,12 @@ class TestEchteBelege(unittest.TestCase):
                 shutil.copy2(q / f"_preflight_{n}.txt", self.ana / f"_preflight_{n}.txt")
             for p in (q / f"_m{n}").glob("_bilanz*.txt"):
                 shutil.copy2(p, ensure_dir(self.ana / f"_m{n}") / p.name)
+        # R13aw: die Paket-E-MESSUNGEN mitkopieren (B219 = 26/2114, B210 = 38/2674 als
+        # Vorgaenger) - sonst pruefte dieser Test nur den "nicht gemessen"-Zweig.
+        for quelle in (q / "_m219" / "_c_paket_e_nachher.txt",
+                       q / "_m210" / "_c_paket_e.txt"):
+            if quelle.is_file():
+                shutil.copy2(quelle, ensure_dir(self.ana / quelle.parent.name) / quelle.name)
         for name in ("_bilanz_snapshot.json",):
             if (q / name).is_file():
                 shutil.copy2(q / name, self.ana / name)
@@ -163,10 +169,23 @@ class TestEchteBelege(unittest.TestCase):
         self.assertIn("_preflight_208.txt", text)
 
     # ---------------------------------------------------------------- (b) Paket E
-    def test_paket_e_ist_spalte_des_neuesten_dokuments(self):
+    def test_paket_e_kommt_aus_der_messung(self):
+        """R13aw (M219-3): 26/2114 aus der Messung - nicht 38/2674 aus dem B208-Dokument."""
         text = "\n".join(bilanz.gesamt_block(self.cfg))
-        self.assertIn("Paket E offen: 38 Koepfe / 2674 Insn (Bl 17 / 1202)", text)
-        self.assertNotIn("Bl 15 / 1083", text)
+        self.assertIn("Paket E offen: 26 Koepfe / 2114 Insn", text)
+        self.assertIn("[gemessen B219, 2026-09-30 03:33: _m219/_c_paket_e_nachher.txt]", text)
+        self.assertIn("B210 -> B219: 12 Koepfe / 560 Insn gebaut", text)
+        self.assertNotIn("Paket E offen: 38 Koepfe", text)
+        self.assertNotIn("Ist-Spalte", text)
+
+    def test_ohne_messung_kein_alter_wert(self):
+        """Fehlt die Messung, steht das da - die B208-Spalte wird NICHT mehr gezeigt."""
+        import shutil
+        for p in self.ana.glob("_m*/_c_paket_e*.txt"):
+            shutil.move(str(p), str(self.tmp / p.name))
+        text = "\n".join(bilanz.gesamt_block(self.cfg))
+        self.assertIn("Paket E offen: nicht gemessen seit B208", text)
+        self.assertNotIn("38 Koepfe", text)
 
     def test_b206_paket_e_ist_17_1202_nicht_die_vorhersage(self):
         zahlen = stand._zahlen_aus_text(_echte(206).read_text(encoding="utf-8",
@@ -175,10 +194,10 @@ class TestEchteBelege(unittest.TestCase):
         self.assertEqual((zahlen["paket_e_blatt"], zahlen["paket_e_insn_blatt"]),
                          (17, 1202))
 
-    def test_durchsatz_zeilen_nennen_den_gemessenen_paket_e_stand(self):
+    def test_durchsatz_zeilen_nennen_die_messung(self):
         text = "\n".join(stand.durchsatz_zeilen(self.cfg))
-        self.assertIn("(Bl 17 / 1202)", text)
-        self.assertIn('"Paket E offen", Ist-Spalte', text)
+        self.assertIn("offen (Paket E, C-Arbeitsvorrat): 26 Koepfe / 2114 Insn", text)
+        self.assertIn('analysis/_m219/_c_paket_e_nachher.txt ("Paket E offen GESAMT"', text)
         self.assertIn('"C Koepfe", Preflight', text)
 
     # ---------------------------------------------------------------- (c) Laufzeit
@@ -304,6 +323,19 @@ class Basis(unittest.TestCase):
                           "Pruefung           Ergebnis              Urteil\n"
                           f"C Koepfe           {ck} / {cf} / 0        OK\n")
 
+    def messung(self, n: int, koepfe: int, insn: int, stand: str = "nachher",
+                datum: str = "2026-09-30 03:33") -> Path:
+        """Eine Paket-E-MESSUNG, wie `c_kopf.py paket_e` sie schreibt (R13aw)."""
+        d = ensure_dir(self.ana / f"_m{n}")
+        zusatz = f"_{stand}" if stand else ""
+        p = d / f"_c_paket_e{zusatz}.txt"
+        write_text_atomic(p, f"# Batch {n} TEIL 2 - PAKET E, Stand {stand or 'gemessen'}\n"
+                             f"# Messung: {datum}, HEAD 5b7eaf6, python scripts/c_kopf.py "
+                             "paket_e\n"
+                             "== ERGEBNIS ==\n"
+                             f"  Paket E, offen GESAMT   :   {koepfe} Koepfe /   {insn} Insn\n")
+        return p
+
     def bilanzdatei(self, n: int, v: int, h: int) -> None:
         d = ensure_dir(self.ana / f"_m{n}")
         write_text_atomic(d / f"_bilanz{n}.txt", BILANZDATEI.format(n=n, vm=n - 1, v=v, h=h))
@@ -412,12 +444,14 @@ class TestKernzahlen(Basis):
         self.dokument(208, ck=78, cf=2903, pek=38, pei=2674)
         self.preflight(207, 78, 2903)
         self.preflight(208, 78, 2903)
+        # R13aw: der offene Paket-E-Vorrat kommt aus der MESSUNG, nicht aus der Tafel.
+        self.messung(219, 26, 2114)
         text = "\n".join(bilanz.gesamt_block(self.cfg))
         self.assertIn("78 Koepfe / 2903 Faelle", text)
         self.assertIn("+0 Koepfe / +0 Faelle (B207 -> B208)", text)
         self.assertIn("[B208, _preflight_208.txt]", text)
-        self.assertIn("(Bl 17 / 1202)", text)
-        self.assertIn("(B207 -> B208): 0 Koepfe / 0 Insn gebaut", text)
+        self.assertIn("Paket E offen: 26 Koepfe / 2114 Insn", text)
+        self.assertIn("_m219/_c_paket_e_nachher.txt", text)
 
     def test_laufender_batch_ohne_zahlen_streicht_die_zeile_nicht(self):
         """Ein gerade Laufender schreibt sein Dokument, bevor die Preflight-Zeile da ist.
@@ -438,7 +472,7 @@ class TestKernzahlen(Basis):
         text = "\n".join(bilanz.gesamt_block(self.cfg))
         self.assertIn("78 Koepfe / 2903 Faelle", text)
         self.assertIn("[B208, _preflight_208.txt]", text)
-        self.assertIn("(Bl 17 / 1202)", text)
+        self.assertIn("Paket E offen: nicht gemessen seit B208", text)
 
 
 # ---------------------------------------------------------------- Laufzeit (c)

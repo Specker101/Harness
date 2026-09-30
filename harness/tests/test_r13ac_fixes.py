@@ -428,10 +428,15 @@ class TestPlanUndMedian(Basis):
         self.run_ordner(210)
         write_text_atomic(self.root / "runs" / "b210" / "auftrag.md",
                           "TEIL 3\nSOLL-KOEPFE: 6\n")
+        # R13aw (M219-3): gebildet wird der Median der ZUWaeCHSE - dafuer braucht es
+        # den Vorgaengerwert (73 -> 78 = +5), nicht nur den heutigen Stand.
+        self.preflight(209, 73)
         self.preflight(210, 78)
         text = stand.plan_ist_text(self.cfg, 5)
-        self.assertRegex(text, r"MEDIAN der 1 C-Batches mit SOLL-KOEPFE > 0")
-        self.assertIn("gemessene C Koepfe aus der Preflight-Datei", text)
+        self.assertRegex(text,
+                         r"MEDIAN der 1 Zuwaechse der C Koepfe je C-Batch mit SOLL-KOEPFE > 0")
+        self.assertIn("+5 (B210)", text)
+        self.assertIn("Summen-Mittel derselben Batches", text)
 
     def test_median_ohne_soll_ist_nicht_gemessen(self):
         self.bilanz_datei(210, 681, 686)

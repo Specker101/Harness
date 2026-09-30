@@ -307,9 +307,13 @@ class TestStand(Basis):
         self.assertIn("+6 Koepfe", text)         # IST: R207-Zaehler
         self.assertIn("78 (+5)", text)           # C Koepfe aus der Preflight-Datei
         self.assertIn("30m07s", text)
-        # R13ac (M210-4): der MEDIAN steht auf C-Batches mit Soll > 0 und auf den
-        # gemessenen C Koepfen (73 -> 78: Median 75,5).
-        self.assertIn("MEDIAN der 2 C-Batches mit SOLL-KOEPFE > 0", text)
+        # R13aw (M219-3): der MEDIAN steht auf den ZUWaeCHSEN der C Koepfe je C-Batch
+        # (73 -> 78 = +5). Ein Median ueber die Gesamtzahl (75,5) beschrieb den halben
+        # Bestand, nicht den Zuwachs - genau das hat die Aussensicht B219 bemaengelt.
+        self.assertIn("MEDIAN der 1 Zuwaechse der C Koepfe je C-Batch mit SOLL-KOEPFE > 0",
+                      text)
+        self.assertIn("+5 (B101)", text)
+        self.assertIn("5 Koepfe je C-Batch", text)
         self.assertIn("Ziel des naechsten Batches: hoechstens ca.", text)
 
     def test_fragen_text_entscheidbar_und_unklar(self):

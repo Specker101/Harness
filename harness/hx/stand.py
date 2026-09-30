@@ -327,6 +327,108 @@ def _r207_aus_dokumenten(cfg, reihe: list[dict]) -> None:
     reihe.sort(key=lambda e: e["batch"])
 
 
+# R13aw (Aussensicht B219, Befund M219-3): die Zeile `Paket E offen` der Soll/Ist-Tafel
+# ist als QUELLE unbrauchbar geworden - B219 rechnete noch mit dem B208-Stand (38/2674),
+# waehrend gemessen 26/2114 waren. Massgeblich ist die MESSUNG selbst
+# (`python scripts/c_kopf.py paket_e`), die ihr Protokoll nach
+# `analysis/_m<N>/_c_paket_e*.txt` schreibt - mit Datum und HEAD im Kopf.
+RE_PAKET_E_GESAMT = re.compile(
+    r"Paket E,\s*offen GESAMT\s*:\s*(\d+)\s*Koepfe\s*/\s*(\d+)\s*Insn")
+RE_PAKET_E_MESSKOPF = re.compile(
+    r"^#\s*Messung:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})[ ,T]*([0-9]{1,2}:[0-9]{2})?", re.M)
+RE_PAKET_E_ORDNER = re.compile(r"^_m(\d+)$")
+
+
+def paket_e_messung(cfg, log=None) -> dict:
+    """Die JUENGSTE Paket-E-Messung aus `analysis/_m<N>/_c_paket_e*.txt` (R13aw).
+
+    Rueckgabe `{}`, wenn es keine gibt. Sonst:
+
+        {"koepfe": 26, "insn": 2114, "batch": 219, "zeile": 127,
+         "datei": "_m219/_c_paket_e_nachher.txt", "datum": "2026-09-30 03:33",
+         "kopf": True, "stand": "nachher", "vorher": {...} oder None}
+
+    Ausgewaehlt wird nach (Messdatum aus dem Dateikopf, Aenderungszeit, `nachher` vor
+    `vorher`, Name) - gemessen in B219 tragen `_vorher` und `_nachher` DASSELBE Datum und
+    denselben HEAD (Befund M219-4: die "Vorher"-Messung war keine), deshalb entscheidet
+    der Dateiname. `vorher` ist die naechstaeltere Messung mit ANDEREM Wert (fuer das
+    Delta "gebaut").
+    """
+    basis = Path(cfg.decomp) / "analysis"
+    kandidaten: list[dict] = []
+    try:
+        dateien = sorted(basis.glob("_m*/_c_paket_e*.txt"))
+    except OSError:
+        dateien = []
+    for p in dateien:
+        if not RE_PAKET_E_ORDNER.match(p.parent.name):
+            continue
+        try:
+            text = read_text(p)[:200000]
+        except OSError:
+            continue
+        m = RE_PAKET_E_GESAMT.search(text)
+        if not m:
+            continue
+        kopf = RE_PAKET_E_MESSKOPF.search(text)
+        datum = " ".join(g for g in kopf.groups() if g) if kopf else ""
+        zeile = next((i for i, z in enumerate(text.splitlines(), 1)
+                      if RE_PAKET_E_GESAMT.search(z)), 0)
+        stand = ("nachher" if "nachher" in p.name.lower()
+                 else ("vorher" if "vorher" in p.name.lower() else ""))
+        try:
+            mtime = p.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        kandidaten.append({
+            "koepfe": int(m.group(1)), "insn": int(m.group(2)),
+            "batch": int(p.parent.name[2:]), "zeile": zeile,
+            "datei": p.relative_to(basis).as_posix(), "datum": datum,
+            "kopf": bool(kopf), "stand": stand,
+            "_sort": (datum, mtime, 1 if stand == "nachher" else 0, p.name)})
+    if not kandidaten:
+        if log:
+            log.info("Paket-E-Messung: keine Datei gefunden",
+                     suchmuster=str(basis / "_m*/_c_paket_e*.txt"))
+        return {}
+    kandidaten.sort(key=lambda e: e["_sort"])
+    neu = kandidaten[-1]
+    aeltere = kandidaten[:-1]
+    # `vorher`: die naechstaeltere Messung mit ANDEREM Wert (das ist ein echter Schritt).
+    aelter = next((e for e in reversed(aeltere)
+                   if e["koepfe"] != neu["koepfe"] or e["insn"] != neu["insn"]), None)
+    # `vorher_gleich`: eine aeltere Datei mit DEMSELBEN Wert. In B219 liegen `_vorher` und
+    # `_nachher` beide bei 26 (Befund M219-4: die "Vorher"-Messung des Werkzeugs war keine).
+    # Das wird benannt, statt es zu verschweigen.
+    gleich = next((e for e in reversed(aeltere)
+                   if e["batch"] == neu["batch"] and e["koepfe"] == neu["koepfe"]
+                   and e["insn"] == neu["insn"]), None)
+    aus = {k: v for k, v in neu.items() if not k.startswith("_")}
+    aus["vorher"] = ({k: v for k, v in aelter.items() if not k.startswith("_")}
+                      if aelter else None)
+    aus["vorher_gleich"] = ({k: v for k, v in gleich.items() if not k.startswith("_")}
+                             if gleich else None)
+    if log:
+        log.info("Paket-E-Messung gelesen", datei=aus["datei"], koepfe=aus["koepfe"],
+                 insn=aus["insn"], datum=aus["datum"] or "(kein Kopf)",
+                 stand=aus["stand"] or "-")
+    return aus
+
+
+def paket_e_offen_text(messung: dict | None, letzter_dok_batch: int | None = None) -> str:
+    """`26 Koepfe / 2114 Insn [gemessen B219, …]` oder der ehrliche Fehlvermerk. """
+    if messung:
+        herkunft = f"gemessen B{messung['batch']}"
+        if messung.get("datum"):
+            herkunft += f", {messung['datum']}"
+        elif not messung.get("kopf"):
+            herkunft += ", Datum aus der Aenderungszeit"
+        return (f"{messung['koepfe']} Koepfe / {messung['insn']} Insn"
+                f"   [{herkunft}: {messung['datei']}]")
+    seit = f" seit B{int(letzter_dok_batch)}" if letzter_dok_batch else ""
+    return (f"nicht gemessen{seit} (keine Datei analysis/_m*/_c_paket_e*.txt)")
+
+
 def durchsatz(cfg, n: int = STANDARD_FENSTER) -> dict:
     """Verifizierte Koepfe und Insn je Batch plus Hochrechnung (R13s).
 
@@ -362,7 +464,12 @@ def durchsatz(cfg, n: int = STANDARD_FENSTER) -> dict:
         if eintrag.get("paket_e_koepfe") is not None:
             pe = eintrag
             break
+    # R13aw (M219-3): der OFFENE Vorrat kommt aus der Messung, nicht aus der
+    # Soll/Ist-Tafel (die stand seit B208 still). Fehlt jede Messung, wird NICHTS
+    # geschaetzt - die Anzeige sagt dann "nicht gemessen seit B<k>".
+    messung = paket_e_messung(cfg)
     erg: dict = {"fenster": fenster, "n": len(fenster), "paket_e": pe,
+                 "paket_e_messung": messung,
                  "mittel_koepfe": 0.0, "mittel_insn": 0.0, "c_quelle": "",
                  "batches_koepfe": None, "batches_insn": None, "quelle": ""}
     if fenster:
@@ -372,8 +479,10 @@ def durchsatz(cfg, n: int = STANDARD_FENSTER) -> dict:
         erg["mittel_insn"] = sum(insn_werte) / len(insn_werte) if insn_werte else 0.0
         erg["quelle"] = fenster[0].get("dokument", "")
         erg["c_quelle"] = fenster[0].get("c_quelle") or ""
-    offen_koepfe = pe.get("paket_e_koepfe")
-    offen_insn = pe.get("paket_e_insn")
+    offen_koepfe = (messung.get("koepfe") if messung else None)
+    offen_insn = (messung.get("insn") if messung else None)
+    erg["offen_koepfe"] = offen_koepfe
+    erg["offen_insn"] = offen_insn
     if offen_koepfe and erg["mittel_koepfe"] > 0:
         erg["batches_koepfe"] = offen_koepfe / erg["mittel_koepfe"]
     if offen_insn and erg["mittel_insn"] > 0:
@@ -1553,12 +1662,16 @@ def durchsatz_zeilen(cfg, n: int = STANDARD_FENSTER) -> list[str]:
                       f"+{d.get('mittel_c_koepfe_r207', 0.0):.1f} Koepfe je C-Batch "
                       f"(R207-Zaehler, {len(c_batches)} von {d['n']}: {namen})")
     zeilen += _mischung_zeile(cfg, d)
-    if pe.get("paket_e_koepfe") is not None:
-        zeilen.append(f"                 offen (Paket E, C-Arbeitsvorrat): "
-                      f"{pe['paket_e_koepfe']} Koepfe / {pe.get('paket_e_insn', '?')} Insn"
-                      + (f" (Bl {pe.get('paket_e_blatt')} / {pe.get('paket_e_insn_blatt')})"
-                         if pe.get("paket_e_blatt") is not None else ""))
-    hoch = kalender_zeilen(cfg, pe.get("paket_e_koepfe") or 0, d)
+    messung = d.get("paket_e_messung") or {}
+    if messung:
+        zeilen.append("                 offen (Paket E, C-Arbeitsvorrat): "
+                      + paket_e_offen_text(messung))
+    else:
+        zeilen.append("                 offen (Paket E, C-Arbeitsvorrat): "
+                      + paket_e_offen_text(None, (pe.get("batch")
+                                                  if pe.get("paket_e_koepfe") is not None
+                                                  else None)))
+    hoch = kalender_zeilen(cfg, (messung.get("koepfe") if messung else 0), d)
     if hoch:
         zeilen.append("                 HYPOTHESIS (Paket E, Arbeitsvorrat):")
         zeilen += hoch
@@ -1566,11 +1679,14 @@ def durchsatz_zeilen(cfg, n: int = STANDARD_FENSTER) -> list[str]:
         zeilen.append("                 HYPOTHESIS: keine Hochrechnung moeglich")
     zeilen += _c_gesamt_zeilen(cfg, d)
     zeilen += _relevanz_zeilen(cfg, d)
+    messung = d.get("paket_e_messung") or {}
+    pe_quelle = (f" + analysis/{messung['datei']} (\"Paket E offen GESAMT\", "
+                 f"gemessen B{messung['batch']}"
+                 + (f", {messung['datum']}" if messung.get("datum") else "") + ")"
+                 if messung else
+                 " + KEINE Paket-E-Messung (analysis/_m*/_c_paket_e*.txt fehlt)")
     zeilen.append(f"                 Quelle: analysis/{d['quelle']} (Zeile \"R207 "
-                  "rueckwaerts\")"
-                  + (f" + analysis/{pe['dokument']} (\"Paket E offen\", Ist-Spalte"
-                     + (f", Zeile {pe['paket_e_zeile']}" if pe.get("paket_e_zeile") else "")
-                     + ")" if pe.get("dokument") else "")
+                  "rueckwaerts\")" + pe_quelle
                   + _c_quelle_notiz(d.get("c_quelle"), d.get("c_zeile")))
     return zeilen
 
@@ -1670,10 +1786,15 @@ def _relevanz_zeilen(cfg, d: dict | None = None) -> list[str]:
                       "nicht ausgefuehrt - NICHT \"unnoetig\" (die Aufnahmen decken nur "
                       "Boot + einen Teil von Level 1 ab)")
         if r.get("paket_e_huelle"):
+            # R13aw: die Projektzahl stand hier fest als "274 / 38" (B208-Stand). Sie kommt
+            # jetzt aus derselben Quelle wie ueberall sonst - der juengsten Messung.
+            messung = d.get("paket_e_messung") or {}
+            projekt = (f"{messung['koepfe']} / {messung['insn']} (gemessen B{messung['batch']})"
+                       if messung else "nicht gemessen")
             zeilen.append(f"                 (Paket-E-Huelle eigene Nachrechnung: "
                           f"{r['paket_e_huelle']} Koepfe, davon offen "
                           f"{r.get('paket_e_huelle_offen', '?')}; Projektzahl "
-                          f"`c_kopf.py paket_e`: 274 / 38)")
+                          f"`c_kopf.py paket_e`: {projekt})")
     a = r.get("aufnahmen") or {}
     if a:
         zeilen.append(f"  Aufnahmen    : {a.get('beschreibung', '?')}")
@@ -1895,17 +2016,26 @@ def plan_ist_text(cfg, n: int = STANDARD_FENSTER) -> str:
             rueckfall.append(f"B{r['batch']}: {r.get('dauer_quelle')}")
         zeilen.append(f"B{r['batch']} | {plan} | {ist} | {c_spalte} | "
                       f"{r['dauer'] or '?'}{marke} | {r['abbruch'] or '?'}")
-    # R13ac (M210-4): der MEDIAN zaehlt nur C-Batches mit ausdruecklichem Soll > 0.
+    # R13aw (M219-3): der MEDIAN wird ueber die ZUWaeCHSE der C Koepfe je C-Batch
+    # gebildet, nicht ueber die Gesamtzahl. GEMESSEN: die Summen sind 88, 96, 90 … -
+    # ein Median daraus (88) beschreibt keinen Zuwachs, sondern den halben Bestand; die
+    # echten Zuwaechse waren +7 (B216) und +5 (B219).
     basis = [r for r in reihen
              if (r.get("strang") or "?") != "B" and (r.get("soll_koepfe") or 0) > 0]
-    med = median([r["c_koepfe"] for r in basis if r.get("c_koepfe") is not None])
+    zuwaechse = [r["c_delta"] for r in basis if r.get("c_delta") is not None]
+    med = median(zuwaechse)
     if med is None:
         zeilen.append("MEDIAN: nicht gemessen (kein C-Batch im Fenster mit "
-                      "SOLL-KOEPFE > 0)")
+                      "SOLL-KOEPFE > 0 und gemessenem Zuwachs)")
     else:
-        zeilen.append(f"MEDIAN der {len(basis)} C-Batches mit SOLL-KOEPFE > 0 "
-                      f"(gemessene C Koepfe aus der Preflight-Datei): {med:.0f} Koepfe "
+        einzeln = ", ".join(f"{r['c_delta']:+d} (B{r['batch']})"
+                            for r in basis if r.get("c_delta") is not None)
+        zeilen.append(f"MEDIAN der {len(zuwaechse)} Zuwaechse der C Koepfe je C-Batch "
+                      f"mit SOLL-KOEPFE > 0 ({einzeln}): {med:.0f} Koepfe je C-Batch "
                       f"(Ziel des naechsten Batches: hoechstens ca. {med * 1.3:.0f})")
+        zeilen.append("  (Summen-Mittel derselben Batches, nur zur Einordnung: "
+                      + ", ".join(f"B{r['batch']} {r['c_koepfe']}"
+                                  for r in basis if r.get("c_koepfe") is not None) + ")")
     if rueckfall:
         zeilen.append("* Laufzeit NICHT aus runs/b<N>/result.json, sondern aus dem "
                       "Rueckfall (" + "; ".join(rueckfall) + ")")

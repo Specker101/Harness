@@ -1,4 +1,4 @@
-"""Bilanz-Bericht fuer Telegram (`/bilanz`) und die Konsole (R13q).
+﻿"""Bilanz-Bericht fuer Telegram (`/bilanz`) und die Konsole (R13q).
 
 Auftrag (Nutzer, 2026-09-27): ein Befehl, der zeigt,
   * an welchen Aufgaben gearbeitet wird,
@@ -322,7 +322,7 @@ def _verifiziert_zeile(cfg) -> list[str]:
     also fuer etwas anderes als das Wort daneben. Jetzt gilt:
 
     * `C Koepfe referenzgleich` = die Kopfzahl (Zeile darueber),
-    * `C verifiziert` = die Zahl aus `Bahnabdeckung … verifiziert <n> | teilgeprueft <m>`,
+    * `C verifiziert` = die Zahl aus `Bahnabdeckung â€¦ verifiziert <n> | teilgeprueft <m>`,
       und sobald die Preflight-Datei eine **Nachrueckliste** mit eigener
       `verifiziert`-Zahl liefert (ab B211 geplant), hat diese den Vorrang.
 
@@ -511,11 +511,12 @@ def gesamt_block(cfg) -> list[str]:
     """`GESAMT` - Projektstand in Prozent, mit Delta zum Vorbatch und Durchsatz.
 
     Quellen: die Zeile `C Koepfe` (verifizierte Koepfe/Faelle) aus der **Preflight-Datei**
-    des Batches (`stand.kernzahlen`), die Zeile `Paket E offen` aus der **Ist-Spalte** der
-    Soll/Ist-Tafel des Batch-Dokuments, die Bau-Liste/offen-Zahlen, wo ein Dokument sie
-    (noch) als Prosa traegt, das Programm-Inventar aus dem Bilanz-Schnappschuss und der
-    Durchsatz aus `stand.durchsatz`. Nichts wird geschaetzt - was fehlt, steht als
-    "nicht ermittelbar" da, und jede Delta-Zeile nennt die verglichenen Batches.
+    des Batches (`stand.kernzahlen`), der offene Paket-E-Vorrat aus der juengsten
+    **Messung** (`analysis/_m<N>/_c_paket_e*.txt`, `stand.paket_e_messung`), die Bau-Liste/
+    offen-Zahlen, wo ein Dokument sie (noch) als Prosa traegt, das Programm-Inventar aus
+    dem Bilanz-Schnappschuss und der Durchsatz aus `stand.durchsatz`. Nichts wird
+    geschaetzt - was fehlt, steht als "nicht ermittelbar" bzw. "nicht gemessen seit B<k>"
+    da, und jede Delta-Zeile nennt die verglichenen Batches.
     """
     reihe = _stand_reihe(cfg)
     zeilen = ["GESAMT (Teil C - der systematische Durchgang)"]
@@ -537,23 +538,28 @@ def gesamt_block(cfg) -> list[str]:
         zeilen.append("  C Koepfe referenzgleich: nicht ermittelbar (keine Preflight-Zeile "
                       "'C Koepfe' und keine Ist-Spalte im Batch-Dokument)")
     zeilen += _verifiziert_zeile(cfg)
-    e_zeile = _letzter_mit(reihe, "paket_e_koepfe")
-    if e_zeile.get("paket_e_koepfe") is not None:
-        k, i = e_zeile["paket_e_koepfe"], e_zeile.get("paket_e_insn", 0)
-        bl, bl_i = e_zeile.get("paket_e_blatt"), e_zeile.get("paket_e_insn_blatt")
+    # R13aw (Aussensicht B219, Befund M219-3): der offene Paket-E-Vorrat kommt aus der
+    # juengsten MESSUNG (`analysis/_m<N>/_c_paket_e*.txt`, mit Datum), nicht mehr aus der
+    # Soll/Ist-Tafel - dort stand seit B208 unveraendert 38/2674, waehrend gemessen 26/2114
+    # waren (die BILANZ rechnete damit "13 C-Batches" statt der richtigen Groessenordnung).
+    messung = stand.paket_e_messung(cfg)
+    if messung:
+        vor = messung.get("vorher") or {}
+        gleich = messung.get("vorher_gleich") or {}
         delta = ""
-        if e_zeile.get("paket_e_koepfe_vorher") is not None:
-            dk = e_zeile["paket_e_koepfe_vorher"] - k
-            di = e_zeile.get("paket_e_insn_vorher", 0) - i
-            delta = (f"   ({_delta_batch(e_zeile, 'paket_e_koepfe')}: {dk} Koepfe / "
+        if vor:
+            dk = vor["koepfe"] - messung["koepfe"]
+            di = vor["insn"] - messung["insn"]
+            delta = (f"   (B{vor['batch']} -> B{messung['batch']}: {dk} Koepfe / "
                      f"{di} Insn gebaut)")
-        zeilen.append(f"  Paket E offen: {k} Koepfe / {i} Insn"
-                      + (f" (Bl {bl} / {bl_i})" if bl is not None else "") + delta
-                      + (f"   [Ist-Spalte {e_zeile.get('dokument')}]"
-                         if e_zeile.get("dokument") else ""))
+        elif gleich:
+            delta = (f"   (Vorher-Messung B{gleich['batch']} identisch - keine echte "
+                     "Vorher-Messung)")
+        zeilen.append("  Paket E offen: " + stand.paket_e_offen_text(messung) + delta)
     else:
-        zeilen.append("  Paket E offen: nicht ermittelbar (keine Zeile "
-                      "'Paket E offen')")
+        e_zeile = _letzter_mit(reihe, "paket_e_koepfe")
+        seit = e_zeile.get("batch") if e_zeile.get("paket_e_koepfe") is not None else None
+        zeilen.append("  Paket E offen: " + stand.paket_e_offen_text(None, seit))
     # Bau-Liste/Vorrat/Inventar stehen als Prosa im Batch-Dokument: dafuer der neueste
     # Eintrag MIT diesen Zahlen und dessen Vorgaenger (die Deltas in Klammern).
     jetzt = _letzter_mit(reihe, "baut") or (reihe[-1] if reihe else {})

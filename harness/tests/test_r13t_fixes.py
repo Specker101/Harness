@@ -101,6 +101,16 @@ class Basis(unittest.TestCase):
                           f"C Koepfe           {ck} / {cf} / 0          OK\n"
                           "=> BEFORE SAUBER\n")
 
+    def paket_e_messung(self, n: int, koepfe: int, insn: int) -> None:
+        """Eine Paket-E-MESSUNG (`c_kopf.py paket_e`) - Quelle des offenen Vorrats (R13aw)."""
+        d = ensure_dir(self.ana / f"_m{n}")
+        write_text_atomic(d / "_c_paket_e_nachher.txt",
+                          f"# Batch {n} TEIL 2 - PAKET E, Stand nachher\n"
+                          "# Messung: 2026-09-30 03:33, HEAD 5b7eaf6, "
+                          "python scripts/c_kopf.py paket_e\n"
+                          "== ERGEBNIS ==\n"
+                          f"  Paket E, offen GESAMT   :   {koepfe} Koepfe /   {insn} Insn\n")
+
     def relevanz(self, **werte) -> None:
         d = {"erzeuger": "tools/r13t_cov_relevanz.py", "fenster": "Rumpf",
              "ausgefuehrt": 1086, "gebaut": 686, "gebaut_ausgefuehrt": 416,
@@ -175,6 +185,8 @@ class TestHochrechnungGetrennt(Basis):
         self.preflight(206, 78)
 
     def test_zwei_getrennte_zeilen(self):
+        # R13aw: die Paket-E-Hochrechnung braucht den GEMESSENEN offenen Vorrat.
+        self.paket_e_messung(219, 26, 2114)
         zeilen = "\n".join(stand.durchsatz_zeilen(self.cfg))
         self.assertIn("HYPOTHESIS (Paket E, Arbeitsvorrat)", zeilen)
         self.assertIn("HYPOTHESIS (C gesamt, ABGELEITET)", zeilen)
