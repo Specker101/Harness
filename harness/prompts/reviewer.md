@@ -137,11 +137,24 @@ Engpass dieses Aufbaus. Deshalb:
   diese Liste abarbeiten (je Posten ein Commit mit Soll-Delta). Fehlt der Abschnitt,
   gibt es keinen Fortsetzungsanstoss — dann bleibt die Arbeit wieder liegen.
 
-**Fortsetzung und Preflight (R13ad).** Hoert der Worker vor der Umschaltschwelle auf,
-setzt der Harness denselben Chat fort. Bei einem Batch mit Fortsetzung gilt der **LETZTE**
-`preflight`-Lauf als der eine gueltige; frühere Läufe desselben Batches sind **überholt**
-und **kein Regelverstoß**. Prüfe also, ob am Ende ein gueltiger Preflight vorliegt (nicht,
-ob es genau einen gab).
+**Fortsetzung und Preflight (R13ad, geändert R13aw).** Hoert der Worker vor der
+Umschaltschwelle auf, setzt der Harness denselben Chat fort. Bei einem Batch mit
+Fortsetzung gilt der **LETZTE** `preflight`-Lauf als der eine gueltige; frühere Läufe
+desselben Batches sind **überholt** und **kein Regelverstoß**. Prüfe also, ob am Ende ein
+gueltiger Preflight vorliegt (nicht, ob es genau einen gab).
+
+**Nach einem Preflight wird NICHT mehr fortgesetzt (R13aw, Befund M219-5).** Hat der
+Worker in diesem Batch schon einen `preflight`-Lauf **gestartet**, setzt der Harness ihn
+nicht mehr fort, auch wenn die `NACHRUECKLISTE` noch offen ist: der Preflight-Stand ist
+gemessen, „nach dem Preflight kein `port/`" bleibt damit gewahrt, und ein zweiter
+Preflight im selben Batch wäre eine Doppelmessung. Die offenen Posten werden **in den
+naechsten Batch uebertragen**; in den Messdaten steht dann
+`Kein Fortsetzungsanstoss: Preflight bereits gelaufen, offene Nachrueckliste -> UEBERTRAG`.
+Das ist **kein Regelverstoß und kein Abbruch** — es ist die vorgesehene Uebergabe. Prüfe
+deshalb, ob die uebertragenen Posten im naechsten Auftrag/Anker wieder auftauchen
+(`UEBERTRAG:`-Zeile), statt den fehlenden zweiten Preflight zu bemaengeln. Eine
+`NACHRUECKLISTE` bleibt trotzdem Pflicht: sie greift bei einem **fruehen** Ende ohne
+Preflight.
 
 ## Lange Befehle (R13aj, 2026-09-29)
 

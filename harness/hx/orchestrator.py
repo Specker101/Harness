@@ -2241,16 +2241,25 @@ class Orchestrator:
         Grund (Auftrag 2026-09-29): der Worker hoerte wiederholt frueh auf (18-52 von
         90 min), oft mit offener Nachrueckliste. Jeder Anstoss und die Antwort darauf
         gehoeren sichtbar in den Review - sonst sieht es aus wie ein regulaerer Abschluss.
+
+        R13aw: dazu der GRUND, warum nicht (weiter) angestossen wurde. Nach einem
+        Preflight heisst das UEBERTRAG (Befund M219-5) - die Nachrueckliste gehoert in den
+        naechsten Batch, ein zweiter Preflight im selben Batch waere eine Doppelmessung.
         """
         liste = list((st or {}).get("fortsetzungen") or [])
-        if not liste:
-            return "keine"
         teile = []
         for i, f in enumerate(liste, 1):
             teile.append(f"#{i} bei {float(f.get('minute') or 0):.0f} min "
                          f"(Kontext {int(f.get('kontext') or 0)}): "
                          f"{str(f.get('antwort_kurz') or '(keine Antwort)')[:120]}")
-        return " | ".join(teile)
+        grund = ""
+        if (st or {}).get("fortsetzung_uebertrag"):
+            grund = ("Kein Fortsetzungsanstoss: Preflight bereits gelaufen, offene "
+                     "Nachrueckliste -> UEBERTRAG")
+        elif (st or {}).get("fortsetzung_grund"):
+            grund = f"kein weiterer Anstoss: {st['fortsetzung_grund']}"
+        text = " | ".join(teile) if teile else "keine"
+        return text + (f" | {grund}" if grund else "")
 
     def secret_zeile(self, batch: int) -> str:
         """Vermerk fuer den Messdatenblock: gab es Schluessel-Zugriffe in diesem Batch?

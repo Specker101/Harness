@@ -74,6 +74,10 @@ class WorkerResult:
         self.last: dict = {}
         # R13aw: welche Antwortdateien dieser Lauf geschrieben hat (Bericht + Fortsetzungen).
         self.antwort_dateien: list[str] = []
+        # R13aw: warum es keinen (weiteren) Fortsetzungsanstoss gab - und ob es ein
+        # UEBERTRAG nach einem Preflight war (Befund M219-5).
+        self.fortsetzung_grund: str = ""
+        self.fortsetzung_uebertrag: bool = False
 
     def describe(self) -> str:
         return (f"rc={self.rc} dauer={self.duration_s:.0f}s grenze={self.killed_reason or '-'} "
@@ -480,6 +484,25 @@ def archiviere_preflight_vor_fortsetzung(cfg, state, fortsetzung: int, log=None)
     return str(ziel)
 
 
+# Wortlaut der Uebertrag-Regel (R13aw, Aussensicht B219 Befund 5): nach einem gueltigen
+# Preflight wird die Nachrueckliste NICHT mehr per Fortsetzung angefasst.
+UEBERTRAG_GRUND = "Preflight bereits gelaufen, offene Nachrueckliste -> UEBERTRAG"
+UEBERTRAG_TEXT = "Kein Fortsetzungsanstoss: " + UEBERTRAG_GRUND
+
+
+def preflight_gestartet(stats) -> bool:
+    """Hat dieser Lauf schon einen Preflight GESTARTET? (R13aw, Befund M219-5)
+
+    Geprueft wird jeder Werkzeugaufruf mit `streamjson.ist_preflight_aufruf` - dieselbe
+    Definition wie beim Preflight-Zaehler (R13ao): nur ein START zaehlt, ein blosser
+    Texttreffer oder ein Filteraufruf nicht.
+    """
+    for t in (getattr(stats, "tools", None) or []):
+        if streamjson.ist_preflight_aufruf(t.get("name"), t.get("input")):
+            return True
+    return False
+
+
 def fortsetzung_pruefen(cfg, run, stats, auftrag_text: str, minuten: float,
                         fortsetzungen: list[dict], killed_reason: str | None = None,
                         log=None) -> dict:
@@ -490,7 +513,14 @@ def fortsetzung_pruefen(cfg, run, stats, auftrag_text: str, minuten: float,
       b) die Batch-Uhr liegt VOR der Umschaltschwelle,
       c) `kontext_letzte_anfrage` < `kontext_schwelle`,
       d) der Auftrag enthaelt einen Abschnitt `NACHRUECKLISTE`,
-      e) es gab weniger als `max_fortsetzungen` Anstoesse.
+      e) es gab weniger als `max_fortsetzungen` Anstoesse,
+      f) R13aw: es lief in diesem Batch noch KEIN Preflight (`UEBERTRAG_GRUND`).
+
+    Grund fuer (f) (gemessen, `runs/b217`, `b218`, `b219`): die Fortsetzung lief nach einem
+    gueltigen Preflight weiter und startete zum Teil einen ZWEITEN (B217) oder DRITTEN
+    (B218) Preflight - die Nachrueckliste haette in den naechsten Batch gehoert, der
+    Preflight-Stand ist ohnehin schon gemessen. Das Ergebnis wird ausdruecklich als
+    UEBERTRAG benannt, nicht als Abbruch.
     """
     max_f = int(cfg.get("limits", "max_fortsetzungen", 2))
     if len(fortsetzungen) >= max_f:
@@ -515,6 +545,8 @@ def fortsetzung_pruefen(cfg, run, stats, auftrag_text: str, minuten: float,
         return {"ja": False, "grund": f"Kontext {kontext} >= Schwelle {schwelle}"}
     if not hat_nachrueckliste(auftrag_text):
         return {"ja": False, "grund": "kein Abschnitt NACHRUECKLISTE im Auftrag"}
+    if preflight_gestartet(stats):
+        return {"ja": False, "grund": UEBERTRAG_GRUND, "uebertrag": True}
     return {"ja": True, "grund": ""}
 
 
@@ -918,8 +950,16 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
                 entsch = fortsetzung_pruefen(cfg, run, stats, prompt, minuten, fortsetzungen,
                                              killed_reason=res.killed_reason, log=log)
                 if not entsch["ja"]:
-                    log.info("Kein Fortsetzungsanstoss", grund=entsch["grund"],
-                             teillaeufe=len(laeufe))
+                    # R13aw: der Uebertrag nach einem Preflight wird im Klartext gemeldet
+                    # (so steht es auch in den Review-Fakten) - sonst sieht es aus wie ein
+                    # gewoehnliches Ende mit offener Nachrueckliste.
+                    if entsch.get("uebertrag"):
+                        log.info(UEBERTRAG_TEXT)
+                    else:
+                        log.info("Kein Fortsetzungsanstoss", grund=entsch["grund"],
+                                 teillaeufe=len(laeufe))
+                    res.fortsetzung_grund = str(entsch["grund"])
+                    res.fortsetzung_uebertrag = bool(entsch.get("uebertrag"))
                     break
                 kontext = stats.kontext_stats()["kontext_letzte_anfrage"]
                 fortsetzungen.append({"minute": round(minuten, 1), "kontext": kontext,
@@ -1188,6 +1228,11 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
     res.stats.update(stats.kontext_stats())
     # R13ad: Fortsetzungen im selben Chat (Minute, Kontext, Antwort des Workers).
     res.stats["fortsetzungen"] = list(res.fortsetzungen or [])
+    # R13aw: dazu der Grund, warum nicht (weiter) angestossen wurde - und ob es ein
+    # UEBERTRAG nach einem Preflight war (Befund M219-5). In `stats` fuer die Anzeige,
+    # zusaetzlich oben in `result.json` zum Nachschlagen.
+    res.stats["fortsetzung_grund"] = res.fortsetzung_grund
+    res.stats["fortsetzung_uebertrag"] = bool(res.fortsetzung_uebertrag)
     # R13ah: der Preflight-Stand VOR der Fortsetzung (Beleg, s. `archiviere_preflight_…`).
     res.stats["preflight_archiv"] = res.preflight_archiv or ""
     res.stats["usage_check"] = stats.usage_check()
@@ -1243,6 +1288,8 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
         "duration_quelle": res.duration_quelle, "duration_cli_s": res.duration_cli_s,
         "duration_harness_s": res.duration_harness_s, "duration_api_s": res.duration_api_s,
         "preflight_laeufe": preflight_laeufe, "preflight_frueh": preflight_frueh,
+        "fortsetzung_grund": res.fortsetzung_grund,
+        "fortsetzung_uebertrag": bool(res.fortsetzung_uebertrag),
         "antwort_dateien": list(res.antwort_dateien or []),
     }
     payload.update(reihenfolge.in_result(reihenfolge_ergebnis))
