@@ -1365,6 +1365,64 @@ B212, B215, B216, B217. Der **erste mtime-Befehl** der ganzen Reihe steht in B21
 Jeder Batch lässt sich nachrechnen:
 `python -u docs/_r13as_belege.py schreiben` (schreibt die Tabelle selbst als UTF-8).
 
+### 12v. Antwortdateien: `antwort.md` bleibt der Bericht (R13aw, 2026-09-30)
+
+**Befund M219-1 (hoch).** `runs/b214/antwort.md` bis `b218/antwort.md` enthielten nur
+„NACHRUECKLISTE ERLEDIGT" — der Pflichtbericht mit den Abschnitten 1–6 stand nur noch im
+Mitschnitt. Ursache: `_finish_run` schrieb `stats.final_text()`, und das ist der **letzte**
+`result`-Text; jede Fortsetzung überschrieb damit den Bericht.
+
+| Datei | Inhalt |
+|---|---|
+| `runs/b<N>/antwort.md` | der **erste** Abschlussbericht des Laufs (bleibt stehen) |
+| `runs/b<N>/antwort-forts<k>.md` | die Antwort der k-ten Fortsetzung (`k` = 1, 2, …) |
+| `runs/b<N>/antwort-bericht.md` | **Nachtrag** für B214–B218 (`docs/_r13aw_nachtrag.py`), weil dort schon überschrieben war |
+
+Reviewer und Außensicht bekommen den vollständigen Text (`worker.antwort_text`): erst der
+Bericht, darunter `## Fortsetzung <k> (<datei>)`. Ein vorhandenes `antwort-bericht.md` steht
+vorn, `antwort.md` erscheint dann als „Kurzantwort (vor der Umstellung überschrieben)".
+`result.json` trägt `antwort_dateien`; Snapshot und `/send ds` zeigen denselben Text — die
+Marker `<TOOL_REQUEST>`/`<PROGRAM_REQUEST>` werden damit wieder gefunden (sie standen im
+Bericht, der vorher verschwand).
+
+### 12w. Kein Fortsetzungsanstoß nach einem Preflight (R13ax, 2026-09-30)
+
+**Befund M219-5.** B217 startete in der Fortsetzung einen zweiten Preflight, B218 drei,
+B219 lief in einen abgebrochenen hinein; in B219 lag der Preflight bei 60 von 75 min,
+obwohl NACHRUECKLISTE 1 offen war.
+
+Regel: hat der Worker in diesem Batch schon einen Preflight **gestartet**
+(`streamjson.ist_preflight_aufruf`), gibt es keinen Anstoß mehr — die offene
+Nachrückliste wird **übertragen**. Das ist die vorgesehene Übergabe, kein Abbruch und kein
+Regelverstoß.
+
+* Log und Review-Fakten: `Kein Fortsetzungsanstoss: Preflight bereits gelaufen, offene
+  Nachrueckliste -> UEBERTRAG` (angehängt an die Fortsetzungszeile, auch wenn es vorher
+  Anstöße gab).
+* `result.json`: `fortsetzung_grund` und `fortsetzung_uebertrag` (oben und in `stats`).
+* Nur ein **Start** zählt — eine bloße Nennung in `description`, ein `Select-String`-Filter
+  oder ein `Read` der Preflight-Datei nicht (dieselbe Definition wie beim Preflight-Zähler).
+* Die Archivierung „Preflight vor Fortsetzung" (R13ah) bleibt als Code stehen; sie wird
+  praktisch nicht mehr erreicht.
+* `prompts/reviewer.md` sagt dem Reviewer, dass er stattdessen prüft, ob die übertragenen
+  Posten im nächsten Auftrag/Anker wieder auftauchen.
+
+### 12x. Kennzahlen: Paket E offen und SOLL-KOEPFE-Median (R13ay, 2026-09-30)
+
+**Befund M219-3.** Zwei Kennzahlen steuerten den Plan mit falschen Werten: die BILANZ
+rechnete mit „offen (Paket E) 38 Koepfe / 2674 Insn → 13 C-Batches" aus einem B208-Dokument,
+gemessen waren **26 / 2114**; und der „MEDIAN 88 Koepfe" war ein Median von **Summen**
+statt von Zuwächsen.
+
+| Kennzahl | Quelle jetzt |
+|---|---|
+| **Paket E offen** | jüngste Messung `analysis/_m<N>/_c_paket_e*.txt` (`c_kopf.py paket_e`) mit Datum aus dem Dateikopf: `26 Koepfe / 2114 Insn   [gemessen B219, 2026-09-30 03:33: _m219/_c_paket_e_nachher.txt]`. Fehlt eine Messung: **`nicht gemessen seit B<k>`** (und keine Hochrechnung) — die Ist-Spalte der Soll/Ist-Tafel wird **nicht** mehr als Wert genommen |
+| **Zuwachs** | Vergleich mit der jüngsten Messung **anderen** Werts: `(B210 -> B219: 12 Koepfe / 560 Insn gebaut)`. Ist die ältere Datei dieselbe Zahl im selben Batch, steht `(Vorher-Messung B219 identisch - keine echte Vorher-Messung)` |
+| **SOLL-KOEPFE-Median** | über die **Zuwächse** der C Koepfe je C-Batch mit `SOLL-KOEPFE > 0`: `MEDIAN der 2 Zuwaechse … (+5 (B219), +7 (B216)): 6 Koepfe je C-Batch (Ziel des naechsten Batches: hoechstens ca. 8)`. Die Summen stehen nur noch als Einordnung daneben |
+
+Belege: `docs/_r13aw_belege.md`, `docs/_r13ax_belege.md`, `docs/_r13ay_belege.md`;
+Tests `tests/test_r13aw_fixes.py` (18), `test_r13ax_fixes.py` (15), `test_r13ay_fixes.py` (16).
+
 ### 12b. Was der Nutzer selbst entscheiden muss
 
 Der grösste Hebel liegt ausserhalb des Harness: die 68K-Emulationsläufe im Decomp-Repo

@@ -77,9 +77,16 @@ def lauf() -> tuple[str, int]:
 
 def main() -> int:
     text, rc = lauf()
+    ziel = ZIEL
+    for a in sys.argv[1:]:
+        if a.startswith("--ziel="):
+            # WICHTIG: relativ angegebene Ziele werden gegen HIER aufgeloest - `lauf()`
+            # hat vorher `os.chdir(ROOT)` gemacht, sonst landet die Datei im Harness.
+            p = Path(a.split("=", 1)[1])
+            ziel = p if p.is_absolute() else (HIER / p.name)
     if "schreiben" in sys.argv:
-        ZIEL.write_text(text + "\n", encoding="utf-8", newline="\n")
-        print(f"geschrieben: {ZIEL.name} ({len(text)} Zeichen, UTF-8)")
+        ziel.write_text(text + "\n", encoding="utf-8", newline="\n")
+        print(f"geschrieben: {ziel.name} ({len(text)} Zeichen, UTF-8)")
     else:
         print(text)
     # Kurzfassung (unabhaengig davon, ob geschrieben wurde)
