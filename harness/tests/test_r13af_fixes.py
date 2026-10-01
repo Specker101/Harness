@@ -292,6 +292,11 @@ class TestPflichtbloeckeAmEchtenAuftrag(unittest.TestCase):
         runs = Path(self.cfg.root) / "runs"
         gesehen = 0
         for p in sorted(runs.glob("b*/auftrag.md")):
+            # R13bj: `runs/` enthaelt auch Ordner, die nicht `b<Zahl>` heissen
+            # (Sicherung `b235_lauf1_sicherung`, `env-proof`, `ghidra-smoke`) -
+            # `int(name[1:])` stuerzt daran ab.
+            if not p.parent.name[1:].isdigit():
+                continue
             batch = int(p.parent.name[1:])
             if not 204 <= batch <= 213:
                 continue

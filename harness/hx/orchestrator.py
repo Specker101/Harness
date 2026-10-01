@@ -28,7 +28,7 @@ from . import reihenfolge as reimod
 from . import stand as standmod
 from .gitsafe import Git
 from .telegram import HELP, Telegram, TelegramError
-from .util import ensure_dir, now_iso, read_json, read_text, secs_human, write_text_atomic
+from .util import batch_ordner, ensure_dir, now_iso, read_json, read_text, secs_human, write_text_atomic
 
 IDLE_SLEEP = 3.0
 # R13al: Taktschritt im Peak-Warten vor dem Batch-Start (der Auftrag bleibt stehen und
@@ -1169,12 +1169,13 @@ class Orchestrator:
             elif p.isdigit():
                 n = int(p)
         if which == "ds":
-            dirs = sorted((Path(self.cfg.sub("runs"))).glob("b*"))
-            if not dirs:
+            ordner = batch_ordner(self.cfg.sub("runs"))
+            if not ordner:
                 self.say("Noch kein Worker-Lauf.")
                 return
-            # R13aw: Bericht UND Fortsetzungsantworten zeigen (nicht nur antwort.md).
-            ans = wk.antwort_text(dirs[-1])
+            # R13bj: nur echte `b<N>`-Ordner (Sicherungen wie `b235_lauf1_sicherung`
+            # haben denselben Namen mit Suffix und wuerden sonst als "neuester" gelten).
+            ans = wk.antwort_text(ordner[-1][1])
             self.say(ans[-n * 120:] if ans else "(leer)")
         else:
             gate = self.state.gate
@@ -1756,10 +1757,9 @@ class Orchestrator:
             "Arbeitsbaum (siehe Stash/Patch oben) - wenn er gebraucht wird, muss die "
             "naechste Instruktion ihn ausdruecklich wieder aufgreifen (der Worker kann "
             "`git stash list` lesen); sonst beginnt der naechste Lauf auf dem letzten "
-            "Commit. Ein wiederholter Lauf bekommt DIESELBE Batch-Nummer, solange der "
-            "Ankerkopf nicht fortgeschrieben wurde; seine Belege liegen dann neben den "
-            "gesicherten Belegen des abgebrochenen Laufs (`*-v1.*`, u. a. "
-            "`stream-v1.jsonl`).",
+            "Commit. Ein wiederholter Lauf bekommt DIESELBE Batch-Nummer (Fortsetzung); "
+            "seine Belege liegen dann unter `runs/b<N>/lauf<k>/` neben dem neuen Lauf "
+            "(bis R13bj hiessen sie `*-v1.*`, u. a. `stream-v1.jsonl`).",
         ])
 
     def ask_handover(self, session_id: str, rdir: Path) -> str:
@@ -2036,12 +2036,29 @@ class Orchestrator:
             return None
         return protocol.parse_anchor_batch(text)
 
-    def expected_batch(self) -> int:
-        """Erwartete Nummer = Anker-Kopf + 1. 0, wenn der Anker keine Nummer nennt.
+    def own_batch(self) -> int:
+        """R13bj: die Nummer, die der Harness SELBST zaehlt - letzter Start + 1.
 
-        Es gibt bewusst KEINEN zweiten Zaehler im Harness: die Nummer kommt
-        ausschliesslich aus dem Anker.
+        0 heisst: es ist noch kein Batch gestartet (dann fuehrt der Anker).
+        `last_batch_number` wird unmittelbar vor dem Worker-Start gesetzt (`_loop`);
+        die Zahl stimmt damit auch dann, wenn der Ankerkopf stehen bleibt.
         """
+        letzte = int(self.state.data.get("last_batch_number") or 0)
+        return letzte + 1 if letzte else 0
+
+    def expected_batch(self) -> int:
+        """Erwartete Nummer: der EIGENE Zaehler, sonst Anker-Kopf + 1.
+
+        R13bj (Anlass B235): bis hier kam die Nummer AUSSCHLIESSLICH aus dem Anker.
+        Blieb der Ankerkopf stehen (B234 wurde nicht fortgeschrieben), bekam der
+        naechste Lauf dieselbe Nummer - und das Review landete im selben Ordner
+        (`runs/b235/review.md` ueberschrieb das Review zu B234). Der Anker ist jetzt
+        nur noch Gegenprobe: Abweichungen nennt `batch_number_line()` und die
+        eigene Faktenzeile `batch_nummer_fakten_zeile()`.
+        """
+        own = self.own_batch()
+        if own:
+            return own
         n = self.anchor_batch()
         return (n + 1) if n is not None else 0
 
@@ -2054,18 +2071,118 @@ class Orchestrator:
         return protocol.parse_anchor_next_hint(text)
 
     def batch_number_line(self) -> str:
-        """Eine Zeile fuer Prompt/Status: welche Nummer gilt und woher sie kommt."""
-        nxt = self.expected_batch()
+        """Eine Zeile fuer Prompt/Status: welche Nummer gilt und woher sie kommt.
+
+        R13bj: die Nummer zaehlt der HARNESS (`own_batch`), der Ankerkopf ist nur
+        Gegenprobe. Weichen beide ab, steht das ausdruecklich in der Zeile - und als
+        eigene Zeile in den Review-Fakten (`batch_nummer_fakten_zeile`).
+        """
+        own = self.own_batch()
         anker = self.anchor_batch()
+        anker_nxt = (anker + 1) if anker else 0
         hint = self.anchor_next_hint()
-        if not nxt:
-            return "Naechster Batch laut Anker: UNBEKANNT (Anker nennt keine Nummer)"
-        txt = f"Naechster Batch laut Anker: {nxt}"
-        if anker:
-            txt += f" (Anker-Kopf: BATCH {anker})"
-        if hint and hint != nxt:
-            txt += f" - ACHTUNG: der Anker nennt im 'Naechster Schritt' B{hint}; ich rechne mit {nxt}"
-        return txt
+        letzte = int(self.state.data.get("last_batch_number") or 0)
+        if own:
+            txt = f"Naechster Batch: {own} (Harness-Zaehler, zuletzt gestartet B{letzte})"
+            if anker_nxt:
+                txt += f" | Anker-Kopf nennt BATCH {anker} -> Anker rechnet {anker_nxt}"
+                txt += (" (stimmt)" if anker_nxt == own else
+                        " -> ABWEICHUNG: Ankerkopf nicht fortgeschrieben")
+            else:
+                txt += " | Anker nennt keine Nummer (nicht pruefbar)"
+            if hint and hint != own:
+                txt += (f" | ACHTUNG: der Anker nennt im 'Naechster Schritt' B{hint};"
+                        f" ich rechne mit {own}")
+            return txt
+        if anker_nxt:
+            txt = (f"Naechster Batch: {anker_nxt} (aus dem Anker - noch kein Batch"
+                   f" gelaufen) | Anker-Kopf nennt BATCH {anker}")
+            if hint and hint != anker_nxt:
+                txt += (f" | ACHTUNG: der Anker nennt im 'Naechster Schritt' B{hint};"
+                        f" ich rechne mit {anker_nxt}")
+            return txt
+        return ("Naechster Batch: UNBEKANNT (kein Harness-Zaehler, der Anker nennt keine"
+                " Nummer)")
+
+    def batch_nummer_regel(self) -> str:
+        """Der verbindliche Nummernsatz der Reviewer-Instruktion (R13bj).
+
+        Abweichend von der alten Fassung ("es gibt keinen internen Zaehler"): die
+        Nummer zaehlt der Harness, und dieselbe Nummer wie der bewertete Lauf ist
+        die FORTSETZUNG - ausdruecklich erlaubt.
+        """
+        own = self.own_batch()
+        bewertet = int(self.state.batch or 0)
+        teile = ["Verbindlich: die DS_INSTRUCTION MUSS mit \"Batch <N> - ...\" beginnen.",
+                 "Nenne KEINE andere Nummer."]
+        if own:
+            teile.append(f"* <N> = {own} ist der NAECHSTE Batch (der Harness zaehlt selbst:"
+                         f" letzter Start + 1; der Ankerkopf ist nur Gegenprobe).")
+        else:
+            teile.append("* Der Harness hat noch keinen Batch gestartet - die Nummer kommt"
+                         " aus dem Anker.")
+        if bewertet:
+            teile.append(f"* <N> = {bewertet} ist die FORTSETZUNG des bewerteten Laufs:"
+                         f" erlaubt - der Harness legt die Belege des vorigen Laufs vorher"
+                         f" unter runs/b{bewertet}/lauf<k>/ ab.")
+        teile.append("* Jede andere Nummer: der Harness startet NICHT und haelt mit"
+                     " Meldung an.")
+        return " ".join(teile)
+
+    def batch_nummer_fakten_zeile(self) -> str:
+        """R13bj: die Nummernzeile der Review-Fakten (Anker = Gegenprobe)."""
+        own = self.own_batch()
+        anker = self.anchor_batch()
+        anker_nxt = (anker + 1) if anker else 0
+        if not own:
+            return ("BATCH-NUMMER: noch kein Batch gestartet - die Nummer kommt aus dem"
+                    f" Anker ({anker_nxt or 'UNBEKANNT'})")
+        if not anker_nxt:
+            return (f"BATCH-NUMMER: Harness-Zaehler {own} | der Anker nennt keine Nummer"
+                    f" (nicht pruefbar)")
+        if anker_nxt == own:
+            return f"BATCH-NUMMER: Harness-Zaehler {own} | Anker {anker_nxt} - stimmig"
+        return (f"BATCH-NUMMER: Harness-Zaehler {own} | Anker {anker_nxt} - ABWEICHUNG:"
+                f" der Ankerkopf steht auf BATCH {anker} und ist nicht fortgeschrieben"
+                f" (analysis/r1b-workstream.md, Kopfzeile)")
+
+    def lauf_ordner_zeile(self, batch: int) -> str:
+        """R13bj: der wievielte Lauf in `runs/b<N>/` ist das, und wo liegt der vorige?"""
+        if int(batch) <= 0:
+            return "LAUF-ORDNER: kein Batchordner"
+        rd = Path(self.cfg.sub("runs")) / f"b{int(batch):03d}"
+        laeufe = sorted(p.name for p in rd.glob("lauf*") if p.is_dir())
+        if not laeufe:
+            return (f"LAUF-ORDNER: 1. Lauf in runs/b{int(batch):03d}/ (kein lauf<k>/"
+                    f" vorhanden)")
+        wo = ", ".join(f"runs/b{int(batch):03d}/{n}" for n in laeufe)
+        return (f"LAUF-ORDNER: {len(laeufe) + 1}. Lauf derselben Nummer - die Belege der"
+                f" vorigen liegen unter {wo}")
+
+    def lauf_ordner_blockiert(self, batch: int, fortsetzung: bool = False) -> str:
+        """R13bj: einen FERTIGEN Lauf im Zielordner nicht ueberschreiben.
+
+        Rueckgabe: "" (frei) oder die Meldung, mit der der Harness pausiert (der Auftrag
+        bleibt dabei stehen - Muster der Git-Vorpruefung R13m). Bei einer FORTSETZUNG
+        ist der belegte Ordner erlaubt: `worker.sichere_vorgaenger` raeumt den vorigen
+        Lauf vorher nach `lauf<k>/`.
+        """
+        if int(batch) <= 0:
+            return ""
+        rd = Path(self.cfg.sub("runs")) / f"b{int(batch):03d}"
+        if not (rd / "result.json").is_file():
+            return ""
+        # Fortsetzung ist es auch dann, wenn der Auftrag die Nummer des ZULETZT
+        # GESTARTETEN Batches nennt - so wirken auch Gates, die vor R13bj entstanden
+        # sind und das Feld `fortsetzung` noch nicht tragen (z. B. das offene Gate
+        # "B235 Fortsetzung").
+        if fortsetzung or int(batch) == int(self.state.batch or 0):
+            return ""
+        return (f"runs/b{int(batch):03d}/ enthaelt schon ein result.json (ein fertiger Lauf)"
+                f" - ich ueberschreibe ihn nicht. Entweder die Nummer fortschreiben"
+                f" (Ankerkopf bzw. /number <N>) oder den Auftrag als Fortsetzung dieses"
+                f" Batches ausgeben; dann liegt der vorige Lauf unter"
+                f" runs/b{int(batch):03d}/lauf<k>/.")
 
     def gate_from_review(self, p, raw_path: str, claude_ids: list[str] | None = None) -> str:
         """Uebernimmt die Reviewer-Antwort als offenen Auftrag (Gate).
@@ -2081,6 +2198,8 @@ class Orchestrator:
         expected = self.expected_batch()
         instr = p.instruction or ""
         batch_no = p.batch
+        bewertet = int(self.state.batch or 0)
+        fortsetzung = False
         hinweise: list[str] = []
         status = "ok"
         if batch_no is None:
@@ -2091,11 +2210,20 @@ class Orchestrator:
             else:
                 batch_no = 0
                 status = "number_missing"
-                hinweise.append("Weder die Instruktion noch der Anker nennen eine Batch-Nummer.")
+                hinweise.append("Weder die Instruktion noch der Harness-Zaehler nennen eine "
+                                "Batch-Nummer.")
+        elif bewertet and batch_no == bewertet:
+            # R13bj: dieselbe Nummer wie der bewertete Lauf = FORTSETZUNG (nicht neu).
+            # Anlass B235: die Fortsetzung lief sonst wieder in denselben Ordner und
+            # ueberschrieb die Belege des ersten Laufs.
+            fortsetzung = True
+            hinweise.append(f"FORTSETZUNG von Batch {batch_no}: der vorige Lauf wird vor "
+                            f"dem Start nach runs/b{batch_no}/lauf<k>/ gesichert "
+                            f"({self.batch_number_line()}).")
         elif expected and batch_no != expected:
             status = "number_mismatch"
-            hinweise.append(f"ACHTUNG: Die Instruktion nennt Batch {batch_no}, laut Anker ist "
-                            f"Batch {expected} dran ({self.batch_number_line()}).")
+            hinweise.append(f"ACHTUNG: Die Instruktion nennt Batch {batch_no}, dran ist "
+                            f"Batch {expected} ({self.batch_number_line()}).")
         profile = p.profile or "none"
         program = p.program
         if profile == "none" and program:
@@ -2103,7 +2231,8 @@ class Orchestrator:
             program = None
         self.state.set_gate(st.new_review_id(), p.summary, instr,
                             {"profile": profile, "program": program, "batch": batch_no,
-                             "expected": expected, "source": "reviewer"},
+                             "expected": expected, "source": "reviewer",
+                             "fortsetzung": bool(fortsetzung)},
                             raw_path, extra={"offene_punkte": dict(getattr(p, "offene", {}) or {}),
                                              "claude_queue_ids": list(claude_ids or [])})
         if status == "ok":
@@ -2117,7 +2246,7 @@ class Orchestrator:
             self.say("Wege:\n  /number <N>  -> Nummer festlegen, danach /approve\n"
                      "  /review  -> neuen Review anfordern (verwirft diesen Auftrag)")
         self.state.data["paused"] = True
-        self.state.set(st.PAUSED, "Batch-Nummer passt nicht zum Anker")
+        self.state.set(st.PAUSED, "Batch-Nummer passt nicht zu Harness-Zaehler/Anker")
         return status
 
     # --------------------------------------------- Offene Punkte (A, R13c)
@@ -2147,7 +2276,8 @@ class Orchestrator:
     def letzte_review_datei(self) -> Path | None:
         """Die jüngste Review-Datei (falls kein Gate mehr offen ist)."""
         try:
-            files = sorted(Path(self.cfg.sub("runs")).glob("b*/review*.md"),
+            files = sorted((f for _n, p in batch_ordner(self.cfg.sub("runs"))
+                            for f in p.glob("review*.md")),
                            key=lambda p: p.stat().st_mtime)
         except OSError:
             return None
@@ -2303,8 +2433,13 @@ class Orchestrator:
         st = res.get("stats") or {}
         lines = [
             f"- Review: bewertet wird Batch {batch}; die Instruktion gilt fuer Batch "
-            f"{self.expected_batch() or '?'}",
+            f"{self.expected_batch() or '?'} (R13bj: eine Fortsetzung nennt stattdessen "
+            f"wieder Batch {batch})",
             "- " + self.batch_number_line(),
+            # R13bj: die Nummer zaehlt der Harness, der Anker ist Gegenprobe - eine
+            # Abweichung muss in den Fakten stehen (nicht nur im Prompt).
+            f"- {self.batch_nummer_fakten_zeile()}",
+            f"- {self.lauf_ordner_zeile(batch)}",
             (f"- Reviewer: Modell {self.reviewer_model_seen() or '-'} "
              f"(Soll {self.model_reviewer()}), Effort {self.cfg.get('claude', 'reviewer_effort', 'high')}"),
             f"- Ghidra gespeichert: {self.ghidra_save_line(res)}",
@@ -2497,6 +2632,10 @@ class Orchestrator:
             "next_batch": self.expected_batch(),
             "anchor_batch": self.anchor_batch(),
             "anchor_hint": self.anchor_next_hint(),
+            # R13bj: EINE Quelle fuer Nummernzeile und Nummernregel (der Reviewer baut
+            # sie nicht selbst - sonst laufen Prompt und Pruefung auseinander).
+            "batch_nummer_zeile": self.batch_number_line(),
+            "batch_nummer_regel": self.batch_nummer_regel(),
             "facts": self.harness_facts(batch, ziel=rdir),
             "worker_report": report,
             "diff": self.batch_diff_text(),
@@ -2886,6 +3025,23 @@ class Orchestrator:
                 program = None
             batch_no = int(tools.get("batch") or self.expected_batch() or 0)
             instruction = gate.get("instruction") or ""
+
+            # R13bj: einen FERTIGEN Lauf nicht ueberschreiben. Der Ordner ist nur bei
+            # einer FORTSETZUNG belegt UND erlaubt (`tools["fortsetzung"]`, gesetzt in
+            # `gate_from_review`); dann raeumt `worker.sichere_vorgaenger` den vorigen
+            # Lauf nach `lauf<k>/`. Anlass B235: die Fortsetzung ueberschrieb
+            # `auftrag.md`, `stream.jsonl` und `review.md` des ersten Laufs.
+            blockiert = self.lauf_ordner_blockiert(
+                batch_no, bool(tools.get("fortsetzung")))
+            if blockiert:
+                # Muster Git-Vorpruefung (R13m): der Auftrag bleibt stehen.
+                s.data["paused"] = True
+                s.set(st.PAUSED, blockiert)
+                self.phase(None)
+                self.say("PAUSE: " + blockiert +
+                         f"\nDer Auftrag fuer Batch {batch_no} bleibt stehen - nach dem "
+                         "Fortsetzen startet er ohne neuen Review.")
+                continue
 
             # R13al: ZWEITE Peak-Pruefung, unmittelbar vor dem Start. Die erste (vor dem
             # Review) deckt genau diese Faelle nicht ab: der Review kann selbst in den Peak

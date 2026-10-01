@@ -364,20 +364,39 @@ in Telegram). Eine Session aus einer älteren Fassung hat noch keinen Hash — s
 
 ---
 
-## 8. Batch-Nummern (nur aus dem Anker)
+## 8. Batch-Nummern (der Harness zaehlt, der Anker ist Gegenprobe)
 
-Die Nummer kommt **ausschließlich** aus dem Anker (`analysis/r1b-workstream.md`): Kopfzeile
-`**Stand:** BATCH 158` → nächster Batch ist **159**. Der Harness führt keinen eigenen
-Zähler mehr. Der Review-Prompt nennt diese Nummer ausdrücklich, und die `DS_INSTRUCTION`
-muss damit beginnen.
+**R13bj (01.10.2026): die Nummer zaehlt der Harness selbst** - `letzter gestarteter Batch + 1`
+(`state/run.json -> last_batch_number`, gesetzt unmittelbar vor dem Worker-Start;
+`orchestrator.own_batch`/`expected_batch`). Der Ankerkopf
+(`analysis/r1b-workstream.md`, Zeile `**Stand:** BATCH 158`) ist nur noch **Gegenprobe**:
+weichen beide ab, steht eine Warnung in der Prompt-Zeile UND als eigene Zeile in den
+Review-Fakten (`harness-facts.md`: `BATCH-NUMMER: Harness-Zaehler … | Anker … - ABWEICHUNG …`).
+Nur wenn noch **kein** Batch gelaufen ist, fuehrt weiter der Anker.
+
+*Anlass:* B234 wurde nicht in den Ankerkopf fortgeschrieben. Mit der alten Regel („nur Anker
++ 1") bekam der naechste Lauf wieder die **235** - und weil ein Review in den Ordner
+`runs/b<Nummer>` geschrieben wird, ueberschrieb das Review zu B235 das Review zu B234
+(`runs/b235/review.md`, 01.10. 18:45). Das Original lag zum Glueck als Volltextkopie unter
+`logs/review-2026-10-01T112543+0000.md` und ist wiederhergestellt
+(`runs/b235_lauf1_sicherung/`).
 
 * Run-Verzeichnis des Laufs: `runs/b<Nummer>/` (`.md`-Review vorher: `review-pre.md`,
 nach dem Batch: `review.md`, Mitschnitte `stream.jsonl` und `reviewer.jsonl`).
+* Fortsetzung desselben Batches: eigener Unterordner `runs/b<Nummer>/lauf<k>/` fuer die
+Belege des vorigen Laufs (`worker.sichere_vorgaenger`) - siehe §12d/§12x.
 * Checkpoint-Tag: `harness/b<Nummer>-start` (bleibt lokal).
-* **Nennt die Instruktion eine andere Nummer**, startet der Harness nichts: er pausiert,
-meldet beide Nummern und bietet an
+* **Nennt die Instruktion eine andere Nummer** (weder die erwartete noch die des bewerteten
+Laufs), startet der Harness nichts: er pausiert, meldet beide Nummern und bietet an
   * `/number <N>` — Nummer des offenen Auftrags setzen, danach `/approve`,
   * `/review` — neuen Review anfordern (verwirft den offenen Auftrag).
+* **Nennt sie die Nummer des bewerteten Laufs**, ist das die **Fortsetzung** dieses Batches:
+erlaubt, der vorige Lauf wird vorher nach `runs/b<N>/lauf<k>/` gesichert. Der Gate-Eintrag
+traegt dann `tools.fortsetzung = true`.
+* **Enthaelt der Zielordner schon ein `result.json`** (ein fertiger Lauf) und ist der Start
+KEINE Fortsetzung, pausiert der Harness mit Meldung statt zu ueberschreiben
+(`orchestrator.lauf_ordner_blockiert`, Muster Git-Vorpruefung R13m) - der Auftrag bleibt
+dabei stehen.
 
 Die Nummer des verworfenen Auftrags wird in `logs/verworfen-<id>.json` abgelegt.
 
@@ -716,14 +735,14 @@ Herzschlag-Dateien) und `docs/_r13v3_beleg_zustand.txt`.
 | **R13i-Schutz** | Der eigene PID-Kreis (Harness + Vorfahren) und Prozesse mit `hx.cli`/`harness\hx`/`ghidra` in der Kommandozeile werden **nie** angefasst | `aufraeumen.vorfahren`, `NIE_ANFASSEN` | der Harness stand im Beleg unter „ausgenommen" |
 | **Halber Stand** | Direkt nach dem Abbruch läuft `wip_rescue` (wie beim Stoppen): `git status` + `git diff HEAD` als Belegdateien nach `logs/` **und** `git stash push -m harness-wip-b<N>` mit Referenz | `orchestrator.wip_nach_abbruch`, `gitsafe.wip_rescue` | Meldung nennt Dateizahl + Stash-Referenz; scheitert die Sicherung, wird das **laut** gemeldet (nicht still) |
 | **Meldung im Review** | Der nächste Review bekommt den Block „ABBRUCH DES BEWERTETEN LAUFS" mit Grund, Sicherung (`git stash apply <ref>`) und dem Hinweis, dass die Nummer **nicht** übersprungen wird | `orchestrator.abbruch_zeile/abbruch_block`, `reviewer.build_prompt` | Block steht im Prompt; Messdatenzeile `Letzter Abbruch (R13v3): …` |
-| **Belege der Vor-Fassung** | Weil die Nummer aus dem Ankerkopf kommt, läuft der nächste Batch ggf. in **denselben** Ordner. Vorher werden `stream.jsonl`, `stream.err.txt`, `auftrag.md`, `result.json`, `antwort.md`, `harness-facts.md` nach `*-v1.*` umbenannt | `worker.sichere_vorgaenger` | `stream-v1.jsonl` bleibt neben dem neuen `stream.jsonl` stehen (Test) |
+| **Belege des Vorlaufs** | Weil dieselbe Nummer erneut kommen kann (fehlender Ankerfortschritt **oder** Fortsetzung), wird der Batchordner vorher aufgeraeumt: `auftrag.md`, `stream.jsonl`, `stream.err.txt`, `result.json`, `antwort.md`, `antwort-forts*.md`, `stream-forts*.jsonl`, `mcp.json`, `worker-hooks.json`, `preflight-*.jsonl` wandern nach **`lauf<k>/`** | `worker.sichere_vorgaenger` (`LAUF_BELEGE`/`LAUF_MUSTER`) | `runs/b<N>/lauf1/stream.jsonl` liegt neben dem neuen `runs/b<N>/stream.jsonl`; die Review-Belege (`review.md`, `harness-facts.md`, `reviewer.jsonl`) bleiben oben stehen (Test) |
 
-**Warum die Nummer gleich bleibt:** `expected_batch()` = **Ankerkopf + 1**
-(`orchestrator.py:1460`) — es gibt bewusst keinen zweiten Zähler. Schreibt ein
-abgebrochener Worker den Anker nicht fort, bekommt der nächste Lauf dieselbe Nummer;
-das Review liegt wieder in `runs/b<N>`, die Belege des abgebrochenen Laufs liegen als
-`*-v1.*` daneben. Gemessen am echten Anker: Kopf BATCH 207 → nächster Lauf 208, und
-`state["batch"] = 999` ändert daran nichts (`docs/_r13v3_beleg_zustand.txt`).
+**Warum die Nummer gleich bleibt:** bei einem **Abbruch** blieb bis R13bj der Ankerkopf
+stehen und der naechste Lauf bekam dieselbe Nummer; seit R13bj zaehlt der Harness selbst
+(`letzter Start + 1`), der Anker ist Gegenprobe (§8). Dieselbe Nummer kommt jetzt nur noch
+bei einer **Fortsetzung** vor (das Review gibt sie erneut aus). In beiden Faellen liegen die
+Belege des vorigen Laufs unter `runs/b<N>/lauf<k>/` - frueher hiessen sie `*-v1.*`
+(`stream-v1.jsonl`); die alten Namen liest `retention.MIT_ZIP` weiter.
 
 ### 12e. Aussensicht — der Meta-Review (R13w, 2026-09-28)
 
@@ -1047,21 +1066,21 @@ aus dem Text und nicht aus `state.batch`. Der Pfad steht in `result.json`
 
 **b) Zeitkappung (Befund 3).** `BASH_MAX_TIMEOUT_MS` hing an `claude.tool_timeout_ms`
 (600 s, nicht gesetzt → Vorgabe) — gemessen wurden Aufrufe von **602 s** (Preflight B213),
-**601,3 s** (`c_kopf.py mutalle`, B214) und danach Warteschleifen von **542 s**. Jetzt gilt
-`[claude] bash_max_timeout_s = 1800`; `BASH_DEFAULT_TIMEOUT_MS` bleibt bei 600 s (Vorgabe
-für Aufrufe ohne eigenes `timeout`). Die Batch-Uhr nennt zusätzlich
-`Preflight zuletzt ~X min`, und die Umschaltschwelle ist um diesen Vorlauf vorgezogen:
-`Alarm − max(umschalt_vor_alarm_s, Preflightdauer + 5 min)` (§12h).
+**601,3 s** (`c_kopf.py mutalle`, B214) und danach Warteschleifen von **542 s**. Seit
+R13ah gilt `[claude] bash_max_timeout_s` — **R13bj: 3600 s** (vorher 1800 s, §12x);
+`BASH_DEFAULT_TIMEOUT_MS` bleibt bei 600 s (Vorgabe für Aufrufe ohne eigenes `timeout`).
+Die Batch-Uhr nennt zusätzlich `Preflight zuletzt ~X min`, und die Umschaltschwelle ist um
+diesen Vorlauf vorgezogen: `Alarm − max(umschalt_vor_alarm_s, Preflightdauer + 5 min)` (§12h).
 
 **Nachtrag R13ai (2026-09-29): die Vorgabe bleibt 600 s — der Parameter ist Pflicht.**
 Gemessen in B212–B214: der Worker hatte bei den langen Aufrufen `timeout` gesetzt, aber
 **`timeout=600000`** — also genau die alte Obergrenze; gekappt wurde trotzdem („Command did
 not complete within its 600s timeout and was moved to the background"). Deshalb steht im
 Vorspann bei der Batch-Uhr jetzt: *„Für `preflight.py`, `c_kopf.py mutalle` und `port_build`
-den Bash-Parameter `timeout=1800000` setzen; sonst wird nach 600 s gekappt."* Die 600 s
-bleiben als Schutz gegen hängende Befehle (gemessen: 28 von 234 Aufrufen in B212 hatten
-überhaupt einen `timeout`). Messung und die drei berichteten Kappungsfälle:
-`docs/_r13ai_belege.md`, Werkzeug `docs/_r13ai_stream_probe.py`.
+den Bash-Parameter `timeout=3600000` setzen; sonst wird nach 600 s gekappt."* (**R13bj:**
+3600000 statt 1800000, §12x.) Die 600 s bleiben als Schutz gegen hängende Befehle (gemessen:
+28 von 234 Aufrufen in B212 hatten überhaupt einen `timeout`). Messung und die drei
+berichteten Kappungsfälle: `docs/_r13ai_belege.md`, Werkzeug `docs/_r13ai_stream_probe.py`.
 
 **c) Stillstands-Auslöser (Befund 4).** Das Feld `B-SCHRITT:` misst nichts (§12g): der
 Stillstand kommt jetzt aus der Preflight-Zeile `Hybrid-Lauf` (Halt-PC gleich, Wegmaß steigt
@@ -1692,6 +1711,46 @@ Ausgabe, als **festes Format**. Reihenfolge (R13s, Nutzerauftrag 2026-09-28):
    letzte Batch-Betreffe aus `git log`).
 
 **Prozent-Regel** (R13s, Nutzerentscheid „selbst rechnen, wo eine Gesamtheit existiert"):
+
+---
+
+## 13. R13bj (01.10.2026): Nummer, Lauf-Ordner, vorlaeufige Zeitgrenzen
+
+Anlass: B235 (erster Lauf 15:46–18:40) lief 2h53m und der Preflight brauchte **1799 s** —
+genau an der Werkzeug-Obergrenze von 1800 s. Danach hat das Review zu B235 das Review zu B234
+**ueberschrieben** (`runs/b235/review.md`), weil der Ankerkopf nicht fortgeschrieben war und
+die Nummer erneut 235 ergab.
+
+**1. Die Nummer zaehlt der Harness** (`orchestrator.own_batch`/`expected_batch`): letzter
+gestarteter Batch + 1; der Ankerkopf ist nur Gegenprobe. Abweichung ⇒ Zeile in Prompt und
+Review-Fakten (`BATCH-NUMMER: … ABWEICHUNG …`). Details in §8.
+
+**2. Fortsetzung ist eine eigene Sache** (`gate_from_review`): nennt die Instruktion die
+Nummer des **bewerteten** Laufs, ist das die Fortsetzung - erlaubt, `tools.fortsetzung=true`.
+
+**3. Kein Ueberschreiben fertiger Laeufe** (`orchestrator.lauf_ordner_blockiert`): enthaelt
+`runs/b<Nummer>/` schon ein `result.json` und ist der Start keine Fortsetzung, pausiert der
+Harness mit Meldung; der Auftrag bleibt stehen (Muster Git-Vorpruefung, R13m).
+
+**4. Lauf-Ordner statt `-v1`-Umbenennung** (`worker.sichere_vorgaenger`): die Belege des
+vorigen Laufs wandern nach `runs/b<Nummer>/lauf<k>/`; das Review bleibt oben stehen, damit
+`Review -> Auftrag -> Ergebnis` je Lauf lesbar bleibt. `retention` packt die `lauf<k>/`-Mitschnitte
+mit.
+
+**5. Vorlaeufige Zeitgrenzen (Rueckbau-Vermerk):**
+
+| Groesse | vorher | jetzt | Rueckbau |
+|---|---|---|---|
+| `[claude] bash_max_timeout_s` | 1800 s | **3600 s** | zurueck auf **1800 s, sobald der Preflight wieder unter 900 s liegt** |
+| `[limits] hard_wall_s` | 10800 s (3 h) | **14400 s** (4 h) | zurueck auf **10800 s**, gleiche Bedingung |
+| Worker-Vorspann und `prompts/reviewer.md` | `timeout=1800000` (30 min) | **`timeout=3600000`** (60 min) | zurueck auf **1800000** |
+
+Der Alarm bleibt bei 150 min (`alarm_wall_s = 9000`), die Umschaltschwelle bei 135 min —
+die Verlaengerung betrifft nur die harte Grenze und die Werkzeug-Obergrenze. Der Rueckbau
+ist eine Aenderung an `harness.toml` + Worker-Vorspann + `prompts/reviewer.md` (drei Stellen,
+§12k/§12x-Suche: `bash_max_timeout_s`, `hard_wall_s`, `timeout=3600000`). Belege:
+`docs/_r13bj_belege.md`.
+
 `pct` aus dem Schnappschuss, sonst `insn_gebaut/insn_gesamt`, `gebaut/(gebaut+offen)`,
 `gebaut/total`, `gebaut/benannt` (R207) oder `(a+b)/(a+b+offen_a+offen_b)` (Strang A/B).
 Äste ohne Gesamtheit (z. B. `Modi`) bekommen keine Prozentzahl — sie erscheinen nur im

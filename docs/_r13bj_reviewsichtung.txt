@@ -1,0 +1,35 @@
+R13bj - Review-Volltexte in logs/ (nur lesend)
+
+## state/run.json - Felder mit Review-Bezug
+  gate: {"id": "024EA14B66A8", "created_at": "2026-10-01T16:45:13+00:00", "summary": "Ergebnis: Der Fehler im Kopf 80009E3C ist gefunden und behoben. Der Kopf las über den ROM-Bereich 0xFF07600x nur 0, weil ihm die ROM-Sicht fehlte. Jetzt sind 2629 Rufe gleich und 0 ungleich, B/A steigt von 6/94 auf 7/94. D
+  reviewer: {"session_id": "c7230a1e-0e55-464e-b310-37c2e97b4465", "reviews": 1, "started_at": "2026-10-01T16:41:20+00:00", "last_decision": null, "force_rotate": false, "prompt_hash": "b8d1b05852ec", "pending_handover": {"from_session": "f94fdd42-3cd3-417e-a8ee-3c8cdc88109d", "text": "**Stand:** B234 (C-Batch 
+
+## logs/review-*.md (ohne -prompt)
+  review-2026-09-29T130659+0000.md               13190 B         -  29.09 15:06:59
+  review-2026-09-29T163858+0000.md               10728 B         -  29.09 18:38:58
+  review-2026-09-29T185903+0000.md               13552 B         -  29.09 20:59:03
+  review-2026-09-29T220424+0000.md               13467 B         -  30.09 00:04:24
+  review-2026-09-29T225125+0000.md                9730 B         -  30.09 00:51:25
+  review-2026-09-30T002527+0000.md               13096 B         -  30.09 02:25:27
+  review-2026-09-30T040418+0000.md               12570 B         -  30.09 06:04:18
+  review-2026-09-30T044118+0000.md               10483 B         -  30.09 06:41:18
+  review-2026-09-30T051124+0000.md               10389 B         -  30.09 07:11:24
+  review-2026-09-30T114146+0000.md               12556 B         -  30.09 13:41:46
+  review-2026-09-30T131044+0000.md               10457 B         -  30.09 15:10:44
+  review-2026-09-30T141220+0000.md                8421 B         -  30.09 16:12:20
+  review-2026-09-30T152139+0000.md               11769 B         -  30.09 17:21:39
+  review-2026-09-30T165722+0000.md               12934 B         -  30.09 18:57:22
+  review-2026-09-30T183359+0000.md               11401 B         -  30.09 20:33:59
+  review-2026-09-30T213329+0000.md               12051 B         -  30.09 23:33:29
+  review-2026-09-30T231153+0000.md               11882 B         -  01.10 01:11:53
+  review-2026-10-01T004148+0000.md               10940 B         -  01.10 02:41:48
+  review-2026-10-01T031604+0000.md               12234 B         -  01.10 05:16:04
+  review-2026-10-01T043435+0000.md                9347 B         -  01.10 06:34:35
+  review-2026-10-01T053814+0000.md                9923 B         -  01.10 07:38:14
+  review-2026-10-01T073703+0000.md               10823 B         -  01.10 09:37:03
+  review-2026-10-01T085347+0000.md               10499 B         -  01.10 10:53:47
+  review-2026-10-01T112543+0000.md               10473 B    B234-A  01.10 13:25:43
+  review-2026-10-01T164513+0000.md               13670 B      B235  01.10 18:45:13
+
+B234-Volltexte gefunden: 1
+  -> review-2026-10-01T112543+0000.md (10473 B, Marker B234-A)

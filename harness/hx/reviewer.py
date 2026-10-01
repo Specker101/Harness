@@ -354,18 +354,27 @@ def build_prompt(cfg, kind: str, ctx: dict) -> str:
     nxt = ctx.get("next_batch") or 0
     anker = ctx.get("anchor_batch")
     hint = ctx.get("anchor_hint")
-    if nxt:
-        nummer = ("Naechster Batch laut Anker: " + str(nxt)
-                  + (f" (Anker-Kopf nennt BATCH {anker})" if anker else "")
-                  + (f"; Querverweis im Anker: B{hint}" if hint else ""))
-        regel = (f"Verbindlich: die DS_INSTRUCTION MUSS mit \"Batch {nxt} - ...\" beginnen. "
-                 "Nenne KEINE andere Nummer. Es gibt keinen internen Zaehler: die Nummer kommt "
-                 "ausschliesslich aus dem Anker. Nennt die Instruktion eine andere Nummer, startet "
-                 "der Harness den Batch NICHT und haelt mit Meldung an.")
-    else:
-        nummer = ("Naechster Batch laut Anker: UNBEKANNT (der Anker nennt keine Nummer)")
-        regel = ("Verbindlich: die DS_INSTRUCTION muss eine Nummer im Format \"Batch <N> - ...\" "
-                 "nennen (naechste freie Nummer nach dem Anker).")
+    # R13bj: Nummernzeile und Nummernregel kommen FERTIG aus dem Orchestrator
+    # (`batch_number_line` / `batch_nummer_regel`) - EINE Quelle, damit Prompt und
+    # Pruefung (`gate_from_review`) nicht auseinanderlaufen. Die alte Fassung baut nur
+    # noch, wer den Kontext von Hand stellt (Tests).
+    nummer = ctx.get("batch_nummer_zeile") or ""
+    regel = ctx.get("batch_nummer_regel") or ""
+    if not nummer:
+        if nxt:
+            nummer = ("Naechster Batch laut Anker: " + str(nxt)
+                      + (f" (Anker-Kopf nennt BATCH {anker})" if anker else "")
+                      + (f"; Querverweis im Anker: B{hint}" if hint else ""))
+        else:
+            nummer = "Naechster Batch laut Anker: UNBEKANNT (der Anker nennt keine Nummer)"
+    if not regel:
+        if nxt:
+            regel = (f"Verbindlich: die DS_INSTRUCTION MUSS mit \"Batch {nxt} - ...\" beginnen. "
+                     "Nenne KEINE andere Nummer. Nennt die Instruktion eine andere Nummer als "
+                     "der Harness erwartet, startet er den Batch NICHT und haelt mit Meldung an.")
+        else:
+            regel = ("Verbindlich: die DS_INSTRUCTION muss eine Nummer im Format "
+                     "\"Batch <N> - ...\" nennen (naechste freie Nummer).")
     parts = [
         kind_text,
         nummer,

@@ -228,7 +228,7 @@ class Watcher:
                 f"Anfragen / ${float(g('alarm_cost_usd', 1.0)):.2f} / "
                 f"{float(g('alarm_wall_s', 9000)) / 60:.0f} min - HART "
                 f"{int(g('hard_requests', 1000))} / ${float(g('hard_cost_usd', 2.0)):.2f} / "
-                f"{float(g('hard_wall_s', 10800)) / 60:.0f} min")
+                f"{float(g('hard_wall_s', 14400)) / 60:.0f} min")
 
     def _stats_umlegen(self):
         """Den abgeschlossenen Batch in die Gesamtsumme uebernehmen (R13e)."""

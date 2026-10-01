@@ -90,16 +90,18 @@ class TestBatchNummer(Base):
         self.assertEqual(self.orch.expected_batch(), 0)
         self.assertIn("UNBEKANNT", self.orch.batch_number_line())
 
-    def test_review_prompt_nennt_die_anker_nummer(self):
+    def test_review_prompt_nennt_die_nummer_und_ihre_quelle(self):
         from hx import reviewer as rv
         ctx = self.orch.review_context("(snapshot)")
         prompt = rv.build_prompt(self.cfg, "bootstrap", ctx)
-        self.assertIn("Naechster Batch laut Anker: 159", prompt)
+        # R13bj: Zeile und Regel kommen fertig aus dem Orchestrator und nennen den
+        # Harness-Zaehler UND den Anker als Gegenprobe.
+        self.assertIn("Naechster Batch: 159", prompt)
         self.assertIn("Anker-Kopf nennt BATCH 158", prompt)
-        self.assertIn("Querverweis im Anker: B159", prompt)
-        self.assertNotIn("der naechste Batch ist", prompt)       # kein interner Zaehler
+        self.assertIn("noch kein Batch gelaufen", prompt)
         self.assertNotIn("Batch-Nummer: 0", prompt)
-        self.assertIn('MUSS mit "Batch 159 - ..." beginnen', prompt)
+        self.assertIn('MUSS mit "Batch <N> - ..." beginnen', prompt)
+        self.assertIn("noch keinen Batch gestartet", prompt)
 
     def test_instruktion_mit_falscher_nummer_haelt_an(self):
         p = protocol.parse_review(
@@ -160,13 +162,18 @@ class TestBatchNummer(Base):
         self.assertIn("Batch 159", res.text)
         self.assertFalse((self.root / "runs" / "b000").exists())
 
-    def test_batch_ende_review_heisst_review_md(self):
+    def test_batch_ende_review_landet_im_naechsten_ordner(self):
+        # R13bj: die Nummer zaehlt der Harness (letzter Start + 1). Das Review zu B159
+        # gehoert damit nach `runs/b160` - genau die Ordner-Konvention, deren Verletzung
+        # in B235 das Review zu B234 ueberschrieben hat.
         self.orch.state.data["batch"] = 159
         self.orch.state.data["last_batch_number"] = 159
         self.orch.state.save()
         self.orch.say = lambda *a, **k: None
         self.orch.do_review("batch_end", "(snapshot)")
-        self.assertTrue((self.root / "runs" / "b159" / "review.md").is_file())
+        self.assertTrue((self.root / "runs" / "b160" / "review.md").is_file())
+        self.assertFalse((self.root / "runs" / "b159" / "review.md").exists(),
+                         "der Ordner des bewerteten Laufs bleibt unberuehrt")
 
     def test_checkpoint_tag_traegt_die_echte_nummer(self):
         from hx.gitsafe import Git

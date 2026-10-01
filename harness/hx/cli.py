@@ -313,14 +313,15 @@ def cmd_demo(args) -> int:
                                                        f"programm={p1.program if p1 else '-'}")
     check("DS_INSTRUCTION vorhanden", bool(p1 and len(p1.instruction) > 40))
 
-    print("== 1b: Batch-Nummer kommt aus dem Anker ==")
+    print("== 1b: Batch-Nummer kommt aus dem Harness-Zaehler (Anker = Gegenprobe) ==")
     aus_anker = orch.expected_batch()
-    check("Anker-Nummer gefunden", aus_anker > 0, orch.batch_number_line())
+    check("Nummer gefunden", aus_anker > 0, orch.batch_number_line())
     prompt = __import__("hx.reviewer", fromlist=["x"]).build_prompt(
         cfg, "bootstrap", orch.review_context(orch.build_snapshot_text()))
-    check("Review-Prompt nennt die Anker-Nummer",
-          f"Naechster Batch laut Anker: {aus_anker}" in prompt)
-    check("kein interner Zaehler im Prompt", "der naechste Batch ist" not in prompt)
+    check("Review-Prompt nennt die Nummer",
+          f"Naechster Batch: {aus_anker}" in prompt)
+    check("der Prompt nennt den Anker als Gegenprobe",
+          "Anker-Kopf nennt BATCH" in prompt)
     rdir = Path(cfg.sub("runs")) / f"b{aus_anker:03d}"
     check("Review liegt nach echter Nummer", (rdir / "review-pre.md").is_file(), str(rdir.name))
     check("Reviewer-Mitschnitt liegt daneben", (rdir / "reviewer.jsonl").is_file())
@@ -356,7 +357,7 @@ def cmd_demo(args) -> int:
     print("== 4: Worker-Batch (Attrappe) ==")
     gate = orch.state.gate
     tools = gate["tools"]
-    # Nummer aus dem Anker uebernehmen (kein interner Zaehler) - wie in der Schleife.
+    # Nummer des Harness-Zaehlers uebernehmen - wie in der Schleife (`_loop`).
     orch.state.data["batch"] = orch.expected_batch()
     orch.state.data["last_batch_number"] = orch.state.data["batch"]
     orch.state.save()
@@ -528,7 +529,7 @@ def cmd_demo(args) -> int:
 
     p_a = queue.enqueue(cfg.root, "claude", "Demo-Nachricht A: Audio-Frage klaeren.", "demo")
     gesagt, ziel, _ = ein_durchlauf("ok_zweiter_versuch")
-    check("Review landete im Anker-Verzeichnis (nicht b159)",
+    check("Review landete im Verzeichnis des Zaehlers (nicht b159)",
           ziel.name == f"b{orch.expected_batch():03d}", ziel.name)
     check("1. Versuch als Beleg verworfen",
           len(list(ziel.glob("review-verworfen-*-v1.md"))) == 1)

@@ -368,13 +368,22 @@ class TestAbbruchImReview(unittest.TestCase):
         orch.cfg.data["paths"]["decomp"] = str(self.tmp)
         return orch
 
-    def test_nummer_kommt_aus_dem_anker_nicht_aus_dem_zustand(self):
+    def test_nummer_kommt_aus_dem_harness_zaehler_anker_ist_gegenprobe(self):
+        # R13bj: der Harness zaehlt selbst (letzter Start + 1); der Anker ist Gegenprobe.
         orch = self._orch(batch=208)
         self.assertEqual(orch.anchor_batch(), 207)
-        self.assertEqual(orch.expected_batch(), 208)
-        # Anker NICHT fortgeschrieben -> derselbe Wert, auch wenn der Zustand 209 sagt.
-        orch.state.data["batch"] = 209
-        self.assertEqual(orch.expected_batch(), 208)
+        self.assertEqual(orch.own_batch(), 0, "noch kein Batch gestartet")
+        self.assertEqual(orch.expected_batch(), 208, "ohne Zaehler fuehrt der Anker")
+        # Ab dem ersten Start fuehrt der Zaehler - auch wenn der Anker stehen bleibt.
+        orch.state.data["last_batch_number"] = 208
+        self.assertEqual(orch.own_batch(), 209)
+        self.assertEqual(orch.expected_batch(), 209)
+        orch.state.data["batch"] = 999
+        self.assertEqual(orch.expected_batch(), 209, "state.batch zaehlt NICHT")
+        zeile = orch.batch_number_line()
+        self.assertIn("Harness-Zaehler", zeile)
+        self.assertIn("ABWEICHUNG", zeile, "Anker 208 gegen Zaehler 209 ist eine Abweichung")
+        self.assertIn("ABWEICHUNG", orch.batch_nummer_fakten_zeile())
 
     def test_abbruchzeile_nennt_gleiche_nummer_und_sicherung(self):
         orch = self._orch(batch=208, abb={"batch": 208, "grund": "warteschleife",
@@ -425,39 +434,57 @@ class TestVorgaengerSicherung(unittest.TestCase):
         import shutil
         shutil.rmtree(self.rd.parent, ignore_errors=True)
 
-    def test_belege_werden_umbenannt_und_fremde_nicht(self):
+    def test_belege_werden_in_lauf1_verschoben_und_fremde_nicht(self):
         from hx import worker as wk
         for name in ("stream.jsonl", "stream.err.txt", "auftrag.md", "result.json",
-                     "antwort.md", "harness-facts.md", "reviewer.jsonl"):
+                     "antwort.md", "harness-facts.md", "reviewer.jsonl", "review.md"):
             (self.rd / name).write_text(name, encoding="utf-8")
         namen = wk.sichere_vorgaenger(self.rd)
-        # Benennung: `-v1` an den Stamm gehaengt - fuer den Mitschnitt ergibt das genau
-        # `stream-v1.jsonl`, wie es `retention.MIT_ZIP` schon kennt.
+        # R13bj: die Belege des vorigen Laufs wandern nach `lauf1/` - nicht mehr in
+        # `*-v1.*` umbenannt. So bleibt Review -> Auftrag -> Ergebnis je Lauf lesbar.
         self.assertEqual(sorted(namen),
-                         ["antwort-v1.md", "auftrag-v1.md", "harness-facts-v1.md",
-                          "result-v1.json", "stream-v1.jsonl", "stream.err-v1.txt"])
-        self.assertTrue((self.rd / "stream-v1.jsonl").is_file())
-        self.assertEqual((self.rd / "stream-v1.jsonl").read_text(encoding="utf-8"),
+                         ["lauf1/antwort.md", "lauf1/auftrag.md", "lauf1/result.json",
+                          "lauf1/stream.err.txt", "lauf1/stream.jsonl"])
+        self.assertTrue((self.rd / "lauf1" / "stream.jsonl").is_file())
+        self.assertEqual((self.rd / "lauf1" / "stream.jsonl").read_text(encoding="utf-8"),
                          "stream.jsonl")
         self.assertFalse((self.rd / "stream.jsonl").exists())
-        # Fremdes bleibt liegen (das Review-Verzeichnis gehoert dazu).
+        # Die Belege des REVIEWS bleiben OBEN stehen: sie sind die Auftragskette des
+        # neuen Laufs (`review.md` = Auftrag, `harness-facts.md` = Messdaten dazu).
         self.assertTrue((self.rd / "reviewer.jsonl").is_file())
+        self.assertTrue((self.rd / "review.md").is_file())
+        self.assertTrue((self.rd / "harness-facts.md").is_file())
 
     def test_zweiter_lauf_ueberschreibt_den_ersten_nicht(self):
         from hx import worker as wk
         (self.rd / "stream.jsonl").write_text("ERSTE FASSUNG", encoding="utf-8")
         wk.sichere_vorgaenger(self.rd)
         (self.rd / "stream.jsonl").write_text("ZWEITE FASSUNG", encoding="utf-8")
-        self.assertEqual((self.rd / "stream-v1.jsonl").read_text(encoding="utf-8"),
+        self.assertEqual((self.rd / "lauf1" / "stream.jsonl").read_text(encoding="utf-8"),
                          "ERSTE FASSUNG")
         self.assertEqual((self.rd / "stream.jsonl").read_text(encoding="utf-8"),
                          "ZWEITE FASSUNG")
 
-    def test_ohne_mitschnitt_passiert_nichts(self):
+    def test_dritter_lauf_bekommt_lauf2(self):
         from hx import worker as wk
-        (self.rd / "auftrag.md").write_text("alt", encoding="utf-8")
+        # Reihenfolge wie im Betrieb: Lauf schreiben -> sichern -> naechster Lauf.
+        (self.rd / "stream.jsonl").write_text("EINS", encoding="utf-8")
+        wk.sichere_vorgaenger(self.rd)
+        (self.rd / "stream.jsonl").write_text("ZWEI", encoding="utf-8")
+        wk.sichere_vorgaenger(self.rd)
+        (self.rd / "stream.jsonl").write_text("DREI", encoding="utf-8")
+        self.assertEqual(sorted(p.name for p in self.rd.glob("lauf*")), ["lauf1", "lauf2"])
+        self.assertEqual((self.rd / "lauf1" / "stream.jsonl").read_text(encoding="utf-8"),
+                         "EINS")
+        self.assertEqual((self.rd / "lauf2" / "stream.jsonl").read_text(encoding="utf-8"),
+                         "ZWEI")
+        self.assertEqual((self.rd / "stream.jsonl").read_text(encoding="utf-8"),
+                         "DREI")
+
+    def test_ohne_belege_passiert_nichts(self):
+        from hx import worker as wk
         self.assertEqual(wk.sichere_vorgaenger(self.rd), [])
-        self.assertTrue((self.rd / "auftrag.md").is_file())
+        self.assertEqual(list(self.rd.glob("lauf*")), [])
 
 
 class TestAufraeumenZeile(unittest.TestCase):

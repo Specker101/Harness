@@ -38,6 +38,24 @@ def ensure_dir(path: str | Path) -> Path:
     return p
 
 
+def batch_ordner(runs: str | Path) -> list[tuple[int, Path]]:
+    """Alle `runs/b<N>`-Ordner als `[(N, Pfad)]`, nach Nummer aufsteigend (R13bj).
+
+    `runs/` enthaelt auch Ordner, die NICHT `b<Zahl>` heissen: Sicherungen wie
+    `b235_lauf1_sicherung`, dazu `env-proof`, `ghidra-smoke`, `reviewer-proof`,
+    `_verworfen_b000`. Wer `glob("b*")` ohne Ziffernpruefung liest, zaehlt sie mit
+    oder stuerzt (`int(name[1:])` -> ValueError). EINE Stelle, die das richtig macht.
+    """
+    out: list[tuple[int, Path]] = []
+    try:
+        for p in Path(runs).iterdir():
+            if p.is_dir() and p.name.startswith("b") and p.name[1:].isdigit():
+                out.append((int(p.name[1:]), p))
+    except OSError:
+        return []
+    return sorted(out)
+
+
 # ------------------------------------------------- Teilungsfehler (D/R13d)
 #
 # Am 2026-09-26 starb der Harness ZWEIMAL an derselben Zeile:

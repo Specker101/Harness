@@ -1,0 +1,64 @@
+R13bj - Sichtung der B235-Belege (nur lesend)
+Stand: 2026-10-01 18:54:45
+
+## 1. runs/b235/ (Kopf/Stand)
+  review.md (13863 B, 01.10 18:45:13)
+      | Der Lauf ist geprüft. Wichtigste Befunde: Der Ankerkopf steht noch auf B234, der Preflight braucht mittlerweile 1799 s (die Tool-Grenze liegt bei 1800
+      | <TELEGRAM_SUMMARY>
+      | Ergebnis: Der Fehler im Kopf 80009E3C ist gefunden und behoben. Der Kopf las über den ROM-Bereich 0xFF07600x nur 0, weil ihm die ROM-Sicht fehlte. Jet
+  harness-facts.md (8161 B, 01.10 18:41:20)
+      | - Review: bewertet wird Batch 235; die Instruktion gilt fuer Batch 235
+      | - Naechster Batch laut Anker: 235 (Anker-Kopf: BATCH 234)
+      | - Reviewer: Modell - (Soll claude-opus-5-5), Effort high
+  auftrag.md (16925 B, 01.10 15:46:07)
+      | Du bist der Worker (DeepSeek über Claude Code) im Projekt Silent Scope Decomp.
+      | Es ist NIEMAND anwesend: Rückfragen sind nicht möglich. Warte nie auf eine Antwort,
+      | entscheide selbst und dokumentiere die Entscheidung. Fehlt dir etwas (Werkzeug, Programm,
+  antwort.md (4259 B, 01.10 18:40:12)
+      | `git status --porcelain` ist leer. Batch abgeschlossen.
+      | ## 1) Übernommener Stand (5 Sätze)
+      | Übernommen wurde HEAD `7ec9d6a` mit `C Koepfe 115/6475/0` und `_preflight_234.txt` = BEFORE MIT BEFUNDEN (3): `Hybrid-Anteil nativ` (2450 von 2633 Ruf
+  result.json (9877 B, 01.10 18:40:12)
+      | {
+      |   "batch": 235,
+      |   "profile": "ghidra-read",
+
+## 2. Mitschnitte des Reviewers/Handovers
+### runs/b235/reviewer.jsonl  (249667 B, 18:45:13)
+  Zeilen: 164 | Typen: {'system': 104, 'assistant': 32, 'rate_limit_event': 7, 'user': 20, 'result': 1}
+  erste Zeile: ? | letzte Zeile: ?
+  result #1: ts=? session=c7230a1e-0e55-464e-b310-37c2e97b4465 len=13670
+      Der Lauf ist geprüft. Wichtigste Befunde: Der Ankerkopf steht noch auf B234, der Preflight braucht mittlerweile 1799 s (die Tool-Grenze liegt bei 1800 s), und d
+
+  reviewer.jsonl.err: leer
+### runs/b235/handover.jsonl  (10495 B, 18:41:20)
+  Zeilen: 5 | Typen: {'system': 1, 'assistant': 2, 'rate_limit_event': 1, 'result': 1}
+  erste Zeile: ? | letzte Zeile: ?
+  result #1: ts=? session=f94fdd42-3cd3-417e-a8ee-3c8cdc88109d len=1811
+      **Stand:** B234 (C-Batch A, wiederholt nach einem Fehlalarm des Prozess-Detektors) ist bewertet; FERTIG WENN nicht erreicht. HEAD 7ec9d6a, C Koepfe 115/6475/0, 
+
+
+## 3. logs/ - Review-Prompts und Verworfenes
+  Muster review-prompt-*: 87 Datei(en)
+    review-prompt-2026-09-30T165414+0000.md  39193 B  30.09 18:54:14
+    review-prompt-2026-09-30T183141+0000.md  39025 B  30.09 20:31:41
+    review-prompt-2026-09-30T213132+0000.md  60817 B  30.09 23:31:32
+    review-prompt-2026-09-30T230950+0000.md  43244 B  01.10 01:09:50
+    review-prompt-2026-10-01T003851+0000.md  55223 B  01.10 02:38:51
+    review-prompt-2026-10-01T031323+0000.md  64198 B  01.10 05:13:23
+    review-prompt-2026-10-01T043224+0000.md  49054 B  01.10 06:32:24
+    review-prompt-2026-10-01T053641+0000.md  74246 B  01.10 07:36:41
+    review-prompt-2026-10-01T073515+0000.md  62642 B  01.10 09:35:15
+    review-prompt-2026-10-01T085153+0000.md  27614 B  01.10 10:51:53
+    review-prompt-2026-10-01T112347+0000.md  38672 B  01.10 13:23:47
+    review-prompt-2026-10-01T164122+0000.md  35564 B  01.10 18:41:22
+
+## 4. Zustand
+  batch: 235
+  phase: {"name": "gate", "extra": "Batch 235", "since": "2026-10-01T16:54:18+00:00"}
+  paused: false
+  stopped: true
+  autonomous: false
+  review: {"dir": "g:\\Harness\\harness\\runs\\b235", "kind": "batch_end", "evidence": 235, "target": 235, "started_at": "2026-10-01T16:41:22+00:00"}
+  reviewer: {"session_id": "c7230a1e-0e55-464e-b310-37c2e97b4465", "reviews": 1, "started_at": "2026-10-01T16:41:20+00:00", "last_decision": null, "force_rotate": false, "prompt_hash": "b8d1b05852ec", "pending_handover": {"from_sess
+  updated_at: "2026-10-01T16:54:25+00:00"

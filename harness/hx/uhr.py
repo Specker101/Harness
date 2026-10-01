@@ -26,11 +26,11 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Ein Batch laeuft nie laenger als die harte Grenze (harness.toml: hard_wall_s = 10800 s
-# = 3 h). Ein "Start" von vor 4 Stunden oder aus der Zukunft ist deshalb kein Messwert,
-# sondern ein Rest aus einem abgebrochenen Lauf - er wird als unplausibel gemeldet und
-# nicht als Laufzeit angezeigt.
-MAX_START_ALTER_S = 4 * 3600.0
+# Ein Batch laeuft nie laenger als die harte Grenze (harness.toml: hard_wall_s = 14400 s
+# = 4 h; R13bj vorlaeufig erhoeht, vorher 10800 s). Ein "Start" von vor 5 Stunden oder aus
+# der Zukunft ist deshalb kein Messwert, sondern ein Rest aus einem abgebrochenen Lauf -
+# er wird als unplausibel gemeldet und nicht als Laufzeit angezeigt.
+MAX_START_ALTER_S = 5 * 3600.0
 ZUKUNFT_TOLERANZ_S = 120.0
 
 

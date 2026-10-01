@@ -65,7 +65,7 @@ class WorkerResult:
         self.abbau: list[dict] = []          # R13i: Muster-Prozessabbau (Harness-Gefahr)
         self.warteschleifen: list[dict] = []  # R13v: Warteschleifen (vermeidbare Zeit)
         self.aufraeumen: dict | None = None   # R13v3: Job-Objekt + Nachsuche nach Resten
-        self.vorgaenger: list[str] = []       # R13v3: gesicherte Belege der Vor-Fassung
+        self.vorgaenger: list[str] = []       # R13v3/R13bj: gesicherte Belege des Vorlaufs
         # R13ad: Fortsetzungen im SELBEN Chat ({minute, kontext, antwort_kurz, …}).
         self.fortsetzungen: list[dict] = []
         # R13ah: Archiv des Preflights VOR der Fortsetzung (Pfad, "" = keiner noetig).
@@ -157,40 +157,62 @@ def run_dir(cfg, batch: int) -> Path:
     return p
 
 
-# R13v3: Belege, die eine VORIGE Fassung desselben Batches hinterlassen hat.
-# Reihenfolge = Umbenennung in `<name>-v1.<endung>`.
-VORGAENGER_BELEGE = ("stream.jsonl", "stream.err.txt", "auftrag.md", "result.json",
-                     "antwort.md", "harness-facts.md")
+# R13v3/R13bj: Belege, die ein VORIGER Lauf desselben Batchordners hinterlassen hat.
+# Sie werden nach `lauf<k>/` VERSCHOBEN (frueher: Umbenennung in `<name>-v1.<endung>`).
+LAUF_BELEGE = ("auftrag.md", "stream.jsonl", "stream.err.txt", "result.json",
+               "antwort.md", "mcp.json", "worker-hooks.json",
+               "preflight-aufrufe.jsonl", "preflight-blockiert.jsonl")
+# Fortsetzungsdateien (R13ad) und weitere Antwortfassungen (R13aw) kommen als Muster.
+LAUF_MUSTER = ("antwort-forts*.md", "stream-forts*.jsonl")
+# NICHT verschoben werden die Belege des REVIEWS: `review.md`, `reviewer.jsonl`,
+# `handover.jsonl`, `review-verworfen-*` und `harness-facts.md` gehoeren zur
+# Auftragskette des anstehenden Laufs und bleiben im Batchordner oben stehen.
+
+
+def lauf_ordner_nummer(rd: Path) -> int:
+    """Die Nummer des naechsten freien Unterordners `lauf<k>` (1, 2, 3, ...)."""
+    k = 1
+    while (Path(rd) / f"lauf{k}").exists():
+        k += 1
+    return k
 
 
 def sichere_vorgaenger(rd: Path, log=None) -> list[str]:
-    """Belege der vorigen Fassung desselben Batches wegsichern (R13v3).
+    """Belege des vorigen Laufs im selben Batchordner nach `lauf<k>/` verschieben.
 
-    Anlass: die Nummer des naechsten Laufs kommt aus dem ANKERKOPF. Schreibt ein
-    abgebrochener Worker den Anker nicht fort, laeuft der naechste Batch mit DERSELBEN
-    Nummer und damit in DENSELBEN Ordner - ohne diese Sicherung ueberschreibt er den
-    Mitschnitt des abgebrochenen Laufs. `retention.MIT_ZIP` kennt `stream-v1.jsonl`
-    ohnehin schon; hier entsteht die Datei.
+    R13v3 (B234): die Nummer des naechsten Laufs kam aus dem ANKERKOPF. Schrieb ein
+    abgebrochener Worker den Anker nicht fort, lief der naechste Batch mit DERSELBEN
+    Nummer und damit in DENSELBEN Ordner. R13bj (B235): dasselbe passiert bei einer
+    FORTSETZUNG (das Review gibt dieselbe Nummer erneut aus) - dort ueberschrieb der
+    zweite Lauf `auftrag.md`, `stream.jsonl` und sogar `review.md` des ersten.
+
+    Statt die Dateien in `*-v1.*` umzubenennen (Fruehfassung), wandern sie in einen
+    eigenen Unterordner: `review -> auftrag -> ergebnis` bleibt so fuer JEDEN Lauf
+    desselben Batchordners lesbar. Rueckgabe: die verschobenen Pfade, relativ zum
+    Batchordner (`lauf1/stream.jsonl`).
     """
-    if not (Path(rd) / "stream.jsonl").is_file():
+    rd = Path(rd)
+    dateien = [rd / name for name in LAUF_BELEGE]
+    for muster in LAUF_MUSTER:
+        dateien += sorted(rd.glob(muster))
+    dateien = [p for p in dateien if p.is_file()]
+    if not dateien:
         return []
-    umbenannt: list[str] = []
-    for name in VORGAENGER_BELEGE:
-        quelle = Path(rd) / name
-        if not quelle.is_file():
-            continue
-        ziel = quelle.with_name(quelle.stem + "-v1" + quelle.suffix)
+    ziel = rd / f"lauf{lauf_ordner_nummer(rd)}"
+    verschoben: list[str] = []
+    for quelle in dateien:
         try:
-            quelle.replace(ziel)
-            umbenannt.append(ziel.name)
+            ziel.mkdir(parents=True, exist_ok=True)
+            quelle.replace(ziel / quelle.name)
+            verschoben.append(f"{ziel.name}/{quelle.name}")
         except OSError as exc:                                       # noqa: BLE001
             if log:
-                log.warn("Beleg der vorigen Fassung nicht gesichert", datei=name,
-                         fehler=str(exc)[:120])
-    if umbenannt and log:
-        log.warn("Belege der vorigen Fassung gesichert (gleiche Batch-Nummer)",
-                 ordner=str(rd), dateien=umbenannt)
-    return umbenannt
+                log.warn("Beleg des vorigen Laufs nicht gesichert",
+                         datei=quelle.name, fehler=str(exc)[:120])
+    if verschoben and log:
+        log.warn("Belege des vorigen Laufs gesichert (gleiche Batch-Nummer)",
+                 ordner=str(rd), unterordner=ziel.name, dateien=verschoben)
+    return verschoben
 
 
 def write_mcp_config(cfg, run_path: Path, profile) -> str | None:
@@ -252,7 +274,7 @@ def write_worker_hooks(cfg, rd: Path, state_datei, log=None) -> str | None:
             log.warn("Batch-Uhr-Hook fehlt", pfad=str(skript))
         return None
     weich = float(cfg.get("limits", "alarm_wall_s", 9000)) / 60.0
-    hart = float(cfg.get("limits", "hard_wall_s", 10800)) / 60.0
+    hart = float(cfg.get("limits", "hard_wall_s", 14400)) / 60.0
     # R13ad: EINE Zeitquelle - die Umschaltschwelle und die Kontextgrenze kommen aus
     # `harness.toml` und gehen mit in den Hook.
     # R13ah (Aussensicht B214, Befund 3): die Schwelle ist jetzt
@@ -698,8 +720,8 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
     batch = state.batch
     rd = run_dir(cfg, batch)
     res.run_dir = str(rd)
-    # R13v3: Belege einer vorigen Fassung DIESES Batchordners wegsichern, bevor der neue
-    # Lauf etwas schreibt (gleiche Nummer = gleicher Ordner, siehe `sichere_vorgaenger`).
+    # R13v3/R13bj: Belege eines vorigen Laufs DIESES Batchordners nach `lauf<k>/`
+    # sichern, bevor der neue Lauf etwas schreibt (gleiche Nummer = gleicher Ordner).
     res.vorgaenger = sichere_vorgaenger(rd, log)
     if profile.mcp:
         # R13-1/R13e: ab jetzt koennen Aenderungen im Server-Speicher stehen, die noch
@@ -797,7 +819,7 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
             # R13p: Vorgaben wie in harness.toml (Alarm 500 / Hart 1000).
             "alarm_requests": int(cfg.get("limits", "alarm_requests", 500)),
             "alarm_cost": float(cfg.get("limits", "alarm_cost_usd", 1.0)),
-            "hard_wall": float(cfg.get("limits", "hard_wall_s", 10800)),
+            "hard_wall": float(cfg.get("limits", "hard_wall_s", 14400)),
             "hard_requests": int(cfg.get("limits", "hard_requests", 1000)),
             "hard_cost": float(cfg.get("limits", "hard_cost_usd", 2.0)),
         }
@@ -1600,11 +1622,15 @@ RECHENZEIT (R13v/R13ah, gemessen 2026-09-28 - bitte einhalten)
   in B213/B214 zu Kappungen von Preflight und `mutalle`.
 - **Der erlaubte Weg fuer alles, was laenger als ein paar Minuten dauert:**
   1. **Synchron mit ausdruecklicher Zeitgrenze:** beim Werkzeugaufruf `timeout`
-     mitgeben (Millisekunden, **bis 1800000 = 30 min**). Das ist der Normalfall fuer
+     mitgeben (Millisekunden, **bis 3600000 = 60 min**). Das ist der Normalfall fuer
      `c_kopf.py prof`, `vergl alle`, `preflight.py`, `port_build.ps1`, Mutationslaeufe.
      Gemessen (R13ah): `timeout=600000` ist KEINE Erhoehung - das war schon die alte
      Obergrenze; wer mehr braucht, muss mehr setzen.
-  2. **Nur wenn es laenger als 30 min dauern kann:** `Start-Process … -PassThru` und
+     R13bj (01.10.2026): die Obergrenze stand auf 1800 s und der Preflight von B235
+     lief mit **1799 s** genau dagegen - sie ist bis zur Reparatur der Maschinenkopie
+     auf 3600 s erhoeht (Rueckbau, sobald der Preflight unter 900 s liegt:
+     `docs/bedienung.md`).
+  2. **Nur wenn es laenger als 60 min dauern kann:** `Start-Process … -PassThru` und
      dann **EIN** `Wait-Process -Id $p.Id -Timeout 480` - und danach die Ausgabe
      lesen. Kein zweiter Wartebefehl, keine Schleife.
 - **`Start-Sleep` ist GESPERRT** - nachgemessen am 2026-09-28 mit echtem Lauf: das
@@ -1641,8 +1667,8 @@ ZEIT (R13ac/R13ad/R13ah - gemessen, nicht geschaetzt, EINE Quelle)
   BATCH-UHR-Zeile lesen). Eine Streichung von Pflichtteilen "aus Zeitgruenden" gilt nur
   mit einer unmittelbar davor gemessenen `Get-Date`-Zeile im Batch-Dokument.
 - **Für `preflight.py`, `c_kopf.py mutalle` und `port_build` den Bash-Parameter
-  `timeout=1800000` setzen; sonst wird nach 600 s gekappt.** (Die Obergrenze des
-  Werkzeugs ist seit R13ah 1800 s, die Vorgabe ohne Parameter bleibt 600 s - Schutz
+  `timeout=3600000` setzen; sonst wird nach 600 s gekappt.** (Die Obergrenze des
+  Werkzeugs ist seit R13bj 3600 s, die Vorgabe ohne Parameter bleibt 600 s - Schutz
   gegen haengende Befehle.)
 - Hoerst du vor der Umschaltschwelle auf, wird derselbe Chat **fortgesetzt**: die
   Fortsetzungsnachricht beginnt mit "Du bist weiterhin in Batch <N>. Alle Commits tragen

@@ -1,0 +1,55 @@
+# R13bj - der ROTE Zwischenlauf der vollen Reihe (Konsolenauszug)
+
+Dieser Auszug ist aus der Konsolenausgabe des Lauf vom **01.10.2026 19:14:30**
+uebernommen (der Lauf selbst hat nur die Zusammenfassung geschrieben; die Datei
+`docs/_r13bj_volle_reihe.txt` wurde vom spaeteren, gruenen Lauf ueberschrieben).
+Er belegt die zwei Befunde, die danach behoben wurden.
+
+    Volle Testreihe 2026-10-01 19:14:30
+    HEAD: e4df496 R13bi: Hybrid-Lauf braucht c_kopf_check nicht - Parallelbahn gemessen und zurueckgezogen
+    Harness-Zustand: state=STOPPED batch=235 worker=False
+
+    ...E...F...
+
+    ======================================================================
+    ERROR: test_erkennung_passt_zu_worker_hat_nachrueckliste (test_r13af_fixes.TestPflichtbloeckeAmEchtenAuftrag.test_erkennung_passt_zu_worker_hat_nachrueckliste)
+    Die Auftragsdatei ist die Quelle - beide Erkennungen muessen dasselbe sagen.
+    ----------------------------------------------------------------------
+    Traceback (most recent call last):
+      File "G:\Harness\harness\tests\test_r13af_fixes.py", line 295, in test_erkennung_passt_zu_worker_hat_nachrueckliste
+        batch = int(p.parent.name[1:])
+                ^^^^^^^^^^^^^^^^^^^^^^
+    ValueError: invalid literal for int() with base 10: '235_lauf1_sicherung'
+
+    ======================================================================
+    FAIL: test_worker_umgebung_hebt_die_zeitgrenze (test_r13v_fixes.TestSperrenUndVorspann.test_worker_umgebung_hebt_die_zeitgrenze)
+    ----------------------------------------------------------------------
+    Traceback (most recent call last):
+      File "G:\Harness\harness\tests\test_r13v_fixes.py", line 162, in test_worker_umgebung_hebt_die_zeitgrenze
+        self.assertEqual(env["BASH_MAX_TIMEOUT_MS"], "1800000")
+    AssertionError: '3600000' != '1800000'
+    - 3600000
+    ? ^^
+    + 1800000
+    ? ^^
+
+    ----------------------------------------------------------------------
+    Ran 1349 tests in 524.813s
+
+    FAILED (failures=1, errors=1)
+    Dauer: 524.8 s
+    Tests: 1349 | Fehler: 1 | Fehlschlaege: 1 | uebersprungen: 0
+    ERGEBNIS: FEHLGESCHLAGEN
+
+Beide Befunde sind behoben:
+
+1. `test_r13af_fixes.py`: Der Test las `runs/b*/auftrag.md` aus dem lebenden
+   Laufverzeichnis und nahm an, jeder Ordner heisse `b<Zahl>`. Die neue Sicherung
+   `runs/b235_lauf1_sicherung/` faellt darunter. Fix: Ziffernpruefung im Test, und
+   zusaetzlich EINE Stelle `hx/util.py::batch_ordner()` fuer alle Lesestellen
+   (`orchestrator._do_send`, `orchestrator.letzte_review_datei`,
+   `bilanz.kosten_block` zweimal).
+2. `test_r13v_fixes.py`: uebersehene zweite Zusicherung auf die alte
+   Werkzeug-Obergrenze (`BASH_MAX_TIMEOUT_MS`) - auf 3600 s umgestellt.
+
+Der gruene Lauf danach: `docs/_r13bj_volle_reihe.txt`.

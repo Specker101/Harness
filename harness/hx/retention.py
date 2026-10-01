@@ -29,7 +29,8 @@ from pathlib import Path
 
 from .util import ensure_dir, now_iso, write_text_atomic
 
-# Diese Dateien je Batch werden gepackt (die `-v1`-Fassungen eines Re-Runs mit).
+# Diese Dateien je Batch werden gepackt (die Fassungen eines Re-Runs liegen seit R13bj
+# unter `lauf<k>/` - frueher hiessen sie `*-v1.*`, die alten Namen bleiben lesbar).
 MIT_ZIP = ("stream.jsonl", "reviewer.jsonl", "stream-v1.jsonl", "handover.jsonl")
 # R13ad: Mitschnitte der Fortsetzungen (`stream-forts<N>.jsonl`, ein File je Anstoss). Die
 # Zahl haengt an `[limits] max_fortsetzungen` - deshalb als Muster statt als feste Liste.
@@ -179,6 +180,13 @@ def kandidaten(cfg, tage: float = ALTER_TAGE, jetzt: datetime | None = None) -> 
             if not bdir.is_dir():
                 continue
             dateien = [bdir / name for name in MIT_ZIP] + list(bdir.glob(MIT_ZIP_MUSTER))
+            # R13bj: die Belege eines vorigen Laufs derselben Nummer liegen unter
+            # `lauf<k>/` (frueher `*-v1.*`) - sie werden genauso gepackt, sonst blieben
+            # die grossen Mitschnitte unbegrenzt liegen.
+            for unter in sorted(bdir.glob("lauf*")):
+                if unter.is_dir():
+                    dateien += ([unter / name for name in MIT_ZIP]
+                                + list(unter.glob(MIT_ZIP_MUSTER)))
             for p in dateien:
                 if p.is_file() and p.stat().st_mtime < grenze.timestamp():
                     out.append((p.stat().st_mtime, p))

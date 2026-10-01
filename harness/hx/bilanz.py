@@ -34,7 +34,7 @@ from pathlib import Path
 
 from . import stand
 from . import streamjson
-from .util import read_json, read_text
+from .util import batch_ordner, read_json, read_text
 
 SNAPSHOT = "_bilanz_snapshot.json"
 KOSTEN_FENSTER_H = 24.0
@@ -648,22 +648,19 @@ def kosten_block(cfg, jetzt: datetime | None = None, fenster_h: float = KOSTEN_F
     jetzt = jetzt or datetime.now(timezone.utc)
     grenze = (jetzt - timedelta(hours=fenster_h)).timestamp()
     summe, anzahl, neueste = 0.0, 0, 0
-    try:
-        for p in (Path(cfg.sub("runs"))).glob("b*/result.json"):
-            try:
-                if p.stat().st_mtime < grenze:
-                    continue
-                d = json.loads(read_text(p)) or {}
-            except (OSError, ValueError):
+    # R13bj: nur echte `b<N>`-Ordner - eine Sicherung wie `runs/b235_lauf1_sicherung/`
+    # traegt eine KOPIE des result.json und wuerde die Kosten doppelt zaehlen.
+    for nummer, p in batch_ordner(cfg.sub("runs")):
+        res = p / "result.json"
+        try:
+            if not res.is_file() or res.stat().st_mtime < grenze:
                 continue
-            summe += float(d.get("cost_usd") or 0)
-            anzahl += 1
-            try:
-                neueste = max(neueste, int(p.parent.name.lstrip("b")))
-            except ValueError:
-                pass
-    except OSError:
-        pass
+            d = json.loads(read_text(res)) or {}
+        except (OSError, ValueError):
+            continue
+        summe += float(d.get("cost_usd") or 0)
+        anzahl += 1
+        neueste = max(neueste, nummer)
     st = read_json(Path(cfg.sub("state")) / "run.json", {}) or {}
     # Der Zustand fuehrt die Tageskosten unter dem UTC-Datum (`/status` und
     # `budget_text` nehmen `datetime.now(timezone.utc).date()`) - hier dieselbe Basis,
@@ -679,7 +676,8 @@ def kosten_block(cfg, jetzt: datetime | None = None, fenster_h: float = KOSTEN_F
         # `rate_limit_event` werden gelesen, `runs/b*/reviewer.jsonl` ist klein) -
         # der Worker-Mitschnitt bleibt ausdruecklich unangetastet.
         try:
-            kandidaten = sorted(Path(cfg.sub("runs")).glob("b*/review*.jsonl"),
+            kandidaten = sorted((f for _n, p in batch_ordner(cfg.sub("runs"))
+                                 for f in p.glob("review*.jsonl")),
                                 key=lambda p: p.stat().st_mtime, reverse=True)[:3]
         except OSError:
             kandidaten = []

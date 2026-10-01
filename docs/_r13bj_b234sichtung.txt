@@ -1,0 +1,34 @@
+R13bj - wo steht das Review zu B234 noch?
+
+  TREFFER 'Der Fehler im Kopf 80009E3C': logs/review-2026-10-01T164513+0000.md  (13862 B)
+  TREFFER 'Stand:** B234': logs/review-prompt-2026-10-01T164122+0000.md  (35564 B)
+  TREFFER 'Stand:** B234': runs/b235/handover.jsonl  (10495 B)
+  TREFFER 'Der Fehler im Kopf 80009E3C': runs/b235/review.md  (13863 B)
+  TREFFER 'Der Fehler im Kopf 80009E3C': runs/b235/reviewer.jsonl  (249667 B)
+  TREFFER 'Stand:** B234': runs/b235_lauf1_sicherung/handover.jsonl  (10495 B)
+  TREFFER 'Der Fehler im Kopf 80009E3C': runs/b235_lauf1_sicherung/review.md  (13863 B)
+  TREFFER 'Der Fehler im Kopf 80009E3C': runs/b235_lauf1_sicherung/reviewer.jsonl  (249667 B)
+  TREFFER 'Der Fehler im Kopf 80009E3C': state/run.json  (23020 B)
+  TREFFER 'Stand:** B234': state/run.json  (23020 B)
+
+## runs/b234 und runs/b236
+
+  b234/
+    antwort-v1.md                    358 B  01.10 10:44:11
+    antwort.md                      5221 B  01.10 13:03:52
+    auftrag-v1.md                  15749 B  01.10 09:37:34
+    auftrag.md                     15975 B  01.10 10:54:33
+    harness-facts-v1.md             5443 B  01.10 10:51:52
+    mcp.json                         242 B  01.10 10:54:33
+    preflight-blockiert.jsonl         94 B  01.10 12:27:16
+    result-v1.json                  8203 B  01.10 10:44:12
+    result.json                     8554 B  01.10 13:03:52
+    review.md                      10700 B  01.10 10:53:47
+    reviewer.jsonl                 73169 B  01.10 10:53:47
+    reviewer.jsonl.err                 0 B  01.10 10:51:53
+    stream-v1.jsonl             17305637 B  01.10 10:44:07
+    stream.err-v1.txt                 85 B  01.10 09:37:40
+    stream.err.txt                    85 B  01.10 10:54:41
+    stream.jsonl                13480022 B  01.10 13:03:51
+    worker-hooks.json               1299 B  01.10 10:54:33
+  b236: FEHLT
