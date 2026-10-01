@@ -606,6 +606,7 @@ def mitschnitt_preflight_aufrufe(cfg, batch: int, start_zeit: datetime | None = 
                 start = ende - timedelta(seconds=float(d["duration_s"]))
     starts: dict[str, dict] = {}
     ergebnisse: dict[str, bool] = {}
+    ergebnis_ts: dict[str, str] = {}
     dateien: list[str] = []
     for p in _mitschnitt_dateien(rd):
         dateien.append(p.name)
@@ -629,16 +630,26 @@ def mitschnitt_preflight_aufrufe(cfg, batch: int, start_zeit: datetime | None = 
                             "ts": str(satz.get("timestamp") or ""),
                             "werkzeug": str(block.get("name") or "")}
                 elif block.get("type") == "tool_result":
-                    ergebnisse[str(block.get("tool_use_id"))] = bool(block.get("is_error"))
+                    kennung = str(block.get("tool_use_id"))
+                    ergebnisse[kennung] = bool(block.get("is_error"))
+                    ergebnis_ts[kennung] = str(satz.get("timestamp") or "")
     aufrufe: list[dict] = []
     for kennung, s in starts.items():
         t = _iso_zeit(s["ts"])
         minuten = None
         if t is not None and start is not None:
             minuten = max(0.0, (t - start).total_seconds() / 60.0)
+        # R13bf (Aussensicht B233, Befund M233-7): die DAUER jedes Laufs. Ohne sie zaehlt
+        # die Kennzahl "Preflight-Anteil" nur einen Lauf (B233: 10,2 min statt ~37 min).
+        dauer_s: float | None = None
+        e = _iso_zeit(ergebnis_ts.get(kennung) or "")
+        if t is not None and e is not None and e >= t:
+            dauer_s = round((e - t).total_seconds(), 1)
         aufrufe.append({"ts": s["ts"], "min": (round(minuten, 1) if minuten is not None
-                                               else None),
+                                                else None),
                         "is_error": ergebnisse.get(kennung),
+                        "dauer_s": dauer_s,
+                        "ende": ergebnis_ts.get(kennung) or "",
                         "werkzeug": s["werkzeug"]})
     aufrufe.sort(key=lambda a: a["ts"])
     frueh = 0
@@ -646,6 +657,8 @@ def mitschnitt_preflight_aufrufe(cfg, batch: int, start_zeit: datetime | None = 
         frueh = sum(1 for a in aufrufe
                     if a["min"] is not None and a["min"] < float(umschalt_min))
     return {"laeufe": len(aufrufe), "frueh": frueh, "aufrufe": aufrufe,
+            "dauer_s": round(sum(float(a["dauer_s"] or 0.0) for a in aufrufe), 1),
+            "ohne_dauer": sum(1 for a in aufrufe if a["dauer_s"] is None),
             "dateien": dateien,
             "start": (start.isoformat() if start is not None else None)}
 
@@ -748,27 +761,33 @@ def aufwand_anteile(cfg, batch: int, start_zeit=None, ende_zeit=None) -> dict:
     grossen Teil der Wanduhr; nur laengere Batches strecken ihn. Diese Kennzahl macht
     das messbar, statt es zu schaetzen.
 
-    **Definition (drei Teile, in Minuten und Prozent der Wanduhr):**
+    **Definition (vier Teile, in Minuten und Prozent der Wanduhr):**
 
     * `startroutine` = Startzeit bis zum **ersten schreibenden Werkzeugaufruf**
       (`SCHREIB_WERKZEUGE`). Enthaelt Anker lesen, `git status`, Memory-Sync, einen
       frueh gestarteten Preflight. Gibt es keinen Schreibaufruf im Mitschnitt (reine
       Mess-/Analyse-Batches), bleibt der Anteil **0** - das ist nicht "kein Aufwand",
       sondern "kein Anker", und steht so in der Zeile.
-    * `preflight` (Schluss) = **letzter** Preflight-Start bis Laufende. Enthaelt den
-      Preflight selbst, Bilanz und Memory-Export.
-    * `arbeit` = Wanduhr minus der beiden Teile (nie negativ; ueberlappen beide, steht
-      hier 0).
+    * `preflight` = **Summe der Dauer ALLER Preflight-Laeufe** des Batches (Mitschnitt
+      inklusive Fortsetzungen, je Aufruf `Werkzeugstart -> Werkzeugergebnis`).
+      **R13bf (Aussensicht B233, Befund M233-7):** vorher war das nur der Fensteranteil
+      "letzter Start bis Laufende" - bei vier Laeufen wie in B233 (je ~9 min) standen
+      dort 10,2 min statt rund 37 min.
+    * `schluss` = Ende des **letzten** Preflights bis Laufende (Bilanz, Memory-Export,
+      Antwort schreiben) - der Rest des frueheren "Schluss"-Anteils.
+    * `arbeit` = Wanduhr minus `startroutine` + `preflight` + `schluss` (nie negativ).
+      `fester_min`/`fester_pct` ist die Summe der drei festen Teile - die Zahl, um die es
+      bei der Batch-Laenge geht.
 
     **Zeitquelle.** `Start` = `worker.started_at` aus dem Zustand (live) bzw.
     `result.json: finished_at - duration_s` (Rueckblick). `Ende` = `finished_at`
     (live: der Augenblick, in dem `result.json` geschrieben wird). Beide Wege liefern
     dieselbe Zahl, der Rueckblick ist also keine zweite Rechnung.
 
-    Rueckgabe: `{"wand_min", "startroutine_min", "preflight_min", "arbeit_min",
-    "startroutine_pct", "preflight_pct", "arbeit_pct", "erste_arbeit",
-    "letzter_preflight", "aufrufe", "quelle"}` - alle Zahlen `None`, wenn keine
-    Start-/Endzeit vorliegt.
+    Rueckgabe: `{"wand_min", "startroutine_min", "preflight_min", "schluss_min",
+    "arbeit_min", "fester_min", "*_pct", "erste_arbeit", "letzter_preflight",
+    "letzter_preflight_ende", "preflight_aufrufe", "preflight_ohne_dauer", "aufrufe",
+    "quelle"}` - alle Zahlen `None`, wenn keine Start-/Endzeit vorliegt.
     """
     rd = Path(cfg.sub("runs")) / f"b{int(batch):03d}"
     d = read_json(rd / "result.json", None)
@@ -782,8 +801,11 @@ def aufwand_anteile(cfg, batch: int, start_zeit=None, ende_zeit=None) -> dict:
             start = e2 - timedelta(seconds=float(d["duration_s"]))
             quelle = "result.json"
     leer = {"wand_min": None, "startroutine_min": None, "preflight_min": None,
-            "arbeit_min": None, "startroutine_pct": None, "preflight_pct": None,
-            "arbeit_pct": None, "erste_arbeit": "", "letzter_preflight": "",
+            "schluss_min": None, "arbeit_min": None, "fester_min": None,
+            "startroutine_pct": None, "preflight_pct": None, "schluss_pct": None,
+            "arbeit_pct": None, "fester_pct": None, "erste_arbeit": "",
+            "letzter_preflight": "", "letzter_preflight_ende": "",
+            "preflight_aufrufe": 0, "preflight_ohne_dauer": 0,
             "aufrufe": 0, "quelle": ""}
     if start is None or ende is None:
         return leer
@@ -800,27 +822,37 @@ def aufwand_anteile(cfg, batch: int, start_zeit=None, ende_zeit=None) -> dict:
             erste = e["ts"]
             break
     pf = mitschnitt_preflight_aufrufe(cfg, batch, start_zeit=start)
-    letzter = ""
-    if pf["aufrufe"]:
-        kandidaten = [a["ts"] for a in pf["aufrufe"]
-                      if (_iso_zeit(a["ts"]) or start) <= ende]
-        if kandidaten:
-            letzter = max(kandidaten)
+    drin = [a for a in pf["aufrufe"] if (_iso_zeit(a["ts"]) or start) <= ende]
+    letzter = drin[-1]["ts"] if drin else ""
+    # Ende des letzten Laufs: sein Ergebniszeitpunkt; ohne Ergebnis (Abbruch mitten im
+    # Lauf) bleibt nur der Start - dann deckt der Schlussanteil ihn ab.
+    letzter_ende = (drin[-1].get("ende") or "") if drin else ""
     sr_min = ((_iso_zeit(erste) - start).total_seconds() / 60.0) if erste else 0.0
     sr_min = max(0.0, min(sr_min, wand_min))
-    pf_min = ((ende - _iso_zeit(letzter)).total_seconds() / 60.0) if letzter else 0.0
+    # M233-7: die SUMME aller Laeufe, nicht das Fenster ab dem letzten Start.
+    pf_min = sum(float(a["dauer_s"] or 0.0) for a in drin) / 60.0
     pf_min = max(0.0, min(pf_min, wand_min))
-    arbeit_min = max(0.0, wand_min - sr_min - pf_min)
+    if drin:
+        ab = _iso_zeit(letzter_ende) or _iso_zeit(letzter) or ende
+        schluss_min = max(0.0, (ende - ab).total_seconds() / 60.0)
+    else:
+        schluss_min = 0.0
+    fester = min(wand_min, sr_min + pf_min + schluss_min)
+    arbeit_min = max(0.0, wand_min - fester)
 
     def pct(x: float) -> float:
         return round(x / wand_min * 100.0, 1)
 
     return {"wand_min": round(wand_min, 1), "startroutine_min": round(sr_min, 1),
-            "preflight_min": round(pf_min, 1), "arbeit_min": round(arbeit_min, 1),
+            "preflight_min": round(pf_min, 1), "schluss_min": round(schluss_min, 1),
+            "arbeit_min": round(arbeit_min, 1), "fester_min": round(fester, 1),
             "startroutine_pct": pct(sr_min), "preflight_pct": pct(pf_min),
-            "arbeit_pct": pct(arbeit_min), "erste_arbeit": erste,
-            "letzter_preflight": letzter, "aufrufe": len(ereignisse),
-            "quelle": quelle}
+            "schluss_pct": pct(schluss_min), "arbeit_pct": pct(arbeit_min),
+            "fester_pct": pct(fester), "erste_arbeit": erste,
+            "letzter_preflight": letzter, "letzter_preflight_ende": letzter_ende,
+            "preflight_aufrufe": len(drin),
+            "preflight_ohne_dauer": sum(1 for a in drin if a["dauer_s"] is None),
+            "aufrufe": len(ereignisse), "quelle": quelle}
 
 
 def aufwand_zeile(cfg, batch: int, res: dict | None = None) -> list[str]:
@@ -844,14 +876,22 @@ def aufwand_zeile(cfg, batch: int, res: dict | None = None) -> list[str]:
         return [f"AUFWAND: nicht messbar (keine Start-/Endzeit fuer b{int(batch):03d})"]
     def m(x) -> str:
         return f"{float(x):.0f} min"
+    n = int(a.get("preflight_aufrufe") or 0)
     teile = (f"AUFWAND: {m(a['wand_min'])} gesamt = "
              f"{m(a['startroutine_min'])} Startroutine ({a['startroutine_pct']:.0f} %) + "
-             f"{m(a['arbeit_min'])} Arbeit ({a['arbeit_pct']:.0f} %) + "
-             f"{m(a['preflight_min'])} Preflight/Schluss ({a['preflight_pct']:.0f} %)")
+             f"{m(a['preflight_min'])} Preflight ({n} Lauf/Laeufe, "
+             f"{a['preflight_pct']:.0f} %) + "
+             f"{m(a.get('schluss_min') or 0)} Schluss/Bilanz ({a.get('schluss_pct', 0):.0f} %)"
+             f"  -> fester Aufwand {m(a.get('fester_min') or 0)} "
+             f"({a.get('fester_pct', 0):.0f} %), Arbeit {m(a['arbeit_min'])} "
+             f"({a['arbeit_pct']:.0f} %)")
     if not a.get("erste_arbeit"):
         teile += " [ohne schreibenden Werkzeugaufruf im Mitschnitt - Startroutine umfasst den ganzen Vorlauf]"
     if not a.get("letzter_preflight"):
-        teile += " [kein Preflight im Mitschnitt - Schlussanteil 0]"
+        teile += " [kein Preflight im Mitschnitt - Preflight- und Schlussanteil 0]"
+    if a.get("preflight_ohne_dauer"):
+        teile += (f" [davon {int(a['preflight_ohne_dauer'])} Lauf/Laeufe ohne Ergebnis "
+                  "im Mitschnitt - Dauer nicht messbar]")
     if a.get("quelle") == "result.json":
         teile += " (Start aus result.json nachgerechnet)"
     return [teile]

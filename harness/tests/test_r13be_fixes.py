@@ -390,7 +390,9 @@ class TestFesterAufwand(Basis):
     """Fester Aufwand gegen Arbeitszeit (R13be-3, Nutzerauftrag 01.10.2026).
 
     Definition: `Startroutine` = Start bis zum ersten SCHREIBENDEN Werkzeugaufruf,
-    `Preflight/Schluss` = letzter Preflight-Start bis Laufende, `Arbeit` = Rest.
+    `Preflight` = **Summe der Dauer ALLER Preflight-Laeufe** (R13bf, M233-7),
+    `Schluss` = Ende des letzten Preflights bis Laufende, `Arbeit` = Rest;
+    `fester_min` = Startroutine + Preflight + Schluss.
     Zeitquelle: `finished_at - duration_s` (Rueckblick) bzw. `worker.started_at` (live);
     beide Wege muessen dieselbe Zahl liefern.
     """
@@ -413,32 +415,56 @@ class TestFesterAufwand(Basis):
             daten["aufwand"] = aufwand
         write_text_atomic(self.rd / "result.json", json.dumps(daten))
 
-    def test_drei_anteile_aus_dem_mitschnitt(self):
+    def test_vier_anteile_aus_dem_mitschnitt(self):
         self.result_json_mit_ende()
         self.mitschnitt(
             self.wz("r1", "2026-09-30T21:47:34+00:00", "Read"),        # +5 min
             self.wz("e1", "2026-09-30T21:52:34+00:00", "Edit"),        # +10 -> erste Arbeit
-            aufruf("p1", "2026-09-30T22:02:34+00:00"),                 # +20 -> letzter Preflight
-            ergebnis("p1", "2026-09-30T22:11:34+00:00", False))
+            aufruf("p1", "2026-09-30T22:02:34+00:00"),                 # +20 Start
+            ergebnis("p1", "2026-09-30T22:11:34+00:00", False))        # +29 Ende (9 min)
         a = stand.aufwand_anteile(self.cfg, self.BATCH)
         self.assertEqual(a["wand_min"], 30.0)
         self.assertEqual(a["startroutine_min"], 10.0)
-        self.assertEqual(a["preflight_min"], 10.0)
+        self.assertEqual(a["preflight_min"], 9.0)          # Dauer des Laufs
+        self.assertEqual(a["schluss_min"], 1.0)            # 22:11:34 -> 22:12:34
+        self.assertEqual(a["fester_min"], 20.0)
         self.assertEqual(a["arbeit_min"], 10.0)
         self.assertEqual(a["startroutine_pct"], 33.3)
+        self.assertEqual(a["preflight_pct"], 30.0)
         self.assertEqual(a["arbeit_pct"], 33.3)
         self.assertEqual(a["erste_arbeit"], "2026-09-30T21:52:34+00:00")
         self.assertEqual(a["letzter_preflight"], "2026-09-30T22:02:34+00:00")
+        self.assertEqual(a["preflight_aufrufe"], 1)
 
-    def test_letzter_preflight_zaehlt_nicht_der_erste(self):
-        """Zwei Laeufe: der SPAETE setzt den Schlussanteil (der fruehe ist ueberholt)."""
+    def test_preflight_ist_die_summe_aller_laeufe(self):
+        """R13bf (M233-7): vier Laeufe zaehlen als vier, nicht als Fenster ab dem letzten."""
+        self.result_json_mit_ende()
+        self.mitschnitt(
+            aufruf("p1", "2026-09-30T21:47:34+00:00"),
+            ergebnis("p1", "2026-09-30T21:51:34+00:00", False),        # 4 min
+            aufruf("p2", "2026-09-30T21:57:34+00:00"),
+            ergebnis("p2", "2026-09-30T21:59:34+00:00", True),         # 2 min (Exit 2)
+            aufruf("p3", "2026-09-30T22:02:34+00:00"),
+            ergebnis("p3", "2026-09-30T22:05:34+00:00", False))        # 3 min
+        a = stand.aufwand_anteile(self.cfg, self.BATCH)
+        self.assertEqual(a["preflight_aufrufe"], 3)
+        self.assertEqual(a["preflight_min"], 9.0)
+        self.assertEqual(a["letzter_preflight"], "2026-09-30T22:02:34+00:00")
+        self.assertEqual(a["schluss_min"], 7.0)            # 22:05:34 -> 22:12:34
+        self.assertEqual(a["arbeit_min"], 14.0)
+        self.assertIn("3 Lauf/Laeufe", stand.aufwand_zeile(self.cfg, self.BATCH)[0])
+
+    def test_letzter_preflight_setzt_den_schluss(self):
+        """Zwei Laeufe ohne Ergebnis: die Dauer fehlt, der SPAETE setzt den Schluss."""
         self.result_json_mit_ende()
         self.mitschnitt(aufruf("p1", "2026-09-30T21:47:34+00:00"),
                         aufruf("p2", "2026-09-30T22:07:34+00:00"))
         a = stand.aufwand_anteile(self.cfg, self.BATCH)
         self.assertEqual(a["letzter_preflight"], "2026-09-30T22:07:34+00:00")
-        self.assertEqual(a["preflight_min"], 5.0)
-        self.assertEqual(a["arbeit_min"], 25.0)
+        self.assertEqual(a["preflight_min"], 0.0)           # ohne Ergebnis nicht messbar
+        self.assertEqual(a["preflight_ohne_dauer"], 2)
+        self.assertEqual(a["schluss_min"], 5.0)
+        self.assertIn("ohne Ergebnis", stand.aufwand_zeile(self.cfg, self.BATCH)[0])
 
     def test_ohne_schreibaufruf_ist_startroutine_null(self):
         """Kein Schreibaufruf = kein Anker. Die Zeile sagt das ausdruecklich."""
@@ -456,6 +482,7 @@ class TestFesterAufwand(Basis):
         self.mitschnitt(self.wz("e1", "2026-09-30T21:52:34+00:00", "Write"))
         a = stand.aufwand_anteile(self.cfg, self.BATCH)
         self.assertEqual(a["preflight_min"], 0.0)
+        self.assertEqual(a["schluss_min"], 0.0)
         self.assertEqual(a["letzter_preflight"], "")
         self.assertIn("kein Preflight im Mitschnitt",
                       stand.aufwand_zeile(self.cfg, self.BATCH)[0])
@@ -464,38 +491,41 @@ class TestFesterAufwand(Basis):
         """Rueckprobe: derselbe Lauf, einmal mit uebergebener Startzeit, einmal aus der Datei."""
         self.result_json_mit_ende()
         self.mitschnitt(self.wz("e1", "2026-09-30T21:52:34+00:00", "Edit"),
-                        aufruf("p1", "2026-09-30T22:02:34+00:00"))
+                        aufruf("p1", "2026-09-30T22:02:34+00:00"),
+                        ergebnis("p1", "2026-09-30T22:05:34+00:00", False))
         live = stand.aufwand_anteile(
             self.cfg, self.BATCH, start_zeit=stand._iso_zeit(START),
             ende_zeit=stand._iso_zeit(self.ENDE))
         rueck = stand.aufwand_anteile(self.cfg, self.BATCH)
-        for k in ("wand_min", "startroutine_min", "preflight_min", "arbeit_min",
-                  "arbeit_pct", "erste_arbeit", "letzter_preflight"):
+        for k in ("wand_min", "startroutine_min", "preflight_min", "schluss_min",
+                  "arbeit_min", "fester_min", "arbeit_pct", "erste_arbeit",
+                  "letzter_preflight"):
             self.assertEqual(live[k], rueck[k], k)
 
     def test_zeile_nimmt_das_feld_aus_result_json(self):
         """Steht die Kennzahl in `result.json`, wird sie genommen - nicht neu gerechnet."""
-        self.result_json_mit_ende(aufwand={"wand_min": 99.0, "startroutine_min": 9.0,
-                                           "arbeit_min": 80.0, "preflight_min": 10.0,
-                                           "startroutine_pct": 9.1, "arbeit_pct": 80.8,
-                                           "preflight_pct": 10.1, "erste_arbeit": "x",
-                                           "letzter_preflight": "y", "aufrufe": 1,
-                                           "quelle": "zustand"})
+        feld = {"wand_min": 99.0, "startroutine_min": 9.0, "arbeit_min": 80.0,
+                "preflight_min": 10.0, "schluss_min": 0.0, "fester_min": 19.0,
+                "startroutine_pct": 9.1, "arbeit_pct": 80.8, "preflight_pct": 10.1,
+                "schluss_pct": 0.0, "fester_pct": 19.2, "erste_arbeit": "x",
+                "letzter_preflight": "y", "preflight_aufrufe": 1,
+                "preflight_ohne_dauer": 0, "aufrufe": 1, "quelle": "zustand"}
+        self.result_json_mit_ende(aufwand=feld)
         self.mitschnitt(self.wz("e1", "2026-09-30T21:44:00+00:00", "Edit"))
-        zeile = stand.aufwand_zeile(self.cfg, self.BATCH,
-                                    {"aufwand": json.loads(
-                                        (self.rd / "result.json").read_text(encoding="utf-8")
-                                    )["aufwand"]})[0]
+        zeile = stand.aufwand_zeile(self.cfg, self.BATCH, {"aufwand": feld})[0]
         self.assertIn("99 min gesamt", zeile)
         self.assertIn("9 min Startroutine (9 %)", zeile)
+        self.assertIn("10 min Preflight (1 Lauf/Laeufe, 10 %)", zeile)
+        self.assertIn("fester Aufwand 19 min (19 %)", zeile)
         self.assertNotIn("nachgerechnet", zeile)
 
     def test_zeile_rechnet_alte_batches_nach(self):
-        """B220-B229 tragen das Feld nicht - der Rueckblick rechnet aus den Dateien."""
+        """B220-B234 tragen das Feld nicht - der Rueckblick rechnet aus den Dateien."""
         self.result_json_mit_ende()
         self.mitschnitt(self.wz("e1", "2026-09-30T21:52:34+00:00", "Edit"))
         zeile = stand.aufwand_zeile(self.cfg, self.BATCH)[0]
         self.assertIn("30 min gesamt", zeile)
+        self.assertIn("fester Aufwand 10 min", zeile)
         self.assertIn("(Start aus result.json nachgerechnet)", zeile)
 
     def test_ohne_zeiten_sagt_die_zeile_nicht_messbar(self):
