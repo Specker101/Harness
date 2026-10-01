@@ -37,6 +37,15 @@ from hx.util import Log, ensure_dir                                   # noqa: E4
 TOETER = ("Get-Process python -ErrorAction SilentlyContinue | "
           "Where-Object { $_.CPU -gt 50 } | ForEach-Object { Stop-Process -Id $_.Id -Force }")
 
+# Der ECHTE Befehl, der B234 abgebrochen hat (Aussensicht M234-2): im Mitschnitt des
+# abgebrochenen ersten Laufs, `runs/b234/stream-v1.jsonl:40020` (die drei Nummern
+# 704/13960/18296 sind eigene `hybrid_lauf.exe`, gestartet 10:28:57). Die Absicht war
+# ein gezielter Abbau - die Nummern standen nur in einer Liste statt an `-Id`. Der
+# Harness brach den Batch ab (66,5 min Arbeit, Alarm "Prozessliste pauschal abgeraeumt").
+B234_LISTE = ("foreach ($id in @(704,13960,18296)) { try { Stop-Process -Id $id -Force } "
+              "catch {} }; \"killed\"; Get-CimInstance Win32_Process -Filter "
+              "\"Name='hybrid_lauf.exe'\" | Measure-Object | Select-Object -ExpandProperty Count")
+
 
 def zeile_tool(cmd: str, tid: str = "t1") -> str:
     return json.dumps({"type": "assistant", "timestamp": "2026-09-26T19:37:57Z",
@@ -126,6 +135,59 @@ class Base(unittest.TestCase):
     def stream(self, batch: int, zeilen: list[str]) -> None:
         rd = ensure_dir(Path(self.cfg.sub("runs")) / f"b{batch:03d}")
         (rd / "stream.jsonl").write_text("\n".join(zeilen) + "\n", encoding="utf-8")
+
+
+class TestFesteListe(unittest.TestCase):
+    """R13bf (Aussensicht B234, Befund M234-2): woertliche PID-Liste = gezielt.
+
+    Der Fehlalarm kostete einen ganzen Batch. Die Regel ist ABSICHTLICH eng: nur eine
+    **rein numerische Liste** in der Schleifenkopfzeile und dieselbe Variable als `-Id`
+    eines `Stop-Process` gelten als gezielt. Alles andere (Variable, `Get-Process`- oder
+    `Get-CimInstance`-Auswahl) wird weiter gemeldet - dort kennt der Harness die Nummern
+    nicht und kann selbst getroffen werden.
+    """
+
+    def test_echter_b234_befehl_ist_gezielt(self):
+        self.assertIsNone(streamjson.abbau_gefahr(B234_LISTE))
+        # ... und die kuerzeste Form derselben Absicht ebenso.
+        self.assertIsNone(streamjson.abbau_gefahr(
+            "foreach ($id in @(704,13960,18296)) { Stop-Process -Id $id -Force }"))
+
+    def test_feste_liste_direkt_an_der_pipe(self):
+        self.assertIsNone(streamjson.abbau_gefahr(
+            "foreach ($p in @(1234)) { $p | Stop-Process -Force }"))
+        self.assertIsNone(streamjson.abbau_gefahr("Stop-Process -Id @(704,13960) -Force"))
+
+    def test_variablenliste_bleibt_verboten(self):
+        """Rotprobe: die Nummernquelle ist keine woertliche Liste."""
+        for cmd in ("foreach ($id in $liste) { Stop-Process -Id $id -Force }",
+                    "foreach ($id in $ids) { try { Stop-Process -Id $id -Force } catch {} }",
+                    "foreach ($p in (Get-Process python)) { Stop-Process -Id $p.Id -Force }"):
+            self.assertIsNotNone(streamjson.abbau_gefahr(cmd), f"nicht erkannt: {cmd}")
+
+    def test_ciminstance_auswahl_bleibt_verboten(self):
+        """Rotprobe: `Get-CimInstance` allein ist keine feste Nummer."""
+        for cmd in ("Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | "
+                    "ForEach-Object { Stop-Process -Id $_.ProcessId -Force }",
+                    "Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'py' } "
+                    "| Stop-Process -Force"):
+            self.assertIsNotNone(streamjson.abbau_gefahr(cmd), f"nicht erkannt: {cmd}")
+
+    def test_eigener_hintergrundlauf_bleibt_harmlos(self):
+        """Der dokumentierte Weg `Start-Process -PassThru` + `Stop-Process -Id $p.Id`."""
+        self.assertIsNone(streamjson.abbau_gefahr(
+            "$p = Start-Process -FilePath hybrid_lauf.exe -PassThru; "
+            "Wait-Process -Id $p.Id -Timeout 480; Stop-Process -Id $p.Id -Force"))
+
+    def test_stream_haelt_die_liste_nicht_fest(self):
+        """Der Waechter selbst: der echte B234-Befehl darf keinen Abbruchgrund ergeben."""
+        s = streamjson.StreamStats()
+        s.feed(zeile_tool(B234_LISTE, tid="b234"))
+        self.assertEqual(s.abbau, [])
+        s.feed(zeile_tool("foreach ($id in $liste) { Stop-Process -Id $id -Force }",
+                          tid="rotation"))
+        self.assertEqual(len(s.abbau), 1)
+        self.assertIn("Schleife", s.abbau[0]["grund"])
 
 
 class TestStartforensik(Base):

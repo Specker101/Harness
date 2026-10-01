@@ -163,8 +163,61 @@ _ABBau = re.compile(r"stop-process|taskkill", re.IGNORECASE)
 _ABBau_CPU = re.compile(r"\$_\.\s*cpu", re.IGNORECASE)
 _ABBau_NAME = re.compile(r"stop-process[^;|]*-name\b|taskkill\s+/im", re.IGNORECASE)
 _ABBau_LISTE = re.compile(r"get-process\s+\w|get-ciminstance", re.IGNORECASE)
-_ABBau_ID = re.compile(r"stop-process\s+-id\s+\d|\$_\.id\s+-eq\s*\d", re.IGNORECASE)
+_ABBau_ID = re.compile(r"stop-process\s+-id\s+(?:@\()?\d|\$_\.id\s+-eq\s*\d",
+                       re.IGNORECASE)
 _ABBau_FILTER = re.compile(r"commandline\s+-like", re.IGNORECASE)
+# R13bf (Aussensicht B234, Befund M234-2): eine WOERTLICHE Liste fester Nummern ist ein
+# gezielter Abbau - auch wenn die Nummer ueber eine Schleifenvariable in `Stop-Process`
+# geht. Anlass: `foreach ($id in @(704,13960,18296)) { Stop-Process -Id $id }` brach B234
+# ab (Fehlalarm), obwohl drei feste, eigene `hybrid_lauf.exe`-Prozesse gemeint waren.
+_ABBau_SCHLEIFE = re.compile(
+    r"(?:foreach|for)\s*\(\s*\$(\w+)\s+in\s+(.{0,120}?)\)\s*[;{]",
+    re.IGNORECASE | re.DOTALL)
+# Und die Gegenprobe: eine Schleife ueber eine QUELLE OHNE woertliche Nummern bleibt
+# verdaechtig (Variable, `Get-Process`/`Get-CimInstance`-Auswahl) - die Nummer weiss hier
+# niemand, also kann sie auch den Harness treffen. Genau dafuer wird die Quellspalte
+# getrennt geprueft statt geraten. Die schliessende Klammer der Liste ist optional, weil
+# der Schleifenkopf sie in `group(2)` mitnehmen kann (`@(704,…)` bzw. `@(704,…`).
+_ABBau_LISTE_WORT = re.compile(r"@\(\s*\d+(?:\s*,\s*\d+)*\s*\)?$", re.IGNORECASE)
+
+
+def _abbau_stelle(text: str, var: str) -> bool:
+    """Wird `$<var>` (oder `$_`) als `-Id` eines `Stop-Process` benutzt?"""
+    v = re.escape(var)
+    muster = [rf"stop-process\b[^;|]*-id\s+\${v}\b"]
+    if var == "_":
+        muster = [r"stop-process\b[^;|]*-id\s+\$_\.\w+"]
+    for m in muster:
+        if re.search(m, text, re.IGNORECASE):
+            return True
+    return False
+
+
+def _abbau_feste_liste(text: str) -> bool:
+    """Geht der Abbau auf eine WOERTLICHE Liste fester Nummern zurueck? (R13bf)
+
+    Verlangt werden **beide** Haelften: eine rein numerische Liste in der
+    Schleifenkopfzeile (`foreach ($id in @(704,13960,18296))`) UND dieselbe Variable als
+    `-Id` eines `Stop-Process`. Eine Zuweisung an eine Variable VOR der Schleife
+    (`$ids = 704,13960,18296; foreach ($id in $ids) …`) erkennt diese Regel bewusst
+    NICHT - sie raet nicht, und der Fehlalarm war die teurere Richtung (B234 verloren).
+    """
+    for m in _ABBau_SCHLEIFE.finditer(text):
+        if not _ABBau_LISTE_WORT.search(m.group(2).strip()):
+            continue
+        if _abbau_stelle(text, m.group(1)):
+            return True
+    return False
+
+
+def _abbau_schleife_variable(text: str) -> bool:
+    """Laeuft der Abbau ueber eine Schleife OHNE woertliche Nummern? (R13bf)"""
+    for m in _ABBau_SCHLEIFE.finditer(text):
+        if _ABBau_LISTE_WORT.search(m.group(2).strip()):
+            continue                    # woertliche Liste = gezielt (s. o.)
+        if _abbau_stelle(text, m.group(1)):
+            return True
+    return False
 
 
 def abbau_gefahr(befehl) -> str | None:
@@ -176,10 +229,17 @@ def abbau_gefahr(befehl) -> str | None:
     (`python.exe -m hx.cli run`, ~370 s CPU). Der Harness starb ohne Crash-Bericht,
     ohne stderr und ohne Ereigniseintrag: ein hartes `TerminateProcess`.
 
-    Erlaubt und NICHT gemeldet: ein gezielter Abbau mit fester Nummer
-    (`Stop-Process -Id 1234`) oder die Auswahl ueber die Kommandozeile
-    (`Where-Object { $_.CommandLine -like "*port4c2*" }`) - beides trifft den
-    Harness nicht.
+    Erlaubt und NICHT gemeldet: ein gezielter Abbau mit festen Nummern - direkt
+    (`Stop-Process -Id 1234`) oder als **woertliche Liste** in einer Schleife
+    (`foreach ($id in @(704,13960,18296)) { Stop-Process -Id $id }`, R13bf nach dem
+    Fehlalarm in B234) - sowie die Auswahl ueber die Kommandozeile
+    (`Where-Object { $_.CommandLine -like "*port4c2*" }`).
+
+    Gemeldet wird dagegen weiter alles, was den Harness treffen KANN: CPU-/Namensmuster,
+    eine pauschale Prozessliste - und seit R13bf auch eine Schleife, deren Nummernquelle
+    keine woertlichen Zahlen sind (Variable oder `Get-Process`/`Get-CimInstance`-Auswahl).
+    Belege: `docs/_r13i_belege.md`, `docs/_r13bf_belege.md` (Gegenprobe ueber ALLE
+    Mitschnitte: 26 Abbau-Befehle, vorher 1 Fehlalarm, nachher 0).
     """
     t = " ".join(str(befehl or "").split())
     if not t or not _ABBau.search(t):
@@ -189,7 +249,15 @@ def abbau_gefahr(befehl) -> str | None:
                 "(python.exe mit viel CPU-Zeit)")
     if _ABBau_NAME.search(t):
         return "Prozesse nach NAME abgeraeumt - das trifft jeden python.exe"
-    if _ABBau_LISTE.search(t) and not _ABBau_ID.search(t) and not _ABBau_FILTER.search(t):
+    if _ABBau_FILTER.search(t):
+        return None                     # CommandLine-Filter: gezielte Auswahl (R13i)
+    if _ABBau_ID.search(t) or _abbau_feste_liste(t):
+        return None                     # feste Nummer(n) - gezielt
+    if _abbau_schleife_variable(t):
+        return ("Prozesse in einer Schleife abgeraeumt, deren Nummernquelle keine "
+                "woertlichen Zahlen sind (Variable oder Get-Process/Get-CimInstance) "
+                "- kann den Harness treffen")
+    if _ABBau_LISTE.search(t):
         return ("Prozessliste pauschal abgeraeumt (ohne feste Nummer und ohne "
                 "CommandLine-Filter) - kann den Harness treffen")
     return None

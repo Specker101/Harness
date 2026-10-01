@@ -12,6 +12,10 @@ Beleg: Erkennung von Muster-Prozessabbau (R13i)
         Get-Process python | Stop-Process -Force
   [OK ] erwartet=GEFAHR  (Prozessliste pauschal abgeraeumt (ohne feste Nummer und ohne CommandLine-Filter) - kann den Harness treffen)
         Get-CimInstance Win32_Process -Filter "Name='python.exe'" | ForEach-Object { Stop-Process -Id $_.ProcessId -Fo
+  [OK ] erwartet=GEFAHR  (Prozesse in einer Schleife abgeraeumt, deren Nummernquelle keine woertlichen Zahlen sind (Variable oder Get-Process/Get-CimInstance) - kann den Harness treffen)
+        foreach ($id in $liste) { Stop-Process -Id $id -Force }
+  [OK ] erwartet=GEFAHR  (Prozesse in einer Schleife abgeraeumt, deren Nummernquelle keine woertlichen Zahlen sind (Variable oder Get-Process/Get-CimInstance) - kann den Harness treffen)
+        foreach ($p in (Get-Process python)) { Stop-Process -Id $p.Id -Force }
   [OK ] erwartet=harmlos (-)
         Stop-Process -Id 13744 -Force -ErrorAction SilentlyContinue; Get-Process python | Select-Object Id
   [OK ] erwartet=harmlos (-)
@@ -21,9 +25,15 @@ Beleg: Erkennung von Muster-Prozessabbau (R13i)
   [OK ] erwartet=harmlos (-)
         git status --porcelain; python -u scripts/m177_hull6a.py pre --ids 0x1200
   [OK ] erwartet=harmlos (-)
+        foreach ($id in @(704,13960,18296)) { try { Stop-Process -Id $id -Force } catch {} }; "killed"; Get-CimInstanc
+  [OK ] erwartet=harmlos (-)
+        foreach ($id in @(704,13960,18296)) { Stop-Process -Id $id -Force }
+  [OK ] erwartet=harmlos (-)
+        $p = Start-Process -FilePath hybrid_lauf.exe -PassThru; Wait-Process -Id $p.Id -Timeout 480; Stop-Process -Id 
+  [OK ] erwartet=harmlos (-)
         (leer)
 
   Fehlbewertungen: 0
 
   Gegenprobe an echten Mitschnitten (gemeldete Befehle):
-    b178: Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.CPU -gt 50 } | ForEach-Object { "kill $($_.Id) cpu=
+    (keiner)/: 

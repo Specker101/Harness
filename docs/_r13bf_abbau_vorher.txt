@@ -1,0 +1,9 @@
+﻿Abbau-Wort in Werkzeugaufrufen: 26
+davon von abbau_gefahr gemeldet: 1
+
+  b234/stream-v1.jsonl:40020  Prozessliste pauschal abgeraeumt (ohne feste Nummer und ohne CommandLine-Filter) - kann den Harness treffen
+      foreach ($id in @(704,13960,18296)) { try { Stop-Process -Id $id -Force } catch {} }; "killed"; Get-CimInstance Win32_Process -Filter "Name='hybrid_la
+
+je Batch: b234=1
+
+geschrieben: G:\Harness\docs\_r13bf_abbau.json

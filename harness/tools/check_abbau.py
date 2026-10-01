@@ -1,9 +1,16 @@
-"""Beleg: Erkennung von Muster-Prozessabbau (R13i, 2026-09-26).
+"""Beleg: Erkennung von Muster-Prozessabbau (R13i, 2026-09-26; erweitert R13bf).
 
-Prueft `streamjson.abbau_gefahr` gegen die **echten** Befehle aus den Mitschnitten
-b171-b178: der eine gefaehrliche (CPU-Muster, hat den Harness getoetet) muss
-auffallen, die gezielten duerfen NICHT gemeldet werden (sonst entstehen Fehlalarme
-und der Lauf wird ohne Grund abgebrochen).
+Prueft `streamjson.abbau_gefahr` gegen die **echten** Befehle aus den Mitschnitten:
+Der gefaehrliche CPU-Befehl aus b178 (hat den Harness getoetet) muss auffallen, die
+gezielten duerfen NICHT gemeldet werden (sonst entstehen Fehlalarme und der Lauf wird
+ohne Grund abgebrochen).
+
+R13bf (Aussensicht B234, Befund M234-2): Der Detektor brach B234 ab, weil er eine
+**woertliche PID-Liste** in einer Schleife nicht als gezielt erkannte
+(`foreach ($id in @(704,13960,18296)) { Stop-Process -Id $id -Force }`,
+`runs/b234/stream-v1.jsonl:40020`). Seitdem gilt sie als gezielt; die Gegenprobe laeuft
+ueber **alle** Batches (nicht mehr nur `b1*`) und liest die Mitschnitte ZIP-fest
+(`retention.mitschnitt_zeilen`, R13p).
 
     python -u tools\\check_abbau.py     -> docs\\_abbau_beleg.txt
 """
@@ -17,8 +24,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from hx import streamjson                                            # noqa: E402
+from hx import retention, streamjson                                 # noqa: E402
 
+# Der echte Befehl aus B234 (dort als Alarm ausgeloest) - gehoert zu den harmlosen.
+B234_LISTE = ("foreach ($id in @(704,13960,18296)) { try { Stop-Process -Id $id -Force } "
+              "catch {} }; \"killed\"; Get-CimInstance Win32_Process -Filter "
+              "\"Name='hybrid_lauf.exe'\" | Measure-Object | Select-Object -ExpandProperty Count")
 # (Befehl, MUSS auffallen?)  - die Befehle stammen aus den Mitschnitten bzw. sind
 # die naheliegenden Varianten desselben Fehlers.
 FAELLE = [
@@ -29,6 +40,9 @@ FAELLE = [
     ("Get-Process python | Stop-Process -Force", True),
     ("Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | ForEach-Object "
      "{ Stop-Process -Id $_.ProcessId -Force }", True),
+    # R13bf: Nummernquelle ohne woertliche Zahlen - bleibt verdaechtig.
+    ("foreach ($id in $liste) { Stop-Process -Id $id -Force }", True),
+    ("foreach ($p in (Get-Process python)) { Stop-Process -Id $p.Id -Force }", True),
     # --- gezielt: darf NICHT auffallen ---
     ("Stop-Process -Id 13744 -Force -ErrorAction SilentlyContinue; Get-Process python "
      "| Select-Object Id", False),
@@ -37,8 +51,51 @@ FAELLE = [
      "{ $_.CommandLine -like \"*port4c2*\" } | ForEach-Object { Stop-Process -Id $_.ProcessId }",
      False),
     ("git status --porcelain; python -u scripts/m177_hull6a.py pre --ids 0x1200", False),
+    # R13bf: der echte B234-Befehl (Fehlalarm) und seine kuerzeste Form.
+    (B234_LISTE, False),
+    ("foreach ($id in @(704,13960,18296)) { Stop-Process -Id $id -Force }", False),
+    ("$p = Start-Process -FilePath hybrid_lauf.exe -PassThru; Wait-Process -Id $p.Id "
+     "-Timeout 480; Stop-Process -Id $p.Id -Force", False),
     ("", False),
 ]
+
+# Erwartung der Gegenprobe an echten Mitschnitten: Nach R13bf darf KEIN echter Befehl
+# mehr gemeldet werden (b234 war der einzige, und er war ein Fehlalarm). Wer eine neue
+# Regel baut, traegt hier ein, was er bewusst als gefaehrlich ansieht - mit Grund.
+ERWARTET_GEMELDET: list[str] = []
+
+
+def echte_befehle() -> list[tuple[str, str, str]]:
+    """`[(batch, quelle, befehl)]` - jeder Shell-Aufruf mit einem Abbau-Wort."""
+    out: list[tuple[str, str, str]] = []
+    for d in sorted((ROOT / "runs").glob("b*")):
+        if not d.is_dir():
+            continue
+        for name in list(retention.MIT_ZIP) + ["stream-forts1.jsonl",
+                                               "stream-forts2.jsonl"]:
+            zeilen = retention.mitschnitt_zeilen(d / name)
+            if not zeilen:
+                continue
+            for ln in zeilen:
+                niedrig = ln.lower()
+                if not any(w in niedrig for w in ("stop-process", "taskkill")):
+                    continue
+                try:
+                    ev = json.loads(ln)
+                except ValueError:
+                    continue
+                if not isinstance(ev, dict):
+                    continue
+                nachricht = ev.get("message")
+                if not isinstance(nachricht, dict):
+                    continue
+                for b in nachricht.get("content") or []:
+                    if not isinstance(b, dict) or b.get("type") != "tool_use":
+                        continue
+                    cmd = (b.get("input") or {}).get("command") or ""
+                    if cmd:
+                        out.append((d.name, name, " ".join(str(cmd).split())))
+    return out
 
 
 def main() -> int:
@@ -57,36 +114,22 @@ def main() -> int:
         zeilen.append(f"        {cmd[:110] or '(leer)'}")
     zeilen += ["", f"  Fehlbewertungen: {fehler}"]
 
-    # Gegenprobe an echten Mitschnitten: alle Abbau-Befehle der Batches bewerten.
-    echt = []
-    for d in sorted((ROOT / "runs").glob("b1*")):
-        f = d / "stream.jsonl"
-        if not f.is_file():
-            continue
-        for ln in f.read_text(encoding="utf-8", errors="replace").splitlines():
-            if "stop-process" not in ln.lower() and "taskkill" not in ln.lower():
-                continue
-            try:
-                ev = json.loads(ln)
-            except json.JSONDecodeError:
-                continue
-            for b in (((ev or {}).get("message") or {}).get("content") or []):
-                if isinstance(b, dict) and b.get("type") == "tool_use":
-                    cmd = (b.get("input") or {}).get("command") or ""
-                    if cmd and streamjson.abbau_gefahr(cmd):
-                        echt.append((d.name, " ".join(cmd.split())[:120]))
+    # Gegenprobe an echten Mitschnitten (alle Batches, ZIP-fest).
+    echt = [(b, q, c) for (b, q, c) in echte_befehle() if streamjson.abbau_gefahr(c)]
     zeilen += ["", "  Gegenprobe an echten Mitschnitten (gemeldete Befehle):"]
-    for name, cmd in echt or [("(keiner)", "")]:
-        zeilen.append(f"    {name}: {cmd}")
-    if len(echt) != 1:
-        zeilen.append(f"    ERWARTET: genau 1 (b178) - gefunden: {len(echt)}")
+    for name, quelle, cmd in echt or [("(keiner)", "", "")]:
+        zeilen.append(f"    {name}/{quelle}: {cmd[:130]}")
+    if sorted(c for _b, _q, c in echt) != sorted(ERWARTET_GEMELDET):
+        zeilen.append(f"    ERWARTET: {len(ERWARTET_GEMELDET)} gemeldete(r) Befehl(e) "
+                      f"- gefunden: {len(echt)}")
+        fehler += 1
 
     text = "\n".join(zeilen)
     print(text)
     p = Path("g:/Harness/docs/_abbau_beleg.txt")
     p.write_text(text + "\n", encoding="utf-8")
     print(f"\nBeleg: {p}")
-    return 0 if (fehler == 0 and len(echt) == 1) else 1
+    return 0 if fehler == 0 else 1
 
 
 if __name__ == "__main__":
