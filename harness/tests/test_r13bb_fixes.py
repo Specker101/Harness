@@ -276,7 +276,9 @@ class TestPreflightZaehlerArchiv(Basis):
         quelle = inspect.getsource(worker._finish_run)
         self.assertIn('pf_archiv = stand.preflight_archiv(cfg, batch)', quelle)
         self.assertIn('"preflight_ungezaehlt": pf_archiv["ungezaehlt"]', quelle)
-        self.assertIn('"preflight_laeufe_gesamt": int(preflight_laeufe)', quelle)
+        # R13be-1: die Gesamtzahl ist das Maximum aus Mitschnitt und (Hook + Fehllaeufe).
+        self.assertIn('"preflight_laeufe_gesamt": max(int(preflight_laeufe)', quelle)
+        self.assertIn('int(hook_laeufe) + int(pf_archiv["ungezaehlt"])', quelle)
         self.assertIn('"preflight_archiv_fehllauf"', quelle)
         self.assertIn("archivierte Fehllaeufe nicht gezaehlt", quelle)
 

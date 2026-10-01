@@ -1275,17 +1275,33 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
         res.stats["ghidra_save"] = res.ghidra_save
 
     # R13ao (Auftrag Teil B): wie oft lief der Preflight, und wie oft zu frueh?
-    # Die Zahlen kommen aus `runs/b<N>/preflight-aufrufe.jsonl`, das der
-    # PostToolUse-Hook je erkanntem Aufruf eine Zeile schreibt - nicht aus dem
-    # Mitschnitt: ob die Nachrueckliste in DIESEM Moment offen war, steht nur dort.
-    preflight_laeufe, preflight_frueh = zaehle_preflight_aufrufe(rd)
+    # R13be-1 (Nutzerauftrag 01.10.2026): Die ZAHL kommt jetzt aus dem MITSCHNITT.
+    # Der PostToolUse-Hook schreibt nur nach ERFOLGREICHEN Aufrufen - ein Preflight mit
+    # Befunden endet mit Exit 2 (`is_error=true`), der Hook laeuft dann nicht: B228 hatte
+    # zwei echte Starts und `preflight_laeufe=0`. Der Hook-Zaehler bleibt als Kontrolle
+    # daneben (Kontrollzeile in den Review-Fakten, `stand.preflight_zaehler_zeile`).
+    hook_laeufe, hook_frueh = zaehle_preflight_aufrufe(rd)
+    auftrag_text = read_text(rd / "auftrag.md") or ""
+    start_d = uhr.start_zeit(state)
+    mitschnitt = stand.mitschnitt_preflight_aufrufe(
+        cfg, batch, start_zeit=start_d.get("zeit"),
+        umschalt_min=umschalt_minuten(cfg, log)["umschalt_min"],
+        nachrueckliste=hat_nachrueckliste(auftrag_text))
+    # Wirksam ist, was eine der beiden Quellen gesehen hat (nie kleiner als der Hook).
+    preflight_laeufe = max(int(mitschnitt["laeufe"]), int(hook_laeufe))
+    preflight_frueh = max(int(mitschnitt["frueh"]), int(hook_frueh))
+    if log and int(hook_laeufe) != int(mitschnitt["laeufe"]):
+        log.warn("Preflight-Zaehler: Hook und Mitschnitt weichen ab",
+                 mitschnitt=int(mitschnitt["laeufe"]), hook=int(hook_laeufe),
+                 dateien=list(mitschnitt["dateien"]))
     # R13bb (Befund M224-4, Nutzerauftrag): der Zaehler sieht nur, was der Hook gesehen
     # hat - die ARCHIVIERTEN Laeufe desselben Batches kommen dagegen. Gemessen fehlte je
     # ein Fehllauf in B218, B223 und B224 (genau die Laeufe, die die Regel „ein gueltiger
     # Preflight je Batch" ueberwacht). Die Differenz steht in `result.json` und in den
     # Review-Fakten.
     pf_archiv = stand.preflight_archiv(cfg, batch)
-    if pf_archiv["ungezaehlt"] and log:
+    if pf_archiv["ungezaehlt"] and log and int(hook_laeufe) + int(pf_archiv["ungezaehlt"]) \
+            > preflight_laeufe:
         log.warn("Preflight-Zaehler: archivierte Fehllaeufe nicht gezaehlt",
                  gezaehlt=preflight_laeufe, ungezaehlt=pf_archiv["ungezaehlt"],
                  dateien=pf_archiv["fehllauf"])
@@ -1324,12 +1340,20 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
         "duration_quelle": res.duration_quelle, "duration_cli_s": res.duration_cli_s,
         "duration_harness_s": res.duration_harness_s, "duration_api_s": res.duration_api_s,
         "preflight_laeufe": preflight_laeufe, "preflight_frueh": preflight_frueh,
-        # R13bb (M224-4): was das Archiv zusaetzlich belegt (Fehllaeufe zaehlen NICHT im
-        # Mitschnitt-Zaehler mit, `preflight_laeufe_gesamt` ist die belastbare Zahl).
+        # R13be-1: der Hook-Zaehler steht als KONTROLLE daneben (er sieht nur erfolgreiche
+        # Aufrufe, Exit 0). Weichen beide ab, markiert die Kontrollzeile der Review-Fakten
+        # das als HINWEIS; die Liste nennt jeden Aufruf mit Minute und Fehlerstand.
+        "preflight_laeufe_hook": int(hook_laeufe), "preflight_frueh_hook": int(hook_frueh),
+        "preflight_aufrufe": list(mitschnitt["aufrufe"]),
+        "preflight_mitschnitt_dateien": list(mitschnitt["dateien"]),
+        # R13bb (M224-4): was das Archiv zusaetzlich belegt. Seit R13be-1 zaehlt der
+        # Mitschnitt Fehllaeufe MIT; die Gesamtzahl ist deshalb das Maximum aus Mitschnitt
+        # und (Hook + archivierte Fehllaeufe) - nie kleiner als eine der Quellen.
         "preflight_archiv_fehllauf": pf_archiv["fehllauf"],
         "preflight_archiv_ueberholt": pf_archiv["ueberholt"],
         "preflight_ungezaehlt": pf_archiv["ungezaehlt"],
-        "preflight_laeufe_gesamt": int(preflight_laeufe) + pf_archiv["ungezaehlt"],
+        "preflight_laeufe_gesamt": max(int(preflight_laeufe),
+                                       int(hook_laeufe) + int(pf_archiv["ungezaehlt"])),
         "fortsetzung_grund": res.fortsetzung_grund,
         "fortsetzung_uebertrag": bool(res.fortsetzung_uebertrag),
         "antwort_dateien": list(res.antwort_dateien or []),

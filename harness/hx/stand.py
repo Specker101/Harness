@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from . import protocol
@@ -554,32 +554,153 @@ def preflight_archiv(cfg, batch: int) -> dict:
             "gefunden": bool(fehllauf or ueberholt)}
 
 
+def _mitschnitt_dateien(rd) -> list[Path]:
+    """`stream.jsonl` und die Fortsetzungen in zeitlicher Reihenfolge (R13be-1)."""
+    rd = Path(rd)
+    haupt = rd / "stream.jsonl"
+    forts = sorted(rd.glob("stream-forts*.jsonl"),
+                   key=lambda p: int("".join(c for c in p.stem if c.isdigit()) or 0))
+    return [p for p in ([haupt] + forts) if p.is_file()]
+
+
+def _iso_zeit(text) -> datetime | None:
+    """`2026-09-30T16:53:04.123Z` -> datetime (aware), sonst None."""
+    try:
+        return datetime.fromisoformat(str(text).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+
+
+def mitschnitt_preflight_aufrufe(cfg, batch: int, start_zeit: datetime | None = None,
+                                 umschalt_min: float | None = None,
+                                 nachrueckliste: bool = False) -> dict:
+    """Jeder PREFLIGHT-**Start** im Mitschnitt von `runs/b<N>` (R13be-1, Nutzerauftrag).
+
+    **Warum aus dem Mitschnitt.** Der PostToolUse-Hook `tools/batch_uhr.py` schreibt seine
+    Zeile nur nach **erfolgreichen** Werkzeugaufrufen. Gemessen (B220-B229): ein Preflight
+    mit Befunden endet mit Exit 2, das ist `is_error=true` - der Hook laeuft dann nicht.
+    B228 hatte **zwei** echte Starts (`22:44:54`, `23:00:58`) und `preflight_laeufe=0`;
+    die Zaehldatei fehlt vollstaendig. Der Mitschnitt kennt beide, der Hook keinen.
+    Ueber B220-B228 gilt exakt: Zaehldatei-Zeilen = Starts - Aufrufe mit `is_error`
+    (17 - 6 = 11, `docs/_r13be_belege.md`).
+
+    Gezaehlt wird mit `streamjson.ist_preflight_aufruf` - derselben Regel wie beim Hook und
+    beim Fortsetzungs-Check (`worker.preflight_gestartet`). Bloße Erwaehnungen
+    (`Select-String -Path scripts/preflight.py`) zaehlen nicht.
+
+    `frueh` = Aufruf **vor** der Umschaltschwelle `umschalt_min`, wenn `nachrueckliste`
+    gilt - dieselbe Definition wie beim Hook (`tools/batch_uhr.py`). Ohne `start_zeit`
+    wird sie aus `result.json` abgeleitet (`finished_at - duration_s`).
+
+    Rueckgabe: `{"laeufe", "frueh", "aufrufe": [{"ts", "min", "is_error", "werkzeug"}],
+    "dateien": [Name, …], "start": iso|None}`.
+    """
+    from . import streamjson
+    rd = Path(cfg.sub("runs")) / f"b{int(batch):03d}"
+    start = start_zeit
+    if start is None:
+        d = read_json(rd / "result.json", None)
+        if isinstance(d, dict) and d.get("finished_at") and d.get("duration_s"):
+            ende = _iso_zeit(d["finished_at"])
+            if ende is not None:
+                start = ende - timedelta(seconds=float(d["duration_s"]))
+    starts: dict[str, dict] = {}
+    ergebnisse: dict[str, bool] = {}
+    dateien: list[str] = []
+    for p in _mitschnitt_dateien(rd):
+        dateien.append(p.name)
+        for zeile in (read_text(p) or "").splitlines():
+            # Nur Zeilen mit einem Aufruf oder einem Ergebnis ansehen - die `system`-Zeilen
+            # sind die Masse des Mitschnitts. WICHTIG: NICHT auf den Text "preflight"
+            # filtern, das ERGEBNIS eines Preflight-Aufrufs nennt ihn nicht (nur `exit=0`
+            # oder `Exit code 2`) - genau daran scheiterte der erste Anlauf dieser Zaehlung.
+            if '"tool_use"' not in zeile and '"tool_result"' not in zeile:
+                continue
+            try:
+                satz = json.loads(zeile)
+            except ValueError:
+                continue
+            for block in ((satz.get("message") or {}).get("content") or []):
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") == "tool_use":
+                    if streamjson.ist_preflight_aufruf(block.get("name"), block.get("input")):
+                        starts[str(block.get("id"))] = {
+                            "ts": str(satz.get("timestamp") or ""),
+                            "werkzeug": str(block.get("name") or "")}
+                elif block.get("type") == "tool_result":
+                    ergebnisse[str(block.get("tool_use_id"))] = bool(block.get("is_error"))
+    aufrufe: list[dict] = []
+    for kennung, s in starts.items():
+        t = _iso_zeit(s["ts"])
+        minuten = None
+        if t is not None and start is not None:
+            minuten = max(0.0, (t - start).total_seconds() / 60.0)
+        aufrufe.append({"ts": s["ts"], "min": (round(minuten, 1) if minuten is not None
+                                               else None),
+                        "is_error": ergebnisse.get(kennung),
+                        "werkzeug": s["werkzeug"]})
+    aufrufe.sort(key=lambda a: a["ts"])
+    frueh = 0
+    if nachrueckliste and umschalt_min is not None:
+        frueh = sum(1 for a in aufrufe
+                    if a["min"] is not None and a["min"] < float(umschalt_min))
+    return {"laeufe": len(aufrufe), "frueh": frueh, "aufrufe": aufrufe,
+            "dateien": dateien,
+            "start": (start.isoformat() if start is not None else None)}
+
+
 def preflight_zaehler_zeile(cfg, batch: int, laeufe: int | None = None,
-                            frueh: int | None = None) -> list[str]:
+                            frueh: int | None = None, hook: int | None = None,
+                            mitschnitt: int | None = None) -> list[str]:
     """Eine Zeile fuer die Review-Fakten: Preflight-Zaehler gegen das Archiv (R13bb).
 
-    `laeufe`/`frueh` kommen aus `runs/b<N>/preflight-aufrufe.jsonl` (`zaehle_preflight_
-    aufrufe` im Worker). Sind sie `None`, wird die Datei hier gelesen - so benutzt der
-    Rueckblick fuer aeltere Batches dieselbe Funktion.
+    **R13be-1:** Die belastbare Zahl kommt aus dem **Mitschnitt** (`mitschnitt_preflight_
+    aufrufe`), der Hook-Zaehler steht als Kontrolle daneben. Weichen sie ab, wird das als
+    HINWEIS markiert - der Hook sieht nur erfolgreiche Aufrufe (Exit 0), ein Preflight mit
+    Befunden (Exit 2) fehlt dort. Wortlaut: `PREFLIGHT-AUFRUFE: 2 (Quelle Stream),
+    Hook-Zaehler: 0 [HINWEIS: …]; 2 Aufruf(e) im Mitschnitt (davon 1 zu frueh), …`.
 
-    Wortlaut: `PREFLIGHT-ZAEHLER: 1 Aufruf(e) im Mitschnitt (davon 1 zu frueh), 1
-    archivierter Fehllauf nicht gezaehlt (_m224/_preflight_224_fehllauf1.txt) -> 2 Laeufe`.
-    Ohne Fund im Archiv: `… , keine archivierten Fehllaeufe`. `ueberholt`-Dateien werden
-    separat genannt, weil sie in den Aufrufen schon enthalten sein koennen.
+    `laeufe`/`frueh` sind die wirksamen Zahlen (Vorgabe: die groessere der beiden Quellen).
+    Sind sie `None`, werden beide Quellen hier gelesen - so benutzt der Rueckblick fuer
+    aeltere Batches dieselbe Funktion.
     """
-    if laeufe is None or frueh is None:
-        gelesen, gelesen_frueh = zaehle_preflight_aufrufe(cfg, batch)
-        laeufe = gelesen if laeufe is None else laeufe
-        frueh = gelesen_frueh if frueh is None else frueh
+    ms: dict | None = None
+    if mitschnitt is None:
+        ms = mitschnitt_preflight_aufrufe(cfg, batch)
+        mitschnitt = ms["laeufe"]
+    hook_frueh: int | None = None
+    if hook is None:
+        hook, hook_frueh = zaehle_preflight_aufrufe(cfg, batch)
+    if laeufe is None:
+        laeufe = max(int(hook), int(mitschnitt))
+    if frueh is None:
+        if hook_frueh is None:
+            _h, hook_frueh = zaehle_preflight_aufrufe(cfg, batch)
+        if ms is None:
+            ms = mitschnitt_preflight_aufrufe(cfg, batch)
+        frueh = max(int(ms["frueh"]), int(hook_frueh))
+    quelle = "Stream" if int(mitschnitt) else "Hook"
+    teile = (f"PREFLIGHT-AUFRUFE: {int(laeufe)} (Quelle {quelle}), "
+             f"Hook-Zaehler: {int(hook)}")
+    if int(hook) != int(mitschnitt):
+        teile += ("  [HINWEIS: die beiden Zahlen weichen ab - der Hook zaehlt nur "
+                  "erfolgreiche Aufrufe (Exit 0), Aufrufe mit Befunden (Exit 2) oder "
+                  "Fehllaeufe fehlen dort]")
+    teile += (f"; {int(laeufe)} Aufruf(e) im Mitschnitt "
+              f"(davon {int(frueh)} zu frueh)")
     arch = preflight_archiv(cfg, batch)
-    teile = (f"PREFLIGHT-ZAEHLER: {int(laeufe)} Aufruf(e) im Mitschnitt "
-             f"(davon {int(frueh)} zu frueh)")
+    gesamt = max(int(laeufe), int(hook) + int(arch["ungezaehlt"]))
     if arch["fehllauf"]:
         gezeigt = ", ".join(arch["fehllauf"][:3])
         if len(arch["fehllauf"]) > 3:
             gezeigt += f", +{len(arch['fehllauf']) - 3} weitere"
-        teile += (f", {arch['ungezaehlt']} archivierte(r) Fehllauf/Fehllaeufe nicht gezaehlt "
-                  f"({gezeigt}) -> {int(laeufe) + arch['ungezaehlt']} Laeufe")
+        if gesamt > int(laeufe):
+            teile += (f", {arch['ungezaehlt']} archivierte(r) Fehllauf/Fehllaeufe nicht "
+                      f"gezaehlt ({gezeigt}) -> {gesamt} Laeufe")
+        else:
+            teile += (f", {arch['ungezaehlt']} Fehllauf/Fehllaeufe archiviert "
+                      f"({gezeigt} - im Mitschnitt enthalten)")
     else:
         teile += f", keine archivierten Fehllaeufe ({arch['ordner']})"
     if arch["ueberholt"]:
