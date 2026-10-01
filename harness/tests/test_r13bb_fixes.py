@@ -177,8 +177,11 @@ class TestAnstossTextUndAblauf(unittest.TestCase):
         quelle = inspect.getsource(worker.run_batch)
         self.assertIn('"preflight_erneut": bool(entsch.get("preflight_erneut"))', quelle)
         self.assertIn('log.info("Fortsetzung trotz Preflight"', quelle)
-        self.assertIn('preflight_erneut=(bool(entsch.get("preflight_erneut"))',
-                      quelle)
+        # R13bf (Teil D): der Text verlangt den neuen Preflight nur noch, wenn seit dem
+        # letzten Preflight unter port/ oder scripts/ etwas geaendert wurde.
+        self.assertIn('preflight_erneut=bool(pf_neu)', quelle)
+        self.assertIn('preflight_geprueft=bool(hatte_preflight and not pf_neu)', quelle)
+        self.assertIn('"preflight_neu": bool(pf_neu)', quelle)
 
 
 class Basis(unittest.TestCase):

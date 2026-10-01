@@ -18,8 +18,11 @@ Gefrorene Fixture: `tests/fixtures/stand_b234_luecke/` (echter Dokumentstand 10:
 
 from __future__ import annotations
 
+import inspect
 import json
+import os
 import shutil
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -27,9 +30,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from hx import bilanz, stand                                          # noqa: E402
-from hx.config import load_config                                     # noqa: E402
-from hx.util import ensure_dir, write_text_atomic                     # noqa: E402
+from hx import bilanz, stand, worker                                   # noqa: E402
+from hx.config import load_config                                      # noqa: E402
+from hx.util import Log, ensure_dir, write_text_atomic                 # noqa: E402
 
 FIXTURE = ROOT / "tests" / "fixtures" / "stand_b234_luecke"
 DOK = "port-batch234-c-ausgefuehrte-koepfe-2026-10-01.md"
@@ -160,6 +163,164 @@ class TestMitPreflight234(Basis):
         r = self.reihe()
         self.assertEqual(r[234]["c_koepfe"], 115)
         self.assertEqual(r[234]["c_quelle"], "_preflight_234.txt")
+
+
+# ------------------------------------- 3) Zweiter Preflight nach der Fortsetzung
+class TestZweiterPreflight(unittest.TestCase):
+    """R13bf Teil D (offene Frage aus dem Review von b233).
+
+    Der Fortsetzungstext verlangt einen neuen Preflight nur, wenn seit dem letzten
+    Preflight unter `port/` oder `scripts/` etwas geaendert wurde. Ohne Aenderung gilt der
+    vorhandene Stand. Ist die Nachrueckliste schon erledigt, ist die Antwort
+    `NACHRUECKLISTE ERLEDIGT` - und sonst nichts (der Satz steht deshalb ZULETZT).
+    """
+
+    def text(self, **kwargs) -> str:
+        return worker.fortsetzungs_text(50.0, 300000, 150.0, 135.0, batch=234, **kwargs)
+
+    def test_mit_aenderung_wird_der_neue_preflight_verlangt(self):
+        t = self.text(preflight_erneut=True)
+        self.assertIn("Nach der Nacharbeit neuer Preflight, der letzte gilt", t)
+        self.assertNotIn("Kein neuer Preflight nötig", t)
+
+    def test_ohne_aenderung_gilt_der_vorhandene(self):
+        t = self.text(preflight_geprueft=True)
+        self.assertIn("Kein neuer Preflight nötig, der vorhandene gilt", t)
+        self.assertIn("port/ oder scripts/", t)
+        self.assertNotIn("Nach der Nacharbeit neuer Preflight", t)
+
+    def test_ohne_preflight_kein_preflight_satz(self):
+        t = self.text()
+        self.assertNotIn("neuer Preflight", t)
+        self.assertNotIn("Kein neuer Preflight nötig", t)
+
+    def test_erledigt_satz_steht_immer_zuletzt(self):
+        """Auch nach dem Preflight-Satz - sonst haette er zwei Antworten zur Wahl."""
+        for kwargs in ({}, {"preflight_erneut": True}, {"preflight_geprueft": True}):
+            t = self.text(**kwargs)
+            self.assertTrue(t.rstrip().endswith("kein Preflight und keine Bilanz."), t[-120:])
+            self.assertIn("antworte nur mit NACHRUECKLISTE ERLEDIGT", t)
+            self.assertNotIn("dem Commit-Hash. Nach der Nacharbeit", t)
+
+    def test_mit_aenderung_aus_dem_echten_repo(self):
+        """`aenderung_seit_preflight` liest Commits und nicht committete Dateien.
+
+        Die Grenze ist der **Preflight-Start**: alles DANACH zaehlt. Geprueft wird
+        deshalb mit drei Zeitpunkten (davor, dazwischen, danach).
+        """
+        b = RepoBasis()
+        b.setUp()
+        try:
+            start = "2026-10-01T11:00:00+00:00"
+            self.assertFalse(worker.aenderung_seit_preflight(b.cfg, start)["geaendert"])
+            b.commit("analysis/doku.md", "nur Doku", zeit="2026-10-01T12:00:00+00:00")
+            self.assertFalse(worker.aenderung_seit_preflight(b.cfg, start)["geaendert"],
+                             "nur analysis/ zaehlt nicht")
+            b.commit("port/src/x.cpp", "Kopf gebaut", zeit="2026-10-01T13:00:00+00:00")
+            a = worker.aenderung_seit_preflight(b.cfg, start)
+            self.assertTrue(a["geaendert"])
+            self.assertIn("port/src/x.cpp", a["dateien"])
+            self.assertTrue(a["commits"], a)
+            # Nach allen Commits ist nichts mehr passiert.
+            self.assertFalse(worker.aenderung_seit_preflight(
+                b.cfg, "2026-10-01T14:00:00+00:00")["geaendert"])
+        finally:
+            b.tearDown()
+
+    def test_nicht_committete_aenderung_zaehlt_nach_der_zeit(self):
+        b = RepoBasis()
+        b.setUp()
+        try:
+            p = ensure_dir(b.repo / "scripts") / "c_kopf.py"
+            p.write_text("# neu\n", encoding="utf-8")
+            alt = worker.aenderung_seit_preflight(b.cfg, "2026-10-01T23:59:59+00:00")
+            self.assertFalse(alt["geaendert"], "Dateizeit liegt VOR dem Preflight")
+            neu = worker.aenderung_seit_preflight(b.cfg, "2020-01-01T00:00:00+00:00")
+            self.assertTrue(neu["geaendert"])
+            self.assertTrue(any("nicht committet" in d for d in neu["dateien"]), neu)
+        finally:
+            b.tearDown()
+
+    def test_ohne_zeitpunkt_im_zweifel_neu(self):
+        roh = worker.aenderung_seit_preflight(None, "")
+        self.assertTrue(roh["geaendert"])
+        self.assertTrue(roh["unbekannt"])
+        self.assertIn("kein Preflight-Zeitpunkt", roh["grund"])
+
+    def test_letzter_preflight_start_kommt_aus_dem_mitschnitt(self):
+        self.tmp = Path(ROOT) / "tests" / "_tmp_r13bf_d"
+        shutil.rmtree(self.tmp, ignore_errors=True)
+        root = ensure_dir(self.tmp / "harness")
+        rd = ensure_dir(root / "runs" / "b234")
+        write_text_atomic(rd / "stream.jsonl", "\n".join([
+            json.dumps({"type": "assistant", "timestamp": "2026-10-01T10:00:00+00:00",
+                        "message": {"content": [
+                            {"type": "tool_use", "id": "p1", "name": "PowerShell",
+                             "input": {"command": "python -u scripts/preflight.py before"}}]}}),
+            json.dumps({"type": "assistant", "timestamp": "2026-10-01T11:00:00+00:00",
+                        "message": {"content": [
+                            {"type": "tool_use", "id": "p2", "name": "PowerShell",
+                             "input": {"command": "python -u scripts/preflight.py before"}}]}}),
+        ]) + "\n")
+        cfg = load_config()
+        cfg.data["paths"]["root"] = str(root)
+        try:
+            self.assertEqual(worker.letzter_preflight_start(cfg, 234),
+                             "2026-10-01T11:00:00+00:00")
+            self.assertEqual(worker.letzter_preflight_start(cfg, 235), "")
+        finally:
+            shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_verdrahtung_im_lauf(self):
+        quelle = inspect.getsource(worker.run_batch)
+        self.assertIn("aenderung_seit_preflight(cfg, pf_start, log=log)", quelle)
+        self.assertIn("letzter_preflight_start(cfg, batch, log)", quelle)
+        self.assertIn("preflight_erneut=bool(pf_neu)", quelle)
+        self.assertIn("preflight_geprueft=bool(hatte_preflight and not pf_neu)", quelle)
+        self.assertIn('"preflight_neu": bool(pf_neu)', quelle)
+
+
+class RepoBasis:
+    """Ein echtes, kleines Git-Repo als `cfg.decomp` (Repo-Wache von `gitsafe.Git`).
+
+    Warum ein eigenes Repo: `git` sucht seine Wurzel selbst - ein Tempordner INNERHALB
+    des Harness-Repos wuerde sonst still am aeusseren Repo arbeiten (R13i-Fallstrick).
+    Die Commit-Zeit kommt aus `GIT_AUTHOR_DATE`/`GIT_COMMITTER_DATE` in der Umgebung -
+    `-c user.date` setzt nur den Autor, und `git log --since` nimmt den Committer.
+    """
+
+    def setUp(self):
+        self.tmp = Path(ROOT) / "tests" / "_tmp_r13bf_repo"
+        shutil.rmtree(self.tmp, ignore_errors=True)
+        self.repo = ensure_dir(self.tmp / "decomp")
+        self.git("init", "-q")
+        self.commit("a.txt", "start", inhalt="eins\n", zeit="2026-10-01T09:00:00+00:00")
+        cfg = load_config()
+        cfg.data["paths"]["root"] = str(ensure_dir(self.tmp / "harness"))
+        cfg.data["paths"]["decomp"] = str(self.repo)
+        cfg.data["paths"]["prompts"] = str(ROOT / "prompts")
+        self.cfg = cfg
+        self.log = Log(self.tmp / "log.jsonl", echo=False)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def git(self, *args: str, zeit: str = "") -> str:
+        env = dict(os.environ)
+        if zeit:
+            env["GIT_AUTHOR_DATE"] = zeit
+            env["GIT_COMMITTER_DATE"] = zeit
+        p = subprocess.run(["git", "-c", "user.name=T", "-c", "user.email=t@example.invalid",
+                            *args], cwd=self.repo, capture_output=True, text=True, env=env)
+        return (p.stdout or "") + (p.stderr or "")
+
+    def commit(self, pfad: str, betreff: str, inhalt: str | None = None,
+               zeit: str = "") -> None:
+        p = self.repo / pfad
+        ensure_dir(p.parent)
+        p.write_text(inhalt if inhalt is not None else f"# {betreff}\n", encoding="utf-8")
+        self.git("add", "--", pfad)
+        self.git("commit", "-q", "-m", betreff, zeit=zeit)
 
 
 if __name__ == "__main__":

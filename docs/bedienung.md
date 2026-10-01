@@ -1434,8 +1434,12 @@ wird **übertragen**.
 
 | Rest bis zur Umschaltschwelle | Verhalten |
 |---|---|
-| **≥ `limits.fortsetzung_min_rest_min`** (Default **20** min) | **Anstoß** — der Stand von vor der Fortsetzung wird vorher archiviert (R13ah, `_m<N>/_preflight_<N>_vor_fortsetzung<k>.txt`), der Anstoß verlangt am Ende einen **neuen** Preflight: *„Nach der Nacharbeit neuer Preflight, der letzte gilt (der frühere ist überholt); danach Bilanz aktualisieren und committen."* Der Anstoß steht in `result.json` als `fortsetzungen[k].preflight_erneut`, im Log als `Fortsetzung trotz Preflight` |
+| **≥ `limits.fortsetzung_min_rest_min`** (Default **20** min) | **Anstoß** — der Stand von vor der Fortsetzung wird vorher archiviert (R13ah, `_m<N>/_preflight_<N>_vor_fortsetzung<k>.txt`). Ob der Anstoß einen **neuen** Preflight verlangt, hängt seit R13bf (01.10.2026) davon ab, ob seit dem letzten Preflight unter `port/` oder `scripts/` etwas geändert wurde: ja → *„Nach der Nacharbeit neuer Preflight, der letzte gilt (der frühere ist überholt); danach Bilanz aktualisieren und committen."*; nein → *„Kein neuer Preflight nötig, der vorhandene gilt."* Nicht messbar (kein Preflight-Zeitpunkt, kein Git) → im Zweifel **neuer** Preflight. Der Anstoß steht in `result.json` als `fortsetzungen[k].preflight_erneut` (Entscheidung) und `preflight_neu` (was der Text verlangte) + `preflight_aenderung` (Belege), im Log als `Fortsetzung trotz Preflight` bzw. `Kein neuer Preflight noetig` |
 | **< 20 min** | **Übertrag** wie bisher |
+
+* Ist die Nachrückliste schon erledigt, antwortet der Worker nur `NACHRUECKLISTE ERLEDIGT`
+  (der Satz steht im Anstoß **zuletzt**, damit er den Preflight-Satz übersteuert) — der Batch
+  endet dann ohne neuen Preflight, und der vorhandene Stand bleibt gültig (R13bf).
 
 * Log und Review-Fakten im Übertrag-Fall: `Kein Fortsetzungsanstoss: Preflight bereits
   gelaufen, offene Nachrueckliste -> UEBERTRAG` (angehängt an die Fortsetzungszeile, auch

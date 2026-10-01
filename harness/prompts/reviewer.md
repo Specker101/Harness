@@ -195,15 +195,26 @@ deshalb, ob die uebertragenen Posten im naechsten Auftrag/Anker wieder auftauche
 (`UEBERTRAG:`-Zeile), statt den fehlenden zweiten Preflight zu bemaengeln.
 
 **Bleibt genug Zeit, wird fortgesetzt (R13bb, 30.09.2026).** Der Preflight dauert jetzt
-~5 min; B224 endete bei 45 min mit 3 von 5 Koepfen. Der Harness stoesst dann an, sichert den
-Stand von **vor** der Fortsetzung (`_m<N>/_preflight_<N>_vor_fortsetzung<k>.txt`), und der
-Anstoss verlangt am Ende einen **neuen** Preflight („Nach der Nacharbeit neuer Preflight,
-der letzte gilt"). In den Messdaten steht das als `fortsetzungen[k].preflight_erneut`, im Log
-als `Fortsetzung trotz Preflight`. In diesem Fall pruefst du **nicht** „genau ein
+~5 min; B224 endete bei 45 min mit 3 von 5 Koepfen. Der Harness stoesst dann an und sichert
+den Stand von **vor** der Fortsetzung (`_m<N>/_preflight_<N>_vor_fortsetzung<k>.txt`).
+In den Messdaten steht der Anstoss als `fortsetzungen[k].preflight_erneut`, im Log als
+`Fortsetzung trotz Preflight`. In diesem Fall pruefst du **nicht** „genau ein
 gueltiger Lauf", sondern dass am Ende **einer** gueltig ist (der letzte; fruehere sind
 ueberholt) und dass der archivierte Stand vor der Fortsetzung existiert. Eine
 `NACHRUECKLISTE` bleibt Pflicht: sie greift bei einem **fruehen** Ende ohne Preflight und im
 UEBERTRAG-Fall.
+
+**Ein zweiter Preflight nur bei Aenderung (R13bf, 01.10.2026).** Der Anstoss verlangt den
+neuen Preflight **nur**, wenn seit dem letzten Preflight unter `port/` oder `scripts/`
+etwas geaendert wurde (Commits nach dem Preflight-Start oder nicht committete Aenderungen
+mit juengerer Dateizeit, `worker.aenderung_seit_preflight`). Ohne Aenderung steht dort
+„Kein neuer Preflight nötig, der vorhandene gilt" — dann ist der **vorhandene** Lauf der
+gueltige Beleg, und ein fehlender zweiter Lauf ist **kein** Mangel. In den Messdaten:
+`fortsetzungen[k].preflight_neu` (was der Anstoss verlangte) und
+`preflight_aenderung` (die Belege: Commits/Dateien; `preflight_aenderung_unbekannt: true`
+heisst „nicht messbar" — dann wurde konservativ ein neuer Lauf verlangt). Ist die
+Nachrückliste schon erledigt, antwortet der Worker nur `NACHRUECKLISTE ERLEDIGT`: der
+Batch endet dann ohne neuen Preflight, und der alte Stand bleibt gueltig.
 
 ## Lange Befehle (R13aj, 2026-09-29)
 

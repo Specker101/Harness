@@ -498,6 +498,84 @@ def archiviere_preflight_vor_fortsetzung(cfg, state, fortsetzung: int, log=None)
 UEBERTRAG_GRUND = "Preflight bereits gelaufen, offene Nachrueckliste -> UEBERTRAG"
 UEBERTRAG_TEXT = "Kein Fortsetzungsanstoss: " + UEBERTRAG_GRUND
 
+# R13bf (Teil D, offene Frage aus dem Review von b233): Wortlaute des Anstosses. Ein
+# ZWEITER Preflight wird nur verlangt, wenn sich seit dem letzten Lauf unter `port/` oder
+# `scripts/` etwas geaendert hat - sonst ist der vorhandene Stand noch gueltig.
+PREFLIGHT_NEU_TEXT = (" Nach der Nacharbeit neuer Preflight, der letzte gilt (der frühere "
+                      "ist überholt); danach Bilanz aktualisieren und committen.")
+PREFLIGHT_GILT_TEXT = (" Kein neuer Preflight nötig, der vorhandene gilt - seit dem letzten "
+                       "Preflight wurde unter port/ oder scripts/ nichts geändert.")
+# Steht IMMER am Ende - auch nach dem Preflight-Satz: ist die Liste schon erledigt, ist die
+# Antwort "NACHRUECKLISTE ERLEDIGT" und sonst nichts (R13bf, Nutzerauftrag).
+ERLEDIGT_TEXT = (" Ist die Nachrückliste schon vollständig erledigt (kein offener Posten), "
+                 "antworte nur mit NACHRUECKLISTE ERLEDIGT und je Posten dem Commit-Hash - "
+                 "nichts weiter, kein Preflight und keine Bilanz.")
+
+
+def letzter_preflight_start(cfg, batch: int, log=None) -> str:
+    """Zeitpunkt des **letzten** Preflight-Starts im Mitschnitt von `runs/b<N>` (R13bf).
+
+    Quelle ist derselbe Mitschnitt wie beim Preflight-Zaehler (`stand.mitschnitt_-
+    preflight_aufrufe`, R13be-1): `stream.jsonl` plus die Fortsetzungen. Leer heisst:
+    kein Preflight-Aufruf im Mitschnitt (oder nicht lesbar) - der Aufrufer verhaelt sich
+    dann wie vorher.
+    """
+    try:
+        d = stand.mitschnitt_preflight_aufrufe(cfg, batch)
+    except (OSError, ValueError) as exc:                # nie den Lauf daran scheitern lassen
+        if log:
+            log.warn("Preflight-Zeitpunkt nicht lesbar", batch=batch, fehler=str(exc)[:200])
+        return ""
+    aufrufe = d.get("aufrufe") or []
+    return str(aufrufe[-1].get("ts") or "") if aufrufe else ""
+
+
+def aenderung_seit_preflight(cfg, seit: str, log=None) -> dict:
+    """Wurde unter `port/` oder `scripts/` seit dem Preflight-Start etwas geaendert? (R13bf)
+
+    Zwei Quellen, beide mit `git` im Decomp-Repo:
+
+    * **Commits** nach `seit` (`git log --since <seit> --name-only -- port scripts`),
+    * **nicht committete** Aenderungen in diesen Baeumen (`git status --porcelain`), aber
+      nur solche, deren Dateizeit NACH `seit` liegt - eine Datei, die schon vor dem
+      Preflight geaendert war, hat der Preflight mitgemessen.
+
+    Rueckgabe: `{"geaendert", "unbekannt", "grund", "commits", "dateien"}`.
+    **Ohne messbaren Zeitpunkt oder ohne Git ist `geaendert=True`** (unbekannt = im Zweifel
+    den Preflight verlangen, wie vorher) - die Richtung ist bewusst konservativ.
+    """
+    leer = {"geaendert": True, "unbekannt": True, "commits": [], "dateien": []}
+    if not seit:
+        return dict(leer, grund="kein Preflight-Zeitpunkt im Mitschnitt messbar")
+    git = Git(cfg, log)
+    rc, so, se = git.run("log", "--since", str(seit), "--name-only",
+                         "--pretty=format:%h %cI %s", "--", "port", "scripts")
+    if rc != 0:
+        return dict(leer, grund=f"git log rc={rc}: {se.strip()[:140]}")
+    commits: list[str] = []
+    dateien: list[str] = []
+    for zeile in so.splitlines():
+        z = zeile.strip()
+        if not z:
+            continue
+        (dateien if z.startswith(("port/", "scripts/")) else commits).append(z)
+    rc2, so2, _se2 = git.run("status", "--porcelain", "--", "port", "scripts")
+    if rc2 == 0:
+        grenze = stand._iso_zeit(seit)
+        for zeile in so2.splitlines():
+            roh = zeile[3:].strip().strip('"')
+            if not roh:
+                continue
+            try:
+                t = datetime.fromtimestamp(
+                    (Path(cfg.decomp) / roh).stat().st_mtime, timezone.utc)
+            except OSError:
+                continue
+            if grenze is not None and t > grenze:
+                dateien.append(f"{roh} (nicht committet, nach dem Preflight geaendert)")
+    return {"geaendert": bool(commits or dateien), "unbekannt": False, "grund": "",
+            "commits": commits[:10], "dateien": dateien[:10]}
+
 
 def preflight_gestartet(stats) -> bool:
     """Hat dieser Lauf schon einen Preflight GESTARTET? (R13aw, Befund M219-5)
@@ -573,13 +651,20 @@ def fortsetzung_pruefen(cfg, run, stats, auftrag_text: str, minuten: float,
 
 
 def fortsetzungs_text(minuten: float, kontext: int, alarm_min: float, umschalt_min: float,
-                      batch: int = 0, preflight_erneut: bool = False) -> str:
+                      batch: int = 0, preflight_erneut: bool = False,
+                      preflight_geprueft: bool = False) -> str:
     """Die Fortsetzungsnachricht im SELBEN Chat (Wortlaut laut Auftrag 2026-09-29).
 
     R13ah (Aussensicht B214, Befund 2): der Text BEGINNT mit der Batchnummer. Grund: die
     Fortsetzung laeuft im selben Batch weiter, ein Commit mit `B<N+1>:` war bisher
     naheliegend - gemessen in B213/B214 wurde die Nummer aus dem Text abgeleitet statt aus
     dem Harness-Tag (`harness/b<N>-start`).
+
+    R13bf (Teil D): `preflight_erneut` heisst "am Ende laeuft ein NEUER Preflight, der
+    letzte gilt" - das wird nur noch verlangt, wenn seit dem letzten Preflight unter
+    `port/` oder `scripts/` etwas geaendert wurde. Sonst (`preflight_geprueft`) steht dort
+    "Kein neuer Preflight noetig, der vorhandene gilt". Die Erledigt-Regel steht IMMER
+    zuletzt, damit sie auch den Preflight-Satz uebersteuert.
     """
     text = ""
     if batch > 0:
@@ -589,12 +674,12 @@ def fortsetzungs_text(minuten: float, kontext: int, alarm_min: float, umschalt_m
              f"{umschalt_min:.0f} min nicht erreicht, Kontext {uhr.kontext_kurz(kontext)}. "
              "Arbeite die offenen Posten der NACHRUECKLISTE ab, je Posten ein Commit mit "
              "Soll-Delta. Ist ein Posten blockiert, nenne mit Beleg, welches Material oder "
-             "welche Entscheidung fehlt; Aufwand ist kein Grund. Ist die Nachrückliste "
-             "vollständig erledigt, antworte nur mit NACHRUECKLISTE ERLEDIGT und je Posten "
-             "dem Commit-Hash.")
+             "welche Entscheidung fehlt; Aufwand ist kein Grund.")
     if preflight_erneut:
-        text += (" Nach der Nacharbeit neuer Preflight, der letzte gilt (der frühere ist "
-                 "überholt); danach Bilanz aktualisieren und committen.")
+        text += PREFLIGHT_NEU_TEXT
+    elif preflight_geprueft:
+        text += PREFLIGHT_GILT_TEXT
+    text += ERLEDIGT_TEXT
     return text
 
 
@@ -983,11 +1068,39 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
                     res.fortsetzung_uebertrag = bool(entsch.get("uebertrag"))
                     break
                 kontext = stats.kontext_stats()["kontext_letzte_anfrage"]
+                # R13bf (Teil D): einen ZWEITEN Preflight nur verlangen, wenn seit dem
+                # letzten Preflight unter port/ oder scripts/ etwas geaendert wurde. Ob
+                # ueberhaupt ein Preflight gelaufen ist, sagt die Entscheidung
+                # (`preflight_erneut`, R13bb) oder die R13ah-Heuristik (Preflight UND
+                # Bilanz im Lauf). Der Zeitpunkt kommt aus dem Mitschnitt.
+                hatte_preflight = bool(entsch.get("preflight_erneut")
+                                       or (stats.werkzeug_enthaelt("preflight")
+                                           and stats.werkzeug_enthaelt("bilanz")))
+                aend: dict | None = None
+                if hatte_preflight:
+                    pf_start = letzter_preflight_start(cfg, batch, log)
+                    aend = aenderung_seit_preflight(cfg, pf_start, log=log)
+                    if aend["unbekannt"]:
+                        log.warn("Aenderung seit dem Preflight nicht messbar - "
+                                 "neuer Preflight wird verlangt", grund=aend["grund"],
+                                 preflight_start=pf_start)
+                pf_neu = bool(aend and aend["geaendert"])
+                if hatte_preflight and not pf_neu:
+                    log.info("Kein neuer Preflight noetig - nichts unter port/ oder "
+                             "scripts/ geaendert", preflight_start=pf_start)
                 fortsetzungen.append({"minute": round(minuten, 1), "kontext": kontext,
                                       "antwort_kurz": "", "dauer_s": None, "rc": None,
                                       # R13bb: dieser Anstoss laeuft NACH einem Preflight -
                                       # am Ende gilt der neue (s. Anstoss-Text).
                                       "preflight_erneut": bool(entsch.get("preflight_erneut")),
+                                      # R13bf (Teil D): was der Anstoss WIRKLICH verlangt
+                                      # und warum - Belege fuer den Reviewer.
+                                      "preflight_neu": bool(pf_neu),
+                                      "preflight_aenderung": ((list(aend["commits"])
+                                                               + list(aend["dateien"]))
+                                                              if aend else []),
+                                      "preflight_aenderung_unbekannt": bool(
+                                          aend and aend["unbekannt"]),
                                       "stream": f"stream-forts{nummer + 1}.jsonl"})
                 # R13ah: den Preflight-Stand VOR der Fortsetzung wegsichern (unveraendert
                 # plus eigener Commit) - sonst ueberschreibt der naechste Preflight-Lauf
@@ -1000,18 +1113,14 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
                 if entsch.get("preflight_erneut"):
                     log.info("Fortsetzung trotz Preflight",
                              rest_min=round(float(entsch.get("rest_min") or 0.0), 1),
-                             vorher_archiviert=bool(res.preflight_archiv))
+                             vorher_archiviert=bool(res.preflight_archiv),
+                             neuer_preflight=bool(pf_neu))
                 fortsetz_text = fortsetzungs_text(
                     minuten, kontext, lim["alarm_wall"] / 60.0,
                     uhr_schwelle["umschalt_min"],
                     batch=batch_aus_checkpoint(state),
-                    # R13bb: der Anstoss nennt den neuen Preflight, wenn der alte schon
-                    # gelaufen ist - entweder weil die Entscheidung ihn ausdruecklich
-                    # zulaesst (`preflight_erneut`) oder weil der Lauf Preflight UND
-                    # Bilanz enthaelt (R13ah-Heuristik, bleibt gueltig).
-                    preflight_erneut=(bool(entsch.get("preflight_erneut"))
-                                      or (stats.werkzeug_enthaelt("preflight")
-                                          and stats.werkzeug_enthaelt("bilanz"))))
+                    preflight_erneut=bool(pf_neu),
+                    preflight_geprueft=bool(hatte_preflight and not pf_neu))
                 resume = True
         finally:
             if ticker is not None:

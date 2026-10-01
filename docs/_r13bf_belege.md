@@ -239,3 +239,68 @@ Dauer eines Laufs (30 min Wanduhr = 10 Start + 9 Preflight + 1 Schluss + 10 Arbe
 ohne Ergebnis (`preflight_ohne_dauer=2`, Dauer nicht messbar, Hinweis in der Zeile),
 letzter Lauf setzt den Schluss, live = Rückblick (jetzt inklusive `schluss`/`fester`),
 Faktenzeile aus `result.json` und aus der Nachrechnung, „nicht messbar“ ohne Zeiten.
+
+---
+
+## Teil D — zweiter Preflight nur bei Änderung (offene Frage aus dem Review von b233)
+
+### Der Anlass
+
+Der Reviewer von b233 fragte, warum nach der Fortsetzung überhaupt ein **neuer** Preflight
+läuft. Gemessen (`snapshots/b233/reasoning.jsonl:145`): der Worker hörte bei 98 min mit
+~37 min Rest auf — „NO further port/ changes this batch … would invalidate my preflight“ —
+und lief in der Fortsetzung trotzdem einen neuen Preflight (vier Aufrufe,
+`runs/b233/result.json`). Der Schutz des einen Laufs beendete die Arbeitsphase vorzeitig
+(Aussensicht M233-5, „dieselbe Muster zeigte B232“).
+
+### Die Regel
+
+| Lage | Text im Anstoß |
+|---|---|
+| seit dem letzten Preflight **geändert** (`port/` oder `scripts/`) | „Nach der Nacharbeit neuer Preflight, der letzte gilt …“ |
+| **nicht** geändert | „Kein neuer Preflight nötig, der vorhandene gilt - seit dem letzten Preflight wurde unter port/ oder scripts/ nichts geändert.“ |
+| kein Preflight gelaufen | **kein** Preflight-Satz (wie vorher) |
+| nicht messbar (kein Zeitpunkt, kein Git) | wie „geändert“ — im Zweifel neu, plus `log.warn` |
+
+**Was als Änderung gilt** (`worker.aenderung_seit_preflight`, zwei Quellen):
+
+1. **Commits** nach dem Preflight-Start:
+   `git log --since <Preflight-Start> --name-only -- port scripts`;
+2. **nicht committete** Änderungen in `port/`/`scripts/`, aber nur mit **Dateizeit nach dem
+   Preflight-Start** — eine Datei, die schon vorher geändert war, hat der Preflight
+   mitgemessen.
+
+Der Preflight-Zeitpunkt kommt aus demselben Mitschnitt wie der Zähler
+(`worker.letzter_preflight_start` → `stand.mitschnitt_preflight_aufrufe`, R13be-1), also
+auch aus den Fortsetzungsdateien.
+
+**Der Erledigt-Satz steht jetzt ZULETZT** („Ist die Nachrückliste schon vollständig erledigt
+… antworte nur mit NACHRUECKLISTE ERLEDIGT und je Posten dem Commit-Hash - nichts weiter,
+kein Preflight und keine Bilanz.“). Vorher stand er vor dem Preflight-Satz, der ihm mit
+„danach Bilanz aktualisieren und committen“ widersprach.
+
+### Messdaten und Log
+
+`result.json` → `fortsetzungen[k]`: `preflight_neu` (was der Anstoß **verlangte**),
+`preflight_aenderung` (Commits/Dateien als Belege), `preflight_aenderung_unbekannt`.
+Daneben unverändert `preflight_erneut` (die Entscheidung der Fortsetzungsregel).
+Log: `Kein neuer Preflight noetig - nichts unter port/ oder scripts/ geaendert` bzw.
+`Aenderung seit dem Preflight nicht messbar - neuer Preflight wird verlangt`.
+
+### Tests
+
+`tests/test_r13bf_fixes.py::TestZweiterPreflight` (9 Tests): die drei Textlagen (neu /
+gilt / kein Satz), der Erledigt-Satz **immer zuletzt** (und nie vor dem Preflight-Satz),
+die Änderungsmessung in einem **echten** kleinen Git-Repo (drei Zeitpunkte: davor /
+dazwischen / danach; nur `analysis/` zählt nicht; nicht committete Datei mit jüngerer
+Dateizeit zählt, mit älterer nicht), „im Zweifel neu“ ohne Zeitpunkt, der
+Preflight-Zeitpunkt aus dem Mitschnitt und die Verdrahtung im Lauf.
+Angepasst: `tests/test_r13bb_fixes.py::test_der_anstoss_wird_als_preflight_erneut_vermerkt`
+(die Quelltextprobe auf die neue Übergabe `preflight_erneut=bool(pf_neu)`), `prompts/reviewer.md`
+(neuer Absatz: ein fehlender zweiter Lauf ist bei unverändertem Stand **kein** Mangel) und
+`docs/bedienung.md` §12.
+
+**Wirkung noch nicht im Betrieb gemessen:** der Harness ist pausiert
+(`GATE_APPROVAL batch=234`), die Regel greift beim **ersten** Fortsetzungsanstoss danach
+(B235 ff.). Belegt sind die Bedingungen und die Wortlaute durch die Tests, **nicht** durch
+einen echten Anstoß — das steht hier so, damit es niemand für eine Messung hält.
