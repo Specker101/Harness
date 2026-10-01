@@ -1,0 +1,157 @@
+/ds R13bi-Preflight-Bahnen (Fassung 2) - Auftragstext (Vorschlag, NICHT gesendet)
+
+Ersetzt `docs/_r13bh_ds_vorschlag.txt` (Fassung 1, 2026-10-01). Fassung 1 ist
+NICHT geloescht - sie bleibt als Beleg stehen (Projektregel: alte Belege werden
+nicht nachgezogen). Unterschied zu Fassung 1: **der Hybrid-Lauf ist eine eigene
+Bahn** und darf neben `c_kopf_check` laufen; damit faellt die alte Begruendung
+"die zwei Port-Laeufe duerfen nicht ueberlappen" weg (Messung: R13bi).
+
+--- BEGINN DES VORSCHLAGS (das ist der /ds-Wortlaut) ---
+
+TEIL 1 - VIER BAHNEN IM PREFLIGHT (`scripts/preflight.py`)
+
+Anlass (gemessen, `analysis/_m230..234/_preflight_zeiten.txt`, Tafel in
+`docs/_r13bh_preflight.txt`): der Preflight laeuft seriell, 524,9-549,3 s
+(B234: 1578,5 s); **93-95 %** stecken in den ZWEI Port-Laeufen `c_kopf_check /
+C Koepfe` (310,0 s) und `m212_zeilen / Hybrid-Lauf` (150,8-1181,3 s). Die
+uebrigen 13 Gruppen zusammen: ~54 s.
+
+Aufgabe: die 15 Gruppen aus `CHECK_MODULES` in VIER Bahnen fahren. Die **Ausgabe
+bleibt zeilengleich** (der Elternteil druckt die Zeilen in der festgelegten
+Reihenfolge, s. TEIL 3); Rueckgabewert unveraendert (0 sauber / 2 Befunde);
+`--raw`, `--out` und `evidence.py` unveraendert benutzen.
+
+* **Bahn A1 - Kopf-Kette, EIN Prozess, streng seriell:**
+  `m227_profile_live` -> `c_kopf_check` -> `m210_bahnabdeckung` -> `m212_zeilen`
+  (ohne den Hybrid-Lauf). Diese vier MUESSEN im selben Prozess bleiben:
+  `m210_bahnabdeckung` (0,1 s) und `m212_zeilen / C verifiziert` (0,1 s) sind
+  Cache-Treffer des gemeinsamen ROM-Laufs aus `c_kopf._vergl_alle`
+  (`c_kopf._DECKUNG_CACHE`). Getrennt gefahren kostet das +213 s bzw. +217 s
+  (belegt: `analysis/_m216/_preflight_zeiten.txt`). **Dauer 314-341 s.**
+* **Bahn A2 - Hybrid-Lauf, EIGENE Praefgruppe, EIN Prozess:**
+  neues Modul `scripts/m212_hybrid.py` (herausgeloest aus `m212_zeilen.py`, s.
+  TEIL 2). Es fahrt `hybrid_lauf.exe` ZWEIMAL, streng nacheinander (FRONT
+  `--schritte 200000000 --nativ-weiter`, danach 20M) und schreibt die Belege
+  `analysis/<EV>/_hybrid.txt` und (neu) `analysis/<EV>/_hybrid_laufzeiten.txt`.
+  **Dauer 151-1181 s.** A2 darf **neben A1** laufen - andere Binaerfamilie,
+  kein gemeinsames Schreibziel, **kein gemeinsamer Zustand**; gemessen
+  (R13bi, `docs/_r13bi_ram.txt`): `c_kopf.exe` 13,8 MB RSS, `hybrid_lauf.exe`
+  89,6 MB RSS, **gleichzeitig 102,6 MB**. Dazu kommt gegenueber heute **ein
+  zweiter Python-Treiber** (heute einer). Bei knappem Speicher (unter 500 MB
+  frei kam in drei von sieben Batches vor, `docs/_r13bg_belege.md`) soll A2
+  auf den Speicherwaechter warten (`hx/last.py`, < 300 MB frei) statt zu
+  starten. A2 startet erst, wenn `m227_profile_live` fertig ist (0,1-0,6 s);
+  das ist die einzige Stelle, an der sich die `c_kopf`-Familie
+  (`c_kopf.py prof`) und der Hybrid-Lauf sonst treffen wuerden.
+* **Bahn B - Bau und Regression, seriell in dieser Reihenfolge:**
+  `m116_pass` -> `m5_kopf_check` -> `port_regression`. Grund: `m116_pass`
+  schreibt `port/src/voter_select_*.inc`, `m5_kopf_check` baut
+  `port/build/m193_head.exe`. **Dauer ~34 s.**
+* **Bahn C - kurz:** `m104_built`, `m115_pass`, `m114_pass`, `m130_ast`,
+  `m200_einbindung`, `m210_r391`, `m214_archiv`, **`m233_binary` als LETZTES**.
+  **Dauer ~20 s.** `m233_binary` prueft Binaer-Alter gegen die Quellen - es darf
+  nicht waehrend eines Baus oder eines Port-Laufs urteilen, deshalb ans Ende
+  (R13bi-Befund; in Fassung 1 stand es in Bahn B).
+
+Harte Regeln:
+1. **Hoechstens 3 Bahnen gleichzeitig** (Nutzerauflage R13ar). Ablauf:
+   A1 + A2 + B starten; sobald B fertig ist (nach ~34 s), C starten (dann
+   laufen A1, A2, C). A1 und A2 laufen immer gleichzeitig, B und C fuellen die
+   dritte Bahn.
+2. **`hybrid_lauf.exe` NIE parallel zu einem anderen `hybrid_lauf.exe`** (in A2
+   sind die zwei Laeufe seriell) und **`c_kopf.exe` / `c_kopf.py` NIE parallel
+   zu einem anderen Prozess derselben Familie** (A1 ist ein Prozess).
+   Ueberlappen duerfen nur VERSCHIEDENE Familien: A1 (`c_kopf`) <-> A2
+   (`hybrid_lauf`). Das ist die eine Aenderung gegenueber Fassung 1.
+3. `m116_pass` VOR `m5_kopf_check`; `m227_profile_live` VOR `m212_zeilen`
+   (es liest `analysis/<EV>/_profile_reproduzierbar.txt`).
+4. Kein zweiter Schreiber auf dieselbe Belegdatei; `analysis/_archiv/MANIFEST.txt`
+   ist das einzige geteilte Ziel - dort nur anhaengen, nie neu schreiben
+   (`scripts/evidence.py:141`).
+5. Kein Verhalten aendern: gleiche Pruefungen, gleiche Schwellen, gleiche
+   Belegnamen, gleiche Zeilenschluessel.
+
+TEIL 2 - DER HERAUSGELOESTE HYBRID-LAUF (`scripts/m212_hybrid.py`)
+
+Ziel: dieselben sechs Zeilen wie heute, aber aus einem eigenen Prozess.
+
+* Uebernommen aus `scripts/m212_zeilen.py`: `_lauf` (`:250-268`), `_kurz`
+  (`:270-283`), `_neben` (`:286-305`), `_anteil`, `_funktionen`, `_hybrid`
+  (`:373-465`), `_NEBEN` (`:481`) und `check_hybrid` (`:592-640`) sowie die
+  Konstanten `LAUF_FRONT`, `KOPF_EINSTIEG`, `NATIV_WEITER`, `OHNE_REGISTRY`,
+  `FRONT_TXT_UEBER` (`:230-247`, `:481`). Zeilenschluessel unveraendert:
+  `Hybrid-Lauf`, `Hybrid-Lauf 20M`, `Hybrid-SPU`, `Hybrid-Attrappe4`,
+  `Hybrid-Anteil nativ`, `Hybrid-Funktionen nativ`.
+* In `m212_zeilen.py` bleiben: C verifiziert, Formen der C-Koepfe
+  orakelgeprueft, C Fallrueckgang, analysis neue .py, Profile reproduzierbar,
+  Bauliste subset Registry. `_fallrueckgang` MUSS dort bleiben - `c_kopf_check`
+  ruft es (`c_kopf_check.py:88`).
+* Der Hybridlauf-Teil braucht NICHTS aus `c_kopf_check` (R13bi, Frage 1:
+  `_hybrid` liest nur die Rohausgabe des Binaers, `_hybrid`/`check_hybrid`
+  enthalten keinen `c_kopf`-Bezug; `hybrid_lauf.exe` schreibt nur mit
+  `--s-log` eine Datei, `hybrid_lauf.cpp:605`).
+* Neu in `_hybrid()`: eine Zeile `# AUSWERTUNG LAUFZEIT FRONT: <s>` und
+  `# AUSWERTUNG LAUFZEIT 20M: <s>` in `_hybrid.txt`, damit die zwei
+  Einzellaufzeiten im Beleg stehen (heute nur im Zeitwerkzeug).
+
+TEIL 3 - GLEICHWERTIGKEIT UND ROTPROBE (Pflicht, sonst gilt der Umbau als nicht belegt)
+
+1. **Vergleichslauf seriell** (NICHT der gueltige Beleg, eigener Name):
+   `python -u scripts/preflight.py before *> analysis/_m<N>/_preflight_<N>_seriell.txt`
+2. **Gueltiger Lauf parallel** (der eine Beleg des Batches):
+   `python -u scripts/preflight.py before *> analysis/_preflight_<N>.txt`
+3. **Zeilenvergleich**: beide Dateien muessen **in jeder Zeile gleich** sein;
+   abweichen duerfen nur die Kopfzeilen (`Lauf ... | HEAD ...`, `Werkzeugkette
+   ...`) und die Zeittafel `analysis/_m<N>/_preflight_zeiten.txt`. Damit das
+   gilt, druckt der Elternteil die eingesammelten Zeilen in einer **festgelegten
+   Reihenfolge** (`ZEILEN_ORDNUNG` in `preflight.py`, heute die Reihenfolge von
+   `collect()`/`CHECK_MODULES`) und nicht in der Reihenfolge des Bahn-Endes.
+   Eine Zeile, die in keiner Ordnungsliste steht, ist ein FEHLER (Test).
+   `diff` zeigen, die Abweichungsliste im Batch-Dokument nennen. Zusaetzlich:
+   `python -u scripts/m149_bilanz.py --batch <N> --from-preflight
+   analysis/_preflight_<N>.txt` muss unveraendert durchlaufen.
+4. **Rotprobe** (A1 und A2 laufen wirklich nebeneinander): Schalter
+   `--bahn-delay A2=30` (oder Umgebungsvariable), Lauf wiederholen -> die
+   Ausgabe bleibt zeilengleich, nur die Dauer aendert sich. Zusatzprobe:
+   `--bahn-delay A1=0 --bahn-delay A2=0` gegen `--nur-a1`/`--nur-a2` -> dieselben
+   Zeilen aus einem Prozess wie aus zwei. Schalter danach entfernen (oder 0) und
+   den Zustand im Batch-Dokument nennen.
+5. **Zeittafel**: `zeiten_schreiben` (`preflight.py:208`) muss die Teilschritte
+   je Bahn mit ihrer Bahn-Wanduhr ausweisen. Die 5 %-Gegenprobe
+   (`preflight.py:217-220`, "Summe Teilschritte gegen Gesamtwanduhr") gilt fuer
+   parallele Bahnen NICHT mehr - bei zwei Bahnen ist die Summe groesser als die
+   Uhr. Neue Form: **je Bahn** `Summe Teilschritte <= Bahn-Uhr + 5 %`; die
+   Zeile im Kopf der Datei nennt das ausdruecklich.
+6. **Messung berichten**: Dauer seriell gegen Dauer parallel, je Bahn.
+   Erwartung aus der Messung (`docs/_r13bi_belege.md`): im Regelfall
+   **~327 s statt ~525 s** (**-38 %**), fuer B234 **~1181 s statt 1579 s**
+   (**-25 %**). Wer mehr erwartet, irrt: der Hybrid-Lauf allein ist in B234
+   1181 s und wird zur kritischen Bahn. Weicht die Messung stark ab (> +10 %
+   oder > -15 %), im Batch-Dokument begruenden, nicht wegglaetten.
+
+FERTIG WENN: vier Bahnen definiert sind (A1 und A2 laufen wirklich gleichzeitig,
+hoechstens 3 Bahnen gleichzeitig, Hybrid-Lauf in einem eigenen Prozess),
+`analysis/_preflight_<N>.txt` ist zeilengleich zum seriellen Vergleichslauf
+(nur Kopf-/Zeitzeilen abweichend), die Rotprobe mit `--bahn-delay A2=30` aendert
+nur die Dauer, `m149_bilanz.py --from-preflight` laeuft unveraendert, und die
+gemessenen Zeiten stehen im Batch-Dokument.
+
+STREICHREIHENFOLGE: 1. Rotprobe, 2. Bahn C parallel, 3. Doku.
+NIE: Tafel-Gleichheit, `m149_bilanz --from-preflight`, Hybrid-Regel (Regel 2).
+
+## NACHRUECKLISTE
+1. Bahn A1 in EINEM Prozess (Cache bleibt warm) - FERTIG WENN `Bahnabdeckung`
+   und `C verifiziert` weiter unter 1 s stehen (nicht 213/217 s).
+2. Hybrid-Lauf als eigenes Modul, Zeilenschluessel unveraendert - FERTIG WENN
+   die sechs `Hybrid-*`-Zeilen aus `m212_hybrid.py` kommen und in der Ausgabe an
+   derselben Stelle stehen wie vorher.
+3. Zeilenvergleich seriell/parallel als Beleg abgelegt - FERTIG WENN die Datei
+   `analysis/_m<N>/_preflight_<N>_vergleich.txt` mit `diff`-Ausgabe existiert und
+   die Abweichungsliste im Dokument steht.
+4. Rotprobe mit `--bahn-delay A2=30` - FERTIG WENN die Ausgabe gleich bleibt und
+   die Dauer um ~30 s steigt.
+5. Zeiten je Bahn im Batch-Dokument - FERTIG WENN dort
+   `A1 <x> s | A2 <y> s | B <z> s | C <w> s | seriell <s> s | parallel <p> s`
+   mit Datum und HEAD steht.
+
+--- ENDE DES VORSCHLAGS ---

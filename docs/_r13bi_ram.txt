@@ -1,0 +1,17 @@
+R13bi - RAM-Bedarf der zwei Port-Laeufe (nur lesend)
+Binaerien: c_kopf.exe (ein Kopf _ck_09DE0.case), hybrid_lauf.exe --schritte 2000000
+ROM: 830d01.27p.be.bin, Profil: _ck_09DE0.case (vorhanden: True)
+
+freier Speicher VOR allen Messungen: 998 MB
+  allein: c_kopf.exe (1 Kopf)      Spitze    13.8 MB RSS   Dauer   0.4 s   frei min    990 MB (vorher 998)
+  allein: hybrid_lauf.exe (2M)     Spitze    89.6 MB RSS   Dauer   1.2 s   frei min    906 MB (vorher 1009)
+
+  GLEICHZEITIG:
+    c_kopf.exe (1 Kopf)      Spitze    13.1 MB RSS
+    hybrid_lauf.exe (2M)     Spitze    89.5 MB RSS
+    Summe der Spitzen        102.6 MB
+    Dauer gemeinsam 1.0 s   freier Speicher 988 -> min 910 MB (Abnahme 77 MB)
+
+Einordnung: gemessen mit KURZEN Laeufen (2M statt 200M Schritte, EIN Kopf
+statt 115). Der RSS ist vom geladenen Programm/Zustand bestimmt, nicht von
+der Schritt- oder Kopfzahl - die Spitze ist also die relevante Groesse.

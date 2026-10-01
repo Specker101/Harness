@@ -1,0 +1,45 @@
+R13bi - FRONT-Lauf (`--schritte 200000000 --nativ-weiter`) neben c_kopf.exe
+FRONT  : --schritte 200000000 --nativ-weiter
+Kopf   : c_kopf.exe 830d01.27p.be.bin <_ck_*.case>  (116 Profile da)
+
+freier Speicher vorher: 940 MB
+FRONT  : Dauer 1264.2 s   RSS-Spitze 1402.1 MB   rc=None
+c_kopf : 44 Koepfe gestartet (hoechstens 1 gleichzeitig), RSS-Spitze 15.7 MB
+Zusammen: RSS-Spitze 1417.8 MB   freier Speicher 940 -> 29 MB (Abnahme 910 MB)
+
+--- ERGEBNIS-Zeilen des FRONT-Laufs ---
+  # Hybrid-Laeufer, LAUFMODUS Kontrollfluss/Supervisor (Hybrid-Geruest, im Port zu ersetzen)
+  # ROM-Abbild : rom/build/830d01.27p.main.bin (713368 B, Basis 80000000)
+  # Coverage   : capture/ppc_cov_boot.bin (4194304 Woerter in der Karte)
+  # Anfangszustand (Lader, be.bin): Einsprung 80000020  r2=8000001C  r1=803FFFC0  MSR=0 (Quelle: analysis/_m211/_lader_zustand.txt)
+  # Schrittgrenze: 200000000
+  # MMIO-Attrappen: 9
+  #   [0] 7D000004-7D000004 Sysreg lesen Offset 4 = DIP-Schalter (DSW) = 0000007F  [mame/mame/src/mame/konami/hornet.cpp:637 (sysreg_r, case 4) + :1102-1124 (DSW hornet) + :1211-1214 (DSW sscope)]
+  #   [1] 7D010000-7D010007 Sysreg schreiben Offset 0/1 = 7-Segment-Anzeigen der Platine = 00000000  [mame/mame/src/mame/konami/hornet.cpp:690-693 (sysreg_w, case 0/1 "7seg LEDs on PCB"); ROM-Stelle FUN_80011EAC @80011EC0]
+  #   [2] 7D000002-7D000002 Sysreg lesen Offset 2 = I/O-Port 2 (IN2), alle Eingaenge unbetaetigt = 000000FF  [mame/mame/src/mame/konami/hornet.cpp:654-656 (sysreg_r, case 2) + :1092-1100 (IN2 hornet) + :1200-1221 (sscope aendert IN2 nicht) + ioport.h:45 (IP_ACTIVE_LOW=0xffffffff); ROM-Stelle FUN_8000CAB4 @8000CABC]
+  #   [3] 7D020000-7D021FFF RTC/NVRAM M48T58 (Timekeeper, 8 KiB Speicher + RTC-Register) = 00000000  [mame/mame/src/mame/konami/hornet.cpp:959 + mame/mame/src/devices/machine/timekpr.cpp:151-165 (Groesse 0x2000, Register 0x1FF8..0x1FFF); Aufnahme capture/nvram/sscope/m48t58]
+  #   [4] 780C0000-780C0003 SHARC-Kommando/Kontrollregister (Mailbox PPC->SHARC, Antwort 0x00800000 = MAME STATISCH, Zustandswechsel konppc.cpp:179 fehlt, Hybrid-Geruest, im Port zu ersetzen) = 00800000  [mame/mame/src/mame/konami/hornet.cpp:956 (cgboard_dsp_comm) + mame/mame/src/mame/konami/konppc.cpp:76 (m_dsp_state=0x80) und :150-207 (cgboard_dsp_comm_r/w_ppc, :156 die Leseantwort; :178-179 der NICHT geführte Zustandswechsel); ROM-Stelle FUN_8000C980 @8000C9E8]
+  #   [5] 74000000-740000FF K037122-Registerdatei der CG-Platine (Ruecklesen = Geschriebenes, Anfangswert 0) = 00000000  [mame/mame/src/mame/konami/hornet.cpp:951-952 (m_cg_view[0] -> k037122 reg_r/reg_w) + mame/mame/src/mame/konami/k037122.cpp:241-270 (m_reg, reg_w); ROM-Stelle FUN_80009EC0 @80009EF8 (nur schreibend)]
+  #   [6] 74020000-7407FFFF K037122 SRAM (Tile-RAM, 0x20000) + Char-RAM (0x40000, Bank 0) = 00000000  [mame/mame/src/mame/konami/hornet.cpp:953-954 (m_cg_view[0] -> sram/char) + mame/mame/src/mame/konami/k037122.cpp:200-239 (m_tile_ram/m_char_ram, COMBINE_DATA); ROM-Stelle FUN_80014750 @80014764 (nur schreibend)]
+  #   [7] 7D000003-7D000003 Sysreg lesen Offset 3 = I/O-Port 3 (IN3), MAME-Basis 0x70, Hybrid-Geruest, im Port zu ersetzen = 00000070  [mame/mame/src/mame/konami/hornet.cpp:658-673 (sysreg_r, case 3, :668 `r = 0x70`) + port/include/port/input_layer.h:172 (in3 = 0x70); ROM-Stelle FUN_80013F70 @80013F78 (nur lesend)]
+  #   [8] 78000000-7800FFFF SHARC-Shared-RAM (PPC-Sicht, 64 KiB, Ruecklesen = Geschriebenes, Anfangswert 0, Bank 0, Hybrid-Geruest, im Port zu ersetzen) = 00000000  [mame/mame/src/mame/konami/hornet.cpp:955 (cgboard_dsp_shared) + mame/mame/src/mame/konami/konppc.cpp:211-221 (cgboard_dsp_shared_r_ppc) und :517 (cgboard_dsp_shared_w_ppc, COMBINE_DATA) + :73-74 (m_dsp_shared_ram genullt, Bank 0); ROM-Stelle FUN_8000C3A8 @8000C434 (stmw r23,2(r31), r31 = 0x77FFFFFE)]
+  # Bit-31-Maske (ppccom.cpp:1343 `address &= 0x7fffffff`): EIN (Hybrid-Geruest, im Port zu ersetzen)
+  # ROM-Sicht  : rom/build/830d01.27p.be.bin (2097152 B) 0x7F000000-0x7F3FFFFF, gespiegelt 2 MiB im 4-MiB-Fenster: EIN (Hybrid-Geruest, im Port zu ersetzen)
+  # B229: NATIVER WEITERLAUF ueber 115 Registry-Koepfe (Ziel alle)
+  Schritte        : 200000000
+  Halt-PC         : 8000844C
+  Halt-Grund      : SCHRITTGENZE
+  Halt-Art        : Schranke
+  Hauptschleife   : 80008AA0 erreicht: nein
+  ausgefuehrte PCs: 199979423 (distinkt: 2999)
+  Wegmass         : 2985 / 42599 (distinkte PCs auf der Karte / alle Kartenzellen, OHNE Adressfilter)
+  Boot-Coverage   : 87 von 407 (Adressfilter < 80008AA0) - UNGUELTIG als Wegmass (R556)
+  Zugriffe        : 24227648
+  SPU             : 2 Lesezugriffe, 9 Schreibzugriffe 0x40000000-0x4000000F (PPC403GA, LINE_STATUS 0x06, ppccom.cpp:3146-3226), erste PC L 80013DFC / S 80013FB4, 7 distinkte Offsets
+  Attrappe-4-Lesen: 135 Lesezugriffe 0x780C0000-0x780C0003 (Antwort 0x00800000 = MAME STATISCH, Zustandswechsel konppc.cpp:179 fehlt), erste PC 8000C898, Werte 00800000
+  Anteil nativ    : 20577/200000000 | Ersatz 9: 9102 | Ersatz C: 50602 | Zaehler-Summe: 200000000 (gleich: ja)
+  Hybrid-Anteil nativ 20577/200000000 | Aufrufe alle Registry-Koepfe 2633 gleich 179 ungleich 2450 | nicht vergleichbar (Host/Geraet) 4 | Speicherzellen 10584 | davon Schatten-Zustand: 0 | Schritte im Schatten bei nativen Rufen: 20577 | Zeitbasis aus Schattenschrittzahl: 179 | --ohne-tb (tb aus Schatten): 0
+  Eintritte       : 2999 distinkte PCs, Summe 200000000, Schritte 200000000, Spannen 104 (Datei analysis/_rumpfspannen.txt)
+  Hybrid-Funktionen nativ 6/94 | verglichen gleich 6 | Host nötig 3 | Gesamt 115/2087
+  Kopf-Weiterlauf  : 12 Koepfe betreten, davon ersetzt 8 | verglichen gleich 6 | ungleich 1 | Host nötig 3
+  Hybrid-Kopf nativ Schritte 20577 (ersetzen) | Speicher-Hash 298FA537

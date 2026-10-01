@@ -1,0 +1,158 @@
+/ds R13bi-Preflight-Bahnen (Fassung 3) - Auftragstext (Vorschlag, NICHT gesendet)
+
+Fassungen: 1 = `docs/_r13bh_ds_vorschlag.txt` (drei Bahnen, zwei Port-Laeufe nie
+gleichzeitig), 2 = `docs/_r13bi_ds_vorschlag_f2_zurueckgezogen.txt` (Hybrid-Lauf
+als eigene Bahn PARALLEL zu `c_kopf_check`), 3 = diese.
+
+**Fassung 2 ist zurueckgezogen.** Sie stuetzte sich auf die Annahme, eine
+Ueberlappung koste nichts. Die Messung R13bi (`docs/_r13bi_belege.md`, Abschnitt 2e)
+zeigt das Gegenteil: der FRONT-Lauf `hybrid_lauf.exe --schritte 200000000
+--nativ-weiter` braucht **1402,1 MB RSS** (2M Schritte: 89,6 MB), der freie
+Speicher faellt waehrend des Laufs von 940 MB auf **29 MB**, und ein `c_kopf.exe`
+daneben braucht **~28 s je Kopf** statt 0,4-2,7 s. Deshalb gilt hier wieder:
+**die zwei Port-Laeufe ueberlappen NICHT.** Was aus Fassung 2 bleibt (Bahn A2 als
+eigene Pruefgruppe, Zeilenordnung, Prozesse statt Threads, Zeittafel je Bahn),
+steht in TEIL 2.
+
+--- BEGINN DES VORSCHLAGS (das ist der /ds-Wortlaut) ---
+
+TEIL 1 - DER SPEICHERBEDARF DES FRONT-LAUFS (der eigentliche Hebel)
+
+Gemessen (R13bi, `docs/_r13bi_ram.txt`, `docs/_r13bi_ram2.txt`, `_r13bi_ram3.txt`):
+
+    hybrid_lauf.exe --schritte 2000000                       89,6 MB RSS     1,2 s
+    hybrid_lauf.exe --schritte 200000000 --nativ-weiter    1402,1 MB RSS  1264,2 s
+    -> ~6,6 Byte je ausgefuehrtem Schritt; MMIO-Adressen 42 (2M) gegen 21504 (20M)
+    freier Speicher waehrend des FRONT-Laufs 940 -> 29 MB, danach wieder 1802 MB
+    c_kopf.exe neben dem FRONT-Lauf: ~28 s je Kopf (allein 0,4 s)
+
+Laufzeit und Speicherbedarf des Hybrid-Laufs sind damit **die groessten
+Einzelposten des Batches** - groesser als alles, was die Bahn-Rechnung gewinnen
+kann. Aufgabe:
+
+1. **RSS-Kurve aufnehmen.** Den echten FRONT-Aufruf
+   (`hybrid_lauf.exe --schritte 200000000 --nativ-weiter`, cwd = Repo-Wurzel)
+   starten und die RSS des Prozesses in festem Takt (<= 10 s) protokollieren;
+   die **Ausgabe gleichzeitig mitlesen** (Pipe nicht vollaufen lassen - der
+   Preflight liest sie auch). Beleg nach `analysis/_m<N>/_front_rss.txt`
+   (Schritte/Sekunde, RSS, freier Speicher).
+2. **Das wachsende Feld benennen.** Kandidaten: die Schatten-/Ersatzlisten der
+   nativen Koepfe, die MMIO-Adresstabelle, die native Kopfspur in
+   `port/hybrid/`. Gegenprobe mit halber Schrittzahl
+   (`--schritte 100000000`): RSS muss etwa halb so gross sein.
+   Kein Treffer ohne Belegstelle (`Datei:Zeile`).
+3. **Begrenzen** (Deckel/Ringpuffer/`clear()` je Abschnitt), **ohne** die
+   Pruefwerte zu aendern. Die Rohausgabe muss zeichengleich bleiben: die Zeilen
+   `Schritte/Halt-PC/Halt-Art/Wegmass`, `SPU`, `Attrappe-4-Lesen`,
+   `Anteil nativ`, `Hybrid-Anteil nativ`, `Hybrid-Funktionen nativ` und
+   `Speicher-Hash 298FA537` sind gegen `analysis/_preflight_234.txt:24-29` zu
+   vergleichen (dieselben Werte stehen in `docs/_r13bi_ram2.txt`).
+4. **Erst danach** ist TEIL 3 zu fahren.
+
+FERTIG WENN: die RSS-Kurve als Beleg vorliegt, das wachsende Feld benannt ist
+(oder eine benannte Luecke), der FRONT-Lauf bei **gleicher** Rohausgabe deutlich
+unter 500 MB bleibt und die Preflight-Zeilen 24-29 unveraendert sind.
+
+TEIL 2 - DIE BAHNEN (Fassung 1, mit den drei Randbefunden aus R13bi)
+
+Drei Bahnen, **hoechstens 3 gleichzeitig**, die zwei Port-Laeufe **nie**
+gleichzeitig (Begruendung oben):
+
+* **Bahn A - die Port-Bahn, EIN Prozess, streng seriell:**
+  `m227_profile_live` -> `c_kopf_check` -> `m210_bahnabdeckung` ->
+  `m212_hybrid` (NEU) -> `m212_zeilen`.
+  Die Cache-Verbraucher muessen im selben Prozess bleiben: `Bahnabdeckung`
+  (0,1 s) und `C verifiziert` (0,1 s) sind Cache-Treffer des gemeinsamen ROM-Laufs
+  aus `c_kopf._vergl_alle`; getrennt gefahren kostet das +213 s bzw. +217 s
+  (`analysis/_m216/_preflight_zeiten.txt`).
+* **Bahn B - Bau und Regression, seriell:** `m116_pass` -> `m5_kopf_check` ->
+  `port_regression` (~34 s).
+* **Bahn C - kurz:** `m104_built`, `m115_pass`, `m114_pass`, `m130_ast`,
+  `m200_einbindung`, `m210_r391`, `m214_archiv`, **`m233_binary` als LETZTES**
+  (~20 s). `m233_binary` prueft Binaer-Alter gegen die Quellen und darf nicht
+  waehrend eines Baus oder eines Port-Laufs urteilen.
+
+Neu und **verhaltensneutral**: der Hybrid-Lauf wird aus `m212_zeilen.py` in ein
+eigenes Modul `scripts/m212_hybrid.py` gezogen (Zeilen `Hybrid-Lauf`,
+`Hybrid-Lauf 20M`, `Hybrid-SPU`, `Hybrid-Attrappe4`, `Hybrid-Anteil nativ`,
+`Hybrid-Funktionen nativ` - Schluessel unveraendert; die zwei
+`hybrid_lauf.exe`-Aufrufe bleiben im Modul seriell). Er braucht **nichts** aus
+`c_kopf_check` (belegt: R13bi Abschnitt 1) und ist damit die Voraussetzung fuer
+jede spaetere Parallelitaet - **diese Runde schaltet sie nicht ein.**
+
+Harte Regeln:
+
+1. **Hoechstens 3 Bahnen gleichzeitig** (Nutzerauflage R13ar): A + B + C;
+   B und C verstecken sich hinter A. In Bahn A laeuft der Hybrid-Lauf **hinter**
+   `m210_bahnabdeckung`, damit er nicht neben `c_kopf.exe` liegt.
+2. **`hybrid_lauf.exe` nie parallel zu einem anderen `hybrid_lauf.exe`** und
+   **`c_kopf.exe`/`c_kopf.py` nie parallel zur eigenen Familie**; zusaetzlich
+   nicht `c_kopf` neben `hybrid_lauf` (Fassung 2, widerlegt: 1402 MB RSS).
+3. **Bahnen sind Prozesse, nicht Threads**: `verdict.capture`
+   (`scripts/verdict.py:78`) leitet `sys.stdout` prozessweit um; acht Gruppen
+   benutzen es (`c_kopf_check.py:67`, `port_regression.py:4042`, ...). Der
+   Belegpfad kommt aus der Umgebung (`evidence.py:98`, `EV_OUT`).
+4. **Zeilenordnung ist Pflicht:** der Elternteil druckt die eingesammelten Zeilen
+   in einer festgelegten Reihenfolge (`ZEILEN_ORDNUNG` in `preflight.py`, heute
+   die Reihenfolge von `collect()`); eine Zeile ohne Listenplatz ist ein FEHLER.
+   Nur so bleibt `analysis/_preflight_<N>.txt` zeilengleich, obwohl die Zeilen aus
+   mehreren Prozessen kommen.
+5. **Zeittafel je Bahn**: `zeiten_schreiben` (`preflight.py:208`) weist die
+   Teilschritte je Bahn mit ihrer Bahn-Wanduhr aus; die 5 %-Gegenprobe
+   (`:217-220`) gilt **je Bahn** (`Summe Teilschritte <= Bahn-Uhr + 5 %`), nicht
+   mehr gegen die Gesamtuhr.
+6. `m227_profile_live` VOR `m212_zeilen` (es liest
+   `analysis/<EV>/_profile_reproduzierbar.txt`); `m116_pass` VOR `m5_kopf_check`.
+7. Kein zweiter Schreiber auf dieselbe Belegdatei; `analysis/_archiv/MANIFEST.txt`
+   ist das einzige geteilte Ziel - nur anhaengen (`evidence.py:141`).
+8. Kein Verhalten aendern: gleiche Pruefungen, gleiche Schwellen, gleiche
+   Belegnamen, gleiche Zeilenschluessel.
+
+TEIL 3 - GLEICHWERTIGKEIT, ROTPROBE UND SPEICHERWACHE (Pflicht)
+
+1. **Vergleichslauf seriell** (NICHT der gueltige Beleg, eigener Name):
+   `python -u scripts/preflight.py before *> analysis/_m<N>/_preflight_<N>_seriell.txt`
+2. **Gueltiger Lauf mit Bahnen** (der eine Beleg des Batches):
+   `python -u scripts/preflight.py before *> analysis/_preflight_<N>.txt`
+3. **Zeilenvergleich:** beide Dateien **in jeder Zeile gleich**; abweichen duerfen
+   nur die Kopfzeilen (`Lauf ... | HEAD ...`, `Werkzeugkette ...`) und die
+   Zeittafel. `diff` als Beleg nach
+   `analysis/_m<N>/_preflight_<N>_vergleich.txt`, Abweichungsliste ins
+   Batch-Dokument. Zusaetzlich muss
+   `python -u scripts/m149_bilanz.py --batch <N> --from-preflight analysis/_preflight_<N>.txt`
+   unveraendert durchlaufen.
+4. **Rotprobe:** `--bahn-delay B=30` - die Ausgabe bleibt zeilengleich, nur die
+   Dauer aendert sich. Schalter danach entfernen und das im Batch-Dokument nennen.
+5. **Speicherwache (nur fuer eine spaetere Runde, die die Port-Bahnen doch
+   ueberlappen laesst):** vor dem Start von `hybrid_lauf.exe` den freien Speicher
+   pruefen (Werte aus `hx/last.py`) und nur starten, wenn **mehr als 1,6 GB frei**
+   sind (gemessene Spitze 1402,1 MB + Reserve, Fassung 2 hatte 0,3 GB als Schwelle
+   - das war zu niedrig). Wird die Schwelle nicht erreicht, laufen die Bahnen
+   seriell, und das steht als Zeile im Preflight-Text. Ohne diese Wache ist die
+   Ueberlappung **verboten**.
+
+FERTIG WENN: TEIL 1 belegt ist, drei Bahnen laufen (hoechstens 3 gleichzeitig, die
+zwei Port-Laeufe nie gleichzeitig), die Ausgabe zeilengleich zum seriellen
+Vergleichslauf ist, die Rotprobe nur die Dauer aendert,
+`m149_bilanz.py --from-preflight` unveraendert laeuft und die gemessenen Zeiten je
+Bahn im Batch-Dokument stehen.
+
+STREICHREIHENFOLGE: 1. Rotprobe, 2. Bahn C parallel, 3. Doku.
+NIE: Tafel-Gleichheit, `m149_bilanz --from-preflight`, die Zwei-Port-Regel.
+
+## NACHRUECKLISTE
+1. `m212_hybrid.py` als eigenes Modul, Zeilenschluessel unveraendert - FERTIG WENN
+   die sechs `Hybrid-*`-Zeilen aus dem neuen Modul kommen und in der Ausgabe an
+   derselben Stelle stehen wie vorher.
+2. Bahn A in EINEM Prozess - FERTIG WENN `Bahnabdeckung` und `C verifiziert` unter
+   1 s bleiben (nicht 213/217 s).
+3. RSS-Kurve des FRONT-Laufs - FERTIG WENN `analysis/_m<N>/_front_rss.txt` mit
+   Takt, Schritten und RSS existiert und das wachsende Feld benannt ist.
+4. FRONT-Lauf unter 500 MB bei zeichengleicher Rohausgabe (Vergleich gegen
+   `analysis/_preflight_234.txt:24-29`) - FERTIG WENN der Vergleich als Beleg
+   vorliegt.
+5. Zeiten je Bahn im Batch-Dokument - FERTIG WENN dort
+   `A <x> s | B <y> s | C <z> s | seriell <s> s | parallel <p> s` mit Datum und
+   HEAD steht.
+
+--- ENDE DES VORSCHLAGS ---

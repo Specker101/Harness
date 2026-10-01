@@ -1,0 +1,27 @@
+R13bi Nachtrag - Treiber-RSS und FRONT-RSS (nur lesend)
+
+### B) FRONT-Lauf (200M, --nativ-weiter): RSS-Spitze und Dauer
+  FRONT  : --schritte 200000000 --nativ-weiter
+  freier Speicher vorher: 940 MB
+  FRONT  : Dauer 1264.2 s   RSS-Spitze 1402.1 MB   rc=None
+  c_kopf : 44 Koepfe gestartet (hoechstens 1 gleichzeitig), RSS-Spitze 15.7 MB
+  Zusammen: RSS-Spitze 1417.8 MB   freier Speicher 940 -> 29 MB (Abnahme 910 MB)
+
+### A) Python-Treiber: RSS mit wachsendem DECKUNG-Cache
+Aufruf: c_kopf.deckung(read_profile(prof_path(tag)), tag) - Wortinterpreter, schreibfrei.
+  vor dem ersten Kopf:    28.4 MB RSS   frei 1033 MB
+  Kopf  1 ( 620B8):    29.7 MB RSS      1.4 s
+  Kopf  2 ( 626E0):    29.7 MB RSS      2.4 s
+  Kopf  3 ( 10E9C):    29.7 MB RSS      4.3 s
+  Kopf  4 ( 3C17C):    29.9 MB RSS      6.4 s
+  Kopf  5 ( 622AC):    29.9 MB RSS      8.2 s
+  Kopf  6 ( 3F7F0):    29.9 MB RSS      9.3 s
+  Kopf  7 ( 84A84):    30.0 MB RSS     10.3 s
+  Kopf  8 ( 2D4B4):    30.6 MB RSS     11.3 s
+  Kopf  9 ( 2C944):    30.7 MB RSS     12.3 s
+  Kopf 10 ( 426F4):    31.0 MB RSS     13.2 s
+  nach 10 Koepfen:       31.0 MB RSS  (+2.6 MB, 13.2 s)
+  Registry: 115 Koepfe -> lineare Hochrechnung 59 MB (HOCHRECHNUNG, keine Messung;
+  der Cache waechst je Kopf um die Zahl der angelaufenen PCs, die Kopfgroessen sind nicht gleich)
+  frei danach: 1802 MB
+
