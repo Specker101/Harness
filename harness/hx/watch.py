@@ -226,7 +226,7 @@ class Watcher:
         g = lambda k, d: self.cfg.get("limits", k, d)              # noqa: E731
         return (f"  Grenzen je Batch (aus [limits]): ALARM {int(g('alarm_requests', 500))} "
                 f"Anfragen / ${float(g('alarm_cost_usd', 1.0)):.2f} / "
-                f"{float(g('alarm_wall_s', 5400)) / 60:.0f} min - HART "
+                f"{float(g('alarm_wall_s', 9000)) / 60:.0f} min - HART "
                 f"{int(g('hard_requests', 1000))} / ${float(g('hard_cost_usd', 2.0)):.2f} / "
                 f"{float(g('hard_wall_s', 10800)) / 60:.0f} min")
 

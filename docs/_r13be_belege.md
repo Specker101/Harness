@@ -138,3 +138,108 @@ Hook dann **erneut** blockt (die Marke ist das Wirksame, nicht Zufall) und
 `test_einstellungsdatei_haengt_beide_ereignisse` faellt, wenn der `PreToolUse`-Eintrag oder
 das `--pre` fehlt.
 
+
+## Teil 3 — Laengere Batches: 150 min, groessere NACHRUECKLISTE, Kennzahl „fester Aufwand“
+
+**Auftrag.** `harness.toml`: `alarm_wall_s` von 5400 auf 9000 s (150 min); die
+Umschaltschwelle leitet sich wie bisher daraus ab; `hard_wall_s` bleibt 10800 s.
+`prompts/reviewer.md`: Auftraege auf ca. 2 Stunden Arbeit zuschneiden, mit groesserer
+NACHRUECKLISTE. Kennzahl in `result.json` und den Review-Fakten: fester Aufwand
+(Startroutine + Preflight/Schluss) gegen Arbeitszeit, in Minuten und Prozent.
+
+### 3.1 Die neue Schwelle und alles, was daran haengt
+
+| Ort | vorher | nachher |
+|---|---|---|
+| `harness.toml` `[limits] alarm_wall_s` | `5400` (90 min) | `9000` (150 min), Kommentar mit Rechnung |
+| `harness.toml` `umschalt_vor_alarm_s` | `900` (75 min Schwelle) | `900` unveraendert -> **135 min** Schwelle |
+| `harness.toml` `hard_wall_s` | `10800` | unveraendert (45 min Luft hinter der Schwelle) |
+| `hx/worker.py` Rueckfallwerte (3 Stellen: `:254`, `:432`, `:711`) | `5400` | `9000` |
+| `hx/watch.py:229` Rueckfallwert der Uhrzeile | `5400` | `9000` |
+| `hx/orchestrator.py` Vorspann-Kommentar | „90 min“ | „150 min“ |
+| `prompts/reviewer.md` Beispiel-Uhr | `von 90 min (Umschalten ab 75)` | `von 150 min (Umschalten ab 135)` |
+| `prompts/reviewer.md` Batch-Zuschnitt | „grob 1–2 Stunden Arbeit“ | „grob 2 Stunden Arbeit“ + Begruendung (fester Aufwand faellt einmal an) |
+| `prompts/reviewer.md` NACHRUECKLISTE | keine Groessenangabe | „**4–6 Posten**, geordnet wie die `STREICHREIHENFOLGE`“ |
+
+**Die Tests ziehen die Zahl aus der Config, nicht aus einer zweiten festen Zahl.**
+Umgestellt: `test_r13ad_fixes.py` (Config-Probe + `test_nach_der_schwelle_kein_anstoss`
+rechnet `umschalt_minuten(cfg)`), `test_r13ae_fixes.py` (`test_config_ist_900_s_und_135_min`,
+`test_anstoss_vor_der_schwelle_keiner_danach`, `test_hook_bekommt_die_schwelle`,
+`test_vorspann_und_reviewer_nennen_die_schwelle`), `test_r13ah_fixes.py` (vier Schwelle-Tests
++ Hook-Datei), `test_r13e_fixes.py` (`_limits_text()` gegen Config statt „90 min“).
+Feste Zahlen bleiben nur dort, wo sie **Eingaben** sind (`uhr_text(st, 90, 180, …)`).
+
+**Zwei Fallen, die dabei zugeschlagen haben** (beide sofort behoben, im Repo belegt):
+ein Block-Kommentar in `harness.toml` verschluckte die Zeile `umschalt_vor_alarm_s = 900`
+(TOML kennt nur `#` bis Zeilenende — die Schwelle fiel still auf den Code-Rueckfall
+zurueck), und `hx/worker.py:_finish_run` rief `uhr.start_zeit(state)` mit dem
+`State`-Objekt statt `state.data` — ein **Fehler aus Teil 1**, den
+`test_r13ad_fixes.py::test_mocklauf_schreibt_kontextzahlen` fand (B229 lief zu diesem
+Zeitpunkt noch mit der alten Fassung im Speicher, der Fehler waere erst am Ende des
+naechsten Batches aufgetreten). Lehre: nach Teil 1 war `test_r13ad_fixes.py` **nicht**
+mitgelaufen — die Liste der betroffenen Dateien war zu kurz.
+
+### 3.2 Kennzahl „fester Aufwand“ (`hx/stand.py:aufwand_anteile`)
+
+**Definition (drei Teile, Minuten und Prozent der Wanduhr):**
+
+* **Startroutine** = Start bis zum **ersten schreibenden Werkzeugaufruf**
+  (`SCHREIB_WERKZEUGE` = Teilwort-Treffer auf `edit|write|replace|create|notebookedit`,
+  damit `Edit`, `str_replace_in_file`, `create_file` und MCP-Namen alle treffen).
+  Kein Schreibaufruf im Mitschnitt -> Anteil **0** **mit Vermerk** („kein Anker“, nicht
+  „kein Aufwand“).
+* **Preflight/Schluss** = **letzter** Preflight-Start bis Laufende (enthaelt Preflight,
+  Bilanz, Memory-Export). Ein frueherer Preflight zaehlt nicht — der ist ueberholt.
+* **Arbeit** = Wanduhr minus beider Teile, nie negativ.
+
+**Eine Zeitquelle fuer live und Rueckblick.** `Start` = `worker.started_at` (live) bzw.
+`finished_at − duration_s` (Rueckblick), `Ende` = der Augenblick, den `result.json` als
+`finished_at` traegt. `test_live_und_rueckblick_geben_dieselbe_zahl` prueft genau das.
+Verdrahtung: `payload["aufwand"]` in `result.json`, Zeile `AUFWAND: …` in den Review-Fakten
+(`stand.aufwand_zeile`, nimmt das Feld oder rechnet fuer aeltere Batches nach).
+
+**Rueckblick B220–B229** (`docs/_r13be_aufwand.txt`, gerechnet aus den vorhandenen
+Mitschnitten):
+
+```
+ Batch  Wanduhr  Startroutine   Arbeit  Preflight  Anker
+   220      33m       1m (   3%)     24m (  74%)       7m (  23%)  Schreibaufruf
+   221      27m       0m (   2%)     19m (  71%)       7m (  27%)  Schreibaufruf
+   222      70m       2m (   4%)     60m (  87%)       7m (  10%)  Schreibaufruf
+   223      51m       3m (   5%)     40m (  78%)       8m (  16%)  Schreibaufruf
+   224      45m      10m (  21%)     27m (  61%)       8m (  18%)  Schreibaufruf
+   225      38m       2m (   4%)     28m (  73%)       9m (  23%)  Schreibaufruf
+   226      63m       2m (   4%)     52m (  83%)       8m (  13%)  Schreibaufruf
+   227      58m       3m (   5%)     48m (  82%)       7m (  12%)  Schreibaufruf
+   228      87m       3m (   3%)     76m (  87%)       8m (  10%)  Schreibaufruf
+   229      80m       3m (   4%)     68m (  85%)       9m (  11%)  Schreibaufruf
+```
+
+**Was die Tafel sagt.** Der feste Aufwand liegt bei **9–11 min** je Batch (`Preflight/Schluss`
+7–9 min, Startroutine 0–3 min; B224 mit 10 min Startroutine ist der Ausreisser — dort lag vor
+dem ersten Schreibzugriff eine lange Messphase). In Prozent der Wanduhr: **26 %** im kuerzesten
+Batch (B220, 33 min), **13 %** im laengsten (B228, 87 min). Bei 150 min Alarmgrenze sinkt der
+feste Anteil auf **~7 %** — genau der Grund fuer die Aenderung: der Aufwand faellt **einmal**
+an, die Arbeitszeit waechst mit der Batchlaenge.
+
+**Kein Batch der Reihe kam an die alte Schwelle**: laengster Lauf 87 min (B228), die
+Umschaltschwelle lag bei 75 min, der 90-min-Alarm wurde nie erreicht. Die Verlaengerung
+verschiebt also keine vorhandene Grenze im Betrieb, sie macht die Grenze erst erreichbar.
+
+### 3.3 Tests (10 neue in `tests/test_r13be_fixes.py::TestFesterAufwand`)
+
+Drei Anteile aus einem Mitschnitt mit bekannten Zeitmarken (30 min Wanduhr -> 10/10/10);
+der **letzte** Preflight setzt den Schlussanteil; ohne Schreibaufruf ist die Startroutine 0
+**mit Vermerk**; ohne Preflight ist der Schlussanteil 0; live und Rueckblick liefern dieselbe
+Zahl; die Fakten-Zeile nimmt das Feld aus `result.json`, wenn es da ist (feste Beispielzahlen
+99/9/80/10) und rechnet sonst nach; ohne Zeiten steht „nicht messbar“; die Teilwort-Regel
+trifft MCP-Namen (`str_replace_in_file`, `create_file`) und **nicht** `Read`/`Grep`;
+Verdrahtung in `worker._finish_run` und `Orchestrator.harness_facts` per Quelltextprobe.
+
+**Laeufe (nur betroffene Dateien, waehrend B229 in der Review-Phase lief):**
+`test_r13ad_fixes` 30 OK, `test_r13ae_fixes` 25 OK, `test_r13e_fixes` 38 OK,
+`test_r13ah_fixes` 49 OK, `test_r13be_fixes` 34 OK (24 aus Teil 1/2 + 10 neu),
+`test_r13ao` 23, `test_r13aw` 18, `test_r13al` 26, `test_r13as` 42, `test_r13au` 17,
+`test_r13ax` 16, `test_r13_fixes` 11, `test_r13ap` 22, `test_r13g` 21, `test_r13h` 21,
+`test_r13n` 13, `test_r13ba` 31, `test_r13bb` 36, `test_r13i` 14, `test_r13ac` 46 — alle OK.
+Die **volle Reihe** folgt am Gate (`docs/_r13be_volle_reihe.txt`).

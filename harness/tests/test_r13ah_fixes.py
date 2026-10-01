@@ -268,31 +268,36 @@ class TestPreflightDauer(Basis):
         self.assertEqual(stand.preflight_dauer(self.cfg)["batch"], 212)
 
     # --------------------------------------------------------- Schwelle
+    def _weich(self) -> float:
+        """Alarmgrenze in Minuten (R13be-3: 150 statt 90) - eine Quelle, die Config."""
+        return float(self.cfg.get("limits", "alarm_wall_s")) / 60.0
+
     def test_schwelle_zieht_den_preflight_vor(self):
         self.result_json(214, 600.0)              # 10 min
         u = worker.umschalt_minuten(self.cfg)
         self.assertAlmostEqual(u["preflight_min"], 10.0, places=2)
         self.assertAlmostEqual(u["vorlauf_min"], 15.0, places=2)
-        self.assertAlmostEqual(u["umschalt_min"], 75.0, places=2)
+        self.assertAlmostEqual(u["umschalt_min"], self._weich() - 15.0, places=2)
         self.assertEqual(u["preflight_batch"], 214)
 
     def test_langer_preflight_schiebt_die_schwelle_weiter_vor(self):
         self.result_json(214, 1200.0)             # 20 min
         u = worker.umschalt_minuten(self.cfg)
         self.assertAlmostEqual(u["vorlauf_min"], 25.0, places=2)
-        self.assertAlmostEqual(u["umschalt_min"], 65.0, places=2)
+        self.assertAlmostEqual(u["umschalt_min"], self._weich() - 25.0, places=2)
 
     def test_ohne_messung_gilt_die_feste_zahl(self):
         u = worker.umschalt_minuten(self.cfg)
         self.assertEqual(u["preflight_min"], 0.0)
         self.assertEqual(u["preflight_batch"], 0)
         self.assertAlmostEqual(u["vorlauf_min"], 15.0, places=2)
-        self.assertAlmostEqual(u["umschalt_min"], 75.0, places=2)
+        self.assertAlmostEqual(u["umschalt_min"], self._weich() - 15.0, places=2)
 
     def test_anstoss_grenze_folgt_der_schwelle(self):
         from hx import streamjson
         from hx.proc import StreamRun
-        self.result_json(214, 1200.0)             # Schwelle 65 min
+        self.result_json(214, 1200.0)             # Vorlauf 25 min
+        u = float(worker.umschalt_minuten(self.cfg)["umschalt_min"])
         s = streamjson.StreamStats()
         s.feed(json.dumps({"type": "assistant", "message": {
             "id": "m1", "model": "m", "usage": {"input_tokens": 1000},
@@ -300,9 +305,9 @@ class TestPreflightDauer(Basis):
         run = StreamRun()
         run.rc = 0
         entsch = worker.fortsetzung_pruefen(self.cfg, run, s,
-                                            "## NACHRUECKLISTE\n1. Posten\n", 66.0, [])
+                                            "## NACHRUECKLISTE\n1. Posten\n", u + 1.0, [])
         self.assertFalse(entsch["ja"])
-        self.assertIn("Umschaltschwelle 65 min", entsch["grund"])
+        self.assertIn(f"Umschaltschwelle {u:.0f} min", entsch["grund"])
 
     # ------------------------------------------------------------ Uhr + Hook
     def test_uhr_zeigt_den_preflight(self):
@@ -319,13 +324,14 @@ class TestPreflightDauer(Basis):
         self.assertNotIn("Preflight zuletzt", ohne)
 
     def test_hook_datei_traegt_die_neue_schwelle(self):
-        self.result_json(213, 1200.0)             # 20 min -> Schwelle 65 min
+        self.result_json(213, 1200.0)             # 20 min Preflight -> Vorlauf 25 min
+        u = worker.umschalt_minuten(self.cfg)
         state_datei = self.state().path
         ziel = worker.write_worker_hooks(self.cfg, self.root / "runs" / "b214",
                                          state_datei, self.log)
         args = json.loads(Path(ziel).read_text(encoding="utf-8"))[
             "hooks"]["PostToolUse"][0]["hooks"][0]["args"]
-        self.assertEqual(args[args.index("--umschalt") + 1], "65")
+        self.assertEqual(args[args.index("--umschalt") + 1], f"{u['umschalt_min']:.0f}")
         self.assertEqual(args[args.index("--preflight-min") + 1], "20.0")
 
     def test_hook_skript_zeigt_beides_im_text(self):

@@ -193,7 +193,9 @@ class TestZeitquelle(unittest.TestCase):
 
     def test_konfiguration_hat_die_eine_zeitquelle(self):
         cfg = load_config()
-        self.assertEqual(float(cfg.get("limits", "alarm_wall_s")), 5400.0)
+        # R13be-3 (01.10.2026): Alarmgrenze 5400 -> 9000 s (150 min), harte Grenze bleibt.
+        self.assertEqual(float(cfg.get("limits", "alarm_wall_s")), 9000.0)
+        self.assertEqual(float(cfg.get("limits", "hard_wall_s")), 10800.0)
         self.assertEqual(float(cfg.get("limits", "umschalt_vor_alarm_s")), 900.0)
         self.assertEqual(int(cfg.get("limits", "kontext_limit")), 1000000)
 
@@ -248,9 +250,12 @@ class TestFortsetzung(unittest.TestCase):
                                             self.AUFTRAG, 30.0, [])
         self.assertTrue(entsch["ja"], entsch)
 
-    def test_85_min_kein_anstoss(self):
+    def test_nach_der_schwelle_kein_anstoss(self):
+        # R13be-3: die Schwelle kommt aus der Config (Alarm 150 min -> 135 min), nicht
+        # aus einer festen Zahl - sonst muesste dieser Test bei jeder Grenzaenderung mit.
+        u = float(worker.umschalt_minuten(self.cfg)["umschalt_min"])
         entsch = worker.fortsetzung_pruefen(self.cfg, self._run(), self._stats(300000),
-                                            self.AUFTRAG, 85.0, [])
+                                            self.AUFTRAG, u + 1.0, [])
         self.assertFalse(entsch["ja"])
         self.assertIn("Umschaltschwelle", entsch["grund"])
 

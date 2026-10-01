@@ -242,12 +242,14 @@ class TestZeitschwelle(unittest.TestCase):
     def setUp(self):
         self.cfg = load_config()
 
-    def test_config_ist_900_s_und_75_min(self):
-        self.assertEqual(float(self.cfg.get("limits", "alarm_wall_s")), 5400.0)
+    def test_config_ist_900_s_und_135_min(self):
+        # R13be-3 (01.10.2026): 5400 -> 9000 s; die Schwelle folgt derselben Rechnung.
+        self.assertEqual(float(self.cfg.get("limits", "alarm_wall_s")), 9000.0)
         self.assertEqual(float(self.cfg.get("limits", "umschalt_vor_alarm_s")), 900.0)
-        self.assertEqual((5400.0 - 900.0) / 60.0, 75.0)
+        self.assertEqual((9000.0 - 900.0) / 60.0, 135.0)
+        self.assertEqual(float(worker.umschalt_minuten(self.cfg)["umschalt_min"]), 135.0)
 
-    def test_anstoss_bei_74_minuten_keiner_bei_76(self):
+    def test_anstoss_vor_der_schwelle_keiner_danach(self):
         """Der Fortsetzungsanstoss haengt an derselben Zahl (EINE Zeitquelle)."""
         from hx import streamjson
 
@@ -256,7 +258,7 @@ class TestZeitschwelle(unittest.TestCase):
             s.feed(json.dumps({"type": "assistant", "message": {
                 "id": "m1", "model": "m", "usage": {"input_tokens": 1000},
                 "content": [{"type": "text", "text": "x"}]}}))
-            s.feed(json.dumps({"type": "result", "subtype": "success", "usage": {}, 
+            s.feed(json.dumps({"type": "result", "subtype": "success", "usage": {},
                                "num_turns": 1}))
             return s
 
@@ -264,11 +266,12 @@ class TestZeitschwelle(unittest.TestCase):
         from hx.proc import StreamRun
         lauf = StreamRun()
         lauf.rc = 0
-        frueh = worker.fortsetzung_pruefen(self.cfg, lauf, stats(), auftrag, 74.0, [])
+        u = float(worker.umschalt_minuten(self.cfg)["umschalt_min"])
+        frueh = worker.fortsetzung_pruefen(self.cfg, lauf, stats(), auftrag, u - 1.0, [])
         self.assertTrue(frueh["ja"], frueh)
-        spaet = worker.fortsetzung_pruefen(self.cfg, lauf, stats(), auftrag, 76.0, [])
+        spaet = worker.fortsetzung_pruefen(self.cfg, lauf, stats(), auftrag, u + 1.0, [])
         self.assertFalse(spaet["ja"])
-        self.assertIn("Umschaltschwelle 75 min", spaet["grund"])
+        self.assertIn(f"Umschaltschwelle {u:.0f} min", spaet["grund"])
 
     def test_uhr_vorgabe_ist_15_minuten_vor_der_alarmgrenze(self):
         start = datetime.now(timezone.utc) - timedelta(minutes=34)
@@ -278,7 +281,7 @@ class TestZeitschwelle(unittest.TestCase):
         self.assertIn("Umschalten ab 75", text)
         self.assertIn("Umschaltschwelle 75 min", text)
 
-    def test_hook_bekommt_die_75(self):
+    def test_hook_bekommt_die_schwelle(self):
         tmp = Path(ROOT) / "tests" / "_tmp_r13ae_hook"
         shutil.rmtree(tmp, ignore_errors=True)
         try:
@@ -292,8 +295,10 @@ class TestZeitschwelle(unittest.TestCase):
             ziel = worker.write_worker_hooks(self.cfg, d, state_json, log)
             daten = json.loads(Path(ziel).read_text(encoding="utf-8"))
             args = daten["hooks"]["PostToolUse"][0]["hooks"][0]["args"]
-            self.assertEqual(args[args.index("--umschalt") + 1], "75")
-            self.assertEqual(args[args.index("--weich") + 1], "90")
+            u = worker.umschalt_minuten(self.cfg)
+            self.assertEqual(args[args.index("--umschalt") + 1], f"{u['umschalt_min']:.0f}")
+            weich = float(self.cfg.get("limits", "alarm_wall_s")) / 60.0
+            self.assertEqual(args[args.index("--weich") + 1], f"{weich:.0f}")
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
@@ -305,9 +310,12 @@ class TestZeitschwelle(unittest.TestCase):
         self.assertIn("Preflight zuletzt ~<p> min", pre)
         self.assertNotIn("Alarmgrenze minus 10 min", pre)
         rev = (Path(ROOT) / "prompts" / "reviewer.md").read_text(encoding="utf-8")
-        self.assertIn("(Umschalten ab 75)", rev)
+        # R13be-3 (01.10.2026): Alarm 90 -> 150 min, Beispiel-Uhr im Reviewer entsprechend.
+        # Die erwartete Zahl kommt aus der Config, nicht aus einer zweiten festen Zahl.
+        weich = float(self.cfg.get("limits", "alarm_wall_s")) / 60.0
+        self.assertIn(f"von {weich:.0f} min", rev)
+        self.assertIn(f"(Umschalten ab {weich - 15.0:.0f})", rev)
         self.assertIn("Alarm − max(15 min,", rev)
-        self.assertNotIn("(Umschalten ab 80)", rev)
 
 
 # ------------------------------------------------- 5) Gegenprobe: echte Dateien

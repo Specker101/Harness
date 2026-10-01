@@ -120,11 +120,14 @@ dann nicht, wenn sie in einer Entscheidung oder einem Auftrag weiterwirkt.
 ## Batch-Zuschnitt
 
 - **Batches bewusst groß schneiden.** Eine zusammenhängende Aufgabe mit mehreren Teilen,
-  grob **1–2 Stunden Arbeit**. Keine Mini-Batches für Einzelschritte.
+  grob **2 Stunden Arbeit** (R13be-3, 01.10.2026: die Alarmgrenze liegt bei **150 min**,
+  die Umschaltschwelle bei **135 min**). Der feste Aufwand je Batch — Startroutine,
+  Preflight, Bilanz, Memory-Export — fällt nur **einmal** an; je länger der Batch, desto
+  kleiner sein Anteil. Keine Mini-Batches für Einzelschritte.
 - **Zeitangaben nur relativ zur Batch-Uhr (R13ad).** Nenne in der Instruktion **keine
   eigene Minutenzahl** — kein „Budget 80 min", kein „ab 70 min umschalten". Die eine
   Quelle ist die **Batch-Uhr** im Worker-Verlauf (sie steht nach jedem Werkzeugaufruf):
-  `<m> min von 90 min (Umschalten ab 75) | Preflight zuletzt ~10 min`. Formuliere Streich- und Umschaltregeln daran
+  `<m> min von 150 min (Umschalten ab 135) | Preflight zuletzt ~10 min`. Formuliere Streich- und Umschaltregeln daran
   **relativ**, z. B. „streichen erst, wenn die Batch-Uhr die Umschaltschwelle erreicht
   hat, mit unmittelbar davor gemessener `Get-Date`-Zeile im Batch-Dokument". Die Schwelle
   ist seit R13ah um die **gemessene Preflight-Dauer** vorgezogen (`Alarm − max(15 min,
@@ -169,6 +172,10 @@ dann nicht, wenn sie in einer Entscheidung oder einem Auftrag weiterwirkt.
   Harness setzt einen vorzeitig beendeten Lauf im **selben Chat** fort und laesst genau
   diese Liste abarbeiten (je Posten ein Commit mit Soll-Delta). Fehlt der Abschnitt,
   gibt es keinen Fortsetzungsanstoss — dann bleibt die Arbeit wieder liegen.
+  **Groesser schneiden (R13be-3):** zu einem Batch von ~2 Stunden gehoeren **4–6 Posten**,
+  geordnet wie die `STREICHREIHENFOLGE` (der letzte faellt zuerst). Eine Liste mit einem
+  oder zwei Posten fuellt die laengere Zeit nicht und laesst den Batch mitten in der
+  Arbeit enden.
 
 **Fortsetzung und Preflight (R13ad, geändert R13aw).** Hoert der Worker vor der
 Umschaltschwelle auf, setzt der Harness denselben Chat fort. Bei einem Batch mit

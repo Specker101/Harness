@@ -2239,7 +2239,7 @@ class Orchestrator:
         """Fortsetzungen im selben Chat (R13ad) - Minute, Kontext, Antwort des Workers.
 
         Grund (Auftrag 2026-09-29): der Worker hoerte wiederholt frueh auf (18-52 von
-        90 min), oft mit offener Nachrueckliste. Jeder Anstoss und die Antwort darauf
+        150 min), oft mit offener Nachrueckliste. Jeder Anstoss und die Antwort darauf
         gehoeren sichtbar in den Review - sonst sieht es aus wie ein regulaerer Abschluss.
 
         R13aw: dazu der GRUND, warum nicht (weiter) angestossen wurde. Nach einem
@@ -2372,6 +2372,10 @@ class Orchestrator:
             self.cfg, batch, res.get("preflight_laeufe"), res.get("preflight_frueh"),
             hook=res.get("preflight_laeufe_hook"),
             mitschnitt=res.get("preflight_laeufe"))]
+        # R13be-3 (Nutzerauftrag 01.10.2026): fester Aufwand gegen Arbeitszeit - dieselbe
+        # Zahl wie in `result.json` (`aufwand`), damit lange Batches belegbar mehr
+        # Arbeitsanteil bringen. Fehlt das Feld (aeltere Batches), wird nachgerechnet.
+        lines += [f"- {z}" for z in standmod.aufwand_zeile(self.cfg, batch, res)]
         # R13ba-Nachtrag: ein nicht lesbares Messdatum in der juengsten Paket-E-Messdatei
         # wird als PARSER-Hinweis gemeldet (dann gilt die Dateizeit, und die BILANZ sagt
         # "(Datum aus Dateizeit)") - ein stiller Rueckfall waere nicht nachpruefbar.

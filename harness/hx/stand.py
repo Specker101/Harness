@@ -709,6 +709,154 @@ def preflight_zaehler_zeile(cfg, batch: int, laeufe: int | None = None,
     return [teile]
 
 
+# Werkzeuge, die eine Datei SCHREIBEN. Der erste solche Aufruf ist der Anker fuer
+# "erste inhaltliche Arbeit" - alles davor (Anker lesen, git status, Memory-Sync,
+# Preflight) ist Startroutine. Absichtlich als Teilwort-Treffer, weil Modell und MCP
+# dieselbe Sache verschieden benennen (`Edit`, `str_replace_in_file`, `create_file`, …).
+SCHREIB_WERKZEUGE = ("edit", "write", "replace", "create", "notebookedit")
+
+
+def _mitschnitt_werkzeuge(rd) -> list[dict]:
+    """Alle `tool_use`-Bloecke im Mitschnitt mit Zeitstempel (R13be-3).
+
+    Nur Zeilen mit `"tool_use"` ansehen - die `system`-Zeilen sind die Masse des
+    Mitschnitts (FALLSTRICK aus R13be-1: ein Textfilter auf "preflight" verliert die
+    Ergebniszeilen, weil sie den Aufruf nicht nennen).
+    """
+    treffer: list[dict] = []
+    for p in _mitschnitt_dateien(rd):
+        for zeile in (read_text(p) or "").splitlines():
+            if '"tool_use"' not in zeile:
+                continue
+            try:
+                satz = json.loads(zeile)
+            except ValueError:
+                continue
+            for block in ((satz.get("message") or {}).get("content") or []):
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    treffer.append({"ts": str(satz.get("timestamp") or ""),
+                                    "name": str(block.get("name") or ""),
+                                    "id": str(block.get("id") or "")})
+    return treffer
+
+
+def aufwand_anteile(cfg, batch: int, start_zeit=None, ende_zeit=None) -> dict:
+    """Fester Aufwand gegen Arbeitszeit (R13be-3, Nutzerauftrag 01.10.2026).
+
+    **Die Frage.** Der feste Aufwand eines Batches (Startroutine, Preflight, Bilanz,
+    Memory-Export) faellt bei JEDEM Batch einmal an. Bei kurzen Batches frisst er einen
+    grossen Teil der Wanduhr; nur laengere Batches strecken ihn. Diese Kennzahl macht
+    das messbar, statt es zu schaetzen.
+
+    **Definition (drei Teile, in Minuten und Prozent der Wanduhr):**
+
+    * `startroutine` = Startzeit bis zum **ersten schreibenden Werkzeugaufruf**
+      (`SCHREIB_WERKZEUGE`). Enthaelt Anker lesen, `git status`, Memory-Sync, einen
+      frueh gestarteten Preflight. Gibt es keinen Schreibaufruf im Mitschnitt (reine
+      Mess-/Analyse-Batches), bleibt der Anteil **0** - das ist nicht "kein Aufwand",
+      sondern "kein Anker", und steht so in der Zeile.
+    * `preflight` (Schluss) = **letzter** Preflight-Start bis Laufende. Enthaelt den
+      Preflight selbst, Bilanz und Memory-Export.
+    * `arbeit` = Wanduhr minus der beiden Teile (nie negativ; ueberlappen beide, steht
+      hier 0).
+
+    **Zeitquelle.** `Start` = `worker.started_at` aus dem Zustand (live) bzw.
+    `result.json: finished_at - duration_s` (Rueckblick). `Ende` = `finished_at`
+    (live: der Augenblick, in dem `result.json` geschrieben wird). Beide Wege liefern
+    dieselbe Zahl, der Rueckblick ist also keine zweite Rechnung.
+
+    Rueckgabe: `{"wand_min", "startroutine_min", "preflight_min", "arbeit_min",
+    "startroutine_pct", "preflight_pct", "arbeit_pct", "erste_arbeit",
+    "letzter_preflight", "aufrufe", "quelle"}` - alle Zahlen `None`, wenn keine
+    Start-/Endzeit vorliegt.
+    """
+    rd = Path(cfg.sub("runs")) / f"b{int(batch):03d}"
+    d = read_json(rd / "result.json", None)
+    d = d if isinstance(d, dict) else {}
+    ende = ende_zeit or _iso_zeit(d.get("finished_at"))
+    start = start_zeit
+    quelle = "zustand" if start is not None else ""
+    if start is None and d.get("finished_at") and d.get("duration_s"):
+        e2 = _iso_zeit(d["finished_at"])
+        if e2 is not None:
+            start = e2 - timedelta(seconds=float(d["duration_s"]))
+            quelle = "result.json"
+    leer = {"wand_min": None, "startroutine_min": None, "preflight_min": None,
+            "arbeit_min": None, "startroutine_pct": None, "preflight_pct": None,
+            "arbeit_pct": None, "erste_arbeit": "", "letzter_preflight": "",
+            "aufrufe": 0, "quelle": ""}
+    if start is None or ende is None:
+        return leer
+    wand_min = (ende - start).total_seconds() / 60.0
+    if wand_min <= 0:
+        return leer
+    ereignisse = _mitschnitt_werkzeuge(rd)
+    erste = ""
+    for e in ereignisse:
+        if not any(w in e["name"].lower() for w in SCHREIB_WERKZEUGE):
+            continue
+        t = _iso_zeit(e["ts"])
+        if t is not None and start <= t <= ende:
+            erste = e["ts"]
+            break
+    pf = mitschnitt_preflight_aufrufe(cfg, batch, start_zeit=start)
+    letzter = ""
+    if pf["aufrufe"]:
+        kandidaten = [a["ts"] for a in pf["aufrufe"]
+                      if (_iso_zeit(a["ts"]) or start) <= ende]
+        if kandidaten:
+            letzter = max(kandidaten)
+    sr_min = ((_iso_zeit(erste) - start).total_seconds() / 60.0) if erste else 0.0
+    sr_min = max(0.0, min(sr_min, wand_min))
+    pf_min = ((ende - _iso_zeit(letzter)).total_seconds() / 60.0) if letzter else 0.0
+    pf_min = max(0.0, min(pf_min, wand_min))
+    arbeit_min = max(0.0, wand_min - sr_min - pf_min)
+
+    def pct(x: float) -> float:
+        return round(x / wand_min * 100.0, 1)
+
+    return {"wand_min": round(wand_min, 1), "startroutine_min": round(sr_min, 1),
+            "preflight_min": round(pf_min, 1), "arbeit_min": round(arbeit_min, 1),
+            "startroutine_pct": pct(sr_min), "preflight_pct": pct(pf_min),
+            "arbeit_pct": pct(arbeit_min), "erste_arbeit": erste,
+            "letzter_preflight": letzter, "aufrufe": len(ereignisse),
+            "quelle": quelle}
+
+
+def aufwand_zeile(cfg, batch: int, res: dict | None = None) -> list[str]:
+    """Eine Zeile fuer die Review-Fakten: fester Aufwand gegen Arbeitszeit (R13be-3).
+
+    Nimmt die Kennzahl aus `result.json` (`aufwand`), wenn sie dort steht - sonst wird
+    sie aus Mitschnitt und `result.json` nachgerechnet. Damit gilt derselbe Wortlaut fuer
+    den laufenden Batch und fuer den Rueckblick aelterer Batches (B220-B229), die das Feld
+    noch nicht tragen.
+    """
+    a = None
+    if isinstance(res, dict):
+        a = res.get("aufwand") if isinstance(res.get("aufwand"), dict) else None
+    else:
+        d = read_json(Path(cfg.sub("runs")) / f"b{int(batch):03d}" / "result.json", None)
+        if isinstance(d, dict) and isinstance(d.get("aufwand"), dict):
+            a = d["aufwand"]
+    if a is None or a.get("wand_min") is None:
+        a = aufwand_anteile(cfg, batch)
+    if a.get("wand_min") is None:
+        return [f"AUFWAND: nicht messbar (keine Start-/Endzeit fuer b{int(batch):03d})"]
+    def m(x) -> str:
+        return f"{float(x):.0f} min"
+    teile = (f"AUFWAND: {m(a['wand_min'])} gesamt = "
+             f"{m(a['startroutine_min'])} Startroutine ({a['startroutine_pct']:.0f} %) + "
+             f"{m(a['arbeit_min'])} Arbeit ({a['arbeit_pct']:.0f} %) + "
+             f"{m(a['preflight_min'])} Preflight/Schluss ({a['preflight_pct']:.0f} %)")
+    if not a.get("erste_arbeit"):
+        teile += " [ohne schreibenden Werkzeugaufruf im Mitschnitt - Startroutine umfasst den ganzen Vorlauf]"
+    if not a.get("letzter_preflight"):
+        teile += " [kein Preflight im Mitschnitt - Schlussanteil 0]"
+    if a.get("quelle") == "result.json":
+        teile += " (Start aus result.json nachgerechnet)"
+    return [teile]
+
+
 def zaehle_preflight_aufrufe(cfg, batch: int) -> tuple[int, int]:
     """`(Aufrufe, davon frueh)` aus `runs/b<N>/preflight-aufrufe.jsonl` (R13bb).
 

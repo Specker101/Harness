@@ -1,0 +1,16 @@
+R13be-3: fester Aufwand gegen Arbeitszeit, Rueckblick B220-B229
+Quelle: hx/stand.aufwand_anteile (Mitschnitt + runs/b<N>/result.json)
+Definition: Startroutine = Start bis erster SCHREIBENDER Werkzeugaufruf; Preflight/Schluss = letzter Preflight-Start bis Laufende; Arbeit = Rest.
+
+ Batch  Wanduhr  Startroutine   Arbeit  Preflight  Anker
+------------------------------------------------------------------------------
+   220      33m       1m (   3%)     24m (  74%)       7m (  23%)  Schreibaufruf
+   221      27m       0m (   2%)     19m (  71%)       7m (  27%)  Schreibaufruf
+   222      70m       2m (   4%)     60m (  87%)       7m (  10%)  Schreibaufruf
+   223      51m       3m (   5%)     40m (  78%)       8m (  16%)  Schreibaufruf
+   224      45m      10m (  21%)     27m (  61%)       8m (  18%)  Schreibaufruf
+   225      38m       2m (   4%)     28m (  73%)       9m (  23%)  Schreibaufruf
+   226      63m       2m (   4%)     52m (  83%)       8m (  13%)  Schreibaufruf
+   227      58m       3m (   5%)     48m (  82%)       7m (  12%)  Schreibaufruf
+   228      87m       3m (   3%)     76m (  87%)       8m (  10%)  Schreibaufruf
+   229      80m       3m (   4%)     68m (  85%)       9m (  11%)  Schreibaufruf

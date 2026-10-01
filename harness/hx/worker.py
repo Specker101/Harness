@@ -251,7 +251,7 @@ def write_worker_hooks(cfg, rd: Path, state_datei, log=None) -> str | None:
         if log:
             log.warn("Batch-Uhr-Hook fehlt", pfad=str(skript))
         return None
-    weich = float(cfg.get("limits", "alarm_wall_s", 5400)) / 60.0
+    weich = float(cfg.get("limits", "alarm_wall_s", 9000)) / 60.0
     hart = float(cfg.get("limits", "hard_wall_s", 10800)) / 60.0
     # R13ad: EINE Zeitquelle - die Umschaltschwelle und die Kontextgrenze kommen aus
     # `harness.toml` und gehen mit in den Hook.
@@ -429,7 +429,7 @@ def umschalt_minuten(cfg, log=None) -> dict:
     umschalt_min}`. Ohne Messung (kein `result.json` mit Preflight-Aufruf) gilt die feste
     Zahl - `preflight_min` ist dann 0,0 und `preflight_batch` 0.
     """
-    alarm_min = float(cfg.get("limits", "alarm_wall_s", 5400)) / 60.0
+    alarm_min = float(cfg.get("limits", "alarm_wall_s", 9000)) / 60.0
     fest_min = float(cfg.get("limits", "umschalt_vor_alarm_s", 900)) / 60.0
     dauer = stand.preflight_dauer(cfg, log=log)
     preflight_min = float(dauer["minuten"]) if dauer else 0.0
@@ -708,7 +708,7 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
         stream_path = rd / "stream.jsonl"
         stats = streamjson.StreamStats(streamjson.secret_watch(cfg))
         lim = {
-            "alarm_wall": float(cfg.get("limits", "alarm_wall_s", 5400)),
+            "alarm_wall": float(cfg.get("limits", "alarm_wall_s", 9000)),
             # R13p: Vorgaben wie in harness.toml (Alarm 500 / Hart 1000).
             "alarm_requests": int(cfg.get("limits", "alarm_requests", 500)),
             "alarm_cost": float(cfg.get("limits", "alarm_cost_usd", 1.0)),
@@ -1291,7 +1291,7 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
     # daneben (Kontrollzeile in den Review-Fakten, `stand.preflight_zaehler_zeile`).
     hook_laeufe, hook_frueh = zaehle_preflight_aufrufe(rd)
     auftrag_text = read_text(rd / "auftrag.md") or ""
-    start_d = uhr.start_zeit(state)
+    start_d = uhr.start_zeit(state.data)
     mitschnitt = stand.mitschnitt_preflight_aufrufe(
         cfg, batch, start_zeit=start_d.get("zeit"),
         umschalt_min=umschalt_minuten(cfg, log)["umschalt_min"],
@@ -1335,6 +1335,11 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
     # letzte Text war bisher auch dort zu sehen.
     res.final_text = antwort_text(rd) or res.final_text
 
+    # R13be-3 (Nutzerauftrag 01.10.2026): fester Aufwand gegen Arbeitszeit. `ende` ist
+    # derselbe Augenblick, den `payload["finished_at"]` traegt - der Rueckblick rechnet
+    # ueber `stand.aufwand_anteile` dieselbe Zahl aus `result.json` nach, ohne zweite Regel.
+    aufwand = stand.aufwand_anteile(cfg, batch, start_zeit=start_d.get("zeit"),
+                                    ende_zeit=datetime.now(timezone.utc))
     payload = {
         "batch": batch, "profile": profile_name, "program": res.program,
         "rc": res.rc, "duration_s": res.duration_s, "killed_reason": res.killed_reason,
@@ -1363,6 +1368,9 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
         "preflight_ungezaehlt": pf_archiv["ungezaehlt"],
         "preflight_laeufe_gesamt": max(int(preflight_laeufe),
                                        int(hook_laeufe) + int(pf_archiv["ungezaehlt"])),
+        # R13be-3: fester Aufwand (Startroutine + Preflight/Schluss) gegen Arbeitszeit,
+        # in Minuten und Prozent. Quelle im Zeilenkommentar von `stand.aufwand_anteile`.
+        "aufwand": aufwand,
         "fortsetzung_grund": res.fortsetzung_grund,
         "fortsetzung_uebertrag": bool(res.fortsetzung_uebertrag),
         "antwort_dateien": list(res.antwort_dateien or []),

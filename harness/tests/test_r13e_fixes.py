@@ -145,10 +145,16 @@ class TestWatchWerte(Base):
         text = self.watcher()._limits_text()
         # R13p: Alarm 500 / Hart 1000 (vorher 250/400 - die harte Grenze lag zu knapp
         # ueber dem Normalbetrieb und haette den Alarm unerreichbar gemacht).
+        # R13be-3: die Zeitgrenzen kommen aus `harness.toml` (150 / 180 min) - die Zeile
+        # wird gegen die Konfiguration geprueft, nicht gegen eine feste Zahl.
+        from hx.config import load_config
+        cfg = load_config()
+        weich = float(cfg.get("limits", "alarm_wall_s")) / 60.0
+        hart = float(cfg.get("limits", "hard_wall_s")) / 60.0
         self.assertIn("500", text)
         self.assertIn("1000", text)
-        self.assertIn("90 min", text)
-        self.assertIn("180 min", text)
+        self.assertIn(f"{weich:.0f} min", text)
+        self.assertIn(f"{hart:.0f} min", text)
 
     def test_werte_werden_pro_batch_gerechnet(self):
         """`_print_stats` zeigt den laufenden Batch; erst der Wechsel summiert."""

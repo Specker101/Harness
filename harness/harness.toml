@@ -51,7 +51,7 @@ bash_max_timeout_s  = 1800
 # normaler Lauf 84..347 Anfragen (b176 = 347) - bei 250 klingelte der Alarm fast
 # immer. ZWINGEND mitgezogen: die harte Grenze 400 -> 1000, sonst toetet sie den
 # Batch, BEVOR der Alarm erscheinen kann (und 400 lag nur 53 ueber dem Maximum).
-alarm_wall_s      = 5400      # 90 min - EINE Zeitquelle (R13ad)
+alarm_wall_s      = 9000      # 150 min - EINE Zeitquelle (R13ad); R13be-3 (01.10.2026): 90 -> 150
 alarm_requests    = 500
 alarm_cost_usd    = 1.0
 hard_wall_s       = 10800     # 3 h
@@ -70,6 +70,12 @@ reviewer_alarm_s  = 600
 # (gemessen): der Preflight dauert selbst ~10 min (B213: 602 s Werkzeugzeit), danach
 # kommen noch Bilanz und Memory-Export; bei 80 min lief deshalb jeder volle Batch ueber
 # den 90-min-Alarm hinaus (B213: 104 min).
+# R13be-3 (01.10.2026, Nutzerauftrag): Alarmgrenze 5400 -> 9000 s (150 min). Damit liegt
+# die Umschaltschwelle bei 9000 - 900 = 8100 s = **135 min**; `hard_wall_s` bleibt
+# 10800 s (180 min), also 45 min Luft hinter der Schwelle fuer Preflight und Abschluss.
+# Grund (gemessen, docs/_r13be_belege.md Teil 3): kein Batch der Reihe B217-B228 kam an
+# die alte Schwelle (laengster 86,7 min), der feste Aufwand je Batch (Startroutine,
+# Preflight, Bilanz) faellt aber bei JEDEM Batch an - laengere Batches strecken ihn.
 umschalt_vor_alarm_s = 900
 # Kontextgrenze des Worker-Modells (deepseek-flash[1m]: 1M Kontext, 384k Ausgabe). Die
 # Batch-Uhr zeigt "Kontext <x>k von 1M"; der Fortsetzungsanstoss bricht bei
