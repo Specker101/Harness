@@ -224,9 +224,12 @@ class TestSchwelleUhrUndHook(unittest.TestCase):
         self.result(213, 600.0)
         self.result(214, 602.0, parallel=2)
         u = worker.umschalt_minuten(self.cfg, self.log)
+        # R13be-3: die Schwelle haengt an der Alarmgrenze aus der Config (150 min -> 135),
+        # hier mit gemessenem Vorlauf 15 min - keine zweite feste Zahl im Test.
+        weich = float(self.cfg.get("limits", "alarm_wall_s")) / 60.0
         self.assertEqual(u["preflight_batch"], 213)
         self.assertAlmostEqual(u["preflight_min"], 10.0, places=2)
-        self.assertAlmostEqual(u["umschalt_min"], 75.0, places=2)
+        self.assertAlmostEqual(u["umschalt_min"], weich - 15.0, places=2)
 
     def test_uhr_zeigt_die_quelle(self):
         text = uhr.uhr_text(self.state().data, 90, 180, umschalt_min=75,

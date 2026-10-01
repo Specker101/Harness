@@ -243,3 +243,22 @@ Verdrahtung in `worker._finish_run` und `Orchestrator.harness_facts` per Quellte
 `test_r13ax` 16, `test_r13_fixes` 11, `test_r13ap` 22, `test_r13g` 21, `test_r13h` 21,
 `test_r13n` 13, `test_r13ba` 31, `test_r13bb` 36, `test_r13i` 14, `test_r13ac` 46 — alle OK.
 Die **volle Reihe** folgt am Gate (`docs/_r13be_volle_reihe.txt`).
+
+### 3.4 Volle Reihe am Gate - zwei Laeufe (und was der erste gelehrt hat)
+
+- **1. Lauf (02:51):** 1302 Tests, **1 Fehlschlag**, 0 Fehler, 0 uebersprungen ->
+  FEHLGESCHLAGEN. `tests/test_r13aj_fixes.py:229`
+  (`test_schwelle_nennt_den_quellbatch`) pruefte noch die feste Zahl `75.0`
+  (`AssertionError: 135.0 != 75.0 within 2 places`). Meine Suche nach den Schwellenstellen
+  musterte nur `alarm_wall_s|5400|9000|90 min|75 min` - die **abgeleitete** Zahl `75.0`
+  stand in keinem Muster, und `test_r13aj_fixes.py` war nicht in der Liste der betroffenen
+  Dateien. Genau dafuer ist die volle Reihe am Gate da.
+- **Fix:** `test_r13aj_fixes.py` rechnet die Schwelle aus der Config
+  (`alarm_wall_s / 60 - 15`), wie die uebrigen Schwelle-Tests; `test_r13aj_fixes` 20 OK.
+- **2. Lauf (03:00):** `docs/_r13be_volle_reihe.txt` - **1302 Tests, 0 Fehler,
+  0 Fehlschläge, 0 uebersprungen, OK in 453,9 s**, HEAD `276b23a`, Harness-Zustand
+  `GATE_APPROVAL batch=229 worker=False` (waehrend des Laufs lief kein Worker).
+- **Regel fuer die naechste Grenzaenderung:** nach dem Config-Wert UND nach den daraus
+  abgeleiteten Zahlen suchen (`75.0`, `65.0`, `135`, `"75 min"`) - nicht nur nach `5400`.
+  Ein fest gesetzter Grenzwert im Test ist eine **zweite Quelle** und faellt bei jeder
+  Aenderung um.
