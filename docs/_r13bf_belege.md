@@ -231,6 +231,12 @@ neue Zahl ist die **gemessene** Summe der drei echten Läufe.
 Die alte Tafel `docs/_r13be_aufwand.txt` bleibt als Beleg der **alten** Definition
 stehen (Preflight/Schluss = ein Fenster); sie ist mit dieser Tafel nicht vergleichbar.
 
+**Nachtrag (beim Prüfen gefunden):** `stand.aufwand_zeile` nahm das Feld `aufwand` aus
+`result.json`, sobald es da war — die Batches B220–B234 tragen dort aber die **alte**
+Drei-Teile-Form. Die Zeile hätte `fester Aufwand 0 min (0 %)` gezeigt. Jetzt wird ein Feld
+ohne `fester_min` **nachgerechnet** (neue Definition), und ein Test
+(`test_r13bf_fixes.TestAlteAufwandsform`) hält das fest.
+
 ### Tests
 
 `tests/test_r13be_fixes.py::TestFesterAufwand` (11 Tests) — umgestellt auf vier Teile:

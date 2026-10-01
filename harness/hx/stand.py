@@ -858,10 +858,10 @@ def aufwand_anteile(cfg, batch: int, start_zeit=None, ende_zeit=None) -> dict:
 def aufwand_zeile(cfg, batch: int, res: dict | None = None) -> list[str]:
     """Eine Zeile fuer die Review-Fakten: fester Aufwand gegen Arbeitszeit (R13be-3).
 
-    Nimmt die Kennzahl aus `result.json` (`aufwand`), wenn sie dort steht - sonst wird
-    sie aus Mitschnitt und `result.json` nachgerechnet. Damit gilt derselbe Wortlaut fuer
-    den laufenden Batch und fuer den Rueckblick aelterer Batches (B220-B229), die das Feld
-    noch nicht tragen.
+    Nimmt die Kennzahl aus `result.json` (`aufwand`), wenn sie dort steht **und die neue
+    Form hat** (`fester_min`, R13bf) - sonst wird sie aus Mitschnitt und `result.json`
+    nachgerechnet. Damit gilt derselbe Wortlaut fuer den laufenden Batch und fuer den
+    Rueckblick aelterer Batches (B220-B234 tragen die alte Drei-Teile-Form).
     """
     a = None
     if isinstance(res, dict):
@@ -870,7 +870,10 @@ def aufwand_zeile(cfg, batch: int, res: dict | None = None) -> list[str]:
         d = read_json(Path(cfg.sub("runs")) / f"b{int(batch):03d}" / "result.json", None)
         if isinstance(d, dict) and isinstance(d.get("aufwand"), dict):
             a = d["aufwand"]
-    if a is None or a.get("wand_min") is None:
+    # R13bf: ein Feld aus der ALTEN Definition (drei Teile, R13be-3) wird nicht angezeigt -
+    # ihm fehlt `fester_min`, und `schluss` steckte damals im Preflight-Anteil. Statt eine
+    # 0 zu zeigen, wird nachgerechnet (B220-B234 tragen alle noch die alte Form).
+    if a is None or a.get("wand_min") is None or a.get("fester_min") is None:
         a = aufwand_anteile(cfg, batch)
     if a.get("wand_min") is None:
         return [f"AUFWAND: nicht messbar (keine Start-/Endzeit fuer b{int(batch):03d})"]

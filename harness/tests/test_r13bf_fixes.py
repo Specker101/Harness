@@ -280,6 +280,45 @@ class TestZweiterPreflight(unittest.TestCase):
         self.assertIn('"preflight_neu": bool(pf_neu)', quelle)
 
 
+# ------------------------------------ 4) Alte Aufwandsform wird nachgerechnet
+class TestAlteAufwandsform(unittest.TestCase):
+    """R13bf: `result.json` aus R13be-3 traegt die DREI-Teile-Form (ohne `fester_min`).
+
+    Sie darf nicht als Zeile erscheinen (das waere `0 min fester Aufwand`) - der
+    Rueckblick rechnet sie mit der neuen Definition nach.
+    """
+
+    def test_alte_form_wird_nachgerechnet(self):
+        tmp = Path(ROOT) / "tests" / "_tmp_r13bf_alt"
+        shutil.rmtree(tmp, ignore_errors=True)
+        root = ensure_dir(tmp / "harness")
+        rd = ensure_dir(root / "runs" / "b999")
+        write_text_atomic(rd / "result.json", json.dumps(
+            {"batch": 999, "duration_s": 1800.0,
+             "finished_at": "2026-10-01T12:00:00+00:00",
+             "aufwand": {"wand_min": 31.0, "startroutine_min": 1.0,
+                         "preflight_min": 10.2, "arbeit_min": 19.8,
+                         "preflight_pct": 32.9, "arbeit_pct": 63.9,
+                         "erste_arbeit": "x", "letzter_preflight": "y",
+                         "aufrufe": 5, "quelle": "zustand"}}))
+        write_text_atomic(rd / "stream.jsonl", json.dumps(
+            {"type": "assistant", "timestamp": "2026-10-01T11:31:00+00:00",
+             "message": {"content": [
+                 {"type": "tool_use", "id": "p1", "name": "PowerShell",
+                  "input": {"command": "python -u scripts/preflight.py before"}}]}}) + "\n")
+        cfg = load_config()
+        cfg.data["paths"]["root"] = str(root)
+        cfg.data["paths"]["decomp"] = str(ensure_dir(tmp / "decomp"))
+        cfg.data["paths"]["prompts"] = str(ROOT / "prompts")
+        try:
+            zeile = stand.aufwand_zeile(cfg, 999)[0]
+            self.assertNotIn("fester Aufwand 0 min", zeile)
+            self.assertIn("(Start aus result.json nachgerechnet)", zeile)
+            self.assertIn("Preflight (1 Lauf/Laeufe", zeile)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 class RepoBasis:
     """Ein echtes, kleines Git-Repo als `cfg.decomp` (Repo-Wache von `gitsafe.Git`).
 
