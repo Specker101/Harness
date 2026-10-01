@@ -468,9 +468,14 @@ def _stand_reihe(cfg) -> list[dict]:
     Je Zeile wird der **neueste Eintrag MIT Wert** genommen (`_letzter_mit`): ein gerade
     laufender Batch schreibt sein Dokument, bevor er die Preflight-Zeile hat - dann fehlt
     dort `C Koepfe`, und die Anzeige darf die Zeile nicht ersatzlos streichen.
+
+    **R13bf (M234-1):** auch eine Zeile **ohne** Wert wird mitgenommen, wenn sie die
+    Luecke ausweist (`c_nicht_gemessen`) - sonst faellt sie hier heraus und die Anzeige
+    kann die Luecke nicht benennen.
     """
     return [e for e in stand.kernzahlen(cfg, 8)
-            if "baut" in e or "c_koepfe" in e or "paket_e_koepfe" in e]
+            if ("baut" in e or "c_koepfe" in e or "paket_e_koepfe" in e
+                or e.get("c_nicht_gemessen"))]
 
 
 def _letzter_mit(reihe: list[dict], schluessel: str) -> dict:
@@ -537,6 +542,14 @@ def gesamt_block(cfg) -> list[str]:
     else:
         zeilen.append("  C Koepfe referenzgleich: nicht ermittelbar (keine Preflight-Zeile "
                       "'C Koepfe' und keine Ist-Spalte im Batch-Dokument)")
+    # R13bf (Aussensicht B234, Befund M234-1): ein Batch in der Preflight-Aera OHNE eigene
+    # Preflight-Datei hat keine Messung. Die Zahl darueber bleibt dann beim letzten
+    # gemessenen Stand - das muss dastehen, sonst liest man sie als Messung dieses Batches.
+    luecke = _letzter_mit(reihe, "c_nicht_gemessen")
+    if luecke and c_zeile.get("batch") and int(luecke["batch"]) > int(c_zeile["batch"]):
+        fehlt = luecke.get("c_erwartet") or f"_preflight_{luecke['batch']}.txt"
+        zeilen.append(f"  B{luecke['batch']} nicht gemessen (keine analysis/{fehlt})"
+                      f" - die Zahl bleibt auf dem Stand von B{c_zeile['batch']}")
     zeilen += _verifiziert_zeile(cfg)
     # R13aw (Aussensicht B219, Befund M219-3): der offene Paket-E-Vorrat kommt aus der
     # juengsten MESSUNG (`analysis/_m<N>/_c_paket_e*.txt`, mit Datum), nicht mehr aus der

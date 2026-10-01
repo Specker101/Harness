@@ -1,0 +1,28 @@
+R13bf Teil B - Bilanz ohne Preflight (Befund M234-1)
+Fixture: tests/fixtures/stand_b234_luecke (Dokumentstand 01.10.2026 10:51)
+Dateien: _preflight_233.txt, port-batch234-c-ausgefuehrte-koepfe-2026-10-01.md
+
+Dokumentzeile 49 (Soll/Ist-Tafel):
+  | `C Koepfe` | 110 / 6187 / 0 | **115 / 6271 / 0** | +5 Koepfe, +84 Insn (11+13+18+19+23), 0 Abweichungen |
+
+  vorher (letzte Zahlzelle)      : (115, 6271, 0)
+  nachher (Ist-Spalte, R13bf)    : (110, 6187, 0)
+
+  kernzahlen B233: c_koepfe=110 c_quelle='_preflight_233.txt' gemessen
+  kernzahlen B234: c_koepfe=None c_quelle=None NICHT GEMESSEN erwartet=_preflight_234.txt
+
+  bilanz.gesamt_block:
+    GESAMT (Teil C - der systematische Durchgang)
+      C Koepfe referenzgleich: 110 Koepfe / 6187 Faelle / 0 Abweichungen   [B233, _preflight_233.txt]
+      B234 nicht gemessen (keine analysis/_preflight_234.txt) - die Zahl bleibt auf dem Stand von B233
+      C verifiziert: 82 von 110 Koepfen (Bahnabdeckung B233, 28 teilgeprueft, Bloecke 596/736; Quelle: analysis/_preflight_233.txt)
+      Paket E offen: nicht gemessen (keine Datei analysis/_m*/_c_paket_e*.txt)
+      Programm-Inventar (S1-Doku): nicht ermittelbar
+      Durchsatz    : nicht ermittelbar (keine Bilanzdatei gefunden)
+      Quelle: analysis/port-batch234-c-ausgefuehrte-koepfe-2026-10-01.md (B234) - Bau-Liste/Vorrat/Inventar fuehrt es nicht
+
+  Gegenprobe: '115' in den Bilanzzeilen oben? nein - die Soll-Spalte ist keine Messung
+
+  Rotprobe (mit _preflight_234.txt):
+      C Koepfe referenzgleich: 115 Koepfe / 6271 Faelle / 0 Abweichungen   (+5 Koepfe / +84 Faelle (B233 -> B234))   [B234, _preflight_234.txt]
+      Paket E offen: nicht gemessen (keine Datei analysis/_m*/_c_paket_e*.txt)

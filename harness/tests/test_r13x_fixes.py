@@ -371,13 +371,18 @@ class TestParser(Basis):
                          (17, 1202))
 
     def test_nur_vorhersagetafel_ergibt_keinen_ist_wert_aus_prosa(self):
-        """Ohne Soll/Ist-Tafel wird die Vorhersagezeile NICHT als Messwert ausgegeben."""
+        """Ohne Soll/Ist-Tafel wird die Vorhersagezeile NICHT als Messwert ausgegeben.
+
+        R13bf (Aussensicht B234, Befund M234-1): die Spalte heisst hier `Soll B101` -
+        eine Vorhersage. `ist_wert` liest daraus **keinen** Wert mehr (vorher tat er es,
+        und genau so kam die 115 aus der Soll-Spalte von B234 in die Bilanz).
+        """
         text = ("| Bilanzzeile | Zaehlerdefinition | Soll B101 |\n"
                 "|---|---|---|\n"
                 "| C Koepfe | registrierte Koepfe / Faelle (`c_kopf_check.py`) "
                 "| **78 / 2903 / 0** |\n")
         zeile, wert = stand.ist_wert(text, stand._ETIKETT_CKOPF, stand._RE_ZAHL_CKOPF)
-        self.assertEqual(wert, (78, 2903, 0))
+        self.assertIsNone(wert)
         self.assertEqual(zeile, 3)
         # Prosa NACH der Wertspalte wird nicht als Wert gelesen.
         text2 = ("| Zeile | Soll | Ist | Abweichung |\n|---|---|---|---|\n"
@@ -387,7 +392,9 @@ class TestParser(Basis):
         self.assertEqual(wert2, (78, 2903, 0))
 
     def test_prosa_zelle_wird_nicht_als_wert_gelesen(self):
-        text = ("| Paket E offen | Vorbatch | Soll |\n|---|---|---|\n"
+        # R13bf: die Wertspalte heisst `Ist` und steht HINTEN - die Soll-Spalte davor wird
+        # nicht gelesen (Befund M234-1); die Prosa-Klammer in der Wertzelle zaehlt nicht.
+        text = ("| Paket E offen | Soll | Ist |\n|---|---|---|\n"
                 "| Paket E offen | 42 / 2974, Blaetter 12 / 1072 "
                 "| **43 / 3025, Blaetter 20 / 1434** (Summe der 9: 35+38 = 73) |\n")
         _zeile, wert = stand.ist_wert(text, stand._ETIKETT_PAKET_E, stand._RE_ZAHL_PAKET_E)

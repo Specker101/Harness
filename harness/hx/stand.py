@@ -1110,6 +1110,38 @@ def ist_zellen(text: str, etikett: str) -> list[tuple[int, list[str]]]:
     return out
 
 
+# R13bf (Aussensicht B234, Befund M234-1): eine Spalte, die **Soll** heisst, ist eine
+# Vorhersage und nie ein Messwert. Anlass: die Soll/Ist-Tafel von B234 hat die Spalten
+# `Ist (B233) | Soll (B234)`; `ist_wert` nahm die LETZTE numerische Zelle und damit die
+# Soll-Spalte - die Bilanz fuehrte so `115` als gemessenen Stand, obwohl kein Preflight
+# gelaufen war.
+_RE_SOLL_SPALTE = re.compile(r"\bsoll\b", re.IGNORECASE)
+
+
+def tabellen_kopf(text: str, datenzeile: int) -> list[str]:
+    """Die Kopfzeile der Tabelle ueber `datenzeile` (1-basiert) - sonst `[]`.
+
+    Gesucht wird rueckwaerts: die Trennerzeile (`|---|---|`) und darueber die Kopfzeile.
+    Gibt es keine (einfache Beispieltabelle ohne Kopf), ist das Ergebnis leer - dann
+    wird wie vorher die letzte numerische Zelle genommen.
+    """
+    zeilen = (text or "").splitlines()
+    j = int(datenzeile) - 2                      # Zeile ueber der Datenzeile
+    if j < 0:
+        return []
+    while j >= 0:
+        if not zeilen[j].lstrip().startswith("|"):
+            j -= 1
+            continue
+        zellen = tabellen_zellen(zeilen[j])
+        if zellen and all(re.fullmatch(r":?-{2,}:?", z.replace(" ", ""))
+                          for z in zellen if z != ""):
+            j -= 1                               # Trennerzeile -> eine Zeile hoeher
+            continue
+        return zellen
+    return []
+
+
 def ist_wert(text: str, etikett: str,
              muster: re.Pattern) -> tuple[int, tuple | None]:
     """(Zeilennr., Wert) der **letzten** Zeile mit diesem Etikett.
@@ -1117,13 +1149,19 @@ def ist_wert(text: str, etikett: str,
     Genommen wird die letzte solche Zeile (die Soll/Ist-Tafel steht hinter der
     Vorhersagetafel) und in ihr die letzte Zelle, die MIT dem Zahlenmuster BEGINNT -
     die Spalte "Abweichung/Quelle" am Zeilenende beginnt mit Text und zaehlt nicht.
+    **R13bf:** Zellen unter einer Spaltenueberschrift mit dem Wort `Soll` zaehlen NIE
+    (Vorhersage, kein Messwert - M234-1); die Ueberschrift kommt aus der Kopfzeile der
+    Tabelle (`tabellen_kopf`).
     `(0, None)`, wenn es keine solche Zeile oder keinen solchen Wert gibt.
     """
     zeilen = ist_zellen(text, etikett)
     if not zeilen:
         return 0, None
     nummer, zellen = zeilen[-1]
+    kopf = tabellen_kopf(text, nummer)
     for i in range(len(zellen) - 1, 0, -1):
+        if i < len(kopf) and _RE_SOLL_SPALTE.search(zellen_etikett(kopf[i])):
+            continue
         roh = (zellen[i] or "").replace("*", "").replace("`", "").strip()
         m = muster.match(roh)
         if m:
@@ -1568,7 +1606,15 @@ def kernzahlen(cfg, anzahl: int = MAX_DOKUMENTE) -> list[dict]:
          (B202/B203 nennen 53/1272, gemessen sind 45/1080 bzw. 59/1416).
       2. **Ist-Spalte** der Soll/Ist-Tafel des Batch-Dokuments (`ist_wert`) fuer alles,
          was die Preflight-Datei nicht fuehrt (**Paket E** hat dort keine Zeile) und fuer
-         Batches ganz ohne Preflight-Datei.
+         Batches ganz ohne Preflight-Datei - aber nur **vor** der Preflight-Aera.
+
+    **R13bf (Aussensicht B234, Befund M234-1): in der Preflight-Aera gibt es keinen
+    Rueckfall mehr.** Innerhalb der Aera (es gibt `_preflight_<N>.txt`-Dateien, und der
+    Batch liegt nicht davor) bedeutet eine fehlende eigene Preflight-Datei: **nicht
+    gemessen**. Die Zeile traegt dann keine C-Zahl (`c_nicht_gemessen: True`), und die
+    Anzeige bleibt beim letzten gemessenen Stand. Anlass: B234 brach vor dem Preflight ab
+    (`preflight_laeufe: 0`), die Bilanz fuehrte trotzdem „115 referenzgleich" - das war
+    die **Soll-Spalte** des Batch-Dokuments (`port-batch234-…md:49`).
 
     `c_quelle` nennt je Eintrag, woher die C-Koepfe-Zahl kommt; `*_vorher` ist der Wert
     des letzten Eintrags MIT diesem Wert (nicht zwingend der direkte Vorgaenger - bei
@@ -1578,6 +1624,10 @@ def kernzahlen(cfg, anzahl: int = MAX_DOKUMENTE) -> list[dict]:
     fenster = max(2, int(anzahl))
     dok = {e["batch"]: e for e in c_zahlen(cfg, fenster)}
     pre = {e["batch"]: e for e in preflight_c_koepfe(cfg, fenster + 2)}
+    # Die Aera beginnt beim aeltesten PREFLIGHT-Batch im Fenster (nicht beim aeltesten
+    # Batch, der die Zeile `C Koepfe` fuehrt - vor B198 gibt es die Dateien nicht).
+    vorhanden = {b for b, _p in preflight_dateien(cfg, fenster + 2)}
+    aera_ab = min(vorhanden) if vorhanden else None
     reihe: list[dict] = []
     gesehen: dict[str, tuple[int, int]] = {}
     for batch in sorted(set(dok) | set(pre))[-fenster:]:
@@ -1589,6 +1639,11 @@ def kernzahlen(cfg, anzahl: int = MAX_DOKUMENTE) -> list[dict]:
             e["c_faelle"] = p["faelle"]
             e["c_abweichungen"] = p["abweichungen"]
             e["c_quelle"] = p["datei"]
+        elif aera_ab is not None and batch >= aera_ab:
+            for schluessel in ("c_koepfe", "c_faelle", "c_abweichungen", "c_zeile"):
+                e.pop(schluessel, None)
+            e["c_nicht_gemessen"] = True
+            e["c_erwartet"] = f"_preflight_{int(batch)}.txt"
         elif e.get("c_koepfe") is not None:
             e["c_quelle"] = e.get("dokument") or ""
         vorher: dict[str, int] = {}
