@@ -1,0 +1,63 @@
+R13bg - Rechnerlast B228-B234 (nur lesend aus runs/b<N>/result.json)
+Quelle der Kennzahlen: hx/last.py (Recorder, Takt 60 s, psutil)
+
+Maschine JETZT gemessen: Intel(R) Core(TM) i7 CPU         930  @ 2.80GHz - 4 Kerne / 8 Threads, RAM gesamt 6135 MB [Quelle psutil]
+  Auslagerungsdatei: Spitze 3483 MB (Zeitpunkt nicht je Batch erfasst)
+
+ Batch proben cpu_mittel  cpu_max  RAM frei min  fremdlast fremd_max ghidra_max eigene_max  quelle
+--------------------------------------------------------------------------------------------------
+   228     84       12.7     23.4        1200.0         84         1          1          7  psutil
+   229     78       23.3     87.2         462.0         78         4          1          5  psutil
+   230    107       15.8     69.1         789.0        107         2          1          5  psutil
+   231     73       12.1     43.2         373.0         73         1          1          5  psutil
+   232     59       12.7     27.7        2475.0         59         1          1          5  psutil
+   233    106       14.4     51.2         385.0        106         1          1          5  psutil
+   234    125       13.4     28.4        1094.0        125         2          1          5  psutil
+
+Fremde Prozessnamen (Grundrauschen, ueber alle Batches): python.exe
+
+Schranken aus Minimum/Spitze (die Minutenreihe selbst liegt NICHT in
+result.json - `last.py:Recorder.proben` lebt nur im Speicher):
+ Batch            RAM<500            RAM<200             CPU>90
+   228 0 min (nie erreicht) 0 min (nie erreicht) 0 min (nie erreicht)
+   229          1..78 min 0 min (nie erreicht) 0 min (nie erreicht)
+   230 0 min (nie erreicht) 0 min (nie erreicht) 0 min (nie erreicht)
+   231          1..73 min 0 min (nie erreicht) 0 min (nie erreicht)
+   232 0 min (nie erreicht) 0 min (nie erreicht) 0 min (nie erreicht)
+   233         1..106 min 0 min (nie erreicht) 0 min (nie erreicht)
+   234 0 min (nie erreicht) 0 min (nie erreicht) 0 min (nie erreicht)
+
+Arbeit im Mitschnitt (welche Minuten des Batches belegt waren):
+ Batch  Wanduhr  RAM frei min              Preflight            hybrid_lauf                    Bau
+   228      87m        1200.0 16 von 86 min (14 min Arbeit) 1 von 86 min (0 min Arbeit) 11 von 86 min (4 min Arbeit)
+   229      80m         462.0 16 von 80 min (15 min Arbeit) 46 von 80 min (73 min Arbeit) 6 von 80 min (2 min Arbeit)
+   230     110m         789.0 37 von 109 min (44 min Arbeit) 37 von 109 min (25 min Arbeit) 15 von 109 min (9 min Arbeit)
+   231      74m         373.0 20 von 74 min (27 min Arbeit) 33 von 74 min (26 min Arbeit) 1 von 74 min (0 min Arbeit)
+   232      60m        2475.0 20 von 60 min (28 min Arbeit)                      - 7 von 60 min (2 min Arbeit)
+   233     110m         385.0 31 von 109 min (37 min Arbeit) 56 von 109 min (44 min Arbeit) 13 von 109 min (10 min Arbeit)
+   234     129m        1094.0 28 von 129 min (26 min Arbeit) 54 von 129 min (47 min Arbeit) 12 von 129 min (9 min Arbeit)
+
+Arbeitsminuten im Wortlaut (Minutenindex im Batch):
+  B228: Preflight: 62..85 (16 min); hybrid_lauf: 0..0 (1 min); Bau: 0..61 (11 min)
+  B229: Preflight: 54..78 (16 min); hybrid_lauf: 1..54 (46 min); Bau: 0..14 (6 min)
+  B230: Preflight: 70..108 (37 min); hybrid_lauf: 0..61 (37 min); Bau: 0..43 (15 min)
+  B231: Preflight: 52..73 (20 min); hybrid_lauf: 3..40 (33 min); Bau: 0..0 (1 min)
+  B232: Preflight: 37..59 (20 min); Bau: 0..17 (7 min)
+  B233: Preflight: 61..108 (31 min); hybrid_lauf: 1..67 (56 min); Bau: 0..13 (13 min)
+  B234: Preflight: 92..119 (28 min); hybrid_lauf: 0..92 (54 min); Bau: 0..128 (12 min)
+
+Speicher JETZT (Kontext, nicht Batch-Messung):
+  RAM gesamt 6135 MB, verfuegbar 1073 MB (82 % belegt)
+  Auslagerungsdatei gesamt 7473 MB, benutzt 1008 MB (14 %)
+  groesste Verbraucher jetzt (RSS):
+    Code.exe               pid 2020        1030 MB
+    Code.exe               pid 3400         642 MB
+    MemCompression         pid 2816         252 MB
+    endpointprotection.exe pid 4760         218 MB
+    Code.exe               pid 12660        131 MB
+    Code.exe               pid 10744        117 MB
+    explorer.exe           pid 356          116 MB
+    Code.exe               pid 18500        107 MB
+
+Abgebrochene Vorgaengerlaeufe im Batchordner (nicht mitgezaehlt):
+  B234: stream-v1.jsonl
