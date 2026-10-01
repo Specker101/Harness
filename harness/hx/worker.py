@@ -266,18 +266,27 @@ def write_worker_hooks(cfg, rd: Path, state_datei, log=None) -> str | None:
     u = umschalt_minuten(cfg, log)
     umschalt = u["umschalt_min"]
     kontext_limit = int(cfg.get("limits", "kontext_limit", 1000000))
-    daten = {"hooks": {"PostToolUse": [{"hooks": [{
-        "type": "command",
-        "timeout": 10,
-        "command": sys.executable,
-        "args": [str(skript), "--state", str(state_datei),
-                 "--weich", f"{weich:.0f}", "--hart", f"{hart:.0f}",
-                 "--umschalt", f"{umschalt:.0f}",
-                 "--preflight-min", f"{u['preflight_min']:.1f}",
-                 "--preflight-batch", str(u["preflight_batch"]),
-                 "--kontext-limit", str(kontext_limit),
-                 "--run", str(rd)],
-    }]}]}}
+    args = [str(skript), "--state", str(state_datei),
+            "--weich", f"{weich:.0f}", "--hart", f"{hart:.0f}",
+            "--umschalt", f"{umschalt:.0f}",
+            "--preflight-min", f"{u['preflight_min']:.1f}",
+            "--preflight-batch", str(u["preflight_batch"]),
+            "--kontext-limit", str(kontext_limit),
+            "--run", str(rd)]
+    # R13be-2 (Nutzerauftrag 01.10.2026): derselbe Hinweis auch VOR dem Aufruf.
+    # PreToolUse darf blockieren (`hookSpecificOutput.permissionDecision` =
+    # "allow"|"deny"|"ask" + `permissionDecisionReason`; Beleg: Hooks-Handbuch im
+    # CLI-Binary, docs/_r13be_belege.md). Das Skript stoppt den Preflight genau EINMAL
+    # je Batch und nur, wenn die Uhr vor der Umschaltschwelle steht UND die
+    # NACHRUECKLISTE offen ist - dieselbe Bedingung wie der Hinweis danach.
+    daten = {"hooks": {
+        "PostToolUse": [{"hooks": [{
+            "type": "command", "timeout": 10,
+            "command": sys.executable, "args": args}]}],
+        "PreToolUse": [{"hooks": [{
+            "type": "command", "timeout": 10,
+            "command": sys.executable, "args": args + ["--pre"]}]}],
+    }}
     ziel = Path(rd) / "worker-hooks.json"
     write_text_atomic(ziel, json.dumps(daten, indent=1) + "\n")
     if log:

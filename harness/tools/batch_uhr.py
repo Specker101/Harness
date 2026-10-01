@@ -40,6 +40,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 ZAHL_DATEI = "preflight-aufrufe.jsonl"
+# R13be-2: der einmalige Stopp je Batch. Die Datei ist die Marke - sie entsteht beim
+# ersten Block UND ist der Beleg (Zeile je Stopp mit Zeit und Minute).
+BLOCK_DATEI = "preflight-blockiert.jsonl"
+# Wortlaut aus dem Nutzerauftrag (01.10.2026): der Worker soll den Stopp nicht als
+# Verbot lesen, sondern als Nachfrage, die er begruendet beantworten kann.
+BLOCK_ZUSATZ = ("Falls alle Posten erledigt sind oder ein Posten belegt blockiert ist: "
+                "das im Batch-Dokument festhalten und den Preflight erneut starten.")
 
 
 def _stdin_json() -> dict:
@@ -75,6 +82,61 @@ def _nachrueckliste_offen(lauf: Path | None) -> bool:
     return bool(hat_nachrueckliste(read_text(p)))
 
 
+def pre_tooluse(eingabe: dict, lauf: "Path | None", state_datei, umschalt) -> int:
+    """PreToolUse: den Preflight-Aufruf EINMAL stoppen, wenn er zu frueh kaeme (R13be-2).
+
+    **Was PreToolUse darf** (Beleg: das Hooks-Handbuch im CLI-Binary,
+    `docs/_r13be_belege.md`): Ereignis-Tabelle „PreToolUse - Run before tool, **can
+    block**“; Ausgabefelder `hookSpecificOutput.permissionDecision` = „allow“, „deny“
+    oder „ask“ und `permissionDecisionReason` (beide **PreToolUse only**). Ein Hinweis
+    **ohne** Blockieren ginge ueber `additionalContext`; hier wird bewusst `deny`
+    benutzt, damit der Worker vor dem Aufruf anhaelt statt danach.
+
+    Geblockt wird nur, wenn ALLE Bedingungen gelten:
+      * es ist ein Preflight-**Start** (`streamjson.ist_preflight_aufruf`),
+      * die Batch-Uhr steht **vor** der Umschaltschwelle (`uhr.preflight_zu_frueh`),
+      * `auftrag.md` traegt eine offene `NACHRUECKLISTE` (`_nachrueckliste_offen`).
+
+    **Je Batch nur einmal:** nach dem ersten Stopp entsteht `preflight-blockiert.jsonl`;
+    jeder weitere Aufruf im selben Batch laeuft durch (der Worker hat den Hinweis dann
+    gelesen und entschieden). Ohne Laufverzeichnis oder ohne Startzeit im Zustand
+    passiert nichts - der Lauf bleibt unberuehrt.
+    """
+    from hx import streamjson, uhr
+    if not streamjson.ist_preflight_aufruf(eingabe.get("tool_name"),
+                                           eingabe.get("tool_input")):
+        return 0
+    if umschalt is None:
+        return 0
+    state = uhr.lies_state(state_datei)
+    d = uhr.start_zeit(state)
+    if d["zeit"] is None:
+        return 0
+    minuten = max(0.0, (d["alter_s"] or 0) / 60.0)
+    if not uhr.preflight_zu_frueh(minuten, umschalt):
+        return 0
+    if not _nachrueckliste_offen(lauf):
+        return 0
+    marke = (Path(lauf) / BLOCK_DATEI) if lauf is not None else None
+    if marke is not None and marke.is_file():
+        return 0                       # schon einmal gestoppt - jetzt durchlaufen lassen
+    if marke is not None:
+        from hx.util import append_jsonl
+        append_jsonl(marke, {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                             "min": round(minuten, 1), "umschalt": float(umschalt),
+                             "werkzeug": str(eingabe.get("tool_name") or "")})
+    # Derselbe Wortlaut wie beim Hinweis NACH dem Aufruf ("PREFLIGHT-HINWEIS: …") plus
+    # der Zusatz aus dem Auftrag, damit der Worker den Stopp begruendet beantworten kann.
+    grund = ("PREFLIGHT-HINWEIS: " + uhr.preflight_hinweis(minuten, umschalt)
+             + " " + BLOCK_ZUSATZ)
+    io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8").write(json.dumps(
+        {"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                "permissionDecision": "deny",
+                                "permissionDecisionReason": grund}},
+        ensure_ascii=False))
+    return 0
+
+
 def main(argv: list[str]) -> int:
     if "--state" not in argv:
         return 0
@@ -101,6 +163,10 @@ def main(argv: list[str]) -> int:
         kontext_limit = (int(argv[argv.index("--kontext-limit") + 1])
                          if "--kontext-limit" in argv else None)
         lauf = (Path(argv[argv.index("--run") + 1]) if "--run" in argv else None)
+        if "--pre" in argv:
+            # R13be-2: VOR dem Werkzeugaufruf pruefen (billigster Fall zuerst: kein
+            # Preflight-Aufruf -> sofort raus, ohne den Zustand zu lesen).
+            return pre_tooluse(eingabe, lauf, state_datei, umschalt)
         from hx import streamjson, uhr
         state = uhr.lies_state(state_datei)
         d = uhr.start_zeit(state)

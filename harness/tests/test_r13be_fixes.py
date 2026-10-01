@@ -229,7 +229,146 @@ class TestRotprobe(Basis):
         self.assertNotIn("-> 3 Laeufe", zeile)
 
 
-# --------------------------------------------------------------- 4) Verdrahtung
+# ------------------------------------------------- 4) PreToolUse-Hinweis (R13be-2)
+class TestPreToolUseHinweis(unittest.TestCase):
+    """Der Hinweis kommt jetzt **vor** dem Aufruf - und stoppt genau einmal.
+
+    Was die CLI darf, ist belegt (Hooks-Handbuch im CLI-Binary, `docs/_r13be_belege.md`):
+    `PreToolUse` = „Run before tool, can block“, Ausgabe ueber
+    `hookSpecificOutput.permissionDecision` = „allow“/„deny“/„ask“ plus
+    `permissionDecisionReason`; ein reiner Hinweis ohne Blockieren waere
+    `additionalContext`. Hier wird `deny` benutzt, damit der Worker **vor** dem Aufruf
+    anhaelt.
+    """
+
+    PREFLIGHT_CMD = "python -u scripts/preflight.py before *> analysis/_preflight_999.txt"
+    BILANZ_CMD = "python -u scripts/m149_bilanz.py --batch 999"
+    AUFTRAG = "# Batch 999\n\n## NACHRUECKLISTE (offen):\n- (1) Posten\n\nEnde.\n"
+
+    def setUp(self):
+        import shutil
+        self.tmp = Path(ROOT) / "tests" / "_tmp_r13be2"
+        shutil.rmtree(self.tmp, ignore_errors=True)
+        self.root = ensure_dir(self.tmp / "root")
+        self.state = self.root / "state" / "run.json"
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def hook(self, *, minuten: float = 42.0, umschalt: float = 80.0,
+             auftrag: str | None = None, befehl: str | None = None,
+             batch: int = 999, startzeit: bool = True,
+             extra: list[str] | None = None) -> tuple[Path, str, int]:
+        """Den PreToolUse-Hook so aufrufen, wie die CLI es tut (stdin-JSON)."""
+        import subprocess
+        lauf = ensure_dir(self.root / "runs" / f"b{batch:03d}")
+        if auftrag is None:
+            auftrag = self.AUFTRAG
+        if auftrag:
+            write_text_atomic(lauf / "auftrag.md", auftrag)
+        zustand = {"worker": {"pid": 1}, "live": {"batch": batch}}
+        if startzeit:
+            from datetime import datetime, timedelta, timezone
+            start = datetime.now(timezone.utc) - timedelta(minutes=minuten)
+            zustand["worker"]["started_at"] = start.isoformat(timespec="seconds")
+        write_text_atomic(self.state, json.dumps(zustand))
+        args = [sys.executable, str(ROOT / "tools" / "batch_uhr.py"),
+                "--state", str(self.state), "--weich", "90", "--hart", "180",
+                "--umschalt", f"{umschalt:.0f}", "--run", str(lauf), "--pre"]
+        args += list(extra or [])
+        daten = {"hook_event_name": "PreToolUse", "tool_name": "PowerShell",
+                 "tool_input": {"command": befehl or self.PREFLIGHT_CMD}}
+        p = subprocess.run(args, input=json.dumps(daten).encode("utf-8"),
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180)
+        return lauf, p.stdout.decode("utf-8").strip(), p.returncode
+
+    @staticmethod
+    def urteil(ausgabe: str) -> dict:
+        """Das JSON des Hooks ({} = der Hook laesst durch)."""
+        return json.loads(ausgabe) if ausgabe else {}
+
+    def test_erster_aufruf_wird_gestoppt(self):
+        lauf, aus, rc = self.hook()
+        self.assertEqual(rc, 0)
+        d = self.urteil(aus)["hookSpecificOutput"]
+        self.assertEqual(d["hookEventName"], "PreToolUse")
+        self.assertEqual(d["permissionDecision"], "deny")
+        self.assertIn("PREFLIGHT-HINWEIS", d["permissionDecisionReason"])
+        self.assertIn("Falls alle Posten erledigt sind oder ein Posten belegt blockiert ist",
+                      d["permissionDecisionReason"])
+        self.assertIn("den Preflight erneut starten", d["permissionDecisionReason"])
+
+    def test_zweiter_aufruf_laeuft_durch(self):
+        """**Der Kern:** nur EINMAL stoppen - der Worker hat den Hinweis gelesen."""
+        lauf, aus1, _ = self.hook()
+        self.assertIn("deny", aus1)
+        _lauf2, aus2, rc2 = self.hook()
+        self.assertEqual(rc2, 0)
+        self.assertEqual(aus2, "", "zweiter Aufruf darf nicht wieder blockiert werden")
+        marke = [z for z in (lauf / "preflight-blockiert.jsonl")
+                 .read_text(encoding="utf-8").splitlines() if z.strip()]
+        self.assertEqual(len(marke), 1)
+        self.assertEqual(json.loads(marke[0])["min"], 42.0)
+
+    def test_nach_der_schwelle_kein_stopp(self):
+        _lauf, aus, _rc = self.hook(minuten=90.0)
+        self.assertEqual(aus, "")
+
+    def test_ohne_nachrueckliste_kein_stopp(self):
+        _lauf, aus, _rc = self.hook(auftrag="# Batch 999\n\nKeine Liste hier.\n")
+        self.assertEqual(aus, "")
+
+    def test_anderer_befehl_kein_stopp(self):
+        _lauf, aus, _rc = self.hook(befehl=self.BILANZ_CMD)
+        self.assertEqual(aus, "")
+
+    def test_ohne_startzeit_kein_stopp(self):
+        _lauf, aus, _rc = self.hook(startzeit=False)
+        self.assertEqual(aus, "")
+
+    def test_erwaehnung_kein_stopp(self):
+        """`Select-String -Path scripts/preflight.py` startet nichts."""
+        _lauf, aus, _rc = self.hook(
+            befehl='Select-String -Path "scripts\\preflight.py" -Pattern x')
+        self.assertEqual(aus, "")
+
+    def test_marke_gilt_je_batch(self):
+        """Der naechste Batch wird wieder gestoppt (die Marke liegt im Laufverzeichnis)."""
+        _lauf_a, aus_a, _ = self.hook(batch=999)
+        _lauf_b, aus_b, _ = self.hook(batch=998)
+        self.assertIn("deny", aus_a)
+        self.assertIn("deny", aus_b)
+
+    def test_rotprobe_ohne_marke_wieder_stopp(self):
+        """**Rotprobe:** ohne die Marke wuerde JEDER Aufruf gestoppt.
+
+        Die Marke ist das einzige, was den zweiten Aufruf durchlaesst - wird sie
+        geloescht (wie es ein Fehler in der Reihenfolge taete), blockt der Hook erneut.
+        """
+        lauf, aus1, _ = self.hook()
+        self.assertIn("deny", aus1)
+        (lauf / "preflight-blockiert.jsonl").unlink()
+        _lauf, aus2, _ = self.hook()
+        self.assertIn("deny", aus2, "ohne Marke blockt der Hook erneut - die Marke wirkt")
+
+    def test_einstellungsdatei_haengt_beide_ereignisse(self):
+        """Ohne den PreToolUse-Eintrag gaebe es den Hinweis vor dem Aufruf nicht."""
+        cfg = load_config()
+        rd = ensure_dir(Path(self.tmp) / "cfg")
+        write_text_atomic(rd / "x.txt", "x\n")
+        ziel = worker.write_worker_hooks(cfg, rd, self.state)
+        daten = json.loads(Path(ziel).read_text(encoding="utf-8"))
+        self.assertIn("PostToolUse", daten["hooks"])
+        self.assertIn("PreToolUse", daten["hooks"])
+        post = daten["hooks"]["PostToolUse"][0]["hooks"][0]["args"]
+        pre = daten["hooks"]["PreToolUse"][0]["hooks"][0]["args"]
+        self.assertNotIn("--pre", post)
+        self.assertEqual(pre[-1], "--pre")
+        self.assertEqual(pre[:-1], post, "gleiche Bedingungen fuer beide Ereignisse")
+
+
+# --------------------------------------------------------------- 5) Verdrahtung
 class TestVerdrahtung(unittest.TestCase):
     def test_review_fakten_geben_hook_und_mitschnitt_mit(self):
         import inspect

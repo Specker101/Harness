@@ -89,3 +89,52 @@ Angepasst: `tests/test_r13bb_fixes.py::test_result_json_traegt_die_differenz` (n
 Gesamtformel als Quelltext-Zusicherung). Unveraendert gruen: `test_r13ao_fixes.py` (23),
 `test_r13bb_fixes.py` (36), `test_r13i_fixes.py` (14), `test_r13ah_fixes.py` (49) — der
 Hook-only-Fall ohne Mitschnitt behaelt die alten Zahlen.
+
+## Teil 2 — Preflight-Hinweis VOR dem Aufruf (R13be-2)
+
+### Welche Ereignisse die Worker-CLI kennt (belegt)
+
+Beleg ist das **Hooks-Handbuch im CLI-Binary** der Worker-CLI
+(`C:/Users/Benji/.local/bin/claude.exe`, 242 171 040 B, Stand 25.09.2026; Pfad aus
+`harness.toml` `[claude] exe`). Byte-Suche und Textfenster daraus:
+
+| Fundstelle im Binary | Wortlaut |
+|---|---|
+| Ereignis-Tabelle | `| PreToolUse | Tool name | **Run before tool, can block** |` · `| PostToolUse | Tool name | Run after successful tool |` · `| PostToolUseFailure | Tool name | Run after tool fails |` — danach `Notification`, `Stop`, `SubagentStart` … |
+| Ereignisse im Code | `executePreToolHooks`, `executePostToolHooks`, `executePostToolUseFailureHooks`, `executePermissionRequestHooks`, `executeSessionStartHooks`, `executePreCompactHooks`, `executeStopFailureHooks` |
+| Ausgabefelder | `permissionDecision` – **„allow“, „deny“ oder „ask“ (PreToolUse only)** · `permissionDecisionReason` – Begruendung (PreToolUse only) · `updatedInput` (PreToolUse only) · `additionalContext` – „Text injected into model context“ · `systemMessage`, `continue`, `stopReason`, `suppressOutput` · `decision: "block"` ist **„deprecated for PreToolUse, use hookSpecificOutput.permissionDecision instead“** |
+| Blockade per Exit-Code | „wakes the model on exit code 2 (blocking error)“ (Feld `asyncRewake`) — Exit 2 ist die zweite, aeltere Blockadeform |
+
+**Antwort auf die Frage:** PreToolUse kann **beides** — einen Hinweis **anhaengen ohne zu
+blockieren** (`additionalContext`) und **mit Begruendung blockieren**
+(`permissionDecision: "deny"` + `permissionDecisionReason`). Gewaehlt wurde `deny`, damit der
+Worker **vor** dem Aufruf anhaelt statt danach.
+
+### Die Aenderung
+
+| Stelle | Was |
+|---|---|
+| `tools/batch_uhr.py` `pre_tooluse(eingabe, lauf, state_datei, umschalt)` (neu) + Schalter `--pre` | Stoppt einen Preflight-**Start** genau **einmal je Batch**, wenn **alle drei** Bedingungen gelten: `streamjson.ist_preflight_aufruf`, `uhr.preflight_zu_frueh(minuten, umschalt)`, `_nachrueckliste_offen(lauf)`. Ausgabe: `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "PREFLIGHT-HINWEIS: …" + Zusatz}}` (Exit 0). Je Stopp eine Zeile in `runs/b<N>/preflight-blockiert.jsonl` (`ts`, `min`, `umschalt`, `werkzeug`) — **diese Datei ist die Marke**: ihr Vorhandensein laesst jeden weiteren Aufruf durch. Der Zusatz lautet woertlich (Nutzerauftrag): „Falls alle Posten erledigt sind oder ein Posten belegt blockiert ist: das im Batch-Dokument festhalten und den Preflight erneut starten.“ |
+| `hx/worker.py` `write_worker_hooks` | schreibt **beide** Ereignisse in dieselbe Einstellungsdatei: `PostToolUse` wie bisher, `PreToolUse` mit denselben Argumenten plus `--pre`. Damit gelten fuer beide Wege dieselben Bedingungen (Uhr, Schwelle, Laufverzeichnis). |
+
+Der Reihenfolge wegen steht die billigste Pruefung zuerst: kein Preflight-Aufruf → sofort
+zurueck, **ohne** den Zustand zu lesen (der Hook laeuft vor JEDEM Werkzeugaufruf).
+
+**Nebenwirkung, bewusst:** ein geblockter Aufruf ist im Mitschnitt ein `tool_use` und wird
+vom neuen Zaehler aus Teil 1 als **Aufruf** gezaehlt (er wurde versucht). Fuer B228 waere das
++1 gegenueber der Zahl der *ausgefuehrten* Laeufe; die Zahl der Bloecke steht deshalb als
+eigene Zeile in `preflight-blockiert.jsonl`.
+
+### Tests
+
+`tests/test_r13be_fixes.py::TestPreToolUseHinweis` (10 Tests, Aufruf des Hooks als
+Kindprozess wie durch die CLI): erster Aufruf wird gestoppt (Pruefung von `hookEventName`,
+`permissionDecision`, Hinweistext und Zusatz), **zweiter Aufruf laeuft durch** (genau ein
+Marken-Eintrag), nach der Schwelle kein Stopp, ohne NACHRUECKLISTE kein Stopp, anderer
+Befehl kein Stopp, ohne Startzeit kein Stopp, bloße Erwaehnung kein Stopp, Marke gilt je
+Batch, Einstellungsdatei haengt beide Ereignisse mit gleichen Argumenten. Dazu zwei
+**Rotproben**: `test_rotprobe_ohne_marke_wieder_stopp` loescht die Marke und zeigt, dass der
+Hook dann **erneut** blockt (die Marke ist das Wirksame, nicht Zufall) und
+`test_einstellungsdatei_haengt_beide_ereignisse` faellt, wenn der `PreToolUse`-Eintrag oder
+das `--pre` fehlt.
+
