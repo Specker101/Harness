@@ -1,0 +1,100 @@
+R13bh - Preflight-Gruppen: Zeiten, Schreibziele, Starter
+Registry: scripts/preflight.py CHECK_MODULES (seriell in dieser Reihenfolge)
+
+Sekunden je Gruppe (aus analysis/_m<N>/_preflight_zeiten.txt):
+Gruppe                    230      231      232      233      234   Mittel
+--------------------------------------------------------------------------
+m104_built                1.7      1.7      1.7      1.8      1.8      1.7
+m115_pass                 3.8      3.9      3.9      3.8      3.8      3.8
+m116_pass                 2.1      2.0      2.0      2.0      2.0      2.1
+m114_pass                 0.0      0.0      0.0      0.0      0.0      0.0
+m130_ast                  0.0      0.0      0.0      0.0      0.0      0.0
+m5_kopf_check             3.0      2.8      2.8      2.8      2.8      2.9
+c_kopf_check            310.2    297.2    310.9    309.5    322.2    310.0
+m200_einbindung           5.5      5.5      5.2      5.3      5.2      5.3
+m210_bahnabdeckung        0.1      0.1      0.1      0.1      0.1      0.1
+m210_r391                 0.9      8.5      8.8      9.0     10.1      7.5
+m227_profile_live         0.0      0.0      0.0      0.0      0.6      0.1
+m212_zeilen             167.6    181.8    181.8    184.2   1199.0    382.9
+m214_archiv               0.9      1.0      1.0      1.0      1.0      1.0
+m233_binary               0.0      0.0      0.0      0.3      0.3      0.1
+port_regression          29.0     29.0     29.3     29.6     29.4     29.3
+SUMME                   524.9    533.5    547.6    549.3   1578.5    746.7
+
+Teilschritte (alle Gruppen, Mittel ueber die Batches):
+  c_kopf_check / C Koepfe                                310.0 s   (n=5)
+  m104_built / R207 check                                  0.5 s   (n=5)
+  m104_built / R207 nachzuegler                            1.0 s   (n=5)
+  m104_built / R207 sanity                                 0.1 s   (n=5)
+  m104_built / R207 tails                                  0.1 s   (n=5)
+  m114_pass / P100                                         0.0 s   (n=5)
+  m114_pass / P100-Selbstprobe                             0.0 s   (n=5)
+  m115_pass / R216 A abi                                   3.2 s   (n=5)
+  m115_pass / R216 B impl                                  0.4 s   (n=5)
+  m115_pass / R216 C doc                                   0.3 s   (n=5)
+  m116_pass / R216 D doc4                                  2.1 s   (n=5)
+  m130_ast / R222                                          0.0 s   (n=5)
+  m200_einbindung / C Einbindung                           5.3 s   (n=5)
+  m210_bahnabdeckung / Bahnabdeckung                       0.1 s   (n=5)
+  m210_r391 / R391 Commit-Reihenfolge                      7.5 s   (n=5)
+  m212_zeilen / Bauliste ⊆ Registry                        0.4 s   (n=5)
+  m212_zeilen / C Fallrueckgang                            8.1 s   (n=5)
+  m212_zeilen / C verifiziert                              0.1 s   (n=5)
+  m212_zeilen / Formen der C-Koepfe orakelgeprueft         8.2 s   (n=5)
+  m212_zeilen / Hybrid-Lauf                              365.8 s   (n=5)
+  m212_zeilen / Profile reproduzierbar                     0.0 s   (n=5)
+  m212_zeilen / analysis neue .py                          0.2 s   (n=5)
+  m214_archiv / Archiv Kodierung                           0.0 s   (n=5)
+  m214_archiv / Archiv vor Batch                           1.0 s   (n=5)
+  m227_profile_live / Profil-Lauf (m227)                   0.6 s   (n=1)
+  m233_binary / Binary Quellen                             0.3 s   (n=2)
+  m5_kopf_check / M5 Kopf                                  2.9 s   (n=5)
+  port_regression / REG regression                        29.3 s   (n=5)
+
+Schreibziele und Starter je Modul (aus dem Quelltext):
+  m104_built:
+    schreibt: _m104_nachzuegler.txt, _m104_nachzuegler.txt
+    startet : c_kopf
+  m115_pass:
+    schreibt: (kein EV.target gefunden)
+    startet : -
+  m116_pass:
+    schreibt: (kein EV.target gefunden)
+    startet : -
+  m114_pass:
+    schreibt: (kein EV.target gefunden)
+    startet : -
+  m130_ast:
+    schreibt: (kein EV.target gefunden)
+    startet : -
+  m5_kopf_check:
+    schreibt: (kein EV.target gefunden)
+    startet : m193, mingw32-make
+  c_kopf_check:
+    schreibt: (kein EV.target gefunden)
+    startet : c_kopf, port_selftest
+  m200_einbindung:
+    schreibt: (kein EV.target gefunden)
+    startet : c_kopf
+  m210_bahnabdeckung:
+    schreibt: (kein EV.target gefunden)
+    startet : c_kopf
+  m210_r391:
+    schreibt: (kein EV.target gefunden)
+    startet : hybrid_lauf
+  m227_profile_live:
+    schreibt: (kein EV.target gefunden)
+    startet : c_kopf
+  m212_zeilen:
+    schreibt: (kein EV.target gefunden)
+    startet : c_kopf, hybrid_lauf
+  m214_archiv:
+    schreibt: (kein EV.target gefunden)
+    startet : c_kopf
+    liest   : analysis/_m197/, analysis/_m210/_bo_zensus.txt
+  m233_binary:
+    schreibt: (kein EV.target gefunden)
+    startet : c_kopf, hybrid_lauf, m193, port_build, port_gl, port_selftest, ppc_poc
+  port_regression:
+    schreibt: (kein EV.target gefunden)
+    startet : port_build, port_gl, port_selftest, ppc_poc

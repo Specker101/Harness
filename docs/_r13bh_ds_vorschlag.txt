@@ -1,0 +1,81 @@
+/ds R13bh-Preflight-Bahnen - Auftragstext (Vorschlag, NICHT gesendet)
+
+--- BEGINN DES VORSCHLAGS (das ist der /ds-Wortlaut) ---
+
+TEIL 1 - DREI BAHNEN IM PREFLIGHT (`scripts/preflight.py`)
+
+Anlass (gemessen, `analysis/_m230..234/_preflight_zeiten.txt`): der Preflight laeuft
+seriell, 8,7-9,2 min; 94-96 % der Zeit stecken in ZWEI Port-Laeufen (`c_kopf_check /
+C Koepfe` 310 s, `m212_zeilen / Hybrid-Lauf` 183-1199 s). Die uebrigen 13 Gruppen
+zusammen: ~50 s.
+
+Aufgabe: die 15 Gruppen aus `CHECK_MODULES` in DREI Bahnen fahren. Die **Ausgabe bleibt
+zeilengleich und in Registry-Reihenfolge** (erst die Bahnen abwarten, dann in
+`CHECK_MODULES`-Reihenfolge drucken); Rueckgabewert unveraendert (0 sauber / 2 Befunde);
+`--raw`, `--out` und `evidence.py` unveraendert benutzen.
+
+* **Bahn A - Hybrid-Kette, EIN Prozess, streng seriell:**
+  `m227_profile_live` -> `c_kopf_check` -> `m210_bahnabdeckung` -> `m212_zeilen`.
+  Diese vier MUESSEN im selben Prozess bleiben: `m210_bahnabdeckung` (0,1 s) und
+  `m212_zeilen / C verifiziert` (0,1 s) sind Cache-Treffer des gemeinsamen ROM-Laufs aus
+  `c_kopf._vergl_alle` (`c_kopf._DECKUNG_CACHE`). Getrennt gefahren kostet das +213 s
+  bzw. +217 s (belegt: `analysis/_m216/_preflight_zeiten.txt`).
+* **Bahn B - Bau und Regression, seriell in dieser Reihenfolge:**
+  `m116_pass` -> `m5_kopf_check` -> `port_regression` -> `m233_binary`.
+  Grund: `m116_pass` schreibt `port/src/voter_select_*.inc`, `m5_kopf_check` baut
+  `port/build/m193_head.exe`, `m233_binary` vergleicht Binaer-Alter gegen die Quellen.
+* **Bahn C - kurz, parallel zu A und B:** `m104_built`, `m115_pass`, `m114_pass`,
+  `m130_ast`, `m200_einbindung`, `m210_r391`, `m214_archiv`.
+
+Harte Regeln:
+1. **Hoechstens 3 Bahnen gleichzeitig.**
+2. **`hybrid_lauf.exe` NIE parallel zu einem anderen `hybrid_lauf.exe`** - und
+   `c_kopf.exe`/`c_kopf.py vergl` ebenso wenig (dieselbe Familie, derselbe Zustand).
+   Innerhalb einer Bahn ist alles seriell.
+3. `m116_pass` VOR `m5_kopf_check` VOR `m233_binary`; `m227_profile_live` VOR
+   `m212_zeilen` (es liest `analysis/<EV>/_profile_reproduzierbar.txt`).
+4. Kein zweiter Schreiber auf dieselbe Belegdatei; `analysis/_archiv/MANIFEST.txt` ist
+   das einzige geteilte Ziel - dort nur anhaengen, nie neu schreiben.
+5. Kein Verhalten aendern: gleiche Pruefungen, gleiche Schwellen, gleiche Belegnamen.
+
+TEIL 2 - GLEICHWERTIGKEIT UND ROTPROBE (Pflicht, sonst gilt der Umbau als nicht belegt)
+
+1. **Vergleichslauf seriell** (NICHT der gueltige Beleg, eigener Name):
+   `python -u scripts/preflight.py before *> analysis/_m<N>/_preflight_<N>_seriell.txt`
+2. **Gueltiger Lauf parallel** (der eine Beleg des Batches):
+   `python -u scripts/preflight.py before *> analysis/_preflight_<N>.txt`
+3. **Zeilenvergleich**: beide Dateien muessen **in jeder Zeile gleich** sein; abweichen
+   duerfen nur die Kopfzeilen (`Lauf … | HEAD …`, `Werkzeugkette …`, `Dauer`, `Modus`)
+   und die Zeilen der Zeittafel. `diff` zeigen, die Abweichungsliste im Batch-Dokument
+   nennen. Zusaetzlich: `python -u scripts/m149_bilanz.py --batch <N>
+   --from-preflight analysis/_preflight_<N>.txt` muss unveraendert durchlaufen.
+4. **Rotprobe** (die Reihenfolge ist echt und nicht zufaellig): eine Bahn kuenstlich um
+   30 s verzoegern (Schalter `--bahn-delay 30` oder Umgebungsvariable), Lauf wiederholen
+   -> die Ausgabe bleibt **zeilengleich**, nur die Dauer aendert sich. Schalter danach
+   wieder entfernen (oder auf 0 setzen) und den Zustand im Batch-Dokument nennen.
+5. **Messung berichten**: Dauer seriell gegen Dauer parallel, je Bahn. Erwartung aus der
+   Messung: **~493 s statt ~525 s** im Regelfall (**-6 %**, ~30 s) - wer mehr erwartet,
+   irrt: die zwei Port-Laeufe duerfen nicht ueberlappen. Weicht die Messung stark ab
+   (> +10 % oder > -15 %), das im Batch-Dokument begruenden, nicht wegglaetten.
+
+FERTIG WENN: drei Bahnen laufen (max. 3 gleichzeitig, Hybrid-Kette in einem Prozess),
+`analysis/_preflight_<N>.txt` ist zeilengleich zum seriellen Vergleichslauf (nur
+Kopf-/Zeitzeilen abweichend), die Rotprobe mit `--bahn-delay 30` aendert nur die Dauer,
+`m149_bilanz.py --from-preflight` laeuft unveraendert, und die gemessenen Zeiten stehen
+im Batch-Dokument.
+
+STREICHREIHENFOLGE: 1. Rotprobe, 2. Bahn C parallel (erst A+B sauber), 3. Doku.
+NIE: Tafel-Gleichheit, `m149_bilanz --from-preflight`, Hybrid-Regel.
+
+## NACHRUECKLISTE
+1. Bahn A in EINEM Prozess (Cache bleibt warm) - FERTIG WENN `Bahnabdeckung` und
+   `C verifiziert` weiter unter 1 s stehen (nicht 213/217 s).
+2. Zeilenvergleich seriell/parallel als Beleg abgelegt - FERTIG WENN die Datei
+   `analysis/_m<N>/_preflight_<N>_vergleich.txt` mit `diff`-Ausgabe existiert und die
+   Abweichungsliste im Dokument steht.
+3. Rotprobe mit `--bahn-delay 30` - FERTIG WENN die Ausgabe gleich bleibt und die Dauer
+   um ~30 s steigt.
+4. Zeiten je Bahn im Batch-Dokument - FERTIG WENN dort `seriell <x> s | parallel <y> s`
+   mit Datum und HEAD steht.
+
+--- ENDE DES VORSCHLAGS ---

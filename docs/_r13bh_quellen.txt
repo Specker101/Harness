@@ -1,0 +1,139 @@
+### m104_built.py  (2519 Zeilen)
+  -- Schreibzugriffe --
+     2443: EV.write("_m104_nachzuegler.txt", out, quiet=True)
+  -- Unterprozesse / Starter --
+     1118: # gefahren (`scripts/c_kopf.py vergl`, Beleg `_m197/_ckopf_lauf.txt`).
+     1131: # Geprueft: `scripts/c_kopf.py vergl alle` 17 Koepfe / 408 Faelle /
+     1153: # Geprueft: `scripts/c_kopf.py vergl alle` 45 Koepfe / 1080 Faelle /
+  -- liest Belege anderer Module --
+     1061: analysis/_m148/_m130_raw.txt
+     1118: _m197/_ckopf_lauf.txt
+     1132: analysis/_m198/_c_kopf_lauf.txt
+     1154: analysis/_m199/_c_kopf_lauf.txt
+     1254: analysis/_m213/_kandidaten_b216.txt
+     1267: analysis/_m216/_kandidaten.txt
+     1281: _m222/_c_paket_e_vorher.txt
+     1283: _m222/_schnittmenge.txt
+     2297: analysis/_m196/_rest_nachher.txt
+
+### m115_pass.py  (369 Zeilen)
+  -- Schreibzugriffe --
+       56: def _out(name):
+       57: return EV.target(name)
+       61: open(_out(name), "w", encoding="utf-8", newline="\n").write(
+       63: print("geschrieben:", _out(name))
+  -- Unterprozesse / Starter --
+  -- liest Belege anderer Module --
+
+### m116_pass.py  (560 Zeilen)
+  -- Schreibzugriffe --
+       76: open(path, "w", encoding="utf-8", newline="\n").write("\n".join(lines) + "\n")
+  -- Unterprozesse / Starter --
+  -- liest Belege anderer Module --
+
+### m114_pass.py  (566 Zeilen)
+  -- Schreibzugriffe --
+       42: def _out(name):
+       43: return EV.target(name)
+       47: open(_out(name), "w", encoding="utf-8", newline="\n").write(
+       49: print("geschrieben:", _out(name))
+  -- Unterprozesse / Starter --
+  -- liest Belege anderer Module --
+
+### m130_ast.py  (868 Zeilen)
+  -- Schreibzugriffe --
+      251: def _out(name):
+      252: return EV.target(name)
+      256: open(_out(name), "w", encoding="utf-8", newline="\n").write(
+      258: print("geschrieben:", _out(name))
+      765: open(out, "w", encoding="utf-8", newline="\n").write("\n".join(L) + "\n")
+  -- Unterprozesse / Starter --
+  -- liest Belege anderer Module --
+
+### m200_einbindung.py  (393 Zeilen)
+  -- Schreibzugriffe --
+      296: EV.write(EV_DIR + "/_c_einbindung.txt", zeilen, quiet=True)
+      327: EV.write(EV_DIR + "/_c_nachzuegler_a.txt", zeilen, quiet=True)
+  -- Unterprozesse / Starter --
+      309: out = subprocess.run([sys.executable, "-u",
+  -- liest Belege anderer Module --
+       12: analysis/_m200/_c_einbindung.txt
+      346: analysis/_m201/_c_einbindung_rotprobe.txt
+
+### m210_bahnabdeckung.py  (222 Zeilen)
+  -- Schreibzugriffe --
+      177: with io.open(os.path.join(p, "_bahnabdeckung_%s.txt" % modus), "w",
+      203: with io.open(os.path.join(p, "_bahnabdeckung_preflight.txt"), "w",
+  -- Unterprozesse / Starter --
+  -- liest Belege anderer Module --
+
+### m210_r391.py  (495 Zeilen)
+  -- Schreibzugriffe --
+      346: with io.open(os.path.join(p, "_r391_%d.txt" % n), "w",
+  -- Unterprozesse / Starter --
+       25: `port/hybrid/hybrid_lauf.cpp`, `port/hybrid/ppc_kern.cpp`,
+       83: p = subprocess.run(["git"] + list(args), cwd=WS, capture_output=True,
+  -- liest Belege anderer Module --
+
+### m227_profile_live.py  (222 Zeilen)
+  -- Schreibzugriffe --
+      141: with io.open(ziel, "w", encoding="utf-8", newline="\n") as fh:
+      155: with io.open(p, "w", encoding="utf-8", newline="\n") as fh:
+      159: with io.open(p, "w", encoding="utf-8", newline="") as fh:
+  -- Unterprozesse / Starter --
+        9: `c_kopf.PROFILES` - heute **98** (`scripts/c_kopf.py:3649@HEAD`).
+       13: 1. `python scripts/c_kopf.py prof --out analysis/<EV>/_prof_live` erzeugt die
+       26: Aufruf: python scripts/m227_profile_live.py [live|rot]
+       48: C_KOPF = os.path.join(WS, "scripts", "c_kopf.py")
+       59: p = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=WS,
+       72: JETZT wird das Verzeichnis NICHT mehr geleert: `c_kopf.py prof` traegt
+       85: p = subprocess.run([sys.executable, "-u", C_KOPF, "prof", "--out", LIVE],
+      113: "# Erzeuger: scripts/m227_profile_live.py %s"
+      119: "#   AKTUELLEN scripts/c_kopf.py, `prof --out`).",
+      169: # vorher von Hand erzeugte (`python scripts/m227_profile_live.py`), bekam
+  -- liest Belege anderer Module --
+        7: analysis/_m222/_prof_nachher
+       20: _m227/_profile_reproduzierbar.txt
+       42: analysis/_m227/_prof_live
+      171: analysis/_m233/_preflight_233_fehllauf1.txt
+
+### m214_archiv.py  (467 Zeilen)
+  -- Schreibzugriffe --
+      323: def _schreib(p, t):
+      324: with io.open(os.path.join(WS, p), "w", encoding="utf-8",
+      345: _schreib(ZIEL, alt + "ROTPROBE B214\n")
+      348: _schreib(ZIEL, alt)
+      440: EV.write(BC.ev_dir() + "/_archiv_rotprobe.txt", L, quiet=True)
+  -- Unterprozesse / Starter --
+       72: # Es ist der GETRACKTE ARBEITSSTAND der Kopfprofile - `scripts/c_kopf.py:55-56`
+       86: p = subprocess.run(["git"] + list(args), cwd=WS, capture_output=True,
+      224: "# kein Alt-Beleg (c_kopf.py:55-56). Die Zeilen stehen unten"
+  -- liest Belege anderer Module --
+       33: analysis/_m214/_archiv_rotprobe.txt
+      315: analysis/_m210/_bo_zensus.txt
+
+### m233_binary.py  (219 Zeilen)
+  -- Schreibzugriffe --
+      202: EV.write(BC.eintrag("_binary_quellen.txt"), zeilen, quiet=True)
+  -- Unterprozesse / Starter --
+        8: 2026-10-01 06:55:37), aber das Laufbinaer `port/build/hybrid_lauf.exe` NICHT
+       12: LAUFZEIT-Registry `port::ckopf::heads()` (`port/hybrid/hybrid_lauf.cpp:1431`
+       18: `scripts/port_build.ps1` (der uebliche Bauaufruf) baut NUR
+       19: `poc/ppc_native/ppc_poc.exe`, `port/build/port_selftest.exe` und
+       20: `port/build/port_gl.exe`. Die drei vom Preflight EBENFALLS aufgerufenen
+       21: Binaerien - `port/build/hybrid_lauf.exe` (`m212_zeilen`), `port/build/
+       22: c_kopf.exe` (`m104_built`/`c_kopf_check` ueber `c_kopf.py`) und
+       23: `port/build/m193_head.exe` (`m5_kopf_check`) - haengen am Makefile-Ziel
+       37: Die Quellenmengen sind NICHT geraten, sondern aus dem Makefile/`port_build.ps1`
+       88: "exe": "poc/ppc_native/ppc_poc.exe",
+       89: "bau": "scripts/port_build.ps1:57-66 (g++ main.cpp); port_regression.py:64",
+       93: "exe": "port/build/port_selftest.exe",
+       94: "bau": "Makefile:64-66 (SOURCES ohne render_gl.cpp), port_build.ps1:84-94",
+       99: "exe": "port/build/port_gl.exe",
+      105: "exe": "port/build/hybrid_lauf.exe",
+      108: HYB + "/hybrid_lauf.cpp", SRC + "/ram.cpp",
+      120: "exe": "port/build/m193_head.exe",
+      121: "bau": "Makefile:128-131 (M191_SRC ohne port_selftest.cpp), :230-236",
+      123: "exclude": ["port_selftest.cpp"],
+  -- liest Belege anderer Module --
+
