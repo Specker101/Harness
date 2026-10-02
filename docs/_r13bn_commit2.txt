@@ -1,0 +1,37 @@
+R13bn-2: Verbrauch je Aufruftyp gemessen (nur gelesen, nichts geaendert)
+
+Nutzerauftrag R13bn Punkt 2. Beleg: `docs/_r13bn_verbrauch.txt`, Werkzeug
+`docs/_r13bn_verbrauch.py` (wiederholbar). Geaendert wurde am Harness NICHTS - deshalb
+kein Test zu diesem Punkt.
+
+Gelesen werden die Mitschnitte der letzten 7 Tage; die Zahlen (Tokens,
+`total_cost_usd`, `num_turns`) stehen im `result`-Ereignis der claude-CLI. Tafel:
+
+  Typ         | Aufrufe | Tokens (CLI) | Anteil am Abo | Mittel je Aufruf | CLI-Kosten
+  Review      |   87    |   66 707 163 |     40,2 %    |      766 749     |  $337,57
+  Aussensicht |   22    |   78 999 416 |     47,6 %    |    3 590 883     |   $48,45
+  /ask        |   66    |   20 366 298 |     12,3 %    |      308 580     |   $33,74
+  Worker      |  107    | 3 960 469 054|  eigene API   |   37 013 729     | $1344,20
+
+Der Worker laeuft auf der eigenen API (`base_url`, `deepseek-flash[1m]`) und zaehlt
+NICHT aufs Abo - er steht in der Tafel, aber ausserhalb des Anteils. Die
+`total_cost_usd`-Zahlen der CLI sind Listenpreise fuer Opus, nicht die tatsaechliche
+Rechnung.
+
+FALLSTRICK, im Werkzeug festgehalten: die `assistant`-Ereignisse wiederholen die `usage`
+ihrer Nachricht mehrfach (Streaming-Stuecke) - eine Summe darueber zaehlt dieselben
+Tokens vielfach (gemessen: 5 Ereignisse mit identischer usage in
+`runs/b243/reviewer.jsonl`, Sonde `docs/_r13bn_sonde_usage.py`). Gezaehlt wird deshalb nur
+das `result`-Ereignis; Laeufe ohne eines (2 im Fenster) werden als solche gemeldet.
+
+Rate-Limit-Verlauf: 171 Messpunkte aus den `rate_limit_event`-Eintraegen der Mitschnitte
+(5 h- und 7-Tage-Fenster samt Reset). Das aktuelle `logs/rate-limit.json` haelt nur den
+LETZTEN Stand, der Verlauf kommt deshalb aus den Mitschnitten.
+
+HYPOTHESIS (so gekennzeichnet, Annahmen genannt): im dichten Fenster 02.10. 00:00-10:59
+stieg die Wochenauslastung 77 % -> 91 % (14 %-Punkte) bei 16 Abo-Laeufen - das sind
+~114 Abo-Laeufe bis 100 %, bei 50 % Review-Anteil also **rund 57 Reviews je Woche**
+(konservativ); die Tokenrechnung daneben ergibt 361. Die beiden weichen bewusst ab und
+die Richtung beider Fehler steht dabei: das rollierende Fenster altert mit (Auslastung
+steigt langsamer als der Verbrauch -> konservative Zahl zu klein), Cache-Treffer zaehlen
+im Kontingent weniger (Tokenzahl zu gross). Fuer die Planung gilt die konservative Zahl.

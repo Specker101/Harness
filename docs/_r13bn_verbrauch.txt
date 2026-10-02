@@ -1,0 +1,56 @@
+R13bn Punkt 2 - Verbrauch je Aufruftyp (Mitschnitte der letzten 7 Tage)
+Zeitpunkt: 2026-10-02T11:49:54+00:00
+Fenster: seit 2026-09-25T11:49+00:00 (Dateizeit der Mitschnitte)
+HEAD: 262ddf8 R13bn-1: Abbruch-Marke loest nur noch einmal aus (M241-4/M242-5/M243-2)
+
+Typ | Aufrufe | Tokens (CLI) | Eingabe neu | Cache gelesen | Cache neu | Ausgabe | Anteil am Abo | Mittel je Aufruf | CLI-Kosten
+---|---|---|---|---|---|---|---|---|---
+Review | 87 | 66 707 163 | 930 | 56 772 155 | 9 072 101 | 861 977 | 40.2 % | 766 749 | $337.57
+Aussensicht | 22 | 78 999 416 | 1 506 | 75 661 604 | 2 784 269 | 552 037 | 47.6 % | 3 590 883 | $48.45
+/ask | 66 | 20 366 298 | 52 455 | 18 552 086 | 1 515 035 | 246 722 | 12.3 % | 308 580 | $33.74
+Worker | 107 | 3 960 469 054 | 19 573 855 | 3 926 889 956 | 0 | 14 005 243 | (eigene API) | 37 013 729 | $1344.20
+
+Laeufe OHNE `result`-Ereignis (abgebrochen) - gezaehlt, Tokens nicht gemessen: Review 1, Aussensicht 0, /ask 0, Worker 1
+
+Rate-Limit-Verlauf (171 Messpunkte, letzter Block reset 06.10. 05:00):
+  02.10. 05:21  Aussensicht Woche  82.0 %  Sitzung  21.0 %
+  02.10. 05:23  Review      Woche  82.0 %  Sitzung  29.0 %
+  02.10. 06:26  Review      Woche  83.0 %  Sitzung  39.0 %
+  02.10. 06:33  Aussensicht Woche  84.0 %  Sitzung  53.0 %
+  02.10. 07:48  Aussensicht Woche  85.0 %  Sitzung  67.0 %
+  02.10. 07:50  Review      Woche  86.0 %  Sitzung  77.0 %
+  02.10. 09:04  Aussensicht Woche  87.0 %  Sitzung  12.0 %
+  02.10. 09:06  Review      Woche  88.0 %  Sitzung  23.0 %
+  02.10. 09:14  /ask        Woche  89.0 %  Sitzung  26.0 %
+  02.10. 09:22  /ask        Woche  89.0 %  Sitzung  27.0 %
+  02.10. 10:58  Aussensicht Woche  90.0 %  Sitzung  41.0 %
+  02.10. 10:59  Review      Woche  91.0 %  Sitzung  54.0 %
+  erster Punkt im 7-Tage-Fenster: 25.09. 22:43 36.0 % (derselbe Block-Reset)
+
+logs/rate-limit.json (zuletzt geschrieben 2026-10-02T10:59:56+00:00 durch Reviewer):
+  Sitzung (5 h): 54 % (Reset 02.10.2026 15:50 (UTC+02:00)) | Woche (7 Tage): 91 % (Reset 06.10.2026 07:00 (UTC+02:00))
+
+HYPOTHESIS - wie viele Reviews das Abo je Woche traegt
+  Annahmen: (a) das Wochenkontingent laeuft ueber die von der CLI gemeldeten
+  Tokens, (b) der Verbrauch ist proportional dazu, (c) auf das Abo zaehlen
+  Review, Aussensicht und /ask - der Worker laeuft auf der eigenen API.
+  Dichtes Fenster 02.10. 00:00 bis 02.10. 10:59 (Block-Reset 06.10. 05:00): Auslastung 77 % -> 91 % = 14 %-Punkte
+  bei 16 Abo-Laeufen (8 Review, 8 Aussensicht//ask), 38 756 542 Tokens in diesen Laeufen.
+  -> 0.9 %-Punkte je Abo-Lauf; der Anschlag (100 %) waere nach rund 114 Abo-Laeufen erreicht.
+  Reviews sind davon 50 % - also rund 57 Reviews je Woche.
+  Gegenrechnung ueber die Tokens: 2 768 324 Tokens je 1 %-Punkt; ein Review mittelt 766 749 Tokens.
+  -> rund 361 Reviews je Woche (dieselben Annahmen).
+  Die beiden Rechnungen liegen NICHT gleich: die Auslastungsrechnung ist die
+  konservative Zahl (100 % / 0.9 %-Punkte je Lauf ~ 114 Abo-Laeufe), die
+  Tokenrechnung die grosszuegige (~361 Reviews). Die Wahrheit liegt dazwischen:
+  * das Wochenkontingent ist ein ROLLIERENDES Fenster - in derselben Zeit, in
+    der Tokens verbraucht werden, faellt alter Verbrauch heraus. Die Auslastung
+    steigt deshalb WENIGER als der Verbrauch -> die Auslastungsrechnung
+    unterschaetzt die Zahl der moeglichen Reviews.
+  * Cache-Treffer zaehlen im Kontingent weniger als frische Eingabe, die
+    Tokensumme ueberschaetzt die cache-lastigen Reviewer-Laeufe -> die
+    Tokenrechnung ueberschaetzt sie.
+  Fuer die Planung gilt die konservative Zahl: rund 57 Reviews je Woche (in
+  einem Betrieb, in dem die Abo-Laeufe zur Haelfte Aussensichten sind; im
+  7-Tage-Fenster waren es 22 von 109).
+  Quelle der Auslastung: `rate_limit_event` in den Mitschnitten, siehe Verlauf.
