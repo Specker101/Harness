@@ -182,3 +182,36 @@ diese Zahl zieht die **gemessene** Preflight-Dauer des neuesten Batches vor
 dieselbe Lebenddaten-Zusicherung, die R13bd schon einmal entfernt hat; die Zusicherung
 prueft jetzt die **Rechnung** (`umschalt = 150 − vorlauf`, `vorlauf = max(15, preflight+5)`)
 statt einer festen Zahl.
+---
+
+## Teil 5 — die volle Testreihe und ihre zwei Fehlschlaege
+
+Am Gate (Zustand `GATE_APPROVAL`, `worker=None` — es lief kein Batch) lief die volle Reihe
+mit dem Projekt-Werkzeug (`docs/_r13av_lauf.py` gegen `docs/_r13bl_volle_reihe.txt`).
+**Erster Lauf: rot.**
+
+```
+Tests: 1369 | Fehler: 0 | Fehlschläge: 2 | übersprungen: 0
+Dauer: 544,6 s   HEAD: 0565f25   ERGEBNIS: FEHLGESCHLAGEN
+```
+
+Beleg: `docs/_r13bl_volle_reihe_rot.txt` (unveraendert archiviert).
+
+| Fehlschlag | Ursache | wem zuzuordnen |
+|---|---|---|
+| `test_r13bf_fixes.TestZweiterPreflight.test_nicht_committete_aenderung_zaehlt_nach_der_zeit` | Der Test nahm als „Preflight-Start" den **festen** Zeitpunkt `2026-10-01T23:59:59+00:00`. Die Uhr hat ihn in der Nacht zum 02.10. eingeholt; danach lag die Dateizeit der Testdatei **nach** dem Start, und `aenderung_seit_preflight` meldete korrekt „geaendert". **Abgelaufene Zusicherung, nicht durch diese Runde verursacht** — dieselbe Klasse wie die Lebenddaten-Falle (R13bd). | R13bf |
+| `test_r13bj_fixes.TestZeitgrenzen.test_handbuch_traegt_den_rueckbau_vermerk` | **Mein Fehler.** Ich hatte die Zusicherung `"B236 brauchte 456 s"` geschrieben, danach den §13-Satz nachgeschaerft („der **gueltige** Preflight von B236 brauchte **456 s**") und diese Testdatei **nicht erneut gefahren** — genau der Fallstrick, den R13be schon einmal notiert hat. | R13bl-2 |
+
+**Behebung** (Commit `R13bl-5`):
+
+* `test_r13bf_fixes`: der Start liegt jetzt **relativ zu jetzt** eine Stunde in der Zukunft
+  (`datetime.now(timezone.utc) + timedelta(hours=1)`) — kein ablaufendes Datum mehr.
+* `test_r13bj_fixes`: die Zusicherung prueft den **stabilen Teil** der Aussage
+  (`"Preflight von B236 brauchte"` + `"456 s"`) statt der zuerst geschriebenen Wortfolge.
+
+Nachweis: beide Dateien einzeln gruen (20 Tests / 20 Tests), danach die volle Reihe erneut.
+
+**Lehre fuer die naechste Runde:** Wer eine Zusicherung auf einen **Wortlaut** schreibt,
+muss die Datei nach JEDER Umformulierung dieses Wortlauts erneut fahren — ein gruener
+Einzellauf von vor zehn Minuten beweist nichts. Und feste Zeitpunkte in Tests sind
+Schulden mit Faelligkeitsdatum.

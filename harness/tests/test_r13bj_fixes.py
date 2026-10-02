@@ -259,7 +259,11 @@ class TestZeitgrenzen(unittest.TestCase):
         """R13bl: der Rueckbau ist erledigt - §13 nennt die neuen Werte und den Beleg."""
         text = (ROOT.parent / "docs" / "bedienung.md").read_text(encoding="utf-8")
         self.assertIn("**5. Zeitgrenzen (R13bl", text)
-        self.assertIn("B236 brauchte 456 s", text)
+        # R13bl: der Wortlaut in §13 wurde nachgeschaerft ("der **gueltige** Preflight von
+        # B236 brauchte **456 s**") - deshalb hier der stabile Teil der Aussage, nicht die
+        # zuerst geschriebene Wortfolge.
+        self.assertIn("Preflight von B236 brauchte", text)
+        self.assertIn("456 s", text)
         self.assertIn("bash_max_timeout_s", text)
         self.assertIn("hard_wall_s", text)
         # Die Rueckbau-Tafel aus R13bj gibt es nicht mehr (der Rueckbau ist geschehen).

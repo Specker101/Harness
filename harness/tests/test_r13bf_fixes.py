@@ -25,6 +25,7 @@ import shutil
 import subprocess
 import sys
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -233,7 +234,14 @@ class TestZweiterPreflight(unittest.TestCase):
         try:
             p = ensure_dir(b.repo / "scripts") / "c_kopf.py"
             p.write_text("# neu\n", encoding="utf-8")
-            alt = worker.aenderung_seit_preflight(b.cfg, "2026-10-01T23:59:59+00:00")
+            # R13bl (02.10.2026): hier stand ein FESTER Zeitpunkt
+            # (`2026-10-01T23:59:59+00:00`). Die Uhr hat ihn in der Nacht zum 02.10.
+            # eingeholt - danach lag die Dateizeit JUENGER als der "Preflight" und der
+            # Test war rot, ohne dass sich am Code etwas geaendert haette. Der Start
+            # muss WIRKLICH in der Zukunft liegen, also relativ zu jetzt.
+            spaeter = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(
+                timespec="seconds")
+            alt = worker.aenderung_seit_preflight(b.cfg, spaeter)
             self.assertFalse(alt["geaendert"], "Dateizeit liegt VOR dem Preflight")
             neu = worker.aenderung_seit_preflight(b.cfg, "2020-01-01T00:00:00+00:00")
             self.assertTrue(neu["geaendert"])
