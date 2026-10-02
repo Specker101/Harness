@@ -1,0 +1,43 @@
+R13bm-2: Infrastrukturabbruch ist eine eigene Klasse (Neustart statt Review)
+
+Nutzerauftrag R13bm Punkt 2 (nach Nutzerentscheid): ein API-/Gateway-Fehler am
+Ende eines Laufs ist kein inhaltlicher Abbruch. Bisher lief der halbe Lauf in den
+Review und wurde dort als "verworfen" abgelegt - bezahlt, aber ohne Ergebnis.
+
+Erkennung (worker.py):
+- `infra_abbruch_regel(rc, killed_reason, letzter_text_api_fehler)` als eigene,
+  pruefbare Regel: rc != 0 UND kein anderer Abbruchgrund UND die LETZTE
+  Modellantwort ist ein API-/Gateway-Fehler (`streamjson.ist_api_fehler`:
+  "API Error ..." oder Modellfeld `<synthetic>`).
+- `_finish_run` setzt damit `res.killed_reason = "infra"`. Eine Zeitgrenze oder
+  eine Warteschleife wird NICHT umgedeutet - die Klasse ist die letzte Wahl.
+  Nebenwirkung, bewusst: `run_worker` sieht `killed_reason` und sichert den
+  halben Stand (`wip_nach_abbruch`) - die Fortsetzung baut auf den Commits auf.
+
+Folge (orchestrator.py):
+- `infra_wait_planen` baut KEINEN Review, sondern ein Gate fuer DENSELBEN Batch
+  (Quelle `infra`, `fortsetzung=True` - der vorige Lauf wandert nach `lauf<k>/`,
+  R13bj) mit dem Hinweis "Fortsetzung nach Infrastrukturfehler, Stand aus den
+  Zwischenstand-Commits uebernehmen", und zwar mit dem vollstaendigen alten
+  Auftrag. Danach 15 min Pause (`INFRA_WARTE_MIN`); `infra_wait_tick` hebt sie
+  von selbst auf (Muster `limit_wait_tick`, R13e).
+- `gate_approved`: Quelle `infra` startet ohne `/approve` (der Auftrag dazu steht
+  im Nutzerauftrag).
+- Nach `INFRA_MAX_NEUSTARTS = 2` Neustarts: Pause plus Telegram. Batch-Budget
+  (Kosten ALLER Laeufe des Batches, `infra_batch_kosten`) und Tagesbudget
+  verhindern den Neustart ebenso; der Peak-Aufschub greift wie bisher ueber die
+  zweite Pruefung vor dem Start.
+- `/pause` und `/resume` raeumen die Wartezeit weg (ausdrueckliche Nutzerhandlung
+  schlaegt den Selbst-Neustart, wie beim Limit-Warten).
+
+Tests (`tests/test_r13bm_fixes.py`, 15 neue Faelle, zusammen 23 in der Datei):
+Regel auf dem echten Mitschnitt (rc, api_fehler, anderer Abbruchgrund), Loop-Fall
+"kein Review, derselbe Batch als Fortsetzung", Gate ohne /approve, dritter
+Abbruch pausiert und meldet, Batch- und Tagesbudget, inhaltlicher Abbruch
+unveraendert, `infra_wait_tick` (Zukunft/Vergangenheit/kaputter Wert/nur im
+Pausenzustand), `/pause` loescht die Wartezeit.
+
+Geprueft: tests/test_r13bm_fixes 23/23 OK; die betroffenen Dateien
+(r13, r13al, r13m, r13u, r13c, r13bb, r13v3, r13x, r13s, r13ab, r13ad, r13ax,
+r13bj, r13bl) 296 Tests ohne Fehlschlag (Ladefehler nur fuer die im Aufruf
+genannte, nicht vorhandene Datei test_r13bk).

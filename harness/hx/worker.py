@@ -1355,6 +1355,26 @@ def antwort_text(rd) -> str:
     return "\n\n".join(bloecke)
 
 
+def infra_abbruch_regel(rc, killed_reason, letzter_text_api_fehler: bool) -> bool:
+    """Gilt dieser Lauf als **Infrastruktur**abbruch? (R13bm, 02.10.2026)
+
+    Ja, wenn alle drei Bedingungen stehen:
+
+    * `rc != 0` - der Prozess ist nicht ordentlich zu Ende gekommen,
+    * **kein** anderer Abbruchgrund - eine Zeitgrenze oder eine Warteschleife ist ein
+      eigener Befund und wird nicht umgedeutet (die Klasse ist die *letzte* Wahl), und
+    * die **letzte** Modellantwort ist ein API-/Gateway-Fehler
+      (`streamjson.ist_api_fehler`: Text beginnt mit "API Error" oder das Modellfeld ist
+      `<synthetic>`).
+
+    Die Folge einer so klassifizierten Beendigung ist eine andere als bei einem
+    inhaltlichen Abbruch: der Harness bewertet den halben Lauf **nicht**, sondern startet
+    denselben Batch als Fortsetzung neu (`orchestrator.infra_wait_planen`).
+    """
+    return bool(int(rc or 0) != 0 and not killed_reason
+                and letzter_text_api_fehler)
+
+
 def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebuilt: bool = False,
                 mock: bool = False, ghidra_save: bool = True):
     """Messdaten, result.json, antwort.md und Snapshot schreiben (R11-2).
@@ -1380,6 +1400,18 @@ def _finish_run(cfg, state, res, stats, batch: int, profile_name: str, log, rebu
     # Punkt 2c: HTTP-Beruehrungen des gemeinsamen Ghidra-Zustands - nur Vermerk.
     res.stats["http_state"] = list(stats.http_state)[:5]
     res.stats["api_errors"] = list(stats.api_errors)[:5]
+    # R13bm (02.10.2026): Ein API-/Gateway-Fehler am ENDE ist ein **Infrastruktur**-Abbruch
+    # - kein inhaltlicher. Er bekommt eine eigene Klasse, weil die Folge eine andere ist:
+    # der Harness bewertet den halben Lauf nicht, sondern startet denselben Batch neu
+    # (`orchestrator.infra_wait_planen`). Gesetzt wird das nur, wenn der Lauf nicht schon
+    # aus einem anderen Grund abgebrochen wurde (Zeitgrenze, Warteschleife, Prozessabbau).
+    # Nebenwirkung, bewusst: `run_worker` sieht `killed_reason` und sichert den halben
+    # Stand (`wip_nach_abbruch`, R13v3) - die Fortsetzung baut auf den COMMITS auf.
+    if infra_abbruch_regel(res.rc, res.killed_reason,
+                           getattr(stats, "letzter_text_api_fehler", False)):
+        res.killed_reason = "infra"
+        log.warn("Infrastrukturabbruch erkannt (API-/Gateway-Fehler am Ende)",
+                 batch=batch, rc=res.rc, api_fehler=len(stats.api_errors))
     res.stats["secret_hits"] = list(stats.secret_hits)[:10]
     res.stats["abbau"] = list(stats.abbau)[:5]
     res.stats["warteschleifen"] = list(stats.warteschleifen)[:5]

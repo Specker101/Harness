@@ -34,7 +34,12 @@ IDLE_SLEEP = 3.0
 # R13al: Taktschritt im Peak-Warten vor dem Batch-Start (der Auftrag bleibt stehen und
 # startet von selbst, sobald Off-Peak).
 PEAK_POLL_S = 20.0
-
+# R13bm (02.10.2026, Nutzerauftrag): Infrastrukturabbruch. Ein API-/Gateway-Fehler ist
+# kein inhaltlicher Abbruch - der Harness bewertet den halben Lauf nicht, sondern wartet
+# `INFRA_WARTE_MIN` Minuten und startet DENSELBEN Batch als Fortsetzung neu. Nach
+# `INFRA_MAX_NEUSTARTS` Neustarts pausiert er und der Nutzer entscheidet.
+INFRA_WARTE_MIN = 15.0
+INFRA_MAX_NEUSTARTS = 2
 
 def letzter_batch_zeile(cfg, letzte: dict, stand: str = "") -> str:
     """`/status`-Zeile fuer den zuletzt GELAUFENEN Batch (R13x, Befund M208-3d).
@@ -295,6 +300,9 @@ class Orchestrator:
         # sonst wuerde der Harness eigenmaechtig weiterlaufen.
         self.state.data.pop("limit_wait_until", None)
         self.state.data.pop("limit_wait_quelle", None)
+        # R13bm: dasselbe fuer die Wartezeit nach einem Infrastrukturabbruch - sonst
+        # haette `infra_wait_tick` die Pause nach 15 min von selbst aufgehoben.
+        self.state.data.pop("infra_wait_until", None)
         try:
             pause = {"ts": now_iso(), "head": self.git.head(),
                      "head_short": self.git.head_short(),
@@ -354,6 +362,9 @@ class Orchestrator:
             self.log.info("Resume ignoriert - ein Lauf ist bereits in Arbeit",
                           zustand=self.state.state)
             return
+        # R13bm: eine ausdrueckliche Fortsetzung raeumt die Wartezeit nach einem
+        # Infrastrukturabbruch weg - das Gate (Quelle `infra`) startet dann sofort.
+        self.state.data.pop("infra_wait_until", None)
         pause = self.state.data.get("pause_since") or {}
         # R13n: beim Fortsetzen zuerst den Git-Stand klaeren. Ist NUR der Remote voraus
         # und der Baum sauber, wird er uebernommen. Eine ECHTE Abweichung (eigener Stand
@@ -504,7 +515,11 @@ class Orchestrator:
         return ((self.approved_gate == gate.get("id"))
                 or (bool(self.state.data.get("autonomous"))
                     and not self.gate_wait_decision(gate))
-                or (gate.get("tools") or {}).get("source") == "user")
+                or (gate.get("tools") or {}).get("source") == "user"
+                # R13bm: der Neustart nach einem Infrastrukturfehler laeuft ohne
+                # /approve an - der Auftrag dazu steht im Nutzerauftrag ("nach 15 min
+                # startet derselbe Batch als Fortsetzung").
+                or (gate.get("tools") or {}).get("source") == "infra")
 
     def warte_auf_offpeak(self, s, batch_no: int, trotz_peak: bool = False) -> bool:
         """Vor dem Start warten, bis Peak und Vorlauf vorbei sind (R13al).
@@ -1483,6 +1498,144 @@ class Orchestrator:
         return float(self.cfg.get("limits", "daily_budget_usd", 10)) - self.state.spent_today(today)
 
     # ------------------------------------------------------- Limit-Wartezustand
+    # --------------------------------------------- Infrastrukturabbruch (R13bm)
+    def infra_abbruch(self, res) -> bool:
+        """Ist dieser Lauf ein Infrastrukturabbruch? (`killed_reason == "infra"`)
+
+        Gesetzt wird die Klasse in `worker._finish_run`: `rc != 0` UND die letzte
+        Modellantwort ist ein API-/Gateway-Fehler (`streamjson.ist_api_fehler`).
+        """
+        return str(getattr(res, "killed_reason", "") or "") == "infra"
+
+    def infra_neustarts(self, batch: int) -> int:
+        """Wie oft wurde DIESER Batch nach einem Infrastrukturabbruch neu gestartet?"""
+        zaehler = self.state.data.get("infra_neustarts") or {}
+        try:
+            return int(zaehler.get(str(int(batch))) or 0)
+        except (TypeError, ValueError, AttributeError):
+            return 0
+
+    def infra_batch_kosten(self, batch: int) -> float:
+        """Bisherige Kosten dieses Batches - alle Laeufe, auch die in `lauf<k>/` (R13bj)."""
+        rd = wk.run_dir(self.cfg, int(batch))
+        summe = 0.0
+        for p in [rd / "result.json"] + sorted(rd.glob("lauf*/result.json")):
+            try:
+                summe += float(json.loads(read_text(p)).get("cost_usd") or 0.0)
+            except (OSError, ValueError, AttributeError):
+                continue
+        return summe
+
+    def infra_wait_planen(self, res, batch: int, instruction: str, profile: str,
+                          program: str | None) -> bool:
+        """Nach einem Infrastrukturabbruch den Neustart vorbereiten (R13bm).
+
+        Rueckgabe True = uebernommen: der Aufrufer macht **keinen Review**. Gebaut wird
+        ein Gate fuer **denselben** Batch (Quelle `infra`, `fortsetzung=True` - der
+        vorige Lauf wandert beim Start nach `lauf<k>/`, R13bj) mit dem Hinweis auf die
+        Zwischenstand-Commits; dazu `INFRA_WARTE_MIN` Minuten Wartezeit im Zustand.
+        `infra_wait_tick` hebt die Pause danach von selbst auf.
+
+        Peak-Sperre, Tagesbudget und Batch-Budget gelten auch fuer den Neustart - Peak
+        prueft die Vorpruefung vor dem Start (`warte_auf_offpeak`), die beiden Budgets
+        werden hier geprueft. Nach `INFRA_MAX_NEUSTARTS` Neustarts: Pause.
+        """
+        if not self.infra_abbruch(res):
+            return False
+        n = self.infra_neustarts(batch)
+        if n >= INFRA_MAX_NEUSTARTS:
+            self.state.data["paused"] = True
+            self.state.set(st.PAUSED, f"Infrastruktur-Abbruch: {n} Neustarts verbraucht")
+            self.log.warn("Infrastruktur-Abbruch: Neustartgrenze erreicht", batch=batch, n=n)
+            self.say(f"INFRASTRUKTUR-ABBRUCH in Batch {batch} (API-/Gateway-Fehler).\n"
+                     f"{n} von {INFRA_MAX_NEUSTARTS} Neustarts sind verbraucht - ich "
+                     f"starte nichts mehr von selbst. Entscheide: /resume (neuer Review) "
+                     f"oder /stop.")
+            return True
+        gruende: list[str] = []
+        kosten = self.infra_batch_kosten(batch)
+        grenze = float(self.cfg.get("limits", "hard_cost_usd", 2.0))
+        if kosten >= grenze:
+            gruende.append(f"Batch-Budget erreicht (${kosten:.4f} von ${grenze:.4f})")
+        if self.daily_budget_left() <= 0:
+            gruende.append("Tagesbudget aufgebraucht")
+        if gruende:
+            self.state.data["paused"] = True
+            self.state.set(st.PAUSED, "Infrastruktur-Abbruch: " + "; ".join(gruende))
+            self.log.warn("Infrastruktur-Abbruch: kein Neustart", batch=batch,
+                          gruende=gruende, kosten=round(kosten, 4))
+            self.say(f"INFRASTRUKTUR-ABBRUCH in Batch {batch} (API-/Gateway-Fehler).\n"
+                     f"Ich starte NICHT neu: {'; '.join(gruende)}.\n"
+                     f"Entscheide: /resume (neuer Review) oder /stop.")
+            return True
+        hinweis = (f"FORTSETZUNG NACH INFRASTRUKTURFEHLER: der vorige Lauf von Batch "
+                   f"{batch} wurde durch einen API-/Gateway-Fehler beendet - kein "
+                   f"inhaltlicher Abbruch. Uebernimm den Stand aus den "
+                   f"Zwischenstand-Commits (`git log --oneline -n 20`) und arbeite die "
+                   f"offenen Posten des Auftrags ab.")
+        self.state.set_gate(st.new_review_id(),
+                            f"Fortsetzung nach Infrastrukturfehler "
+                            f"(Neustart {n + 1} von {INFRA_MAX_NEUSTARTS})",
+                            hinweis + "\n\n" + (instruction or ""),
+                            {"profile": profile, "program": program,
+                             "batch": int(batch), "expected": self.expected_batch(),
+                             "source": "infra", "fortsetzung": True},
+                            "")
+        zaehler = dict(self.state.data.get("infra_neustarts") or {})
+        zaehler[str(int(batch))] = n + 1
+        self.state.data["infra_neustarts"] = zaehler
+        bis = datetime.now(timezone.utc) + timedelta(minutes=INFRA_WARTE_MIN)
+        self.state.data["infra_wait_until"] = bis.isoformat(timespec="seconds")
+        self.state.data["paused"] = True
+        self.state.set(st.PAUSED, f"Infrastruktur-Abbruch - Neustart in "
+                                  f"{INFRA_WARTE_MIN:.0f} min")
+        self.state.data["letzter_abbruch"] = {
+            "batch": int(batch), "grund": "infra", "ts": now_iso(),
+            "neustart": n + 1, "bis": bis.isoformat(timespec="seconds")}
+        self.state.save()
+        self.log.warn("Infrastruktur-Abbruch - Neustart geplant", batch=batch,
+                      neustart=n + 1, bis=bis.isoformat(timespec="minutes"))
+        self.say(f"INFRASTRUKTUR-ABBRUCH in Batch {batch} (API-/Gateway-Fehler, "
+                 f"rc={getattr(res, 'rc', '?')}).\nIch starte denselben Batch in "
+                 f"{INFRA_WARTE_MIN:.0f} min neu (Neustart {n + 1} von "
+                 f"{INFRA_MAX_NEUSTARTS}) - ohne Review; die Zwischenstand-Commits sind "
+                 f"die Grundlage.")
+        return True
+
+    def infra_wait_tick(self) -> bool:
+        """Wartezeit nach einem Infrastrukturabbruch abgelaufen? (R13bm)
+
+        Wie `limit_wait_tick` (R13e): nur im Zustand PAUSED, und der Harness setzt von
+        selbst fort. Eine ausdrueckliche Pause des Nutzers bleibt unberuehrt - die hebt
+        `infra_wait_until` vorher auf (`_do_resume`).
+        """
+        if self.state.state != st.PAUSED:
+            return False
+        ziel = self.state.data.get("infra_wait_until")
+        if not ziel:
+            return False
+        try:
+            faellig = datetime.fromisoformat(str(ziel))
+        except ValueError:
+            self.state.data.pop("infra_wait_until", None)
+            return False
+        if faellig.tzinfo is None:
+            faellig = faellig.replace(tzinfo=timezone.utc)
+        jetzt = datetime.now(timezone.utc)
+        if jetzt < faellig:
+            rest = int((faellig - jetzt).total_seconds() // 60) + 1
+            self.notify_once("infra_wait",
+                             f"Infrastruktur-Abbruch: Neustart in etwa {rest} min "
+                             f"(bis {faellig.isoformat(timespec='minutes')}).", 600)
+            return False
+        self.state.data.pop("infra_wait_until", None)
+        self.state.data["paused"] = False
+        self.state.set(st.GATE_APPROVAL, "Neustart nach Infrastrukturfehler")
+        self.log.info("Wartezeit nach Infrastrukturfehler vorbei - Neustart")
+        self.say("Wartezeit nach dem Infrastrukturfehler ist vorbei - derselbe Batch "
+                 "startet neu (ohne Review).")
+        return True
+
     def limit_wait_ziel(self, meldung: str) -> tuple[datetime, str]:
         """Bis wann im Limit-Wartezustand gewartet wird (R13e).
 
@@ -2912,6 +3065,9 @@ class Orchestrator:
                 # R13e: der Limit-Wartezustand endet von selbst.
                 if self.limit_wait_tick():
                     continue
+                # R13bm: die Wartezeit nach einem Infrastrukturabbruch ebenso.
+                if self.infra_wait_tick():
+                    continue
                 self.phase(None)
                 time.sleep(IDLE_SLEEP)
                 continue
@@ -3113,7 +3269,7 @@ class Orchestrator:
                         if s.data.get("peak_hinweis") else ""))
             self._wip_done = False
             try:
-                self.run_worker(instruction, profile, program, note_block)
+                res_w = self.run_worker(instruction, profile, program, note_block)
             except Exception as exc:
                 self.log.error("Worker-Start/Ablauf fehlgeschlagen", fehler=str(exc)[:250])
                 self.say("FEHLER beim Worker: " + str(exc)[:400])
@@ -3148,6 +3304,12 @@ class Orchestrator:
                 self.say("PUSH FEHLGESCHLAGEN: " + str(push_text)[:400] +
                          "\nIch pausiere; der Remote ist nicht auf dem Stand von HEAD "
                          f"({self.git.head_short()}).")
+            # R13bm (Nutzerauftrag): Infrastrukturabbruch - **kein Review**. Derselbe
+            # Batch startet nach `INFRA_WARTE_MIN` Minuten als Fortsetzung neu; das Gate
+            # steht schon (Quelle `infra`, ohne /approve freigegeben). Nach zwei
+            # Neustarts pausiert der Harness und der Nutzer entscheidet.
+            if self.infra_wait_planen(res_w, batch_no, instruction, profile, program):
+                continue
 
     def build_snapshot_text(self) -> str:
         """Wie der Reviewer die Lage sieht (Abschnitt G3)."""
