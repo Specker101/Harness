@@ -1,0 +1,17 @@
+R13bn-Volle-Reihe am Gate: 1424 Tests, 0 Fehler, 0 uebersprungen, OK
+
+Lauf am Gate (kein Worker aktiv: state=GATE_APPROVAL batch=243 worker=False), HEAD
+`89a397d`. Beleg: `docs/_r13bn_volle_reihe.txt`, Werkzeug `docs/_r13bn_volle_reihe.py`.
+
+- **1424 Tests, 0 Fehler, 0 Fehlschlaege, 0 uebersprungen, OK in 510,1 s.**
+  1424 = 1406 der Vorrunde (R13bm) + 18 neue Faelle aus `tests/test_r13bn_fixes.py`.
+  Die Zaehlprobe im Kopf des Belegs nennt dieselbe Zahl.
+- Gegenprobe im Beleg: 0x `skipped`, 0x `FAILED`/`ERROR` am Zeilenanfang.
+- Der Lauf traegt Kopf (Zeitpunkt, HEAD, Harness-Zustand, Zaehlprobe) und Fuss (Dauer,
+  Testzahl, Ergebnis) selbst - dieselbe Form wie `docs/_r13bm_volle_reihe.txt`.
+
+Damit sind alle drei R13bn-Punkte einzeln UND in der vollen Reihe belegt:
+
+  Punkt 1 Abbruch-Marke einmal je Review-Datei  (Commit 262ddf8)
+  Punkt 2 Verbrauch je Aufruftyp gemessen       (Commit cad35f6, nur Beleg)
+  Punkt 3 Prognose/Median/C verifiziert         (Commit 89a397d, Fixture stand_b243)
