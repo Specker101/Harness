@@ -1,0 +1,22 @@
+R13bm-Volle-Reihe am Gate: 1406 Tests, 0 Fehler, 0 uebersprungen, OK
+
+Lauf am Gate (kein Worker aktiv: state=GATE_APPROVAL batch=243 worker=False),
+HEAD `eb805c1`. Beleg: `docs/_r13bm_volle_reihe.txt`.
+
+- **1406 Tests, 0 Fehler, 0 Fehlschlaege, 0 uebersprungen, OK in 634,0 s.**
+  1406 = 1369 der Vorrunde (R13bl) + 37 neue Faelle aus `tests/test_r13bm_fixes.py`
+  (die fuenf Punkte). Die Zaehlprobe vorab stimmt damit: `discover` findet genau die
+  1369 + 37, keine Datei doppelt, keine fehlt.
+- Werkzeug: `docs/_r13bm_volle_reihe.py` faehrt die Reihe und schreibt die Kopfzeile
+  (Zeit, Verzeichnis, HEAD, Harness-Zustand) plus das vollstaendige Ergebnis in den
+  Beleg - dieselbe Form wie `docs/_r13bl_volle_reihe.txt`.
+- Fallstrick, im Skript begruendet festgehalten: `harness/tests/` hat KEIN
+  `__init__.py`. `python -m unittest discover -s tests -t .` bricht deshalb mit
+  "Start directory is not importable: 'tests'" ab und liefert 0 Tests in 0,0 s (der
+  erste Lauf schrieb genau das in den Beleg). Ohne `-t` laeuft es.
+- Nebenpruefung des Belegs: 0 Zeilen mit `skipped`, 0 mit `FAILED`/`ERROR` am
+  Zeilenanfang; die 15 Treffer auf das Wort "Traceback" sind Python-`ResourceWarning`
+  ("unclosed SSL socket" aus den Telegram-Poll-Tests), kein Testfehler.
+
+Damit ist die volle Reihe fuer R13bm gruen; der Harness selbst laeuft unveraendert
+(Batch 243 steht am Gate).
