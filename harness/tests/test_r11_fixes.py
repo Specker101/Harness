@@ -286,14 +286,20 @@ class TestWatchStatus(Base):
 
 # --------------------------------------------------------- 5. Reviewer-Modell
 class TestReviewerModell(Base):
-    def test_mock_traegt_das_konfigurierte_modell(self):
+    def test_mock_traegt_das_modell_der_unklaren_art(self):
+        # R13bo: Modellwahl je Batchart. Ohne (bekanntes) Batch ist die Art "unklar" -
+        # dann gilt die vorsichtige Seite = `reviewer_modell_b` (Opus). Die B-/C-Wahl
+        # deckt `tests/test_r13bo_fixes.py` ab.
         res = rvmod.run_review(self.cfg, self.log, "prompt", mock=True)
-        self.assertEqual(res.model_expected, "claude-opus-5-5")
+        self.assertEqual(res.model_expected, str(self.cfg.get("claude", "reviewer_modell_b")))
         self.assertTrue(res.model_ok, f"gesehen={res.model_seen}")
 
     def test_command_hat_das_modell_und_der_env_den_effort(self):
+        # Ohne `modell` traegt die Kommandozeile die C-Vorgabe (`reviewer_modell`);
+        # `run_review` reicht dagegen IMMER das je Batch gewaehlte Modell durch.
         cmd = rvmod.build_command(self.cfg, None, True)
-        self.assertEqual(cmd[cmd.index("--model") + 1], "claude-opus-5-5")
+        self.assertEqual(cmd[cmd.index("--model") + 1],
+                         str(self.cfg.get("claude", "reviewer_modell")))
         import os
         env = envs.reviewer_env(self.cfg, os.environ, "token")
         self.assertEqual(env["CLAUDE_CODE_EFFORT_LEVEL"], "high")

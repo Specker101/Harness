@@ -23,8 +23,20 @@ sandbox     = "g:/Harness/sandbox/workspace"
 [claude]
 exe                 = "C:/Users/Benji/.local/bin/claude.exe"
 model_worker        = "deepseek-flash[1m]"
-# R11-5: der Reviewer laeuft mit Opus 5.5 und Reasoning-Stufe high (kein max).
-model_reviewer      = "claude-opus-5-5"
+# R13bo (02.10.2026, Nutzerauftrag): Modellwahl JE REVIEW-ANLASS statt EINES festen
+# Reviewer-Modells. Die Batchart kommt aus `stand.strang_von_batch` (Belege: Auftrag,
+# Review-Pflichtzeile, hybrid-plan.md); bleibt sie unklar (""), gilt die vorsichtige
+# Seite = Opus. Alternative waere gewesen, den festen Schluessel zu behalten und die
+# Auswahl nur im Code zu treffen - dann waere sie nicht konfigurierbar.
+#   reviewer_modell    = C-Batches (Dekompilierung)      -> Sonnet 5.5
+#   reviewer_modell_b  = B-Strang / Erkundungs-Batches   -> Opus 5.5
+# `aussensicht_modell` gehoert der Aussensicht (Meta-Review), `ask_modell` dem /ask -
+# beide bleiben Opus 5.5. Reasoning ist fuer ALLE Abo-Laeufe dieselbe Stufe
+# (`reviewer_effort`), weil Reviewer, Aussensicht und /ask `envs.reviewer_env` teilen.
+reviewer_modell     = "claude-sonnet-5-5"
+reviewer_modell_b   = "claude-opus-5-5"
+aussensicht_modell  = "claude-opus-5-5"
+ask_modell          = "claude-opus-5-5"
 reviewer_effort     = "high"
 base_url            = "https://api.deepseek.com/anthropic"
 config_dir_worker   = "g:/Harness/harness/cc-worker"
@@ -145,13 +157,17 @@ max_turns     = 25
 # R13w (2026-09-28): Aussensicht - der Meta-Review. Eigener Auftrag als der Reviewer:
 # "stimmen Messgroessen, Plan und Annahmen noch?" Sie entscheidet und aendert NICHTS;
 # sie liefert Befunde (Empfaenger Reviewer -> /claude-Queue, Nutzer -> Telegram+fragen).
-# Laeuft immer in einer FRISCHEN Session mit dem Reviewer-Modell (Abo-Kontingent).
+# Laeuft immer in einer FRISCHEN Session mit `aussensicht_modell` (Abo-Kontingent).
 # R13z (2026-09-28): 10 -> 3. VORLAEUFIG - Grund und Auswertung stehen in
 # docs/bedienung.md Paragraph 12e: es laeuft ein NEUER B-Strang, in dem Plan-Annahmen
 # schneller kippen als alle 10 Batches; nach einer Woche wird anhand der Quote in
 # state/meta_befunde.json entschieden, ob es bei 3 bleibt (`/bilanz` zeigt sie:
 # "Aussensicht: n Befunde, davon u uebernommen, a abgelehnt, o offen").
-every_batches    = 3     # zusaetzlich automatisch alle N Batches (erste loest /meta aus)
+# R13bo (02.10.2026, Nutzerauftrag): Takt 3 -> 4 und eigener Schluesselname. Die
+# EREIGNIS-Ausloeser (Markerzeilen, Worker-Abbruch, Stillstand) bleiben unveraendert -
+# nur der reine "alle N Batches"-Takt steigt auf 4. Gelesen wird `aussensicht_takt`,
+# sonst das alte `every_batches`, sonst `aussensicht.STANDARD` (dort ebenfalls 4).
+aussensicht_takt = 4     # zusaetzlich automatisch alle N Batches (erste loest /meta aus)
 wall_s           = 900   # harte Zeitgrenze je Lauf (danach bricht der Lauf ab)
 max_turns        = 70    # Werkzeugrunden; Stichproben brauchen mehr als ein Review
 # R13aq (30.09.2026): 30 -> 50. meta-217 brach mit `error_max_turns` bei 31 Zuegen ab

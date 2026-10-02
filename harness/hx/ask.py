@@ -216,7 +216,7 @@ def build_command(cfg, session_id: str | None = None, neu: bool = True) -> list[
     cmd = [exe, "-p",
            "--output-format", "stream-json",
            "--verbose",
-           "--model", str(cfg.get("claude", "model_reviewer", "claude-opus-5-5")),
+           "--model", str(cfg.get("claude", "ask_modell", "claude-opus-5-5")),
            "--strict-mcp-config",
            "--permission-prompts", "none",
            "--max-turns", str(int(cfg.get("ask", "max_turns", STANDARD["max_turns"]))),
@@ -314,7 +314,7 @@ def ask(cfg, log, frage: str, mock: bool = False, zusatz: str = "", neu: bool = 
     try:
         env = envs.reviewer_env(cfg, os.environ, oauth)
         if log:
-            log.info("Frage gestartet", modell=str(cfg.get("claude", "model_reviewer")),
+            log.info("Frage gestartet", modell=str(cfg.get("claude", "ask_modell")),
                      zeichen=len(prompt), chat=sess["id"][:8],
                      chat_neu=sess["neu"], chat_grund=sess["grund"])
         t0 = time.time()

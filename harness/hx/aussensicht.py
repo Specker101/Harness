@@ -4,9 +4,9 @@ Anderer Auftrag als der Reviewer (bewusst):
 
   * Der Reviewer fragt "war der Batch gut?" - die Aussensicht fragt
     "**stimmen Messgroessen, Plan und Annahmen noch?**".
-  * eigene, **immer frische** Session (kein Verlauf), gleiches Modell wie der Reviewer,
-    eigener Systemprompt `prompts/aussensicht.md`, Lesezugriff auf Harness UND Decomp-Repo
-    (Schreiben ist doppelt verboten).
+  * eigene, **immer frische** Session (kein Verlauf), eigenes Modell
+    (`aussensicht_modell`, R13bo), eigener Systemprompt `prompts/aussensicht.md`,
+    Lesezugriff auf Harness UND Decomp-Repo (Schreiben ist doppelt verboten).
   * **Sie entscheidet nichts** und aendert nichts. Sie liefert eine Befundliste; Befunde
     mit Empfaenger `Reviewer` gehen als `/claude`-Nachricht in die Queue, Befunde mit
     Empfaenger `Nutzer` per Telegram und unter `/fragen`.
@@ -19,7 +19,8 @@ Anderer Auftrag als der Reviewer (bewusst):
     `entscheidungstraeger`).
     und je frueherem Befund `<PRUEFUNG id="M208-3" status="erledigt|offen|verworfen"/>`.
 
-Ausloeser (`faellig`): Vormerkung durch `/meta`, alle `[meta] every_batches` Batches, ein
+Ausloeser (`faellig`): Vormerkung durch `/meta`, alle `[meta] aussensicht_takt` Batches
+(R13bo 4, vorher `every_batches` 3), ein
 Worker-Abbruch, `MEILENSTEIN ERREICHT:` / `ABBRUCHKRITERIUM ERREICHT:` in der neuesten
 Review-Zusammenfassung, ein stehengebliebener B-Schritt (Weg B) bzw. eine C-Kernzahl ohne
 Bewegung ueber die letzten **C-Batches**. Je Batch wird hoechstens einmal entschieden
@@ -62,9 +63,10 @@ from .util import (ensure_dir, now_iso, read_json, read_text, write_json_atomic,
 
 # ------------------------------------------------------------------ Vorgaben
 # `every_batches` ist die Vorgabe, falls der Schluessel in `harness.toml` fehlt; die
-# eingestellte Zahl steht dort (`[meta]`, seit R13z = 3, Begruendung in
-# docs/bedienung.md Paragraph 12e).
-STANDARD = {"every_batches": 3, "wall_s": 900, "max_turns": 50, "max_befunde": 7,
+# eingestellte Zahl steht dort (`[meta]`, R13bo = 4, vorher R13z = 3; Begruendung in
+# docs/bedienung.md Paragraph 12e). Gelesen wird `aussensicht_takt` (R13bo), sonst das
+# alte `every_batches` - s. `takt`.
+STANDARD = {"every_batches": 4, "wall_s": 900, "max_turns": 50, "max_befunde": 7,
             "summaries": 10, "bilanz_zeitfenster": 12, "bschritt_stillstand_batches": 3}
 # `bschritt_stillstand_batches` heisst seit R13ah: so viele **B-Batches in Folge** muessen
 # denselben Halt-PC zeigen und duerfen im Wegmass nicht steigen (Hybrid-Lauf-Zeile). Der
@@ -178,10 +180,28 @@ def max_turns(cfg) -> int:
     return int(STANDARD["max_turns"])
 
 
+def takt(cfg) -> int:
+    """Batch-Takt der Aussensicht (R13bo) - `aussensicht_takt`, sonst `every_batches`.
+
+    Der reine "alle N Batches"-Takt; die EREIGNIS-Ausloeser (`faellig`) bleiben davon
+    unberuehrt. Die Vorgabe `STANDARD["every_batches"]` ist selbst 4.
+    """
+    for schluessel in ("aussensicht_takt", "every_batches"):
+        wert = cfg.get("meta", schluessel, None)
+        if wert is None:
+            continue
+        try:
+            return max(1, int(wert))
+        except (TypeError, ValueError):
+            continue
+    return int(STANDARD["every_batches"])
+
+
 def grenzen(cfg) -> dict:
     """Die Grenzen der Aussensicht aus `[meta]` (Vorgaben als Rueckfall)."""
     g = {k: cfg.get("meta", k, v) for k, v in STANDARD.items()}
     g["max_turns"] = max_turns(cfg)          # R13aq: zwei moegliche Schluesselnamen
+    g["every_batches"] = takt(cfg)            # R13bo: neuer Name `aussensicht_takt`
     return g
 
 
@@ -512,7 +532,8 @@ def zeile(cfg) -> str:
     Aufbau (R13z, Nutzerauftrag): `Aussensicht: n Befunde, davon u uebernommen,
     a abgelehnt, o offen` - dahinter in Klammern die letzte Aussensicht (Batch und Zahl
     der Befunde des Laufs) und der eingestellte **Takt** (`harness.toml`,
-    `[meta] every_batches`). Die Quote ist die Grundlage der Auswertung nach einer Woche.
+    `[meta] aussensicht_takt`, R13bo; frueher `every_batches`). Die Quote ist die
+    Grundlage der Auswertung nach einer Woche.
 
     R13aq: "letzte Aussensicht" ist die letzte **gelungene**; ein gescheiterter Lauf wird
     eigens genannt (`zuletzt gescheitert: Batch N (wird wiederholt)`), sonst stuende in
@@ -1219,16 +1240,17 @@ def build_prompt(cfg, state, grund, tiefe: dict | None = None) -> str:
 def build_command(cfg, hooks_settings: str | None = None) -> list[str]:
     """Kommandozeile fuer die Aussensicht - IMMER frische Session, nur lesend.
 
-    Gleiches Modell wie der Reviewer (Abo-Token), gleiche Pfad- und Secret-Regeln.
-    `hooks_settings` (R13ar) ist die Einstellungsdatei mit der Zuguhr
-    (`write_hook_settings`); fehlt sie, laeuft der Aufruf wie vorher ohne Hook.
+    R13bo: eigenes Modell `aussensicht_modell` (Vorgabe Opus 5.5), Abo-Token, gleiche
+    Pfad- und Secret-Regeln wie der Reviewer. `hooks_settings` (R13ar) ist die
+    Einstellungsdatei mit der Zuguhr (`write_hook_settings`); fehlt sie, laeuft der
+    Aufruf wie vorher ohne Hook.
     """
     exe = str(cfg.get("claude", "exe"))
     tools_value = ",".join(["Read", "Grep", "Glob", GIT_TOOL])
     cmd = [exe, "-p",
            "--output-format", "stream-json",
            "--verbose",
-           "--model", str(cfg.get("claude", "model_reviewer", "claude-opus-5-5")),
+           "--model", str(cfg.get("claude", "aussensicht_modell", "claude-opus-5-5")),
            "--strict-mcp-config",
            "--permission-prompts", "none",
            "--max-turns", str(int(grenzen(cfg)["max_turns"])),

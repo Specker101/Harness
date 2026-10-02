@@ -11,7 +11,7 @@ import os
 import uuid
 from pathlib import Path
 
-from . import envs, protocol, secrets, streamjson
+from . import envs, protocol, secrets, stand, streamjson
 from .proc import run_stream
 from .profiles import (builtin_args, credential_verbote, git_schreib_verbote,
                        nur_lese_git_regeln, pfad_regeln, secrets_verbote)
@@ -21,6 +21,33 @@ from .util import ensure_dir, now_iso, read_text, write_json_atomic, write_text_
 # die CLI mit CLAUDE_CODE_USE_POWERSHELL_TOOL=1 (envs.reviewer_env), damit die Regeln
 # `PowerShell(...)` heissen und die CLI den AST parst (Aliase werden normalisiert).
 GIT_TOOL = "PowerShell"
+
+# R13bo (02.10.2026, Nutzerauftrag): Modellwahl JE REVIEW-ANLASS. Die Batchart kommt aus
+# `stand.strang_von_batch` (Auftrag/Review-Pflichtzeile/hybrid-plan.md):
+#   B-Strang / Erkundungs-Batch -> Opus 5.5 (`reviewer_modell_b`),
+#   C-Batch (Dekompilierung)    -> Sonnet 5.5 (`reviewer_modell`).
+# Bleibt die Art unklar (""), gilt Opus - die vorsichtige Seite. Die Vorgaben hier
+# spiegeln `harness.toml`; das `--model` der CLI traegt die Wahl bis in den Mitschnitt.
+MODELL_C = "claude-sonnet-5-5"
+MODELL_B = "claude-opus-5-5"
+
+
+def review_modell(cfg, batch) -> tuple[str, str]:
+    """(Modell, Art) fuer den Review des Batches `batch`.
+
+    Art: "B" (B-Strang/Erkundung), "C" (Dekompilierung) oder "unklar" (keine Quelle).
+    Eine unklare Art benutzt das B-Modell (Opus) - Nutzerauftrag 2026-10-02. Der
+    Dateizugriff darf den Review NIE kosten: ein Fehler faellt auf "unklar"/Opus zurueck.
+    """
+    strang = ""
+    try:
+        strang = str((stand.strang_von_batch(cfg, int(batch or 0)) or {}).get("strang") or "")
+    except Exception:                                        # noqa: BLE001
+        strang = ""
+    if strang == "C":
+        return str(cfg.get("claude", "reviewer_modell", MODELL_C)), "C"
+    return (str(cfg.get("claude", "reviewer_modell_b", MODELL_B)),
+            "B" if strang == "B" else "unklar")
 
 
 class ReviewResult:
@@ -32,6 +59,9 @@ class ReviewResult:
         self.model_seen: str | None = None
         self.model_expected: str | None = None
         self.model_ok: bool | None = None
+        # R13bo: das GEWAEHLTE Modell und die Review-Art (B/C/unklar) dieses Aufrufs.
+        self.modell: str = ""
+        self.modell_art: str = ""
         self.limit_reached = False
         self.raw_path: str | None = None
         self.parsed: protocol.Review | None = None
@@ -66,7 +96,8 @@ def prompt_hash(cfg) -> str:
     return hashlib.sha256(roh).hexdigest()[:12]
 
 
-def build_command(cfg, session_id: str | None, new_session: bool) -> list[str]:
+def build_command(cfg, session_id: str | None, new_session: bool,
+                  modell: str | None = None) -> list[str]:
     """Kommandozeile OHNE Prompt - der Prompt geht über stdin (UTF-8).
 
     Beleg: offizielle Doku, "Non-interactive mode reads stdin" / "Piped stdin is
@@ -76,6 +107,9 @@ def build_command(cfg, session_id: str | None, new_session: bool) -> list[str]:
     `session_id` gesetzt ist. Sonst liefe der "neue" Review in der alten Session
     und Claude Code bricht ab ("Session ID <id> is already in use"), wie im
     fehlerhaften Lauf vom 2026-09-25 (runs/b159/reviewer.jsonl.err).
+
+    R13bo: `modell` waehlt das Modell dieses Aufrufs (`review_modell`). Fehlt es,
+    gilt `reviewer_modell` (C-Batch/Sonnet) - so bleiben Altaufrufer gueltig.
     """
     exe = str(cfg.get("claude", "exe"))
     _tools_value, allowed = builtin_args("reviewer")
@@ -87,7 +121,7 @@ def build_command(cfg, session_id: str | None, new_session: bool) -> list[str]:
     cmd = [exe, "-p",
            "--output-format", "stream-json",
            "--verbose",
-           "--model", str(cfg.get("claude", "model_reviewer", "claude-opus-5-5")),
+           "--model", str(modell or cfg.get("claude", "reviewer_modell", MODELL_C)),
            "--strict-mcp-config",
            "--permission-prompts", "none",
            "--max-turns", "40",
@@ -171,9 +205,18 @@ def _stream_result(body: str) -> tuple[str, str | None, str | None]:
 
 def run_review(cfg, log, prompt: str, session_id: str | None = None, new_session: bool = False,
                mock: bool = False, mock_mode: str = "ok", stream_path=None,
-               mock_batch: int | None = None, attempt: int = 1) -> ReviewResult:
+               mock_batch: int | None = None, attempt: int = 1,
+               batch: int | None = None, modell: str | None = None) -> ReviewResult:
     res = ReviewResult()
     rd = ensure_dir(Path(cfg.root) / "logs")
+    # R13bo: (Modell, Art) gehoeren zum BEWERTETEN Batch (`batch`). Fehlt `batch`, gilt
+    # `reviewer_modell` (C-Batch) - so bleiben Altaufrufer/Tests gueltig.
+    if modell is None:
+        modell, art = review_modell(cfg, batch)
+    else:
+        art = ""
+    res.modell, res.modell_art = modell, art
+    res.model_expected = modell
 
     if mock:
         from .mock import mock_reviewer_stream, mock_reviewer_text
@@ -182,10 +225,11 @@ def run_review(cfg, log, prompt: str, session_id: str | None = None, new_session
         res.duration_s = 0.5
         # Wie im echten Lauf: die Kennung kommt aus der Kommandozeile. Bei `new_session`
         # ist das die frische Kennung, die der Aufrufer uebergeben hat.
-        res.session_id = session_id_of_command(build_command(cfg, session_id, new_session))
+        res.session_id = session_id_of_command(build_command(cfg, session_id, new_session,
+                                                             modell=modell))
         # Im Attrappenbetrieb muss die Modell-Nachpruefung (R11-5c) ebenfalls greifen -
-        # deshalb traegt die Attrappe das Konfigurationsmodell.
-        res.model_seen = str(cfg.get("claude", "model_reviewer", "claude-opus-5-5")) + " (mock)"
+        # deshalb traegt die Attrappe das GEWAEHLTE Modell.
+        res.model_seen = modell + " (mock)"
         if mock_mode == "modell_falsch":
             res.model_seen = "claude-sonnet-5 (mock)"
         if mock_mode == "reviewer_crash":
@@ -206,7 +250,7 @@ def run_review(cfg, log, prompt: str, session_id: str | None = None, new_session
             log.error(res.error)
             return res
         log.info("Reviewer-Umgebung geprueft", env=envs.describe(env))
-        cmd = build_command(cfg, session_id, new_session)
+        cmd = build_command(cfg, session_id, new_session, modell=modell)
         # R13b: die Kennung, mit der dieser Versuch laeuft - auch wenn er scheitert.
         res.session_id = session_id_of_command(cmd)
         raw = Path(stream_path) if stream_path else rd / f"reviewer-{now_iso().replace(':', '')}.json"
@@ -257,8 +301,9 @@ def run_review(cfg, log, prompt: str, session_id: str | None = None, new_session
                 log.warn("Nutzerlimit nicht auswertbar", err=str(exc)[:150])
 
     res.parsed = protocol.parse_review(res.text)
-    # --- Nachher-Pruefung (E3, R11-5c): Modell muss das konfigurierte sein ------------
-    res.model_expected = str(cfg.get("claude", "model_reviewer", "claude-opus-5-5"))
+    # --- Nachher-Pruefung (E3, R11-5c): Modell muss das GEWAEHLTE sein ----------------
+    # R13bo: `model_expected` ist das je Batch gewaehlte Modell (B/C/unbekannt), nicht
+    # mehr ein einzelner Konfigwert.
     res.model_ok = bool(res.model_seen) and res.model_expected.lower() in str(res.model_seen).lower()
     if not res.model_ok:
         res.error = (f"Reviewer-Modell weicht ab: laut Ausgabe {res.model_seen!r}, "

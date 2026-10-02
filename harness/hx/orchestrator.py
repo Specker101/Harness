@@ -28,7 +28,8 @@ from . import reihenfolge as reimod
 from . import stand as standmod
 from .gitsafe import Git
 from .telegram import HELP, Telegram, TelegramError
-from .util import batch_ordner, ensure_dir, now_iso, read_json, read_text, secs_human, write_text_atomic
+from .util import (batch_ordner, ensure_dir, now_iso, read_json, read_text, secs_human,
+                   write_json_atomic, write_text_atomic)
 
 IDLE_SLEEP = 3.0
 # R13al: Taktschritt im Peak-Warten vor dem Batch-Start (der Auftrag bleibt stehen und
@@ -167,15 +168,27 @@ class Orchestrator:
         return str(p.get("name") or "-") + (f" ({p.get('extra')})" if p.get("extra") else "") \
             + f" seit {p.get('since')}"
 
-    # ----------------------------------------------------- Reviewer-Modell (R11-5)
+    # ----------------------------------------------------- Reviewer-Modell (R11-5/R13bo)
     def model_reviewer(self) -> str:
-        return str(self.cfg.get("claude", "model_reviewer", "claude-opus-5-5"))
+        """Modell fuer C-Batches (Dekompilierung) - R13bo."""
+        return str(self.cfg.get("claude", "reviewer_modell", rv.MODELL_C))
+
+    def model_reviewer_b(self) -> str:
+        """Modell fuer B-Strang/Erkundungs-Batches (und unklare Art) - R13bo."""
+        return str(self.cfg.get("claude", "reviewer_modell_b", rv.MODELL_B))
+
+    def model_aussensicht(self) -> str:
+        return str(self.cfg.get("claude", "aussensicht_modell", "claude-opus-5-5"))
 
     def reviewer_effort(self) -> str:
         return str(self.cfg.get("claude", "reviewer_effort", "high"))
 
     def reviewer_model_seen(self) -> str | None:
         return (self.state.data.get("reviewer") or {}).get("model_seen")
+
+    def reviewer_model_art(self) -> str:
+        """Review-Art des letzten Reviews ("B"/"C"/"unklar") - R13bo."""
+        return str((self.state.data.get("reviewer") or {}).get("modell_art") or "")
 
     def ghidra_save_line(self, res: dict) -> str:
         """Eine Zeile fuer den Review: wurde die Ghidra-DB gespeichert? (R13-1/R13e)"""
@@ -1322,7 +1335,8 @@ class Orchestrator:
             self.live_batch_zeile(),
             f"Reviewer-Session: {rev.get('session_id')} ({rev.get('reviews')}/{self.cfg.get('reviewer','rotation_after',10)} Reviews)"
             + (" - Wechsel beim naechsten Review erzwungen" if rev.get("force_rotate") else ""),
-            (f"Reviewer-Modell: {self.reviewer_model_seen() or '-'} (Soll {self.model_reviewer()}, "
+            (f"Reviewer-Modell: {self.reviewer_model_seen() or '-'} "
+             f"(C={self.model_reviewer()} | B/unklar={self.model_reviewer_b()}, "
              f"Effort {self.reviewer_effort()})"),
             f"Phase: {self.phase_text()}",
             f"Letzte Entscheidung: {rev.get('last_decision') or '-'}",
@@ -2100,8 +2114,12 @@ class Orchestrator:
                             new_session=bool(self._review_rotation), mock=self.mock,
                             mock_mode=self.mock_reviewer_mode,
                             stream_path=rdir / "reviewer.jsonl", mock_batch=target,
-                            attempt=attempt)
+                            attempt=attempt, batch=evidence)
         res.review_dir = str(rdir)
+        # R13bo: das gewaehlte Modell gehoert maschinenlesbar in den Beleg des BEWERTETEN
+        # Batches (`runs/b<N>/result.json`, Feld `review`). Das geschieht VOR den
+        # Gueltigkeits-/Limit-Zweigen, damit es auch ein verworfener Lauf traegt.
+        self.review_in_result(evidence, res, kind)
         # R13g: Schluessel-Zugriff im Reviewer-Mitschnitt sofort melden.
         if getattr(res, "secret_hits", None):
             self.say(streamjson.secret_alarm_text(res.secret_hits, "Reviewer", target))
@@ -2161,9 +2179,55 @@ class Orchestrator:
         rev = self.state.data.setdefault("reviewer", {})
         rev["model_seen"] = res.model_seen
         rev["model_ok"] = res.model_ok
+        rev["modell_art"] = getattr(res, "modell_art", "")
+        rev["modell_soll"] = res.model_expected
         rev["effort"] = self.reviewer_effort()
         self.state.save()
         return res
+
+    # ------------------------------------------------- Review-Modell belegen (R13bo)
+    def review_modell_soll(self, batch: int) -> str:
+        """`<Modell> (<Art>)` - das fuer den Review des Batches `batch` gewaehlte Modell."""
+        modell, art = rv.review_modell(self.cfg, batch)
+        return f"{modell} ({art})"
+
+    def review_modell_zeile(self, res) -> str:
+        """Eine Zeile fuer die Telegram-Zusammenfassung des Reviews (R13bo)."""
+        art = (getattr(res, "modell_art", "") or "") or "unklar"
+        art_text = {"B": "B-Batch/Erkundung", "C": "C-Batch"}.get(art, "Art unklar")
+        return (f"Review-Modell: {getattr(res, 'model_seen', None) or '-'} "
+                f"| Soll {getattr(res, 'model_expected', None) or '-'} ({art_text}), "
+                f"Effort {self.reviewer_effort()}")
+
+    def review_in_result(self, batch: int, res, kind: str) -> None:
+        """Das GEWAEHLTE Review-Modell in `runs/b<N>/result.json` des bewerteten Batches.
+
+        R13bo (Nutzerauftrag): `runs/b<N>/result.json` ist der Beleg des bewerteten Laufs;
+        `review` steht als eigener Block daneben - die Worker-Felder bleiben unberuehrt.
+        Ein fehlender Beleg wird NICHT angelegt (kein Lauf, nichts zu ergaenzen).
+        """
+        nummer = int(batch or 0)
+        if nummer <= 0:
+            return
+        p = Path(self.cfg.sub("runs")) / f"b{nummer:03d}" / "result.json"
+        daten = read_json(p, {}) or {}
+        if not daten:
+            return
+        daten["review"] = {
+            "batch": nummer,
+            "modell": getattr(res, "model_seen", None) or res.model_expected or "",
+            "modell_soll": res.model_expected or "",
+            "art": getattr(res, "modell_art", "") or "",
+            "effort": self.reviewer_effort(),
+            "kind": kind,
+            "session_id": res.session_id or "",
+            "ts": now_iso(),
+        }
+        try:
+            write_json_atomic(p, daten)
+        except OSError as exc:
+            self.log.warn("Review-Modell nicht in result.json geschrieben",
+                          batch=nummer, fehler=str(exc)[:150])
 
     # ------------------------------------------------- Review-Gueltigkeit (R13b)
     def review_ok(self, res) -> bool:
@@ -2669,8 +2733,9 @@ class Orchestrator:
             # Abweichung muss in den Fakten stehen (nicht nur im Prompt).
             f"- {self.batch_nummer_fakten_zeile()}",
             f"- {self.lauf_ordner_zeile(batch)}",
-            (f"- Reviewer: Modell {self.reviewer_model_seen() or '-'} "
-             f"(Soll {self.model_reviewer()}), Effort {self.cfg.get('claude', 'reviewer_effort', 'high')}"),
+            (f"- Reviewer: zuletzt {self.reviewer_model_seen() or '-'} "
+             f"({self.reviewer_model_art() or 'Art unbekannt'}); Soll fuer B{batch} = "
+             f"{self.review_modell_soll(batch)}, Effort {self.reviewer_effort()}"),
             f"- Ghidra gespeichert: {self.ghidra_save_line(res)}",
             f"- Ghidra-Zustand per HTTP beruehrt: {self.http_state_line(res)} (nur Vermerk)",
             # R13as (Aussensicht M218-1): hat der Lauf `port/` VOR dem Vorhersage-Commit
@@ -3230,7 +3295,8 @@ class Orchestrator:
                          f"{tools.get('program') or '-'}"
                          + (f"\n(kein /approve noetig - Batch {tools.get('batch')} startet von selbst.)"
                             if kopf.startswith("AUTOMATISCH") else ""))
-                self.say("Zusammenfassung:\n" + (p.summary or "(keine)"))
+                self.say(self.review_modell_zeile(res)
+                         + "\n\nZusammenfassung:\n" + (p.summary or "(keine)"))
                 if p.instruction:
                     self.say("Instruktion (vollstaendig):\n" + p.instruction)
                 if warten:

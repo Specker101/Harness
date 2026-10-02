@@ -95,14 +95,14 @@ class Basis(unittest.TestCase):
 
 # ------------------------------------------------------------ 5) Takt + Quote
 class TestTakt(unittest.TestCase):
-    def test_takt_ist_drei(self):
-        """R13z: 10 -> 3, vorlaeufig. Wer die Zahl aendert, aendert diese Zeile mit."""
+    def test_takt_ist_vier(self):
+        """R13bo: 3 -> 4 (`aussensicht_takt`). Wer die Zahl aendert, aendert diese Zeile mit."""
         cfg = load_config()
-        self.assertEqual(int(cfg.get("meta", "every_batches")), 3)
+        self.assertEqual(int(cfg.get("meta", "aussensicht_takt")), 4)
         # Die Vorgabe im Code muss dazupassen - sonst greift bei fehlendem Schluessel
         # still ein anderer Takt (genau die Klasse Fehler, die M208-3 beschreibt).
-        self.assertEqual(int(aussensicht.STANDARD["every_batches"]), 3)
-        self.assertEqual(int(aussensicht.grenzen(cfg)["every_batches"]), 3)
+        self.assertEqual(int(aussensicht.STANDARD["every_batches"]), 4)
+        self.assertEqual(int(aussensicht.grenzen(cfg)["every_batches"]), 4)
 
 
 class TestQuote(Basis):
@@ -129,13 +129,13 @@ class TestQuote(Basis):
         self.assertIn("Aussensicht: 4 Befunde, davon 2 uebernommen, 1 abgelehnt, "
                       "1 offen", z)
         self.assertIn("letzte Aussensicht: Batch 208", z)
-        self.assertIn("Takt: alle 3 Batches", z)
+        self.assertIn("Takt: alle 4 Batches", z)
         # Telegram/`/bilanz` zeigen die Zeile als EINE Zeile
         self.assertEqual(len(z.splitlines()), 1)
 
     def test_takt_kommt_aus_der_konfiguration(self):
         self.ledger("offen")
-        self.cfg.data.setdefault("meta", {})["every_batches"] = 7
+        self.cfg.data.setdefault("meta", {})["aussensicht_takt"] = 7
         self.assertIn("Takt: alle 7 Batches", aussensicht.zeile(self.cfg))
 
     def test_ohne_aussensicht_keine_zeile(self):

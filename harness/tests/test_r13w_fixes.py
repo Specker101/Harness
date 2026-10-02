@@ -128,8 +128,8 @@ class TestKommando(unittest.TestCase):
         self.assertEqual(cmd.count("--session-id"), 1)
         self.assertNotEqual(cmd[i], zweite[i],
                             "jeder Lauf bekommt eine eigene, frische Kennung")
-        # Reviewer-Modell und Reviewer-Effort-Umgebung
-        self.assertIn(str(cfg.get("claude", "model_reviewer")), cmd)
+        # Eigenes Aussensicht-Modell (R13bo) und Reviewer-Effort-Umgebung
+        self.assertIn(str(cfg.get("claude", "aussensicht_modell")), cmd)
         # Lesen, aber NICHTS schreiben
         for verboten in ("Bash", "Write", "Edit", "mcp__ghidra"):
             self.assertIn(verboten, cmd)
