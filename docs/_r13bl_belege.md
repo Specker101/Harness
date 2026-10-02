@@ -53,3 +53,71 @@ OK
 Enthalten: Vorlage ohne „von max 20"; Hinweistext mit „keine Grenze";
 **erzeugter** Reviewer-Prompt (ueber `review_context` + `reviewer.build_prompt`) ohne
 „von max 20"; Parser-Toleranz gegenueber beiden Schreibweisen.
+
+---
+
+## Teil 2 — Rueckbau der vorlaeufigen Zeitgrenzen (R13bj)
+
+**Auftrag:** `bash_max_timeout_s` 3600 -> 1800, `hard_wall_s` 14400 -> 10800,
+Worker-Timeout 3600000 -> 1800000; Grep ueber `prompts/` und `hx/` nach `3600000` und
+`3600`; `docs/bedienung.md` §13 nachziehen.
+
+### Die Bedingung ist erfuellt (gemessen, nicht uebernommen)
+
+R13bj hatte den Rueckbau an „Preflight wieder unter 900 s" gebunden.
+
+| Messung | Wert | Quelle |
+|---|---|---|
+| gueltiger Preflight B236 (Werkzeugaufruf) | **456,8 s** | `runs/b236/result.json` -> `stats.laufzeit.langsamste` |
+| derselbe Lauf, Zeitentafel | **455,171 s** Gesamtwanduhr (Summe der Teilschritte 454,876 s, Abweichung 0,06 %) | `analysis/_m236/_preflight_zeiten.txt` |
+| erster Lauf von B236, **fehlgeschlagen** | 1032,3 s | `analysis/_m236/_preflight_236_fehllauf1.txt` (3708 B) |
+
+Der fehlgeschlagene Lauf zaehlt nicht (R373: genau **ein gueltiger** Preflight je Batch);
+er ist der Grund, warum hier **beide** Zahlen stehen und nicht nur die guenstige.
+
+### Fundstellen und Entscheidung (`3600000` / `3600`)
+
+| Fundstelle | Entscheidung |
+|---|---|
+| `harness.toml:46-50` (`bash_max_timeout_s` = 3600) | **geaendert** -> 1800, Begruendung ersetzt (R13bj-Block durch R13bl-Block) |
+| `harness.toml:53-57` (`hard_wall_s` = 14400) | **geaendert** -> 10800 |
+| `hx/worker.py:1625` („bis 3600000 = 60 min") | **geaendert** -> 1800000 / 30 min |
+| `hx/worker.py:1629-1633` (R13bj-Notiz) | **geaendert** -> R13bl-Notiz mit dem Rueckbau-Grund |
+| `hx/worker.py:1636` („laenger als 60 min") | **geaendert** -> 30 min |
+| `hx/worker.py:1670-1672` („`timeout=3600000` setzen") | **geaendert** -> 1800000; „seit R13bj 3600 s" -> „seit R13ah 1800 s" |
+| `prompts/reviewer.md:222` („`timeout=3600000` (60 min)") | **geaendert** -> 1800000 / 30 min |
+| `prompts/reviewer.md:227-230` (R13bj-Notiz) | **geaendert** -> R13bl-Notiz (die historische Nennung „vorlaeufig auf 3600000" bleibt stehen) |
+| `hx/envs.py:139,145` | **bleibt** — das ist der Rueckfallwert (`bash_max_timeout_s`, Vorgabe 1800) und stimmt mit dem Rueckbau ueberein; ein Test haelt die Kopplung fest |
+| `hx/\{orchestrator,stand,streamjson,uhr,util\}.py` (`3600` in `divmod`, `24*3600`, `5*3600`) | **bleiben** — Sekunden je Stunde, nichts mit der Grenze zu tun |
+| `hx/uhr.py:33` `MAX_START_ALTER_S = 5 * 3600` | **bleibt** — R13bj hatte 4 h -> 5 h gesetzt; das war **nicht** Teil des Rueckbau-Auftrags. Ohne Wirkung auf die Laufzeit, aber **offen zur Entscheidung** (in §13 vermerkt) |
+| `docs/bedienung.md:1070,1080,1744,1746,1751` (§12b, §12x, §13) | **geaendert** — §13 ist jetzt eine Ist-Tafel statt einer Rueckbau-Ankuendigung |
+| `docs/_r13bj_belege.md` | **bleibt** — alter Beleg, wird nicht rueckdatiert |
+| `tests/fixtures/**/auftrag.md` (alte Auftraege) | **bleiben** — Fixtures |
+| `tests/test_r13ah/aj/ad/bj/v_fixes.py` | **geaendert** — sie prueften die vorlaeufigen Zahlen; jetzt die zurueckgebauten |
+
+### Aenderung
+
+Vier Stellen plus Handbuch: `harness.toml` (2 Werte), `hx/worker.py` (Vorspann, 3 Stellen),
+`prompts/reviewer.md` (Lange Befehle), `docs/bedienung.md` (§12b, §12x, §13).
+
+### Test (Punkt 2)
+
+```
+test_r13bl_fixes.py  rc=0  Ran 8 tests ; OK
+test_r13ah_fixes.py  rc=0  Ran 49 tests in 71.980s ; OK
+test_r13aj_fixes.py  rc=0  Ran 20 tests in 0.302s ; OK
+test_r13ad_fixes.py  rc=0  Ran 30 tests in 0.459s ; OK
+test_r13bj_fixes.py  rc=0  Ran 20 tests in 0.235s ; OK
+test_r13v_fixes.py   rc=0  Ran 17 tests in 0.034s ; OK
+test_r13aa_fixes.py  rc=0  Ran 33 tests in 2.237s ; OK
+test_r13w_fixes.py   rc=0  Ran 45 tests in 45.815s ; OK
+```
+
+Neu in `test_r13bl_fixes.py`: Config-Werte, `BASH_MAX_TIMEOUT_MS` = 1800000,
+**die drei Quellen nennen dieselbe Zahl** (Config, Worker-Vorspann, `reviewer.md`; der
+Vorspann enthaelt `3600000` nicht mehr) und das Handbuch §13.
+
+**Zwei Selbstkorrekturen aus diesem Lauf** (der erste Durchgang war rot): die Zusicherung
+„`3600000` kommt in `reviewer.md` nicht mehr vor" war falsch — die **historische** Nennung
+muss stehen bleiben, weg muss die **Vorschrift**-Form `timeout=3600000`; und
+`test_r13ad_fixes.py:199` pruefte noch `hard_wall_s == 14400`.

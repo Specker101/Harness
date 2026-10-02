@@ -216,19 +216,19 @@ heisst „nicht messbar" — dann wurde konservativ ein neuer Lauf verlangt). Is
 Nachrückliste schon erledigt, antwortet der Worker nur `NACHRUECKLISTE ERLEDIGT`: der
 Batch endet dann ohne neuen Preflight, und der alte Stand bleibt gueltig.
 
-## Lange Befehle (R13aj, 2026-09-29)
+## Lange Befehle (R13aj, 2026-09-29; zurueckgebaut R13bl, 02.10.2026)
 
 Der Preflight, `c_kopf.py mutalle` und `port_build` laufen als **normaler Bash-Aufruf mit
-`timeout=3600000`** (60 min; der Harness hat die Obergrenze dafür freigegeben — siehe
+`timeout=1800000`** (30 min; der Harness hat die Obergrenze dafür freigegeben — siehe
 Worker-Vorspann). **Nicht** per `Start-Process` im Hintergrund mit späterem Nachfragen,
 nicht mit Warteschleifen. Schreibe das in jede Instruktion, in der diese drei Aufrufe
 vorkommen (ein Satz genügt).
 
-R13bj (01.10.2026): die Zahl stand auf 1800000 (30 min) und der Preflight von B235 lief mit
-**1799 s** genau an diese Grenze — danach wartete der Worker im Hintergrund (Verstoß gegen
-R13aj). Die Grenze ist bis zur Reparatur der Maschinenkopie **vorläufig** auf 60 min erhöht;
-der Rückbau (1800 s / 30 min) steht in `docs/bedienung.md`, sobald der Preflight wieder
-unter 900 s liegt.
+R13bj (01.10.2026) hatte die Zahl **vorläufig** auf 3600000 (60 min) erhöht, weil der
+Preflight von B235 mit **1799 s** genau an der 1800-s-Grenze stand und der Worker danach im
+Hintergrund wartete (Verstoß gegen R13aj). Der Preflight von B236 brauchte **456 s** — die
+Bedingung für den Rückbau ist erfüllt, es gilt wieder **1800000 (30 min)**. Ein Aufruf über
+30 min ist damit wieder ein Befund (Preflight zu langsam), kein Anlass für einen höheren Wert.
 
 Begründung: ein **blockierender** Aufruf ist **messbar** — seine Dauer ist die Zahl, um die
 die Umschaltschwelle vorgezogen wird (`Alarm − max(15 min, Preflight + 5 min)`); im

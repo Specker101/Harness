@@ -218,13 +218,13 @@ class TestPreflightArchiv(Basis):
 
 # ========================================== 2) Zeitkappung (Befund 3)
 class TestZeitkappung(unittest.TestCase):
-    def test_max_ist_3600_default_bleibt_600(self):
+    def test_max_ist_1800_default_bleibt_600(self):
         import os
         env = envs.worker_env(load_config(), dict(os.environ), "token")
         self.assertEqual(env["BASH_DEFAULT_TIMEOUT_MS"], "600000",
                          "ohne eigenes timeout gilt weiter die Vorgabe")
-        self.assertEqual(env["BASH_MAX_TIMEOUT_MS"], "3600000",
-                         "harte Obergrenze: 3600 s laut harness.toml (R13bj)")
+        self.assertEqual(env["BASH_MAX_TIMEOUT_MS"], "1800000",
+                         "harte Obergrenze: 1800 s laut harness.toml (R13bl: Rueckbau)")
 
     def test_config_wert_wird_benutzt(self):
         import os
@@ -235,7 +235,7 @@ class TestZeitkappung(unittest.TestCase):
 
     def test_config_hat_den_schluessel_und_die_quelle_steht_in_envs(self):
         cfg = load_config()
-        self.assertEqual(float(cfg.get("claude", "bash_max_timeout_s")), 3600.0)
+        self.assertEqual(float(cfg.get("claude", "bash_max_timeout_s")), 1800.0)
         quelle = (ROOT / "hx" / "envs.py").read_text(encoding="utf-8").splitlines()
         treffer = [i for i, z in enumerate(quelle, 1)
                    if "BASH_MAX_TIMEOUT_MS" in z and "bash_max_timeout_s" in z]
@@ -592,22 +592,22 @@ class TestGemesseneKappungen(unittest.TestCase):
     def setUp(self):
         self.cfg = load_config()
 
-    def test_default_bleibt_600_max_ist_3600(self):
+    def test_default_bleibt_600_max_ist_1800(self):
         """`timeout` ohne Angabe wird weiter bei 600 s gekappt - der Max-Wert greift nur
-        mit ausdruecklichem `timeout` (R13bj: 1800 -> 3600 s, vorlaeufig)."""
+        mit ausdruecklichem `timeout` (R13bl: zurueckgebaut auf 1800 s)."""
         import os
         env = envs.worker_env(self.cfg, dict(os.environ), "token")
         self.assertEqual(env["BASH_DEFAULT_TIMEOUT_MS"], "600000",
                          "Schutz gegen haengende Befehle bleibt")
-        self.assertEqual(env["BASH_MAX_TIMEOUT_MS"], "3600000")
+        self.assertEqual(env["BASH_MAX_TIMEOUT_MS"], "1800000")
 
     def test_vorspann_hat_die_zeile(self):
         pre = worker.WORKER_PREAMBLE
         self.assertIn("Für `preflight.py`, `c_kopf.py mutalle` und `port_build` den "
-                      "Bash-Parameter\n  `timeout=3600000` setzen; sonst wird nach 600 s "
+                      "Bash-Parameter\n  `timeout=1800000` setzen; sonst wird nach 600 s "
                       "gekappt.", pre)
-        self.assertIn("bis 3600000 = 60 min", pre)
-        self.assertIn("Die Obergrenze des\n  Werkzeugs ist seit R13bj 3600 s, die Vorgabe "
+        self.assertIn("bis 1800000 = 30 min", pre)
+        self.assertIn("Die Obergrenze des\n  Werkzeugs ist seit R13ah 1800 s, die Vorgabe "
                       "ohne Parameter bleibt 600 s", pre)
         # `timeout=600000` ist KEINE Erhoehung - genau das war der Messbefund in B213/B214.
         self.assertIn("`timeout=600000` ist KEINE Erhoehung", pre)

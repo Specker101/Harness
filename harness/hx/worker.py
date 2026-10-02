@@ -1622,15 +1622,15 @@ RECHENZEIT (R13v/R13ah, gemessen 2026-09-28 - bitte einhalten)
   in B213/B214 zu Kappungen von Preflight und `mutalle`.
 - **Der erlaubte Weg fuer alles, was laenger als ein paar Minuten dauert:**
   1. **Synchron mit ausdruecklicher Zeitgrenze:** beim Werkzeugaufruf `timeout`
-     mitgeben (Millisekunden, **bis 3600000 = 60 min**). Das ist der Normalfall fuer
+     mitgeben (Millisekunden, **bis 1800000 = 30 min**). Das ist der Normalfall fuer
      `c_kopf.py prof`, `vergl alle`, `preflight.py`, `port_build.ps1`, Mutationslaeufe.
      Gemessen (R13ah): `timeout=600000` ist KEINE Erhoehung - das war schon die alte
      Obergrenze; wer mehr braucht, muss mehr setzen.
-     R13bj (01.10.2026): die Obergrenze stand auf 1800 s und der Preflight von B235
-     lief mit **1799 s** genau dagegen - sie ist bis zur Reparatur der Maschinenkopie
-     auf 3600 s erhoeht (Rueckbau, sobald der Preflight unter 900 s liegt:
-     `docs/bedienung.md`).
-  2. **Nur wenn es laenger als 60 min dauern kann:** `Start-Process … -PassThru` und
+     R13bl (02.10.2026): die Grenze war in R13bj vorlaeufig auf 60 min erhoeht, weil der
+     Preflight von B235 mit **1799 s** genau an der alten 1800-s-Grenze stand. Der
+     Preflight von B236 brauchte **456 s** - die Bedingung fuer den Rueckbau ist erfuellt,
+     es gilt wieder **30 min**. Wer laenger braucht, nimmt Weg 2.
+  2. **Nur wenn es laenger als 30 min dauern kann:** `Start-Process … -PassThru` und
      dann **EIN** `Wait-Process -Id $p.Id -Timeout 480` - und danach die Ausgabe
      lesen. Kein zweiter Wartebefehl, keine Schleife.
 - **`Start-Sleep` ist GESPERRT** - nachgemessen am 2026-09-28 mit echtem Lauf: das
@@ -1667,8 +1667,8 @@ ZEIT (R13ac/R13ad/R13ah - gemessen, nicht geschaetzt, EINE Quelle)
   BATCH-UHR-Zeile lesen). Eine Streichung von Pflichtteilen "aus Zeitgruenden" gilt nur
   mit einer unmittelbar davor gemessenen `Get-Date`-Zeile im Batch-Dokument.
 - **Für `preflight.py`, `c_kopf.py mutalle` und `port_build` den Bash-Parameter
-  `timeout=3600000` setzen; sonst wird nach 600 s gekappt.** (Die Obergrenze des
-  Werkzeugs ist seit R13bj 3600 s, die Vorgabe ohne Parameter bleibt 600 s - Schutz
+  `timeout=1800000` setzen; sonst wird nach 600 s gekappt.** (Die Obergrenze des
+  Werkzeugs ist seit R13ah 1800 s, die Vorgabe ohne Parameter bleibt 600 s - Schutz
   gegen haengende Befehle.)
 - Hoerst du vor der Umschaltschwelle auf, wird derselbe Chat **fortgesetzt**: die
   Fortsetzungsnachricht beginnt mit "Du bist weiterhin in Batch <N>. Alle Commits tragen

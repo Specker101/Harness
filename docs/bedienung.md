@@ -1067,8 +1067,10 @@ aus dem Text und nicht aus `state.batch`. Der Pfad steht in `result.json`
 **b) Zeitkappung (Befund 3).** `BASH_MAX_TIMEOUT_MS` hing an `claude.tool_timeout_ms`
 (600 s, nicht gesetzt → Vorgabe) — gemessen wurden Aufrufe von **602 s** (Preflight B213),
 **601,3 s** (`c_kopf.py mutalle`, B214) und danach Warteschleifen von **542 s**. Seit
-R13ah gilt `[claude] bash_max_timeout_s` — **R13bj: 3600 s** (vorher 1800 s, §12x);
+R13ah gilt `[claude] bash_max_timeout_s` — **R13bl: 1800 s** (R13bj stand vorlaeufig auf
+3600 s, §13);
 `BASH_DEFAULT_TIMEOUT_MS` bleibt bei 600 s (Vorgabe für Aufrufe ohne eigenes `timeout`).
+(**R13bl:** wieder **1800 s**; R13bj hatte vorlaeufig auf 3600 s erhoeht, §13.)
 Die Batch-Uhr nennt zusätzlich `Preflight zuletzt ~X min`, und die Umschaltschwelle ist um
 diesen Vorlauf vorgezogen: `Alarm − max(umschalt_vor_alarm_s, Preflightdauer + 5 min)` (§12h).
 
@@ -1077,8 +1079,9 @@ Gemessen in B212–B214: der Worker hatte bei den langen Aufrufen `timeout` gese
 **`timeout=600000`** — also genau die alte Obergrenze; gekappt wurde trotzdem („Command did
 not complete within its 600s timeout and was moved to the background"). Deshalb steht im
 Vorspann bei der Batch-Uhr jetzt: *„Für `preflight.py`, `c_kopf.py mutalle` und `port_build`
-den Bash-Parameter `timeout=3600000` setzen; sonst wird nach 600 s gekappt."* (**R13bj:**
-3600000 statt 1800000, §12x.) Die 600 s bleiben als Schutz gegen hängende Befehle (gemessen:
+den Bash-Parameter `timeout=1800000` setzen; sonst wird nach 600 s gekappt."* (**R13bl:**
+wieder 1800000; R13bj stand vorlaeufig auf 3600000, §13.) Die 600 s bleiben als Schutz
+gegen hängende Befehle (gemessen:
 28 von 234 Aufrufen in B212 hatten überhaupt einen `timeout`). Messung und die drei
 berichteten Kappungsfälle: `docs/_r13ai_belege.md`, Werkzeug `docs/_r13ai_stream_probe.py`.
 
@@ -1737,19 +1740,26 @@ vorigen Laufs wandern nach `runs/b<Nummer>/lauf<k>/`; das Review bleibt oben ste
 `Review -> Auftrag -> Ergebnis` je Lauf lesbar bleibt. `retention` packt die `lauf<k>/`-Mitschnitte
 mit.
 
-**5. Vorlaeufige Zeitgrenzen (Rueckbau-Vermerk):**
+**5. Zeitgrenzen (R13bl, 02.10.2026 — Rueckbau erledigt):**
 
-| Groesse | vorher | jetzt | Rueckbau |
-|---|---|---|---|
-| `[claude] bash_max_timeout_s` | 1800 s | **3600 s** | zurueck auf **1800 s, sobald der Preflight wieder unter 900 s liegt** |
-| `[limits] hard_wall_s` | 10800 s (3 h) | **14400 s** (4 h) | zurueck auf **10800 s**, gleiche Bedingung |
-| Worker-Vorspann und `prompts/reviewer.md` | `timeout=1800000` (30 min) | **`timeout=3600000`** (60 min) | zurueck auf **1800000** |
+Die Erhoehung aus R13bj ist zurueckgenommen. Bedingung war „Preflight wieder unter 900 s":
+der **gueltige** Preflight von B236 brauchte **456 s** (Werkzeugaufruf; die Zeitentafel
+`analysis/_m236/_preflight_zeiten.txt` nennt **455,2 s** Gesamtwanduhr, 0,06 % Abweichung
+zur Teilsumme). Der **erste** Lauf desselben Batches dauerte 1032 s und **scheiterte** —
+er liegt als `analysis/_m236/_preflight_236_fehllauf1.txt` im Archiv und zaehlt nicht.
+
+| Groesse | R13bj (vorlaeufig) | jetzt (R13bl) |
+|---|---|---|
+| `[claude] bash_max_timeout_s` | 3600 s | **1800 s** |
+| `[limits] hard_wall_s` | 14400 s (4 h) | **10800 s** (3 h) |
+| Worker-Vorspann und `prompts/reviewer.md` | `timeout=3600000` (60 min) | **`timeout=1800000`** (30 min) |
 
 Der Alarm bleibt bei 150 min (`alarm_wall_s = 9000`), die Umschaltschwelle bei 135 min —
-die Verlaengerung betrifft nur die harte Grenze und die Werkzeug-Obergrenze. Der Rueckbau
-ist eine Aenderung an `harness.toml` + Worker-Vorspann + `prompts/reviewer.md` (drei Stellen,
-§12k/§12x-Suche: `bash_max_timeout_s`, `hard_wall_s`, `timeout=3600000`). Belege:
-`docs/_r13bj_belege.md`.
+die harte Grenze hat damit wieder 45 min Luft hinter der Schwelle. `uhr.MAX_START_ALTER_S`
+bleibt bei 5 h; das war **nicht** Teil des Rueckbaus (R13bj hatte 4 h -> 5 h gesetzt) und
+ist ohne Wirkung auf die Laufzeit — offen zur Entscheidung. Die Suche nach den Stellen
+(auch fuer kuenftige Aenderungen): §12k/§12x-Suche `bash_max_timeout_s`, `hard_wall_s`,
+`timeout=1800000`. Belege: `docs/_r13bl_belege.md`.
 
 `pct` aus dem Schnappschuss, sonst `insn_gebaut/insn_gesamt`, `gebaut/(gebaut+offen)`,
 `gebaut/total`, `gebaut/benannt` (R207) oder `(a+b)/(a+b+offen_a+offen_b)` (Strang A/B).

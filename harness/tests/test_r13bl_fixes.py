@@ -4,6 +4,10 @@
      von 20 B-Batches ist seit dem 30.09.2026 aufgehoben (Nutzerentscheid). Die alte
      Formulierung "von max 20" ist aus `prompts/reviewer.md` und aus dem Hinweis, den der
      Harness in den Review-Prompt schreibt, verschwunden.
+  2. **Rueckbau der vorlaeufigen Zeitgrenzen** aus R13bj: `bash_max_timeout_s` 3600 -> 1800,
+     `hard_wall_s` 14400 -> 10800, `timeout=3600000` -> `timeout=1800000` in Worker-Vorspann
+     und `prompts/reviewer.md`, Handbuch §13 nachgezogen. Bedingung war "Preflight wieder
+     unter 900 s" - der Preflight von B236 brauchte **456 s**.
 
 Die weiteren Punkte dieser Runde kommen in den folgenden Commits in dieselbe Datei.
 
@@ -13,6 +17,7 @@ laufende Harness bleiben unberuehrt (kein Neustart).
 
 from __future__ import annotations
 
+import os
 import shutil
 import sys
 import unittest
@@ -20,8 +25,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+DOCS = ROOT.parent / "docs"
 
-from hx import reviewer, stand                                  # noqa: E402
+from hx import envs, reviewer, stand, worker                        # noqa: E402
 from hx.config import load_config                               # noqa: E402
 from hx.orchestrator import Orchestrator                        # noqa: E402
 from hx.util import Log, ensure_dir, write_text_atomic          # noqa: E402
@@ -97,6 +103,52 @@ class TestPflichtzeileZaehlung(Basis):
         self.assertTrue(stand._RE_B_SCHRITT.search("B-SCHRITT: 2/5 Maschine, B-Batch 2 von max 20"))
         self.assertTrue(stand._RE_B_SCHRITT.search(
             "B-SCHRITT: 2/5 Maschine, B-Batch 2 (Zählung, keine Grenze – Nutzerentscheid 30.09.)"))
+
+
+# ==================================== 2) Rueckbau der vorlaeufigen Zeitgrenzen
+class TestZeitgrenzenRueckbau(unittest.TestCase):
+    """Punkt 2: R13bj hatte vorlaeufig erhoeht - R13bl baut auf den alten Stand zurueck."""
+
+    def test_config_ist_zurueckgebaut(self):
+        cfg = load_config()
+        self.assertEqual(float(cfg.get("claude", "bash_max_timeout_s")), 1800.0)
+        self.assertEqual(float(cfg.get("limits", "hard_wall_s")), 10800.0)
+        # Alarm und Umschaltschwelle waren nie Teil der Erhoehung.
+        self.assertEqual(float(cfg.get("limits", "alarm_wall_s")), 9000.0)
+        self.assertEqual(float(cfg.get("limits", "umschalt_vor_alarm_s")), 900.0)
+
+    def test_env_obergrenze_ist_wieder_eine_halbe_stunde(self):
+        env = envs.worker_env(load_config(), dict(os.environ), "token")
+        self.assertEqual(env["BASH_MAX_TIMEOUT_MS"], "1800000")
+        self.assertEqual(env["BASH_DEFAULT_TIMEOUT_MS"], "600000",
+                         "die Vorgabe ohne eigenes timeout bleibt der Schutz bei 600 s")
+
+    def test_die_drei_quellen_nennen_dieselbe_zahl(self):
+        """EINE Zahl an drei Stellen (Config, Worker-Vorspann, Vorlage) - R13ah-Lehre."""
+        pre = worker.WORKER_PREAMBLE
+        self.assertIn("timeout=1800000", pre)
+        self.assertIn("bis 1800000 = 30 min", pre)
+        self.assertNotIn("3600000", pre)
+        text = (ROOT / "prompts" / "reviewer.md").read_text(encoding="utf-8")
+        self.assertIn("timeout=1800000", text)
+        # Die VORSCHRIFT-Form muss weg; die historische Nennung in der R13bl-Notiz
+        # ("R13bj hatte vorlaeufig auf 3600000 erhoeht") bleibt ausdruecklich stehen -
+        # sonst waere die Aenderung nach einem halben Jahr nicht mehr nachvollziehbar.
+        self.assertNotIn("timeout=3600000", text)
+        self.assertIn("vorläufig** auf 3600000", text)
+        cfg = load_config()
+        self.assertEqual(int(float(cfg.get("claude", "bash_max_timeout_s"))) * 1000, 1800000)
+
+    def test_handbuch_haelt_den_rueckbau_fest(self):
+        """§13 nennt die neuen Werte und die erfuellte Bedingung - und nicht mehr die alte Tafel."""
+        text = (DOCS / "bedienung.md").read_text(encoding="utf-8")
+        self.assertNotIn("Vorlaeufige Zeitgrenzen", text)
+        i = text.index("**5. Zeitgrenzen (R13bl")
+        abschnitt = text[i:i + 1200]
+        for wert in ("1800 s", "10800 s", "timeout=1800000", "456 s"):
+            self.assertIn(wert, abschnitt, f"{wert} fehlt in Paragraph 13")
+        # Die alte Rueckbau-Tafel aus R13bj ist ersetzt (Spalte "Rueckbau").
+        self.assertNotIn("| Rueckbau |", abschnitt)
 
 
 if __name__ == "__main__":

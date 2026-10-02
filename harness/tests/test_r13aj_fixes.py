@@ -282,11 +282,11 @@ class TestReviewerRegelLangeBefehle(unittest.TestCase):
         self.text = self.p.read_text(encoding="utf-8")
 
     def test_abschnitt_existiert(self):
-        self.assertIn("## Lange Befehle (R13aj, 2026-09-29)", self.text)
+        self.assertIn("## Lange Befehle (R13aj, 2026-09-29", self.text)
 
     def test_die_drei_aufrufe_und_der_parameter(self):
         abschnitt = self.text.split("## Lange Befehle")[1].split("\n## ")[0]
-        self.assertIn("timeout=3600000", abschnitt)
+        self.assertIn("timeout=1800000", abschnitt)
         for name in ("Preflight", "c_kopf.py mutalle", "port_build"):
             self.assertIn(name, abschnitt)
         self.assertIn("Nicht** per `Start-Process`", abschnitt)
@@ -298,8 +298,8 @@ class TestReviewerRegelLangeBefehle(unittest.TestCase):
         self.assertIn("Warteschleifen", abschnitt)
 
     def test_vorspann_sagt_dasselbe(self):
-        """Die Regel steht auch im Worker-Vorspann - beide Seiten nennen 3600000."""
-        self.assertIn("timeout=3600000` setzen; sonst wird nach 600 s gekappt",
+        """Die Regel steht auch im Worker-Vorspann - beide Seiten nennen 1800000."""
+        self.assertIn("timeout=1800000` setzen; sonst wird nach 600 s gekappt",
                       worker.WORKER_PREAMBLE)
 
 

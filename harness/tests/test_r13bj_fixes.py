@@ -7,10 +7,11 @@ Auftrag des Nutzers (zwei Teile), Anlass B235:
      die Nummer des **bewerteten** Laufs, ist das eine **Fortsetzung** (erlaubt); ein
      fertiger Lauf im Zielordner wird **nicht** ueberschrieben. Die Belege des vorigen
      Laufs wandern nach `runs/b<N>/lauf<k>/`.
-  B) Zeitgrenzen vorlaeufig hoeher: `bash_max_timeout_s` 1800 -> 3600 (der Preflight von
-     B235 lief mit 1799 s genau dagegen), `hard_wall_s` 10800 -> 14400 (B235 lief 2h53m),
-     `timeout=3600000` in Worker-Vorspann und `prompts/reviewer.md`, Rueckbau-Vermerk im
-     Handbuch.
+  B) Zeitgrenzen wurden vorlaeufig erhoeht (`bash_max_timeout_s` 1800 -> 3600, weil der
+     Preflight von B235 mit 1799 s genau dagegen lief; `hard_wall_s` 10800 -> 14400, weil
+     B235 2h53m lief; `timeout=3600000` in Worker-Vorspann und `prompts/reviewer.md`) und
+     in **R13bl (02.10.2026) wieder zurueckgebaut** (Preflight B236 = 456 s): 1800 s /
+     10800 s / `timeout=1800000`. Die Tests hier pruefen deshalb den HEUTIGEN Stand.
 
 Alles laeuft in Wegwerf-Verzeichnissen; der echte Zustand und das Decomp-Repo bleiben
 unberuehrt. Belege: `docs/_r13bj_belege.md`.
@@ -227,25 +228,25 @@ class TestLaufOrdner(Base):
 class TestZeitgrenzen(unittest.TestCase):
     def test_config_werte(self):
         cfg = load_config()
-        self.assertEqual(float(cfg.get("claude", "bash_max_timeout_s")), 3600.0)
-        self.assertEqual(float(cfg.get("limits", "hard_wall_s")), 14400.0)
-        # Alarm und Umschaltschwelle bleiben unveraendert (nur die harte Grenze stieg).
+        self.assertEqual(float(cfg.get("claude", "bash_max_timeout_s")), 1800.0)
+        self.assertEqual(float(cfg.get("limits", "hard_wall_s")), 10800.0)
+        # Alarm und Umschaltschwelle bleiben unveraendert (nur die harte Grenze bewegte sich).
         self.assertEqual(float(cfg.get("limits", "alarm_wall_s")), 9000.0)
         self.assertEqual(float(cfg.get("limits", "umschalt_vor_alarm_s")), 900.0)
 
-    def test_env_obergrenze_ist_eine_stunde(self):
+    def test_env_obergrenze_ist_eine_halbe_stunde(self):
         cfg = load_config()
         env = envs.worker_env(cfg, dict(os.environ), "token")
-        self.assertEqual(env["BASH_MAX_TIMEOUT_MS"], "3600000")
+        self.assertEqual(env["BASH_MAX_TIMEOUT_MS"], "1800000")
         self.assertEqual(env["BASH_DEFAULT_TIMEOUT_MS"], "600000")
 
     def test_vorspann_und_reviewer_nennen_dieselbe_zahl(self):
-        self.assertIn("timeout=3600000", worker.WORKER_PREAMBLE)
-        self.assertIn("bis 3600000 = 60 min", worker.WORKER_PREAMBLE)
-        self.assertNotIn("1800000", worker.WORKER_PREAMBLE)
+        self.assertIn("timeout=1800000", worker.WORKER_PREAMBLE)
+        self.assertIn("bis 1800000 = 30 min", worker.WORKER_PREAMBLE)
+        self.assertNotIn("3600000", worker.WORKER_PREAMBLE)
         text = (ROOT / "prompts" / "reviewer.md").read_text(encoding="utf-8")
-        self.assertIn("timeout=3600000", text)
-        self.assertNotIn("timeout=1800000", text)
+        self.assertIn("timeout=1800000", text)
+        self.assertNotIn("timeout=3600000", text)
 
     def test_uhr_grenze_passt_zur_hartgrenze(self):
         cfg = load_config()
@@ -255,12 +256,16 @@ class TestZeitgrenzen(unittest.TestCase):
                                 "harten Grenze liegen")
 
     def test_handbuch_traegt_den_rueckbau_vermerk(self):
+        """R13bl: der Rueckbau ist erledigt - §13 nennt die neuen Werte und den Beleg."""
         text = (ROOT.parent / "docs" / "bedienung.md").read_text(encoding="utf-8")
-        self.assertIn("zurueck auf **1800 s, sobald der Preflight wieder unter 900 s liegt**",
-                      text)
-        self.assertIn("zurueck auf **10800 s**", text)
+        self.assertIn("**5. Zeitgrenzen (R13bl", text)
+        self.assertIn("B236 brauchte 456 s", text)
         self.assertIn("bash_max_timeout_s", text)
         self.assertIn("hard_wall_s", text)
+        # Die Rueckbau-Tafel aus R13bj gibt es nicht mehr (der Rueckbau ist geschehen).
+        self.assertNotIn("zurueck auf **1800 s, sobald der Preflight wieder unter 900 s",
+                         text)
+        self.assertNotIn("zurueck auf **10800 s**", text)
 
     def test_handbuch_nennt_die_neue_nummernregel(self):
         text = (ROOT.parent / "docs" / "bedienung.md").read_text(encoding="utf-8")

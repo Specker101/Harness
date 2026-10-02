@@ -43,11 +43,14 @@ worker_hooks        = true
 # 602 s (B214), dazu Warteschleifen von 542 s. 1800 s lassen Preflight, `mutalle` und
 # `port_build.ps1` in EINEM Aufruf durchlaufen. `BASH_DEFAULT_TIMEOUT_MS` bleibt bei
 # `tool_timeout_ms` (600 s) - Vorgabe fuer Aufrufe ohne eigenes `timeout`.
-# R13bj (01.10.2026, Nutzerauftrag): 1800 -> 3600 s. Grund (gemessen): der Preflight
-# von B235 lief mit **1799 s** genau an die alte Obergrenze; danach wartete der Worker
-# im Hintergrund (Verstoss gegen R13aj). **Rueckbau auf 1800 s, sobald der Preflight
-# wieder unter 900 s liegt** (Vermerk in `docs/bedienung.md`).
-bash_max_timeout_s  = 3600
+# R13bj (01.10.2026, Nutzerauftrag) hatte den Wert vorlaeufig auf 3600 s erhoeht:
+# der Preflight von B235 lief mit **1799 s** genau an die alte Obergrenze, danach wartete
+# der Worker im Hintergrund (Verstoss gegen R13aj).
+# R13bl (02.10.2026, Nutzerauftrag): zurueckgebaut auf **1800 s** - der Preflight von
+# B236 brauchte **456 s**, die Bedingung ("unter 900 s") ist erfuellt. Ein Aufruf ueber
+# 30 min ist damit wieder ein Befund (Preflight zu langsam), kein Grund fuer einen
+# hoeheren Wert.
+bash_max_timeout_s  = 1800
 
 [limits]
 # ALARM = Telegram-Hinweis, Lauf geht weiter. HARD = Prozess wird beendet.
@@ -58,11 +61,12 @@ bash_max_timeout_s  = 3600
 alarm_wall_s      = 9000      # 150 min - EINE Zeitquelle (R13ad); R13be-3 (01.10.2026): 90 -> 150
 alarm_requests    = 500
 alarm_cost_usd    = 1.0
-# R13bj (01.10.2026, Nutzerauftrag): 10800 -> 14400 s (4 h). Grund (gemessen): B235 lief
-# 2h53m - nur 7 min unter der harten Grenze, weil der Preflight auf 1799 s stand. Die
-# Grenze ist vorlaeufig erhoeht, bis die Maschinenkopie repariert ist (Preflight < 900 s);
-# **Rueckbau auf 10800 s steht in `docs/bedienung.md`**. Der Alarm bleibt bei 150 min.
-hard_wall_s       = 14400     # 4 h (vorlaeufig, R13bj)
+# R13bj (01.10.2026, Nutzerauftrag) hatte die harte Grenze vorlaeufig auf 14400 s (4 h)
+# erhoeht: B235 lief 2h53m und lag damit nur 7 min darunter (der Preflight stand auf
+# 1799 s). R13bl (02.10.2026, Nutzerauftrag): zurueckgebaut auf **10800 s** (3 h) - der
+# Preflight von B236 brauchte **456 s**. Der Alarm bleibt bei 150 min (9000 s), die
+# Umschaltschwelle bei 135 min (45 min Luft hinter der Schwelle).
+hard_wall_s       = 10800     # 3 h
 hard_requests     = 1000
 hard_cost_usd     = 2.0
 daily_budget_usd  = 10.0

@@ -194,9 +194,10 @@ class TestZeitquelle(unittest.TestCase):
     def test_konfiguration_hat_die_eine_zeitquelle(self):
         cfg = load_config()
         # R13be-3 (01.10.2026): Alarmgrenze 5400 -> 9000 s (150 min).
-        # R13bj (01.10.2026): harte Grenze 10800 -> 14400 s (4 h), vorlaeufig.
+        # R13bj (01.10.2026): harte Grenze 10800 -> 14400 s, vorlaeufig;
+        # R13bl (02.10.2026): zurueckgebaut auf 10800 s (Preflight B236 = 456 s).
         self.assertEqual(float(cfg.get("limits", "alarm_wall_s")), 9000.0)
-        self.assertEqual(float(cfg.get("limits", "hard_wall_s")), 14400.0)
+        self.assertEqual(float(cfg.get("limits", "hard_wall_s")), 10800.0)
         self.assertEqual(float(cfg.get("limits", "umschalt_vor_alarm_s")), 900.0)
         self.assertEqual(int(cfg.get("limits", "kontext_limit")), 1000000)
 
