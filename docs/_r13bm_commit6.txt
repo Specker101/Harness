@@ -1,0 +1,23 @@
+R13bm: betroffene Testdateien einzeln gefahren (Beleg, 918 Tests OK)
+
+Beleg fuer die fuenf Punkte aus R13bm. Waehrend ein Batch laeuft, wird nur gefahren,
+was die Aenderungen beruehrt - die volle Reihe gehoert an das naechste Gate.
+
+`docs/_r13bm_testreihe.py` startet jede der 37 Dateien als EIGENEN Prozess (ein
+Fehlschlag in einer Datei kann so keine andere verdecken) und schreibt je Datei eine
+Zeile nach `docs/_r13bm_testreihe.txt` - mit Zweck, Testzahl, Dauer und Ergebnis.
+
+Ergebnis (HEAD 29880e9): 918 Tests in 37 Dateien, 0 Dateien ohne OK.
+
+  r13bm (neu, fuenf Punkte)  37 | r10  23 | r11  21 | r13  11 | r13ab  17 | r13ac  46
+  r13ac3  16 | r13ad  30 | r13ae  25 | r13ah  49 | r13aj  20 | r13al  26 | r13ao  23
+  r13aq  30 | r13ar  30 | r13as  42 | r13au  17 | r13aw  18 | r13ax  16 | r13b  18
+  r13bb  36 | r13bj  20 | r13bl  19 | r13c  25 | r13e  38 | r13g  21 | r13h  21
+  r13i  20 | r13m  3 | r13o  22 | r13p  24 | r13s  28 | r13u  4 | r13v  17
+  r13v3  27 | r13w  45 | r13x  33
+
+Fallstrick des Werkzeugs, festgehalten im Skript: `unittest` schreibt die
+Zusammenfassung ("Ran N tests …"/"OK") in die MITTE des Ausgabestroms - ohne
+`re.MULTILINE` trifft `^` nur den Stringanfang, und der Beleg war beim ersten Lauf
+komplett leer (37x "KEINE ZUSAMMENFASSUNG"). Beide Muster stehen deshalb mit
+MULTILINE und mit Begruendung im Quelltext.
