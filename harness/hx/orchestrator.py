@@ -926,6 +926,13 @@ class Orchestrator:
             if aussensicht.hybrid_beteiligt(gruende):
                 hy_bis = aussensicht.hybrid_marke_setzen(self.cfg, self.state)
                 self.log.info("Hybrid-Lauf-Marke gesetzt", bis=hy_bis)
+            # R13bn (M241-4/M242-5/M243-2): auch die Marker-Ausloeser (MEILENSTEIN /
+            # ABBRUCHKRITERIUM) werden verbucht - eine Marke loest je Review-Datei genau
+            # einmal aus. Vorher fehlte die Sperre und dieselbe Marke startete vier
+            # Außensicht-Laeufe.
+            marken = aussensicht.marker_marke_setzen(self.cfg, self.state, gruende)
+            if marken:
+                self.log.info("Marker-Marke gesetzt", marken=marken)
         finally:
             meta = dict(self.state.data.get("meta") or {})
             meta.update({"vorgemerkt": False, "vorgemerkt_grund": ""})

@@ -124,6 +124,29 @@ HYBRID_GRUND = "Hybrid-Lauf"
 # muessen (`[meta] bschritt_stillstand_batches`, Vorgabe 3).
 HYBRID_STILLSTAND_BATCHES = 3
 
+# R13bn (Aussensicht M241-4/M242-5/M243-2): die beiden MARKER-Ausloeser bekommen dieselbe
+# `gemeldet_bis`-Sperre wie Kernzahl, c_soll_null und Hybrid-Lauf. Vorher nahm
+# `faellig` eine gefundene Markerzeile bei JEDER Pruefung neu auf, solange ihre
+# Review-Datei unter den letzten drei Zusammenfassungen lag - die EINE Marke aus der
+# B241-Review hat damit vier Aussensicht-Laeufe ausgeloest (meta-240, 241, 242, 243),
+# waehrend das Wochenkontingent von 84 % auf 89 % stieg (logs/rate-limit.json).
+# Gehalten wird JE MARKENART die Review-Datei, aus der sie stammt (Ordner `runs/b<N>`).
+MARKE_MARKER_SCHLUESSEL = "marker_gemeldet_bis"
+# Die beiden Markenarten: Name (steht im Grund) und Muster in der Review-Zusammenfassung.
+MARKER_MUSTER = (("Meilenstein erreicht", r"MEILENSTEIN ERREICHT:"),
+                 ("Abbruchkriterium erreicht", r"ABBRUCHKRITERIUM ERREICHT:"))
+# Migration: KEINE. Gemessen am 02.10.2026 steht die Marke aus `runs/b241/review.md` nicht
+# mehr im Fenster der letzten drei Zusammenfassungen (`runs/b242..b244`) - sie loest
+# ohnehin nicht mehr aus. Eine feste Migrationsnummer (z.B. 241) waere hier SCHAEDLICH:
+# sie wuerde in jedem frischen Zustand jede Marke bis zu dieser Nummer stillschweigend
+# verschlucken (genau das hat `test_r13w_fixes.test_meilenstein_und_abbruchkriterium_
+# loesen_aus` gezeigt, als die Migration noch 241 trug). Fehlt der Schluessel, gilt 0 =
+# nichts gemeldet.
+MARKE_MARKER_SCHLUESSEL = "marker_gemeldet_bis"
+# Die beiden Markenarten: Name (steht im Grund) und Muster in der Review-Zusammenfassung.
+MARKER_MUSTER = (("Meilenstein erreicht", r"MEILENSTEIN ERREICHT:"),
+                 ("Abbruchkriterium erreicht", r"ABBRUCHKRITERIUM ERREICHT:"))
+
 
 # R13at (30.09.2026): Abstand zwischen der FRUEHWARNUNG im Prompt/de Uhr und dem harten
 # Zuglimit. Vorher 5 (R13aq/R13ar), jetzt 8: der Lauf meta-218 brauchte 41 von 50 Zuegen
@@ -672,6 +695,52 @@ def hybrid_gemeldet_bis(meta: dict) -> int:
         return int(wert) if wert is not None else 0
     except (TypeError, ValueError):
         return 0
+
+
+def marker_gemeldet_bis(meta: dict, name: str) -> int:
+    """Bis zu welcher Review-Datei diese Markerart schon gemeldet ist (R13bn).
+
+    Fehlt die Tafel im Zustand, gilt 0 = nichts gemeldet (keine Migration, s. o.).
+    """
+    tafel = (meta or {}).get(MARKE_MARKER_SCHLUESSEL) or {}
+    try:
+        return int((tafel or {}).get(name) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def marker_beteiligt(gruende) -> dict:
+    """Welche Markerart war an diesen Ausloeser-Gruenden beteiligt - mit ihrer Datei?
+
+    Rückgabe `{name: batch}`; leer heisst: kein Marker-Ausloeser dabei. Der Batch wird aus
+    dem GRUND gelesen (dieselbe Form, die `faellig` schreibt), damit der Aufrufer nicht
+    noch einmal in die Reviews sehen muss.
+    """
+    out: dict = {}
+    for g in (gruende or []):
+        for name, _muster in MARKER_MUSTER:
+            m = re.match(rf"^{re.escape(name)} - laut Review in runs/b(\d+)", str(g))
+            if m:
+                out[name] = max(int(m.group(1)), int(out.get(name) or 0))
+    return out
+
+
+def marker_marke_setzen(cfg, state, gruende) -> dict:
+    """Die beteiligten Markerarten auf ihre Review-Datei setzen (R13bn).
+
+    Wird - wie `kernzahl_marke_setzen` - erst NACH einem gelaufenen Lauf (rc=0) gerufen.
+    Eine Marke feuert damit JE REVIEW-DATEI genau einmal; kommt spaeter eine NEUE Review
+    mit derselben Marke, ist ihre Nummer groesser und sie loest wieder aus.
+    """
+    bet = marker_beteiligt(gruende)
+    if bet:
+        meta = dict(state.data.get("meta") or {})
+        tafel = dict(meta.get(MARKE_MARKER_SCHLUESSEL) or {})
+        for name, b in bet.items():
+            tafel[name] = max(int(b), int(tafel.get(name) or 0))
+        meta[MARKE_MARKER_SCHLUESSEL] = tafel
+        state.data["meta"] = meta
+    return bet
 
 
 def hybrid_marke_setzen(cfg, state) -> int:
@@ -1668,6 +1737,9 @@ def faellig(cfg, state, log=None) -> list[str]:
     if MARKE_HYBRID_SCHLUESSEL not in meta:
         meta[MARKE_HYBRID_SCHLUESSEL] = 0
         fehlend = True
+    if MARKE_MARKER_SCHLUESSEL not in meta:
+        meta[MARKE_MARKER_SCHLUESSEL] = {}
+        fehlend = True
     if fehlend:
         state.data["meta"] = meta
         try:
@@ -1702,9 +1774,13 @@ def faellig(cfg, state, log=None) -> list[str]:
     abb = state.data.get("letzter_abbruch") or {}
     if abb and int(abb.get("batch") or 0) > letzte:
         gruende.append(f"Worker-Abbruch in Batch {abb.get('batch')} ({abb.get('grund')})")
-    for name, muster in (("Meilenstein erreicht", r"MEILENSTEIN ERREICHT:"),
-                         ("Abbruchkriterium erreicht", r"ABBRUCHKRITERIUM ERREICHT:")):
+    for name, muster in MARKER_MUSTER:
         for b, zeile in _marker(cfg, muster)[:1]:
+            if b <= marker_gemeldet_bis(meta, name):
+                # R13bn: diese Marke ist aus DIESER Review-Datei schon gemeldet (die Sperre
+                # gilt je Markenart). Ohne die Zeile stand derselbe Grund bei jeder Pruefung
+                # neu in der Liste, solange die Datei in den letzten drei Reviews lag.
+                continue
             gruende.append(f"{name} - laut Review in runs/b{b}: {zeile[:120]}")
     still = hybrid_stillstand(cfg)
     if still and hybrid_neuester_b(cfg) > hybrid_gemeldet_bis(meta):

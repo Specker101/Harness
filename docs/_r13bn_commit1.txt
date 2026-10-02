@@ -1,0 +1,34 @@
+R13bn-1: Abbruch-Marke loest nur noch einmal aus (M241-4/M242-5/M243-2)
+
+Nutzerauftrag R13bn Punkt 1. Die beiden MARKER-Ausloeser (`MEILENSTEIN ERREICHT:` und
+`ABBRUCHKRITERIUM ERREICHT:`) hatten als Einzige KEINE `gemeldet_bis`-Sperre: `faellig`
+nahm eine gefundene Markerzeile bei JEDER Pruefung neu auf, solange ihre Review-Datei
+unter den letzten drei Zusammenfassungen lag. Gemessen: die EINE Marke aus
+`runs/b241/review.md` hat vier Aussensicht-Laeufe ausgeloest (meta-240, 241, 242, 243),
+waehrend das Wochenkontingent von 84 % auf 89 % stieg (`logs/rate-limit.json:8`) - die
+vier Laeufe sind in meta-242.md und meta-243.md als Befund benannt.
+
+- `MARKE_MARKER_SCHLUESSEL = "marker_gemeldet_bis"`: eine Tafel je Markenart, die die
+  Review-Datei (`runs/b<N>`) haelt, aus der die Marke stammt.
+- `marker_gemeldet_bis(meta, name)`, `marker_beteiligt(gruende)` (liest die Datei aus dem
+  Ausloeser-Text), `marker_marke_setzen(cfg, state, gruende)` - wie bei Kernzahl,
+  `c_soll_null` und Hybrid-Lauf erst NACH einem gelaufenen Lauf.
+- `faellig` ueberspringt eine Marke, deren Datei schon gemeldet ist.
+- `orchestrator._do_aussensicht` verbucht die beteiligten Marken (ohne das bliebe die
+  Sperre wirkungslos) und protokolliert sie.
+- **Keine Migration** - mit Begruendung im Quelltext: gemessen am 02.10.2026 liegt die
+  Marke aus `runs/b241/review.md` nicht mehr im Fenster der letzten drei
+  Zusammenfassungen (`runs/b242..b244`), sie loest von selbst nicht mehr aus. Eine feste
+  Migrationsnummer (241) war zuerst eingebaut und hat `test_r13w_fixes.
+  test_meilenstein_und_abbruchkriterium_loesen_aus` rot gemacht - sie haette in jedem
+  frischen Zustand jede Marke bis 241 stillschweigend verschluckt.
+
+Tests (`tests/test_r13bn_fixes.py`, 9 Faelle): dieselbe Marke ueber drei Batches -> genau
+eine Ausloesung; Gegenprobe ohne Verbuchen -> drei (so war es vorher); eine NEUE Review
+mit derselben Marke loest wieder aus; eine Marke im Fenster loest ohne Eintrag normal aus
+(und legt die Sperrtafel an); beide Markenarten zaehlen getrennt; `marker_beteiligt` liest
+die Datei aus dem Grund; `marker_gemeldet_bis` ohne Tafel ist 0; der Orchestrator
+verbucht.
+
+Geprueft: tests/test_r13bn_fixes + r13w 53/53 OK; die uebrigen betroffenen Dateien
+(r13ah, r13aq, r13ar, r13ac3, r13e, r13al) 189 Tests OK.
