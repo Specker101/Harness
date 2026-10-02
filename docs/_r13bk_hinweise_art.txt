@@ -1,0 +1,248 @@
+R13bk - ART der weichen Hinweise (Werte werden NICHT ausgegeben)
+Hauptbeleg: g:\Harness\docs\_r13bk_upload_pruefung.txt
+
+Dateien mit weichen Hinweisen: 240
+
+Fundstellen im Arbeitsbaum (dieselbe Suche wie 4a): 401
+davon mit einem Wert AUS .hx-secrets identisch: 0
+
+Art der Fundstellen (Suchwort | Laenge | Zeichenklasse -> Anzahl):
+  password           14 Zeichen     Buchstaben/Ziffern/Bindestrich (token-artig)       153
+      z. B. harness/runs/b159/stream.jsonl:14589
+      z. B. harness/runs/b166/stream.jsonl:48539
+      z. B. harness/runs/b167/stream.jsonl:58170
+  password           8 Zeichen      Buchstaben/Ziffern/Bindestrich (token-artig)       127
+      z. B. harness/runs/b160/stream.jsonl:64199
+      z. B. harness/runs/b160/stream.jsonl:64199
+      z. B. harness/runs/b168/stream.jsonl:63043
+  password           17 Zeichen     Buchstaben/Ziffern/Bindestrich (token-artig)        15
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/network/auth.py:344
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_vendor/requests/adapters.py:214
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_vendor/requests/adapters.py:427
+  password           25 Zeichen     enthaelt / . oder : (pfad-artig)                    13
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/network/auth.py:93
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/network/auth.py:402
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/network/auth.py:485
+  password           12 Zeichen     Buchstaben/Ziffern/Bindestrich (token-artig)        12
+      z. B. sandbox/decomp-link/analysis/port-batch86-eingabeschicht-2026-09-20.md:324
+      z. B. sandbox/decomp-link/analysis/port-batch87-analogauswertung-2026-09-20.md:294
+      z. B. sandbox/decomp-link/analysis/port-batch88-bedienmaschine-2026-09-20.md:297
+  password           9 Zeichen      Buchstaben/Ziffern/Bindestrich (token-artig)        12
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/httpx/_auth.py:165
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pydantic/types.py:1818
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pydantic/types.py:1820
+  password           10 Zeichen     Buchstaben/Ziffern/Bindestrich (token-artig)         8
+      z. B. sandbox/decomp-link/ghidra_12.1.2_PUBLIC/Ghidra/Features/Base/data/base.file.extensions.icons.theme.properties:63
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/httpcore/_async/socks_proxy.py:166
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/httpcore/_sync/socks_proxy.py:166
+  password           15 Zeichen     enthaelt / . oder : (pfad-artig)                     8
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_vendor/requests/auth.py:60
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_vendor/urllib3/contrib/pyopenssl.py:477
+      z. B. sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/requests/auth.py:69
+  password           13 Zeichen     Buchstaben/Ziffern/Bindestrich (token-artig)         6
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/httpcore/_async/http_proxy.py:139
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/httpcore/_models.py:510
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/httpcore/_sync/http_proxy.py:139
+  password           12 Zeichen     enthaelt / . oder : (pfad-artig)                     5
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/httpx/_main.py:297
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_vendor/distlib/util.py:817
+      z. B. sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/httpx/_main.py:297
+  password           10 Zeichen     enthaelt / . oder : (pfad-artig)                     5
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_vendor/rich/prompt.py:363
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/starlette/datastructures.py:120
+      z. B. sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/starlette/datastructures.py:120
+  client_secret      13 Zeichen     Buchstaben/Ziffern/Bindestrich (token-artig)         4
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/mcp/client/auth/extensions/client_credentials.py:129
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/mcp/server/auth/handlers/register.py:106
+      z. B. sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/mcp/client/auth/extensions/client_credentials.py:73
+  password           11 Zeichen     Buchstaben/Ziffern/Bindestrich (token-artig)         4
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pydantic/types.py:1886
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pydantic/types.py:1889
+      z. B. sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/pydantic/types.py:1886
+  password           18 Zeichen     enthaelt / . oder : (pfad-artig)                     3
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/network/auth.py:120
+      z. B. sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_internal/network/auth.py:120
+      z. B. sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_internal/network/auth.py:120
+  password           23 Zeichen     Buchstaben/Ziffern/Bindestrich (token-artig)         3
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/network/auth.py:360
+      z. B. sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_internal/network/auth.py:360
+      z. B. sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_internal/network/auth.py:360
+  password           29 Zeichen     enthaelt / . oder : (pfad-artig)                     3
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/network/auth.py:437
+      z. B. sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_internal/network/auth.py:437
+      z. B. sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_internal/network/auth.py:437
+  password           16 Zeichen     enthaelt / . oder : (pfad-artig)                     3
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_vendor/urllib3/contrib/_securetransport/low_level.py:231
+      z. B. sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_vendor/urllib3/contrib/_securetransport/low_level.py:231
+      z. B. sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_vendor/urllib3/contrib/_securetransport/low_level.py:231
+  password           20 Zeichen     enthaelt / . oder : (pfad-artig)                     2
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/httpx/_client.py:469
+      z. B. sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/httpx/_client.py:469
+  client_secret      16 Zeichen     Buchstaben/Ziffern/Bindestrich (token-artig)         2
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/mcp/client/auth/extensions/client_credentials.py:83
+      z. B. sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/mcp/client/auth/extensions/client_credentials.py:36
+  client_secret      17 Zeichen     enthaelt / . oder : (pfad-artig)                     2
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/mcp/server/auth/handlers/register.py:60
+      z. B. sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/mcp/server/auth/handlers/register.py:60
+  access_token       9 Zeichen      Buchstaben/Ziffern/Bindestrich (token-artig)         2
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/mcp/server/auth/middleware/bearer_auth.py:21
+      z. B. sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/mcp/server/auth/middleware/bearer_auth.py:18
+  password           28 Zeichen     enthaelt / . oder : (pfad-artig)                     2
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pythonwin/pywin/dialogs/login.py:20
+      z. B. sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/pythonwin/pywin/dialogs/login.py:20
+  password           8 Zeichen      enthaelt / . oder : (pfad-artig)                     2
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/win32/Demos/security/sspi/validate_password.py:32
+      z. B. sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/win32/Demos/security/sspi/validate_password.py:32
+  passwd             17 Zeichen     enthaelt / . oder : (pfad-artig)                     2
+      z. B. sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/win32/Demos/winprocess.py:35
+      z. B. sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/win32/Demos/winprocess.py:35
+  api_key            14 Zeichen     enthaelt / . oder : (pfad-artig)                     2
+      z. B. sandbox/decomp-link/tools/ghidra-mcp/fun-doc/benchmark/scorer.py:294
+      z. B. sandbox/decomp-link/tools/ghidra-mcp/fun-doc/fun_doc.py:6650
+  password           37 Zeichen     enthaelt / . oder : (pfad-artig)                     1
+      z. B. sandbox/decomp-link/ghidra_12.1.2_PUBLIC/Ghidra/Features/BSim/data/bsim.theme.properties:6
+
+## Sind die Werte Platzhalter oder echte Geheimnisse?
+Entscheidender Test: derselbe Wert kommt auch in einer GETRACKTEN Datei
+vor -> er steht als Beispiel im Repo und ist kein Geheimnis.
+
+  (verglichene getrackte Dateien: 484)
+    153x   14 Zeichen  Buchstaben/Ziffern/Bindestrich (token-artig)   KEIN Beleg fuer einen Platzhalter
+         Fundstelle z. B.: harness/runs/b159/stream.jsonl:14589
+     48x    8 Zeichen  Buchstaben/Ziffern/Bindestrich (token-artig)   Platzhalter-Marker ['pass']
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/cryptography/hazmat/primitives/_serialization.py:36
+     26x    8 Zeichen  Buchstaben/Ziffern/Bindestrich (token-artig)   KEIN Beleg fuer einen Platzhalter
+         Fundstelle z. B.: harness/runs/b160/stream.jsonl:64199
+     26x    8 Zeichen  Buchstaben/Ziffern/Bindestrich (token-artig)   KEIN Beleg fuer einen Platzhalter
+         Fundstelle z. B.: harness/runs/b160/stream.jsonl:64199
+     15x    8 Zeichen  Buchstaben/Ziffern/Bindestrich (token-artig)   KEIN Beleg fuer einen Platzhalter
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/vcs/subversion.py:98
+     12x   17 Zeichen  Buchstaben/Ziffern/Bindestrich (token-artig)   KEIN Beleg fuer einen Platzhalter
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_vendor/requests/adapters.py:214
+     10x    8 Zeichen  Buchstaben/Ziffern/Bindestrich (token-artig)   KEIN Beleg fuer einen Platzhalter
+         Fundstelle z. B.: sandbox/decomp-link/analysis/_m194/_lauf_nachher/service-ui.txt:564
+      8x   15 Zeichen  enthaelt / . oder : (pfad-artig)               Platzhalter-Marker ['pass']
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_vendor/requests/auth.py:60
+      8x    9 Zeichen  Buchstaben/Ziffern/Bindestrich (token-artig)   Platzhalter-Marker ['secret']
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pydantic/types.py:1818
+      7x   12 Zeichen  Buchstaben/Ziffern/Bindestrich (token-artig)   KEIN Beleg fuer einen Platzhalter
+         Fundstelle z. B.: sandbox/decomp-link/analysis/port-batch86-eingabeschicht-2026-09-20.md:324
+      6x   13 Zeichen  Buchstaben/Ziffern/Bindestrich (token-artig)   KEIN Beleg fuer einen Platzhalter
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/httpcore/_async/http_proxy.py:139
+      6x   25 Zeichen  enthaelt / . oder : (pfad-artig)               KEIN Beleg fuer einen Platzhalter
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/network/auth.py:402
+      4x   10 Zeichen  Buchstaben/Ziffern/Bindestrich (token-artig)   KEIN Beleg fuer einen Platzhalter
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/httpcore/_async/socks_proxy.py:166
+      4x    9 Zeichen  Buchstaben/Ziffern/Bindestrich (token-artig)   KEIN Beleg fuer einen Platzhalter
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/httpx/_auth.py:165
+      4x   13 Zeichen  Buchstaben/Ziffern/Bindestrich (token-artig)   Platzhalter-Marker ['secret']
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/mcp/client/auth/extensions/client_credentials.py:129
+      4x   11 Zeichen  Buchstaben/Ziffern/Bindestrich (token-artig)   Platzhalter-Marker ['secret']
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pydantic/types.py:1886
+      4x   25 Zeichen  enthaelt / . oder : (pfad-artig)               Platzhalter-Marker ['pass']
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/uvicorn/config.py:469
+      3x   25 Zeichen  enthaelt / . oder : (pfad-artig)               Platzhalter-Marker ['pass']
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/network/auth.py:93
+      3x   18 Zeichen  enthaelt / . oder : (pfad-artig)               Platzhalter-Marker ['pass']
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/network/auth.py:120
+      3x   17 Zeichen  Buchstaben/Ziffern/Bindestrich (token-artig)   Platzhalter-Marker ['pass']
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/network/auth.py:344
+      3x   23 Zeichen  Buchstaben/Ziffern/Bindestrich (token-artig)   Platzhalter-Marker ['pass']
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/network/auth.py:360
+      3x   29 Zeichen  enthaelt / . oder : (pfad-artig)               KEIN Beleg fuer einen Platzhalter
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/network/auth.py:437
+      3x   12 Zeichen  Buchstaben/Ziffern/Bindestrich (token-artig)   Platzhalter-Marker ['pass']
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/network/auth.py:462
+      3x   10 Zeichen  Buchstaben/Ziffern/Bindestrich (token-artig)   KEIN Beleg fuer einen Platzhalter
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/vcs/versioncontrol.py:445
+      3x   12 Zeichen  enthaelt / . oder : (pfad-artig)               KEIN Beleg fuer einen Platzhalter
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_vendor/distlib/util.py:817
+      3x   10 Zeichen  enthaelt / . oder : (pfad-artig)               KEIN Beleg fuer einen Platzhalter
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_vendor/rich/prompt.py:363
+      3x   16 Zeichen  enthaelt / . oder : (pfad-artig)               KEIN Beleg fuer einen Platzhalter
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_vendor/urllib3/contrib/_securetransport/low_level.py:231
+      2x   20 Zeichen  enthaelt / . oder : (pfad-artig)               KEIN Beleg fuer einen Platzhalter
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/httpx/_client.py:469
+      2x   12 Zeichen  enthaelt / . oder : (pfad-artig)               KEIN Beleg fuer einen Platzhalter
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/httpx/_main.py:297
+      2x   16 Zeichen  Buchstaben/Ziffern/Bindestrich (token-artig)   Platzhalter-Marker ['secret']
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/mcp/client/auth/extensions/client_credentials.py:83
+      2x   17 Zeichen  enthaelt / . oder : (pfad-artig)               Platzhalter-Marker ['secret']
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/mcp/server/auth/handlers/register.py:60
+      2x    9 Zeichen  Buchstaben/Ziffern/Bindestrich (token-artig)   Platzhalter-Marker ['pass']
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pydantic/types.py:1820
+      2x   12 Zeichen  Buchstaben/Ziffern/Bindestrich (token-artig)   KEIN Beleg fuer einen Platzhalter
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pydantic/types.py:1847
+      2x   28 Zeichen  enthaelt / . oder : (pfad-artig)               KEIN Beleg fuer einen Platzhalter
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pythonwin/pywin/dialogs/login.py:20
+      2x    8 Zeichen  Buchstaben/Ziffern/Bindestrich (token-artig)   KEIN Beleg fuer einen Platzhalter
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pythonwin/pywin/dialogs/login.py:142
+      2x   10 Zeichen  enthaelt / . oder : (pfad-artig)               KEIN Beleg fuer einen Platzhalter
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/starlette/datastructures.py:120
+      2x    8 Zeichen  enthaelt / . oder : (pfad-artig)               steht auch in 26 getrackten Datei(en) -> Beispiel/Platzhalter
+         getrackt z. B.: docs/_bauzeit_ursache.py
+      2x   17 Zeichen  enthaelt / . oder : (pfad-artig)               KEIN Beleg fuer einen Platzhalter
+         Fundstelle z. B.: sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/win32/Demos/winprocess.py:35
+      2x   14 Zeichen  enthaelt / . oder : (pfad-artig)               steht auch in 4 getrackten Datei(en) -> Beispiel/Platzhalter
+         getrackt z. B.: docs/_r13bi_belege.md
+      1x   37 Zeichen  enthaelt / . oder : (pfad-artig)               Platzhalter-Marker ['pass']
+         Fundstelle z. B.: sandbox/decomp-link/ghidra_12.1.2_PUBLIC/Ghidra/Features/BSim/data/bsim.theme.properties:6
+      1x   10 Zeichen  Buchstaben/Ziffern/Bindestrich (token-artig)   KEIN Beleg fuer einen Platzhalter
+         Fundstelle z. B.: sandbox/decomp-link/ghidra_12.1.2_PUBLIC/Ghidra/Features/Base/data/base.file.extensions.icons.theme.properties:63
+
+  Werte OHNE Platzhalter-Beleg: 24
+  (Fundstelle mit MASKiertem Wert - der Wert selbst steht nirgends.)
+    - harness/runs/b159/stream.jsonl:14589  (14 Zeichen, Buchstaben/Ziffern/Bindestrich (token-artig))
+        ...Umfangsanpassung**: die Schaetzung **1-2** stimmte fuer den «WERT»-Teil, war aber fuer „die Spielseite\" um Faktor ~4 zu klein (27 offe...
+    - harness/runs/b160/stream.jsonl:64199  (8 Zeichen, Buchstaben/Ziffern/Bindestrich (token-artig))
+        ...     \"CONTACT YOUR NEAREST DEALER\",\n          \"PASSWORD=«WERT» -> Index 1, Meldung 'SUCCESSFUL'\",\n          \"PASSWORD=GGAU581V -...
+    - harness/runs/b160/stream.jsonl:64199  (8 Zeichen, Buchstaben/Ziffern/Bindestrich (token-artig))
+        ...X -> Index 1, Meldung 'SUCCESSFUL'\",\n          \"PASSWORD=«WERT» -> Index 2, Meldung 'SUCCESSFUL'\"]),\n\n        # ---- Port-Schritt...
+    - sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/vcs/subversion.py:98  (8 Zeichen, Buchstaben/Ziffern/Bindestrich (token-artig))
+        username: «WERT»[str], password: «WERT»[HiddenText]
+    - sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_vendor/requests/adapters.py:214  (17 Zeichen, Buchstaben/Ziffern/Bindestrich (token-artig))
+        username, password = «WERT»(proxy)
+    - sandbox/decomp-link/analysis/_m194/_lauf_nachher/service-ui.txt:564  (8 Zeichen, Buchstaben/Ziffern/Bindestrich (token-artig))
+        PASSWORD=«WERT» -> Index 1, Meldung 'SUCCESSFUL'
+    - sandbox/decomp-link/analysis/port-batch86-eingabeschicht-2026-09-20.md:324  (12 Zeichen, Buchstaben/Ziffern/Bindestrich (token-artig))
+        | **89** Texteingabe | HOME PAGE (3-Spalten-Zifferneingabe) + PASSWORD: «WERT» (§6), Bestaetigung `0x64`, Blink-/Zeichenlogik | **1–1,5 Batches** |
+    - sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/httpcore/_async/http_proxy.py:139  (13 Zeichen, Buchstaben/Ziffern/Bindestrich (token-artig))
+        password = «WERT»(proxy_auth[1], name="proxy_auth")
+    - sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/network/auth.py:402  (25 Zeichen, enthaelt / . oder : (pfad-artig))
+        username, password = «WERT»(original_url)
+    - sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/httpcore/_async/socks_proxy.py:166  (10 Zeichen, Buchstaben/Ziffern/Bindestrich (token-artig))
+        username, password = «WERT»
+    - sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/httpx/_auth.py:165  (9 Zeichen, Buchstaben/Ziffern/Bindestrich (token-artig))
+        username=«WERT»[0], password=«WERT»[2]
+    - sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/network/auth.py:437  (29 Zeichen, enthaelt / . oder : (pfad-artig))
+        url, username, password = «WERT»(req.url)
+    - sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/vcs/versioncontrol.py:445  (10 Zeichen, Buchstaben/Ziffern/Bindestrich (token-artig))
+        password = «WERT»(secret_password)
+    - sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_vendor/distlib/util.py:817  (12 Zeichen, enthaelt / . oder : (pfad-artig))
+        username, password = «WERT»(':', 1)
+    - sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_vendor/rich/prompt.py:363  (10 Zeichen, enthaelt / . oder : (pfad-artig))
+        password = «WERT»(
+    - sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_vendor/urllib3/contrib/_securetransport/low_level.py:231  (16 Zeichen, enthaelt / . oder : (pfad-artig))
+        password = «WERT»(random_bytes[8:])  # Must be valid UTF-8
+    - sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/httpx/_client.py:469  (20 Zeichen, enthaelt / . oder : (pfad-artig))
+        username, password = «WERT», request.url.password
+    - sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/httpx/_main.py:297  (12 Zeichen, enthaelt / . oder : (pfad-artig))
+        password = «WERT»("Password", hide_input=True)
+    - sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pydantic/types.py:1847  (12 Zeichen, Buchstaben/Ziffern/Bindestrich (token-artig))
+        model = Model(password='«WERT»', password_bytes=b'«WERT»Bytes')
+    - sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pythonwin/pywin/dialogs/login.py:20  (28 Zeichen, enthaelt / . oder : (pfad-artig))
+        userid, password = «WERT»(title, def_user)
+    - sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pythonwin/pywin/dialogs/login.py:142  (8 Zeichen, Buchstaben/Ziffern/Bindestrich (token-artig))
+        userid, password = «WERT»(title, def_user)
+    - sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/starlette/datastructures.py:120  (10 Zeichen, enthaelt / . oder : (pfad-artig))
+        password = «WERT»("password", self.password)
+    - sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/win32/Demos/winprocess.py:35  (17 Zeichen, enthaelt / . oder : (pfad-artig))
+        domain, user, passwd = «WERT»("\n")
+    - sandbox/decomp-link/ghidra_12.1.2_PUBLIC/Ghidra/Features/Base/data/base.file.extensions.icons.theme.properties:63  (10 Zeichen, Buchstaben/Ziffern/Bindestrich (token-artig))
+        icon.fsbrowser.file.overlay.missing.password	= «WERT»{images/lock.png[size(8,8)][move(8,0)]}				     // upper right quadrant
+  Diese Stellen von Hand ansehen, bevor irgendetwas aus diesem
+  Arbeitsbaum weitergegeben wird.
+
+Lesehilfe: 'nur Ziffern' = kein Geheimnis, sondern eine Kennnummer
+(z. B. chat_id). 'token-artig' = Form wie ein Schluessel - dann gehoert
+die Datei trotzdem nicht ins Repo, auch wenn sie ignoriert ist.

@@ -1,0 +1,44 @@
+R13bk - Restpruefung: getrackte Dateien mit Zugangsbezug im Namen
+
+Dateien: 11
+  docs/_secret_scan.txt
+          1222 Zeichen,     16 Zeilen, lange Ketten (>=24): 7
+      Kandidat: pr...   45 Zeichen  gemischt           Zeichen darin: '+'
+      Kandidat: pr...   43 Zeichen  gemischt           Zeichen darin: '+'
+      Kandidat: pr...   40 Zeichen  gemischt           Zeichen darin: '+'
+  docs/_secret_scan_bereinigt.txt
+          1330 Zeichen,     22 Zeilen, lange Ketten (>=24): 7
+      Kandidat: pr...   45 Zeichen  gemischt           Zeichen darin: '+'
+      Kandidat: pr...   43 Zeichen  gemischt           Zeichen darin: '+'
+      Kandidat: pr...   40 Zeichen  gemischt           Zeichen darin: '+'
+  docs/_secret_scan_herkunft.txt
+          4510 Zeichen,     31 Zeilen, lange Ketten (>=24): 19
+      Kandidat: pr...   45 Zeichen  gemischt           Zeichen darin: '+'
+      Kandidat: pr...   43 Zeichen  gemischt           Zeichen darin: '+'
+      Kandidat: pr...   40 Zeichen  gemischt           Zeichen darin: '+'
+  docs/_secret_scan_nachher.txt
+           560 Zeichen,     11 Zeilen, lange Ketten (>=24): 1
+      Kandidat: gi...   28 Zeichen  gemischt           Zeichen darin: '/'
+  docs/_secretcheck.txt
+           278 Zeichen,      7 Zeilen, lange Ketten (>=24): 0
+  docs/_secrets_umzug.txt
+           703 Zeichen,     22 Zeilen, lange Ketten (>=24): 0
+  docs/_secretwatch_beleg.txt
+          1280 Zeichen,     22 Zeilen, lange Ketten (>=24): 0
+  harness/hx/secrets.py
+          2174 Zeichen,     67 Zeilen, lange Ketten (>=24): 0
+  harness/tools/check_secretwatch.py
+          5664 Zeichen,    125 Zeilen, lange Ketten (>=24): 1
+      Kandidat: /H...   32 Zeichen  gemischt           Zeichen darin: '/'
+  harness/tools/scan_secrets.py
+          8345 Zeichen,    212 Zeilen, lange Ketten (>=24): 2
+      Kandidat: gi...   28 Zeichen  gemischt           Zeichen darin: '/'
+      Kandidat: /H...   26 Zeichen  gemischt           Zeichen darin: '/'
+  harness/tools/setup_secrets.py
+          5431 Zeichen,    143 Zeilen, lange Ketten (>=24): 2
+      Kandidat: /H...   28 Zeichen  gemischt           Zeichen darin: '/'
+      Kandidat: do...   24 Zeichen  gemischt           Zeichen darin: '/'
+
+Dateien mit Mustertreffer oder Wert aus .hx-secrets: 0
+  -> auch hier kein Zugangsdatum. Die langen Ketten sind Token in
+     Dokumentation/Testdaten; die Form steht oben, der Wert nicht.

@@ -1,0 +1,21 @@
+R13bk-Belege: Upload-Pruefung des Harness-Repos (nur lesend)
+
+Die drei Skripte und ihre Ausgaben waren bei R13bk entstanden, aber noch nicht
+committet - der Push ist der Anlass, sie ins Repo zu holen (Belege gehoeren zum
+Vorgang, nicht in den Arbeitsbaum).
+
+- `_r13bk_upload_pruefung.py` / `.txt`: die sechs Pruefungen vor dem Hochladen
+  (getrackte vs. ignorierte Dateien, Wertenamen im Namen, Treffer im
+  Arbeitsbaum, Historie ueber 1029 Blobs, grosse Dateien, Repo- vs. Ignore-Inhalt).
+  Ergebnis: 0 harte Befunde, die drei Zugangswerte sind in der Historie nicht
+  enthalten.
+- `_r13bk_hinweise_art.py` / `.txt`: die 496 "weichen" Treffer sind der ART nach
+  bestimmt (Platzhalter vs. echter Wert) - nur in ignorierten Laufprotokollen und
+  Decomp-Repo-Dateien.
+- `_r13bk_namensrest.py` / `.txt`: die Restpruefung der 11 getrackten Dateien mit
+  Zugangs-Bezug im NAMEN, die die Musterliste des Hauptskripts nicht erfasst hatte
+  (`*secret*` fehlte).
+
+Grundregel aller drei: **es wird nie ein Zugangswert ausgegeben** - nur Art,
+Datei/Commit/Zeile und ggf. Laenge. Gegenprobe vor dem Commit: kein Treffer auf
+Token-/Schluesselformate in den beiden Textbelegen.

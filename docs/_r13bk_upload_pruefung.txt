@@ -1,0 +1,731 @@
+R13bk - Pruefung VOR dem Hochladen des Harness-Repos (nur lesend)
+Repo: g:\Harness
+
+## 1. Remote
+  (kein Remote eingetragen)
+  Branch:
+    * main c77348a R13bj: B235 gesichert, Batchnummer zaehlt der Harness, Zeitgrenzen vorlaeufig erhoeht
+
+## 2. Getrackte Dateien: 491
+     261  docs
+     214  harness
+      13  tools
+       3  (Wurzel)
+
+### 2a. .gitignore-Regeln (Wurzel und harness/)
+  --- .gitignore ---
+    build/
+    out/
+    bin/
+    obj/
+    dist/
+    *.o
+    *.obj
+    *.exe
+    *.dll
+    *.so
+    *.a
+    *.lib
+    *.pdb
+    *.ilk
+    *.exp
+    CMakeCache.txt
+    CMakeFiles/
+    cmake_install.cmake
+    .vscode/*
+    !.vscode/settings.json
+    !.vscode/extensions.json
+    !.vscode/launch.json
+    !.vscode/tasks.json
+    *.log
+    *.tmp
+    *.bak
+    *.ppm
+    secrets/
+    sandbox/
+    harness/runs/
+    harness/logs/
+    harness/state/
+    harness/inbox/
+    harness/outbox/
+    harness/preview/
+    harness/snapshots/
+    harness/sessions/
+    harness/cc-worker/
+    harness/cc-reviewer/
+    harness/tests/_tmp_*/
+    backups/
+    __pycache__/
+    *.pyc
+    /antworten-*.md
+    /nachricht-*.md
+  --- harness/.gitignore ---
+    state/
+    logs/
+    runs/
+    snapshots/
+    preview/
+    inbox/
+    outbox/
+    sessions/
+    cc-worker/
+    cc-reviewer/
+    __pycache__/
+    *.pyc
+    *.log
+    *.jsonl
+    !tests/**
+    __pycache__/
+    *.pyc
+    tests/_tmp_*/
+
+### 2b. Getrackte Dateien in Risikobereichen
+  state/: keine getrackten Dateien
+  runs/: keine getrackten Dateien
+  logs/: keine getrackten Dateien
+  inbox/: keine getrackten Dateien
+  secrets/: keine getrackten Dateien
+  harness/secrets/: keine getrackten Dateien
+  backups/: keine getrackten Dateien
+  snapshots/: keine getrackten Dateien
+  sandbox/: keine getrackten Dateien
+  .env: keine getrackten Dateien
+  *.key: keine getrackten Dateien
+  *.pem: keine getrackten Dateien
+  *.pfx: keine getrackten Dateien
+  *credentials*: keine getrackten Dateien
+  *_secrets*: 3 getrackt (Inhalt siehe 2b2)
+      docs/_secrets_umzug.txt
+      harness/tools/scan_secrets.py
+      harness/tools/setup_secrets.py
+  *token*: keine getrackten Dateien
+
+### 2b2. Inhalt der getrackten Dateien mit Risikonamen
+  (Ein Name mit `_secrets` ist noch kein Fund - entscheidend ist der Inhalt.)
+  docs/_secrets_umzug.txt: geprueft - kein Muster, kein Wert aus .hx-secrets
+  harness/tools/scan_secrets.py: geprueft - kein Muster, kein Wert aus .hx-secrets
+  harness/tools/setup_secrets.py: geprueft - kein Muster, kein Wert aus .hx-secrets
+
+### 2c. Ignoriert? (Stichprobe je Risikobereich)
+  harness/state/run.json: ignoriert - harness/.gitignore:3:state/	harness/state/run.json
+  harness/runs/b235/stream.jsonl: ignoriert - harness/.gitignore:5:runs/	harness/runs/b235/stream.jsonl
+  harness/runs/b235/review.md: ignoriert - harness/.gitignore:5:runs/	harness/runs/b235/review.md
+  harness/logs/harness.log: (Pfad gibt es nicht - nicht bewertbar)
+  harness/inbox/x.md: (Pfad gibt es nicht - nicht bewertbar)
+  harness/outbox/x.md: (Pfad gibt es nicht - nicht bewertbar)
+  harness/snapshots/x.zip: (Pfad gibt es nicht - nicht bewertbar)
+  harness/sessions/x.jsonl: (Pfad gibt es nicht - nicht bewertbar)
+  harness/cc-worker/x: (Pfad gibt es nicht - nicht bewertbar)
+  harness/cc-reviewer/x: (Pfad gibt es nicht - nicht bewertbar)
+  harness/tests/_tmp_x/repo/.git/config: (Pfad gibt es nicht - nicht bewertbar)
+  harness/harness.toml: nicht ignoriert, aber getrackt - normaler Repo-Inhalt
+  harness/hx/util.py: nicht ignoriert, aber getrackt - normaler Repo-Inhalt
+  secrets/deepseek.key: (Pfad gibt es nicht - nicht bewertbar)
+  backups/_zugriffsprobe.txt: ignoriert - .gitignore:66:backups/	backups/_zugriffsprobe.txt
+  sandbox/decomp-link: ignoriert - .gitignore:47:sandbox/	sandbox/decomp-link
+  .vscode/settings.json: (Pfad gibt es nicht - nicht bewertbar)
+  harness/.env: (Pfad gibt es nicht - nicht bewertbar)
+  .env: (Pfad gibt es nicht - nicht bewertbar)
+
+### 2d. Was `git add -A` mitnehmen wuerde (untracked, nicht ignoriert)
+  Dateien: 2
+            22.9 KB  docs/_r13bk_upload_pruefung.py
+            95.1 KB  docs/_r13bk_upload_pruefung.txt
+
+## 3. Verschachtelte Git-Repos / Worktrees / Gitlinks
+  Gitlinks (Mode 160000) im Index: 0
+  .gitmodules: fehlt
+  git worktree list:
+    G:/Harness  c77348a [main]
+  Gefundene `.git`-Eintraege unterhalb der Wurzel: 12
+    harness/tests/_tmp_control/repo
+        ignoriert: harness/.gitignore:29:tests/_tmp_*/	harness/tests/_tmp_control/repo
+        getrackt:  NEIN (nichts)
+    harness/tests/_tmp_r10/decomp
+        ignoriert: harness/.gitignore:29:tests/_tmp_*/	harness/tests/_tmp_r10/decomp
+        getrackt:  NEIN (nichts)
+    harness/tests/_tmp_r11/decomp
+        ignoriert: harness/.gitignore:29:tests/_tmp_*/	harness/tests/_tmp_r11/decomp
+        getrackt:  NEIN (nichts)
+    harness/tests/_tmp_r13ah/decomp
+        ignoriert: harness/.gitignore:29:tests/_tmp_*/	harness/tests/_tmp_r13ah/decomp
+        getrackt:  NEIN (nichts)
+    harness/tests/_tmp_r13bf_repo/decomp
+        ignoriert: harness/.gitignore:29:tests/_tmp_*/	harness/tests/_tmp_r13bf_repo/decomp
+        getrackt:  NEIN (nichts)
+    harness/tests/_tmp_r13c/decomp
+        ignoriert: harness/.gitignore:29:tests/_tmp_*/	harness/tests/_tmp_r13c/decomp
+        getrackt:  NEIN (nichts)
+    harness/tests/_tmp_r13e/repo
+        ignoriert: harness/.gitignore:29:tests/_tmp_*/	harness/tests/_tmp_r13e/repo
+        getrackt:  NEIN (nichts)
+    harness/tests/_tmp_r13i/decomp
+        ignoriert: harness/.gitignore:29:tests/_tmp_*/	harness/tests/_tmp_r13i/decomp
+        getrackt:  NEIN (nichts)
+    harness/tests/_tmp_r13m/decomp
+        ignoriert: harness/.gitignore:29:tests/_tmp_*/	harness/tests/_tmp_r13m/decomp
+        getrackt:  NEIN (nichts)
+    sandbox/decomp-link
+        ignoriert: .gitignore:47:sandbox/	sandbox/decomp-link
+        getrackt:  NEIN (nichts)
+    sandbox/decomp-link/mame/mame
+        ignoriert: .gitignore:47:sandbox/	sandbox/decomp-link/mame/mame
+        getrackt:  NEIN (nichts)
+    sandbox/decomp-link/tools/ghidra-mcp
+        ignoriert: .gitignore:47:sandbox/	sandbox/decomp-link/tools/ghidra-mcp
+        getrackt:  NEIN (nichts)
+
+## 4. Zugangsdaten
+  Suchmuster aus %USERPROFILE%\.hx-secrets: 3 Wert(e) aus 3 Datei(en) - Werte werden NICHT ausgegeben.
+### 4a. Arbeitsbaum
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b159/stream.jsonl:14589 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b160/stream.jsonl:64199 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b160/stream.jsonl:64199 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b166/stream.jsonl:48539 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b167/stream.jsonl:58170 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b167/stream.jsonl:58389 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b167/stream.jsonl:58392 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b168/stream.jsonl:63043 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b168/stream.jsonl:63043 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b168/stream.jsonl:70855 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b170/stream.jsonl:54729 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b182/stream.jsonl:61162 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b185/stream.jsonl:56499 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b186/stream.jsonl:83076 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b187/stream.jsonl:51102 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b188/stream.jsonl:78071 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b188/stream.jsonl:78103 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b191/stream.jsonl:22803 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b191/stream.jsonl:23761 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b191/stream.jsonl:23764 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b200/stream.jsonl:30784 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b200/stream.jsonl:30784 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b200/stream.jsonl:30786 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b200/stream.jsonl:30786 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b200/stream.jsonl:55301 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b201/stream.jsonl:38169 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b201/stream.jsonl:42028 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b201/stream.jsonl:42028 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b209/stream.jsonl:76375 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b210/stream.jsonl:69886 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b214/stream-forts1.jsonl:31461 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b214/stream-forts1.jsonl:31554 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b215/stream-forts1.jsonl:9978 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b215/stream-forts1.jsonl:9981 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b216/stream-forts1.jsonl:9381 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b216/stream-forts1.jsonl:9383 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b216/stream-forts1.jsonl:9385 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b216/stream-forts1.jsonl:9470 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b216/stream-forts1.jsonl:9472 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b216/stream-forts1.jsonl:13491 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b216/stream-forts1.jsonl:13493 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b218/stream-forts1.jsonl:10869 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b218/stream-forts1.jsonl:10872 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b218/stream-forts1.jsonl:12448 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b221/stream.jsonl:782 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b221/stream.jsonl:30436 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b221/stream.jsonl:30594 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b223/stream.jsonl:18088 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b223/stream.jsonl:18158 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b223/stream.jsonl:63489 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b225/stream.jsonl:53643 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b225/stream.jsonl:59749 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b225/stream.jsonl:60911 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b225/stream.jsonl:60939 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b227/stream-forts1.jsonl:4436 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b227/stream.jsonl:49295 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b227/stream.jsonl:54488 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b229/stream.jsonl:60722 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b229/stream.jsonl:60887 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b229/stream.jsonl:60890 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b234/stream-v1.jsonl:5504 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b234/stream-v1.jsonl:5507 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b234/stream-v1.jsonl:5510 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b234/stream-v1.jsonl:5513 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b234/stream-v1.jsonl:5517 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): harness/runs/b234/stream.jsonl:51629 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/port-batch86-eingabeschicht-2026-09-20.md:324 (Fundlaenge 22 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/port-batch87-analogauswertung-2026-09-20.md:294 (Fundlaenge 22 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/port-batch88-bedienmaschine-2026-09-20.md:297 (Fundlaenge 22 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/port-batch88b-nutzlast-2026-09-21.md:346 (Fundlaenge 22 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/port-batch88b2-zeichner-2026-09-21.md:364 (Fundlaenge 22 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/port-batch88c-tagesbuchhaltung-2026-09-21.md:352 (Fundlaenge 22 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/r1b-workstream.md:1743 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m135_anker_vorher.md:530 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m63_regression_anker.csv:111 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m63_regression_anker.csv:111 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m65_regression_anker.csv:111 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m65_regression_anker.csv:111 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m66_regression_anker.csv:111 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m66_regression_anker.csv:111 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m76_regression_anker.csv:111 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m76_regression_anker.csv:111 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m78_regression_anker.csv:111 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m78_regression_anker.csv:111 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m79_regression_anker.csv:111 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m79_regression_anker.csv:111 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m79_ui_report.txt:562 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m79_ui_report.txt:563 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m79_ui_report.txt:564 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m80_regression_anker.csv:111 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m80_regression_anker.csv:111 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m81_regression_anker.csv:111 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m81_regression_anker.csv:111 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m82_regression_anker.csv:111 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m82_regression_anker.csv:111 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m84_regression_anker.csv:111 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m84_regression_anker.csv:111 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.001.3b7b59f5.md:886 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.002.4965d6bf.md:886 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.003.194f7398.md:894 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.004.ce382d02.md:901 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.005.7f7c4089.md:916 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.006.82c39b47.md:922 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.007.6cb613c7.md:922 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.008.cdacb0d4.md:935 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.009.e34030c5.md:935 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.010.fcc5ffa2.md:945 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.011.0246fcd6.md:957 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.012.b8e40531.md:958 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.013.4462c7a9.md:972 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.014.68047f5d.md:987 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.015.489f5be7.md:994 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.016.2f15e974.md:1002 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.017.6d2c7120.md:1010 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.018.1b0fb810.md:1010 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.019.e253d5ef.md:1018 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.020.52dfbc84.md:1026 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.021.81d33e75.md:1042 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.022.e93187d1.md:1042 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.023.7f1303ae.md:1050 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.024.3f02da05.md:1069 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.025.a05147dc.md:1077 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.026.e00cd982.md:1085 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.027.6547a977.md:1093 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.028.9fd441fc.md:1101 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.029.7b3bc6ed.md:1109 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.030.e1d856ff.md:1117 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.031.f9ec0183.md:1125 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.032.23a16c9e.md:1133 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.033.2c7e60b7.md:1141 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.034.3f318f46.md:1149 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.035.0acdced1.md:1157 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.036.ad911ae1.md:1165 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.037.16a67b98.md:1173 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.038.6da5051d.md:1181 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.039.b6b9385a.md:1189 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.040.bf60a47f.md:1197 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.041.420e5c4e.md:1205 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.042.56cb77f4.md:1209 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.043.277960a4.md:1217 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.044.2aac5fa8.md:1225 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.045.55a41acd.md:1233 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.046.e32d9279.md:1241 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.047.3f3a6e36.md:1241 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.048.7eebecef.md:1249 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.049.10911497.md:1257 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.050.8ca218b3.md:1273 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.051.167f42fd.md:1273 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.052.d2269ad6.md:1273 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.053.3cd210d9.md:1273 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.054.d378edad.md:1273 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.055.ad62698a.md:1278 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.056.225e66b4.md:1278 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.057.aaa95514.md:1287 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.058.99e4267c.md:1304 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.059.cea3cdb0.md:1304 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.060.9b9e0ce4.md:1312 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.061.b3c497a2.md:1320 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.062.710348fe.md:1330 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.063.9e68d77f.md:1330 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.064.c88699a1.md:1335 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.065.b599d831.md:1335 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.066.5ba41e5d.md:1336 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.067.a1cb5ab7.md:1336 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.068.dce78f73.md:1336 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.069.fb444d59.md:1336 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.070.d49bd5fb.md:1336 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.071.7bf87826.md:1336 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.072.76be6eb9.md:1336 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.073.79678c5a.md:1336 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.074.d2f1b37d.md:1336 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.075.1dde9586.md:1337 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.076.0166b69c.md:1337 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.077.11c68387.md:1345 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.078.1e41e5d8.md:1365 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.079.de864edd.md:1452 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.080.6f3d25b8.md:1455 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.081.39e97677.md:1506 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.082.dcdc8eb0.md:1540 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.083.a305c147.md:1544 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.084.8725e6af.md:1555 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.085.c10116c7.md:1571 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.086.56f4840a.md:1588 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.087.6e40b3eb.md:1588 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.088.a374b727.md:1600 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.089.e98943eb.md:1621 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.090.f8301969.md:1624 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.091.b5aade40.md:1662 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.092.5e9395fb.md:1669 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.093.83f7c3db.md:1694 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.094.6d75e895.md:1721 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_archiv/r1b-workstream.095.e4e3ec15.md:1743 (Fundlaenge 25 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m194/_lauf_nachher/service-ui.txt:563 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m194/_lauf_nachher/service-ui.txt:564 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m194/_lauf_nachher/service-ui.txt:565 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m194/_lauf_vorher/service-ui.txt:563 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m194/_lauf_vorher/service-ui.txt:564 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m194/_lauf_vorher/service-ui.txt:565 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m195/_lauf_nachher/service-ui.txt:563 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m195/_lauf_nachher/service-ui.txt:564 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m195/_lauf_nachher/service-ui.txt:565 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m195/_lauf_vorher/service-ui.txt:563 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m195/_lauf_vorher/service-ui.txt:564 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m195/_lauf_vorher/service-ui.txt:565 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m196/_lauf_nachher/service-ui.txt:563 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m196/_lauf_nachher/service-ui.txt:564 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m196/_lauf_nachher/service-ui.txt:565 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m196/_lauf_vorher/service-ui.txt:563 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m196/_lauf_vorher/service-ui.txt:564 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m196/_lauf_vorher/service-ui.txt:565 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m201/_lauf_nachher201/service-ui.txt:563 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m201/_lauf_nachher201/service-ui.txt:564 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m201/_lauf_nachher201/service-ui.txt:565 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m201/_lauf_vorher201/service-ui.txt:563 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m201/_lauf_vorher201/service-ui.txt:564 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m201/_lauf_vorher201/service-ui.txt:565 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m202/_lauf_nachher/service-ui.txt:563 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m202/_lauf_nachher/service-ui.txt:564 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/analysis/_m202/_lauf_nachher/service-ui.txt:565 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/ghidra_12.1.2_PUBLIC/Ghidra/Features/Base/data/base.file.extensions.icons.theme.properties:63 (Fundlaenge 21 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/ghidra_12.1.2_PUBLIC/Ghidra/Features/BSim/data/bsim.theme.properties:6 (Fundlaenge 48 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/scripts/m87_doku.py:310 (Fundlaenge 22 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/scripts/port_regression.py:1811 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/scripts/port_regression.py:1812 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/cryptography/hazmat/primitives/_serialization.py:36 (Fundlaenge 19 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/cryptography/hazmat/primitives/_serialization.py:132 (Fundlaenge 19 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/cryptography/hazmat/primitives/serialization/ssh.py:809 (Fundlaenge 28 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/httpcore/_models.py:510 (Fundlaenge 24 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/httpcore/_async/http_proxy.py:139 (Fundlaenge 24 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/httpcore/_async/socks_proxy.py:166 (Fundlaenge 21 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/httpcore/_sync/http_proxy.py:139 (Fundlaenge 24 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/httpcore/_sync/socks_proxy.py:166 (Fundlaenge 21 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/httpx/_auth.py:165 (Fundlaenge 18 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/httpx/_client.py:469 (Fundlaenge 31 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/httpx/_client.py:471 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/httpx/_main.py:297 (Fundlaenge 23 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/mcp/client/auth/extensions/client_credentials.py:83 (Fundlaenge 31 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/mcp/client/auth/extensions/client_credentials.py:129 (Fundlaenge 27 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/mcp/server/auth/handlers/register.py:60 (Fundlaenge 33 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/mcp/server/auth/handlers/register.py:106 (Fundlaenge 27 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/mcp/server/auth/middleware/bearer_auth.py:21 (Fundlaenge 24 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/network/auth.py:93 (Fundlaenge 36 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/network/auth.py:120 (Fundlaenge 29 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/network/auth.py:344 (Fundlaenge 28 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/network/auth.py:360 (Fundlaenge 34 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/network/auth.py:402 (Fundlaenge 36 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/network/auth.py:421 (Fundlaenge 19 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/network/auth.py:437 (Fundlaenge 40 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/network/auth.py:462 (Fundlaenge 23 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/network/auth.py:485 (Fundlaenge 36 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/network/auth.py:499 (Fundlaenge 30 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/network/auth.py:512 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/utils/misc.py:479 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/vcs/subversion.py:98 (Fundlaenge 18 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/vcs/subversion.py:103 (Fundlaenge 32 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/vcs/versioncontrol.py:429 (Fundlaenge 18 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/vcs/versioncontrol.py:443 (Fundlaenge 18 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_internal/vcs/versioncontrol.py:445 (Fundlaenge 21 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_vendor/distlib/util.py:817 (Fundlaenge 23 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_vendor/distlib/util.py:820 (Fundlaenge 26 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_vendor/requests/adapters.py:214 (Fundlaenge 28 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_vendor/requests/adapters.py:218 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_vendor/requests/adapters.py:427 (Fundlaenge 28 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_vendor/requests/auth.py:60 (Fundlaenge 26 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_vendor/requests/auth.py:81 (Fundlaenge 19 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_vendor/requests/auth.py:112 (Fundlaenge 19 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_vendor/requests/sessions.py:323 (Fundlaenge 28 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_vendor/rich/prompt.py:69 (Fundlaenge 19 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_vendor/rich/prompt.py:136 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_vendor/rich/prompt.py:203 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_vendor/rich/prompt.py:363 (Fundlaenge 21 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_vendor/urllib3/contrib/pyopenssl.py:477 (Fundlaenge 26 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pip/_vendor/urllib3/contrib/_securetransport/low_level.py:231 (Fundlaenge 27 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pydantic/networks.py:293 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pydantic/networks.py:479 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pydantic/types.py:1818 (Fundlaenge 19 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pydantic/types.py:1820 (Fundlaenge 19 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pydantic/types.py:1823 (Fundlaenge 18 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pydantic/types.py:1840 (Fundlaenge 19 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pydantic/types.py:1847 (Fundlaenge 22 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pydantic/types.py:1849 (Fundlaenge 18 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pydantic/types.py:1886 (Fundlaenge 21 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pydantic/types.py:1889 (Fundlaenge 20 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pydantic/v1/networks.py:47 (Fundlaenge 18 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pydantic/v1/networks.py:193 (Fundlaenge 18 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pydantic/v1/networks.py:205 (Fundlaenge 19 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pydantic/v1/networks.py:220 (Fundlaenge 18 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pydantic/v1/networks.py:231 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pythonwin/pywin/dialogs/login.py:20 (Fundlaenge 39 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/pythonwin/pywin/dialogs/login.py:142 (Fundlaenge 19 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/starlette/datastructures.py:120 (Fundlaenge 21 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/uvicorn/config.py:469 (Fundlaenge 34 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/uvicorn/config.py:486 (Fundlaenge 34 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/win32/Demos/winprocess.py:35 (Fundlaenge 26 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/win32/Demos/security/sspi/fetch_url.py:46 (Fundlaenge 31 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/win32/Demos/security/sspi/validate_password.py:32 (Fundlaenge 19 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/win32/lib/win32serviceutil.py:846 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/bridge-venv/Lib/site-packages/win32/lib/win32serviceutil.py:905 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/cryptography/hazmat/primitives/_serialization.py:36 (Fundlaenge 19 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/cryptography/hazmat/primitives/_serialization.py:132 (Fundlaenge 19 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/cryptography/hazmat/primitives/serialization/ssh.py:818 (Fundlaenge 28 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/httpcore/_models.py:510 (Fundlaenge 24 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/httpcore/_async/http_proxy.py:139 (Fundlaenge 24 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/httpcore/_async/socks_proxy.py:166 (Fundlaenge 21 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/httpcore/_sync/http_proxy.py:139 (Fundlaenge 24 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/httpcore/_sync/socks_proxy.py:166 (Fundlaenge 21 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/httpx/_auth.py:165 (Fundlaenge 18 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/httpx/_client.py:469 (Fundlaenge 31 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/httpx/_client.py:471 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/httpx/_main.py:297 (Fundlaenge 23 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/mcp/client/auth/extensions/client_credentials.py:36 (Fundlaenge 31 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/mcp/client/auth/extensions/client_credentials.py:73 (Fundlaenge 27 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/mcp/server/auth/handlers/register.py:60 (Fundlaenge 33 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/mcp/server/auth/handlers/register.py:106 (Fundlaenge 27 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/mcp/server/auth/middleware/bearer_auth.py:18 (Fundlaenge 24 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/pydantic/networks.py:293 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/pydantic/networks.py:479 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/pydantic/types.py:1818 (Fundlaenge 19 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/pydantic/types.py:1820 (Fundlaenge 19 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/pydantic/types.py:1823 (Fundlaenge 18 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/pydantic/types.py:1840 (Fundlaenge 19 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/pydantic/types.py:1847 (Fundlaenge 22 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/pydantic/types.py:1849 (Fundlaenge 18 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/pydantic/types.py:1886 (Fundlaenge 21 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/pydantic/types.py:1889 (Fundlaenge 20 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/pydantic/v1/networks.py:47 (Fundlaenge 18 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/pydantic/v1/networks.py:193 (Fundlaenge 18 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/pydantic/v1/networks.py:205 (Fundlaenge 19 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/pydantic/v1/networks.py:220 (Fundlaenge 18 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/pydantic/v1/networks.py:231 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/pythonwin/pywin/dialogs/login.py:20 (Fundlaenge 39 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/pythonwin/pywin/dialogs/login.py:142 (Fundlaenge 19 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/requests/adapters.py:284 (Fundlaenge 28 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/requests/adapters.py:288 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/requests/adapters.py:627 (Fundlaenge 28 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/requests/auth.py:69 (Fundlaenge 26 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/requests/auth.py:98 (Fundlaenge 19 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/requests/auth.py:143 (Fundlaenge 19 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/requests/sessions.py:359 (Fundlaenge 28 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/starlette/datastructures.py:120 (Fundlaenge 21 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/urllib3/contrib/pyopenssl.py:489 (Fundlaenge 26 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/uvicorn/config.py:435 (Fundlaenge 34 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/uvicorn/config.py:451 (Fundlaenge 34 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/win32/Demos/winprocess.py:35 (Fundlaenge 26 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/win32/Demos/security/sspi/fetch_url.py:46 (Fundlaenge 31 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/win32/Demos/security/sspi/validate_password.py:32 (Fundlaenge 19 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/win32/lib/win32serviceutil.py:846 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/win32/lib/win32serviceutil.py:905 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/fun-doc/fun_doc.py:6650 (Fundlaenge 24 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/ghidra-mcp/fun-doc/benchmark/scorer.py:294 (Fundlaenge 24 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_internal/network/auth.py:93 (Fundlaenge 36 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_internal/network/auth.py:120 (Fundlaenge 29 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_internal/network/auth.py:344 (Fundlaenge 28 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_internal/network/auth.py:360 (Fundlaenge 34 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_internal/network/auth.py:402 (Fundlaenge 36 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_internal/network/auth.py:421 (Fundlaenge 19 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_internal/network/auth.py:437 (Fundlaenge 40 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_internal/network/auth.py:462 (Fundlaenge 23 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_internal/network/auth.py:485 (Fundlaenge 36 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_internal/network/auth.py:499 (Fundlaenge 30 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_internal/network/auth.py:512 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_internal/utils/misc.py:479 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_internal/vcs/subversion.py:98 (Fundlaenge 18 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_internal/vcs/subversion.py:103 (Fundlaenge 32 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_internal/vcs/versioncontrol.py:429 (Fundlaenge 18 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_internal/vcs/versioncontrol.py:443 (Fundlaenge 18 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_internal/vcs/versioncontrol.py:445 (Fundlaenge 21 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_vendor/distlib/util.py:817 (Fundlaenge 23 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_vendor/distlib/util.py:820 (Fundlaenge 26 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_vendor/requests/adapters.py:214 (Fundlaenge 28 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_vendor/requests/adapters.py:218 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_vendor/requests/adapters.py:427 (Fundlaenge 28 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_vendor/requests/auth.py:60 (Fundlaenge 26 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_vendor/requests/auth.py:81 (Fundlaenge 19 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_vendor/requests/auth.py:112 (Fundlaenge 19 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_vendor/requests/sessions.py:323 (Fundlaenge 28 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_vendor/rich/prompt.py:69 (Fundlaenge 19 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_vendor/rich/prompt.py:136 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_vendor/rich/prompt.py:203 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_vendor/rich/prompt.py:363 (Fundlaenge 21 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_vendor/urllib3/contrib/pyopenssl.py:477 (Fundlaenge 26 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/m68k-venv/Lib/site-packages/pip/_vendor/urllib3/contrib/_securetransport/low_level.py:231 (Fundlaenge 27 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_internal/network/auth.py:93 (Fundlaenge 36 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_internal/network/auth.py:120 (Fundlaenge 29 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_internal/network/auth.py:344 (Fundlaenge 28 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_internal/network/auth.py:360 (Fundlaenge 34 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_internal/network/auth.py:402 (Fundlaenge 36 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_internal/network/auth.py:421 (Fundlaenge 19 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_internal/network/auth.py:437 (Fundlaenge 40 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_internal/network/auth.py:462 (Fundlaenge 23 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_internal/network/auth.py:485 (Fundlaenge 36 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_internal/network/auth.py:499 (Fundlaenge 30 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_internal/network/auth.py:512 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_internal/utils/misc.py:479 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_internal/vcs/subversion.py:98 (Fundlaenge 18 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_internal/vcs/subversion.py:103 (Fundlaenge 32 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_internal/vcs/versioncontrol.py:429 (Fundlaenge 18 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_internal/vcs/versioncontrol.py:443 (Fundlaenge 18 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_internal/vcs/versioncontrol.py:445 (Fundlaenge 21 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_vendor/distlib/util.py:817 (Fundlaenge 23 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_vendor/distlib/util.py:820 (Fundlaenge 26 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_vendor/requests/adapters.py:214 (Fundlaenge 28 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_vendor/requests/adapters.py:218 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_vendor/requests/adapters.py:427 (Fundlaenge 28 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_vendor/requests/auth.py:60 (Fundlaenge 26 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_vendor/requests/auth.py:81 (Fundlaenge 19 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_vendor/requests/auth.py:112 (Fundlaenge 19 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_vendor/requests/sessions.py:323 (Fundlaenge 28 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_vendor/rich/prompt.py:69 (Fundlaenge 19 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_vendor/rich/prompt.py:136 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_vendor/rich/prompt.py:203 (Fundlaenge 17 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_vendor/rich/prompt.py:363 (Fundlaenge 21 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_vendor/urllib3/contrib/pyopenssl.py:477 (Fundlaenge 26 Zeichen) [ignoriert/untracked]
+  TREFFER Zugangswort mit Wert (api_key/token/secret/password/chat_id): sandbox/decomp-link/tools/unicorn-venv/Lib/site-packages/pip/_vendor/urllib3/contrib/_securetransport/low_level.py:231 (Fundlaenge 27 Zeichen) [ignoriert/untracked]
+  (durchsuchte Textdateien: 18991)
+### 4b. Historie (alle Commits)
+  Commits in der Historie: 111
+    ... 25/111 Commits geprueft
+    ... 50/111 Commits geprueft
+    ... 75/111 Commits geprueft
+    ... 100/111 Commits geprueft
+
+### 4b2. Historie: die WERTE aus .hx-secrets als Suchmuster
+  Objekte in der Historie (Commits/Baeume/Blobs): 1613
+  gelesene Blobs: 1029
+  Wert aus `claude-oauth.token`: 0 Treffer
+  Wert aus `deepseek.key`: 0 Treffer
+  Wert aus `telegram.key`: 0 Treffer
+
+### 4c. Frueher getrackte Secret-Ordner
+  secrets/: 0 jemals hinzugefuegte Datei(en)
+  harness/secrets/: 0 jemals hinzugefuegte Datei(en)
+  backups/: 0 jemals hinzugefuegte Datei(en)
+  *.key: 0 jemals hinzugefuegte Datei(en)
+  *credentials*: 0 jemals hinzugefuegte Datei(en)
+
+### 4d. Fremdwerkzeuge
+  gitleaks: nicht installiert
+  trufflehog: nicht installiert
+
+## 5. Grosse Dateien (> 50 MB)
+### 5a. Arbeitsbaum (ohne .git, ohne Junctions)
+    4085.4 MB  sandbox/decomp-link/capture/error_poc_prev6.log   [ignoriert - nicht Teil des Repos]
+    4085.4 MB  sandbox/decomp-link/capture/error_poc_prev7.log   [ignoriert - nicht Teil des Repos]
+    4085.4 MB  sandbox/decomp-link/capture/error_poc_prev5.log   [ignoriert - nicht Teil des Repos]
+    4085.4 MB  sandbox/decomp-link/capture/error_poc_prev4.log   [ignoriert - nicht Teil des Repos]
+    4085.4 MB  sandbox/decomp-link/capture/error_pc2942_run1.log   [ignoriert - nicht Teil des Repos]
+    3936.5 MB  sandbox/decomp-link/capture/error_inject_q1_f0.log   [ignoriert - nicht Teil des Repos]
+    3737.3 MB  sandbox/decomp-link/capture/error_ppc_poc_prev3.log   [ignoriert - nicht Teil des Repos]
+    2243.1 MB  sandbox/decomp-link/capture/error-gameplay-20260828-021306.log   [ignoriert - nicht Teil des Repos]
+    2238.3 MB  sandbox/decomp-link/capture/m29_b30d2_error.log   [ignoriert - nicht Teil des Repos]
+    2147.7 MB  sandbox/decomp-link/capture/m29_b31d_error.log   [ignoriert - nicht Teil des Repos]
+    2025.4 MB  sandbox/decomp-link/capture/m29_b31b_error.log   [ignoriert - nicht Teil des Repos]
+    1779.8 MB  sandbox/decomp-link/capture/poc_survey.log   [ignoriert - nicht Teil des Repos]
+    1755.6 MB  sandbox/decomp-link/capture/error_poc_f1934.log   [ignoriert - nicht Teil des Repos]
+    1723.7 MB  sandbox/decomp-link/capture/error_poc_f1892.log   [ignoriert - nicht Teil des Repos]
+    1598.5 MB  sandbox/decomp-link/capture/error_poc_f1772.log   [ignoriert - nicht Teil des Repos]
+    1585.6 MB  sandbox/decomp-link/capture/error_poc_f1749.log   [ignoriert - nicht Teil des Repos]
+    1331.3 MB  sandbox/decomp-link/capture/error_gameplay_20260828.gitrecovered.log   [ignoriert - nicht Teil des Repos]
+    1311.7 MB  sandbox/decomp-link/capture/m29_d1_error.log   [ignoriert - nicht Teil des Repos]
+    1276.7 MB  sandbox/decomp-link/capture/error_poc_f1300.log   [ignoriert - nicht Teil des Repos]
+    1274.7 MB  sandbox/decomp-link/capture/error_poc_f1298.log   [ignoriert - nicht Teil des Repos]
+    1074.4 MB  sandbox/decomp-link/capture/error_ppc_poc_prev.log   [ignoriert - nicht Teil des Repos]
+     975.8 MB  sandbox/decomp-link/capture/error_poc_f850.log   [ignoriert - nicht Teil des Repos]
+     763.5 MB  sandbox/decomp-link/capture/error_poc_f548.log   [ignoriert - nicht Teil des Repos]
+     721.0 MB  sandbox/decomp-link/capture/l4_tex_b_error.log   [ignoriert - nicht Teil des Repos]
+     718.0 MB  sandbox/decomp-link/capture/l4_b_error.log   [ignoriert - nicht Teil des Repos]
+     716.9 MB  sandbox/decomp-link/capture/nc_A_error.log   [ignoriert - nicht Teil des Repos]
+     493.0 MB  sandbox/decomp-link/capture/log_prog_v_a4_2B15D.txt   [ignoriert - nicht Teil des Repos]
+     493.0 MB  sandbox/decomp-link/capture/log_prog_b_a5_2ABD4_prog_a1.txt   [ignoriert - nicht Teil des Repos]
+     493.0 MB  sandbox/decomp-link/capture/log_prog_b_a5_2ABD4.txt   [ignoriert - nicht Teil des Repos]
+     493.0 MB  sandbox/decomp-link/capture/log_prog_b_a5_2ABD4_prog0.txt   [ignoriert - nicht Teil des Repos]
+     445.9 MB  sandbox/decomp-link/capture/error_poc_f301.log   [ignoriert - nicht Teil des Repos]
+     387.1 MB  sandbox/decomp-link/capture/error_poc_f267.log   [ignoriert - nicht Teil des Repos]
+     333.6 MB  sandbox/decomp-link/capture/error_poc_f237.log   [ignoriert - nicht Teil des Repos]
+     319.6 MB  sandbox/decomp-link/capture/error_poc_f228.log   [ignoriert - nicht Teil des Repos]
+     293.3 MB  sandbox/decomp-link/analysis/_m30_texreg_lines.txt   [ignoriert - nicht Teil des Repos]
+     257.6 MB  sandbox/decomp-link/capture/trace_wtr_w_el20_b29.txt   [ignoriert - nicht Teil des Repos]
+     257.6 MB  sandbox/decomp-link/capture/sharcdumps/wtr_w_el20_b29.txt   [ignoriert - nicht Teil des Repos]
+     257.6 MB  sandbox/decomp-link/capture/trace_wtr_w_el21_b29.txt   [ignoriert - nicht Teil des Repos]
+     257.6 MB  sandbox/decomp-link/capture/sharcdumps/wtr_w_el21_b29.txt   [ignoriert - nicht Teil des Repos]
+     257.6 MB  sandbox/decomp-link/capture/trace_wtr_w_base.txt   [ignoriert - nicht Teil des Repos]
+     257.6 MB  sandbox/decomp-link/capture/sharcdumps/wtr_w_base.txt   [ignoriert - nicht Teil des Repos]
+     257.6 MB  sandbox/decomp-link/capture/trace_wtr_w_el19_nob29.txt   [ignoriert - nicht Teil des Repos]
+     257.6 MB  sandbox/decomp-link/capture/sharcdumps/wtr_w_el19_nob29.txt   [ignoriert - nicht Teil des Repos]
+     238.5 MB  sandbox/decomp-link/capture/m29_b31e_error.log   [ignoriert - nicht Teil des Repos]
+     235.8 MB  sandbox/decomp-link/capture/m29_b31f_error.log   [ignoriert - nicht Teil des Repos]
+     235.8 MB  sandbox/decomp-link/capture/error.log   [ignoriert - nicht Teil des Repos]
+     228.6 MB  sandbox/decomp-link/capture/poc_boot_survey.log   [ignoriert - nicht Teil des Repos]
+     189.3 MB  sandbox/decomp-link/capture/error-mainmenu-20260828-020324.log   [ignoriert - nicht Teil des Repos]
+     168.2 MB  sandbox/decomp-link/analysis/_m208/_schritte.bin   [ignoriert - nicht Teil des Repos]
+     140.9 MB  sandbox/decomp-link/tools/jdk21/lib/modules   [ignoriert - nicht Teil des Repos]
+     139.3 MB  sandbox/decomp-link/capture/error_boot_f3.log   [ignoriert - nicht Teil des Repos]
+     138.1 MB  sandbox/decomp-link/capture/error_boot_f2.log   [ignoriert - nicht Teil des Repos]
+     137.3 MB  sandbox/decomp-link/capture/error_boot_f1.log   [ignoriert - nicht Teil des Repos]
+     136.8 MB  sandbox/decomp-link/capture/error_boot_f0.log   [ignoriert - nicht Teil des Repos]
+     112.2 MB  sandbox/decomp-link/capture/error-attract-20260828-015654.log   [ignoriert - nicht Teil des Repos]
+      94.0 MB  sandbox/decomp-link/tools/msys2-installer.exe   [ignoriert - nicht Teil des Repos]
+      89.4 MB  sandbox/decomp-link/capture/error-debugwin-20260828-013643.log   [ignoriert - nicht Teil des Repos]
+      84.0 MB  sandbox/decomp-link/tools/ghidra-mcp/.venv/Lib/site-packages/clang/native/libclang.dll   [ignoriert - nicht Teil des Repos]
+      77.7 MB  sandbox/decomp-link/capture/nc_E_error.log   [ignoriert - nicht Teil des Repos]
+      76.5 MB  sandbox/decomp-link/port/build/libgallium_wgl.dll   [ignoriert - nicht Teil des Repos]
+      76.1 MB  sandbox/decomp-link/capture/nc_D_error.log   [ignoriert - nicht Teil des Repos]
+      75.5 MB  sandbox/decomp-link/capture/nc_C_error.log   [ignoriert - nicht Teil des Repos]
+      73.8 MB  sandbox/decomp-link/capture/nc_B_error.log   [ignoriert - nicht Teil des Repos]
+      73.1 MB  sandbox/decomp-link/capture/error_bau_strom_run1.log   [ignoriert - nicht Teil des Repos]
+      72.8 MB  sandbox/decomp-link/capture/m29_b31q_error.log   [ignoriert - nicht Teil des Repos]
+      72.7 MB  sandbox/decomp-link/capture/error_bau_strom_run3.log   [ignoriert - nicht Teil des Repos]
+      72.5 MB  sandbox/decomp-link/capture/l4_tex_a_error.log   [ignoriert - nicht Teil des Repos]
+      72.3 MB  sandbox/decomp-link/capture/l4_a_error.log   [ignoriert - nicht Teil des Repos]
+      71.8 MB  sandbox/decomp-link/capture/l4_d_error.log   [ignoriert - nicht Teil des Repos]
+      71.8 MB  sandbox/decomp-link/capture/l4_m29c_error.log   [ignoriert - nicht Teil des Repos]
+      71.8 MB  sandbox/decomp-link/capture/l4_m29_error.log   [ignoriert - nicht Teil des Repos]
+      71.7 MB  sandbox/decomp-link/capture/l4_m29b_error.log   [ignoriert - nicht Teil des Repos]
+      71.7 MB  sandbox/decomp-link/capture/l4_m29e_error.log   [ignoriert - nicht Teil des Repos]
+      71.6 MB  sandbox/decomp-link/capture/l4_sda_error.log   [ignoriert - nicht Teil des Repos]
+      71.6 MB  sandbox/decomp-link/capture/l4_sdad_error.log   [ignoriert - nicht Teil des Repos]
+      71.6 MB  sandbox/decomp-link/capture/l4_m29t_error.log   [ignoriert - nicht Teil des Repos]
+      60.0 MB  sandbox/decomp-link/error.log   [ignoriert - nicht Teil des Repos]
+      60.0 MB  sandbox/decomp-link/capture/boot_20260829_194618.log   [ignoriert - nicht Teil des Repos]
+      56.3 MB  sandbox/decomp-link/ghidra_12.1.2_PUBLIC/Extensions/Ghidra/ghidra_12.1.2_PUBLIC_20260605_Jython.zip   [ignoriert - nicht Teil des Repos]
+      56.2 MB  sandbox/decomp-link/capture/error-20260828-013421.log   [ignoriert - nicht Teil des Repos]
+      53.7 MB  sandbox/decomp-link/ghidra_12.1.2_PUBLIC/docs/GhidraAPI_javadoc.zip   [ignoriert - nicht Teil des Repos]
+      53.0 MB  sandbox/decomp-link/tools/jdk21/lib/src.zip   [ignoriert - nicht Teil des Repos]
+### 5b. Historie (alle Blobs)
+  keine
+  (Objekte in der Historie: 1724)
+
+## 6. Ergebnis
+  harte Funde (getrackt oder in der Historie): 0
+  Hinweise nur in ignorierten/untracked Dateien: 496
+
+  **SAUBER** - kein Treffer in getrackten Dateien und in der Historie, keine grosse Datei, kein nicht ignoriertes verschachteltes Repo.
+
+  Hinweise (gehen NICHT mit hoch, weil ignoriert/untracked): 496
+   - ARBEITSBAUM Zugangswort mit Wert (api_key/token/secret/password/chat_id) in harness/runs/b159/stream.jsonl:14589 [ignoriert/untracked]
+   - ARBEITSBAUM Zugangswort mit Wert (api_key/token/secret/password/chat_id) in harness/runs/b160/stream.jsonl:64199 [ignoriert/untracked]
+   - ARBEITSBAUM Zugangswort mit Wert (api_key/token/secret/password/chat_id) in harness/runs/b160/stream.jsonl:64199 [ignoriert/untracked]
+   - ARBEITSBAUM Zugangswort mit Wert (api_key/token/secret/password/chat_id) in harness/runs/b166/stream.jsonl:48539 [ignoriert/untracked]
+   - ARBEITSBAUM Zugangswort mit Wert (api_key/token/secret/password/chat_id) in harness/runs/b167/stream.jsonl:58170 [ignoriert/untracked]
+   - ARBEITSBAUM Zugangswort mit Wert (api_key/token/secret/password/chat_id) in harness/runs/b167/stream.jsonl:58389 [ignoriert/untracked]
+   - ARBEITSBAUM Zugangswort mit Wert (api_key/token/secret/password/chat_id) in harness/runs/b167/stream.jsonl:58392 [ignoriert/untracked]
+   - ARBEITSBAUM Zugangswort mit Wert (api_key/token/secret/password/chat_id) in harness/runs/b168/stream.jsonl:63043 [ignoriert/untracked]
+   - ARBEITSBAUM Zugangswort mit Wert (api_key/token/secret/password/chat_id) in harness/runs/b168/stream.jsonl:63043 [ignoriert/untracked]
+   - ARBEITSBAUM Zugangswort mit Wert (api_key/token/secret/password/chat_id) in harness/runs/b168/stream.jsonl:70855 [ignoriert/untracked]
+   - ARBEITSBAUM Zugangswort mit Wert (api_key/token/secret/password/chat_id) in harness/runs/b170/stream.jsonl:54729 [ignoriert/untracked]
+   - ARBEITSBAUM Zugangswort mit Wert (api_key/token/secret/password/chat_id) in harness/runs/b182/stream.jsonl:61162 [ignoriert/untracked]
+   - ARBEITSBAUM Zugangswort mit Wert (api_key/token/secret/password/chat_id) in harness/runs/b185/stream.jsonl:56499 [ignoriert/untracked]
+   - ARBEITSBAUM Zugangswort mit Wert (api_key/token/secret/password/chat_id) in harness/runs/b186/stream.jsonl:83076 [ignoriert/untracked]
+   - ARBEITSBAUM Zugangswort mit Wert (api_key/token/secret/password/chat_id) in harness/runs/b187/stream.jsonl:51102 [ignoriert/untracked]
+   - ... und 481 weitere
