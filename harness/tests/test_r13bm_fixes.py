@@ -18,6 +18,10 @@ Je Punkt ein Abschnitt, je Punkt ein Commit:
   4. **Aussensicht an dieselben Limit-Uhr**: laeuft sie ins Session-Limit, wartet der
      Harness auf den Reset plus Puffer und wiederholt sie - kein "gescheitert, beim
      naechsten Batch-Ende".
+  5. **`uhr.MAX_START_ALTER_S` geprueft** (R13bj 4 h -> 5 h): sie steuert nur die
+     Glaubwuerdigkeit des Startzeitstempels, nicht den Lauf. Sie war an `hard_wall_s`
+     gekoppelt (R13bj hob beide zusammen), und R13bl hat nur die harte Grenze
+     zurueckgebaut - deshalb hier zurueck auf 4 h = harte Grenze (3 h) + 1 h.
 
 Alles laeuft in Wegwerf-Verzeichnissen; das Decomp-Repo und der laufende Batch bleiben
 unberuehrt.
@@ -39,8 +43,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "b235_api_fehler.jsonl"
 
-from hx import protocol, state as st, streamjson, worker             # noqa: E402
-from hx import aussensicht                                          # noqa: E402
+from hx import protocol, state as st, streamjson, uhr, worker       # noqa: E402
+from hx import aussensicht                                           # noqa: E402
 from hx import reviewer as rvmod                                     # noqa: E402
 from hx.config import load_config                                    # noqa: E402
 from hx.orchestrator import INFRA_MAX_NEUSTARTS, Orchestrator        # noqa: E402
@@ -649,6 +653,68 @@ class TestAussensichtLimit(BasisOrch):
         self.assertEqual(s.data["meta"].get("gescheitert_batch"),
                          int(s.batch or 0), "wie bisher: Entprellung ueber den Batch")
         self.assertNotIn("nach_limit_grund", s.data["meta"])
+
+
+# ================================= 5) Die Uhrgrenze `MAX_START_ALTER_S` (nur geprueft)
+class TestUhrGrenze(unittest.TestCase):
+    """Punkt 5: was `uhr.MAX_START_ALTER_S` steuert und wie sie zur harten Grenze steht.
+
+    BEFUND (R13bm):
+
+    * Sie steuert **keine** Grenze des Laufs. Sie sagt nur, ob der Zeitstempel
+      `state/run.json:worker.started_at` **geglaubt** wird: `uhr.start_zeit` setzt
+      `unplausibel`, wenn der Start aelter ist als diese Zahl (oder in der Zukunft
+      liegt). Danach richtet sich die Anzeige (`uhr.uhr_text`, `watch` zeigt statt einer
+      Laufzeit "Startzeit im Zustand unplausibel") und die Entscheidung des Workers, ob
+      er der Uhr traut. Kein Prozess wird ihretwegen beendet.
+    * Sie **war** an `hard_wall_s` gekoppelt - im Kommentar UND in der Sache: R13bj hob
+      beide zusammen (hard_wall_s 10800 -> 14400, `MAX_START_ALTER_S` 4 h -> 5 h,
+      Commit c77348a). Mechanisch gab es keine Kopplung (kein Import, keine Ableitung),
+      nur die Regel "harte Grenze + 1 h Luft", die `test_r13bj_fixes` als
+      `MAX_START_ALTER_S >= hard_wall_s` nachhaelt.
+    * R13bl hat `hard_wall_s` auf 3 h zurueckgebaut, diese Zahl aber stehen gelassen.
+      Seitdem galten Startzeiten von 4 bis 5 Stunden als plausibel, obwohl kein Batch so
+      alt werden kann - genau die Reste aus abgebrochenen Laeufen, gegen die die Zahl da
+      ist. Deshalb hier **zurueck auf 4 h** (3 h + 1 h) und die Kopplung als Test
+      festgehalten.
+    """
+
+    def test_kopplung_an_die_hartgrenze_ist_eine_stunde(self):
+        hart = float(load_config().get("limits", "hard_wall_s"))
+        self.assertEqual(uhr.MAX_START_ALTER_S, hart + 3600.0,
+                         "die Uhrgrenze ist die harte Grenze plus eine Stunde Luft")
+
+    def test_ueber_der_uhrgrenze_gilt_der_start_als_unplausibel(self):
+        """4,5 h alt: mit der alten 5-h-Grenze (R13bj) galt das als plausibel - jetzt nicht.
+
+        Die Stunde ueber der harten Grenze (3 h) ist die bewusste Luft; darueber kann
+        kein laufender Batch mehr stehen.
+        """
+        alt = datetime.now(timezone.utc) - timedelta(hours=4.5)
+        d = uhr.start_zeit({"worker": {"started_at": alt.isoformat(timespec="seconds")}})
+        self.assertTrue(d["unplausibel"])
+        self.assertIn("unplausibel", uhr.uhr_text(
+            {"worker": {"started_at": alt.isoformat(timespec="seconds")}}, 90, 180))
+
+    def test_die_stunde_luft_ueber_der_hartgrenze_zaehlt_noch(self):
+        """3,5 h: innerhalb der Luft - der Wert wird geglaubt (so ist die Grenze gemeint)."""
+        alt = datetime.now(timezone.utc) - timedelta(hours=3.5)
+        self.assertFalse(uhr.start_zeit(
+            {"worker": {"started_at": alt.isoformat(timespec="seconds")}})["unplausibel"])
+
+    def test_unter_der_hartgrenze_zaehlt_die_uhr(self):
+        jung = datetime.now(timezone.utc) - timedelta(hours=1)
+        d = uhr.start_zeit({"worker": {"started_at": jung.isoformat(timespec="seconds")}})
+        self.assertFalse(d["unplausibel"])
+        self.assertAlmostEqual(d["alter_s"], 3600.0, delta=30.0)
+        self.assertRegex(uhr.uhr_text(
+            {"worker": {"started_at": jung.isoformat(timespec="seconds")}}, 90, 180),
+            r"6[01]\.\d min von 90 min")
+
+    def test_zukunft_bleibt_unplausibel(self):
+        zukunft = datetime.now(timezone.utc) + timedelta(minutes=30)
+        self.assertTrue(uhr.start_zeit(
+            {"worker": {"started_at": zukunft.isoformat(timespec="seconds")}})["unplausibel"])
 
 
 if __name__ == "__main__":

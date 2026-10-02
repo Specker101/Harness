@@ -1,0 +1,32 @@
+R13bm-5: Uhrgrenze geprueft - zurueck auf 4 h (harte Grenze + 1 h)
+
+Nutzerauftrag R13bm Punkt 5 (nur pruefen, dann entscheiden). Beleg:
+`docs/_r13bm_uhr_pruefung.md`.
+
+Befund:
+- `uhr.MAX_START_ALTER_S` steuert KEINE Grenze des Laufs. Sie sagt nur, ob der
+  Startzeitstempel (`state/run.json:worker.started_at`) geglaubt wird:
+  `uhr.start_zeit` setzt `unplausibel`, `uhr_text` und `watch` zeigen dann statt einer
+  Laufzeit den Hinweis auf einen Rest aus einem abgebrochenen Lauf.
+- Sie WAR an `hard_wall_s` gekoppelt - in der Sache, nicht im Code (kein Import; das
+  Modul haelt nur json/datetime/pathlib, weil es aus dem Hook importiert wird). Commit
+  c77348a (R13bj) hob beide zusammen ("uhr.MAX_START_ALTER_S mitgezogen":
+  hard_wall_s 10800 -> 14400, die Zahl 4 h -> 5 h). Regel: harte Grenze + 1 h.
+- R13bl baute `hard_wall_s` auf 10800 s (3 h) zurueck, liess die Uhrgrenze aber auf
+  5 h. Seitdem galten Startzeiten von 4 bis 5 Stunden als plausibel, obwohl kein Batch
+  so alt werden kann.
+
+Entscheidung: zurueck auf `4 * 3600.0` (3 h harte Grenze + 1 h Luft, wie vor R13bj) -
+die Begruendung der 5 h war die damals erhoehte harte Grenze und ist mit R13bl
+entfallen. Der veraltete Kommentar im Modul (er nannte noch `hard_wall_s = 14400`) ist
+korrigiert.
+
+Die Kopplung ist jetzt als Test festgehalten (Klasse `TestUhrGrenze`): exakt
+`hard_wall_s + 3600`, 4,5 h alt -> unplausibel (mit 5 h waere das durchgegangen),
+3,5 h -> innerhalb der Luft und geglaubt, Zukunft -> unplausibel.
+
+Nicht angefasst: `hard_wall_s` 10800, `alarm_wall_s` 9000, `umschalt_vor_alarm_s` 900,
+`ZUKUNFT_TOLERANZ_S` 120 (R13bl-2 hat das begruendet).
+
+Geprueft: tests/test_r13bm_fixes 37/37 OK; die Uhr-/Limit-Dateien (r13ac, r13bj, r13v,
+r10, r13bl) 161 Tests ohne Fehlschlag.
