@@ -6,6 +6,7 @@ Nutzerauftrag (Harness-Wartung, 2026-10-02):
   * `reviewer_modell_b`    = Opus 5.5  - Review eines B-Strang-/Erkundungs-Batches,
   * unklare Batchart       -> Opus (vorsichtige Seite); Batchart aus `stand.strang_von_batch`,
   * `aussensicht_modell`   = Opus 5.5  - Aussensicht (Meta-Review),
+  * `ask_modell`           = Sonnet 5.5 - /ask (R13bo-4); Effort-Quelle wie der Reviewer,
   * `aussensicht_takt`     = 4         - reiner Batch-Takt (Ereignis-Ausloeser unveraendert),
   * das GEWAEHLTE Modell steht in `runs/b<N>/result.json` (Feld `review`) UND in der
     Telegram-Zusammenfassung des Reviews.
@@ -56,6 +57,9 @@ class TestModellwahl(unittest.TestCase):
                          "claude-opus-5-5")
         self.assertEqual(str(self.cfg.get("claude", "aussensicht_modell")),
                          "claude-opus-5-5")
+        # R13bo-4: /ask laeuft im Testfenster wie der C-Reviewer auf Sonnet.
+        self.assertEqual(str(self.cfg.get("claude", "ask_modell")),
+                         "claude-sonnet-5-5")
         self.assertEqual(str(self.cfg.get("claude", "reviewer_effort")), "high")
 
     def test_c_batch_bekommt_sonnet(self):
@@ -115,9 +119,23 @@ class TestKommando(unittest.TestCase):
         cmd = aussensicht.build_command(self.cfg)
         self.assertEqual(self._modell(cmd), "claude-opus-5-5")
 
-    def test_ask_bleibt_opus(self):
+    def test_ask_nutzt_das_konfigurierte_modell(self):
         cmd = ask.build_command(self.cfg)
-        self.assertEqual(self._modell(cmd), "claude-opus-5-5")
+        self.assertEqual(self._modell(cmd), "claude-sonnet-5-5")
+        self.assertEqual(self._modell(cmd), str(self.cfg.get("claude", "ask_modell")))
+
+    def test_ask_und_reviewer_teilen_die_effort_quelle(self):
+        # /ask baut seine Umgebung ueber `envs.reviewer_env` (hx/ask.py) - dieselbe
+        # Quelle wie der Reviewer; dort wird `CLAUDE_CODE_EFFORT_LEVEL` aus
+        # `[claude] reviewer_effort` gesetzt (hx/envs.py). Damit gilt "high" fuer beide.
+        import inspect
+
+        from hx import envs
+        self.assertIn("envs.reviewer_env", inspect.getsource(ask.ask))
+        env = envs.reviewer_env(self.cfg, {"PATH": "x"}, "token")
+        self.assertEqual(env["CLAUDE_CODE_EFFORT_LEVEL"],
+                         str(self.cfg.get("claude", "reviewer_effort")))
+        self.assertEqual(env["CLAUDE_CODE_EFFORT_LEVEL"], "high")
 
 
 # ------------------------------------------- 3) Attrappenlauf (Wegwerf-Root)

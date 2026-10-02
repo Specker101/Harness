@@ -30,13 +30,15 @@ model_worker        = "deepseek-flash[1m]"
 # Auswahl nur im Code zu treffen - dann waere sie nicht konfigurierbar.
 #   reviewer_modell    = C-Batches (Dekompilierung)      -> Sonnet 5.5
 #   reviewer_modell_b  = B-Strang / Erkundungs-Batches   -> Opus 5.5
-# `aussensicht_modell` gehoert der Aussensicht (Meta-Review), `ask_modell` dem /ask -
-# beide bleiben Opus 5.5. Reasoning ist fuer ALLE Abo-Laeufe dieselbe Stufe
-# (`reviewer_effort`), weil Reviewer, Aussensicht und /ask `envs.reviewer_env` teilen.
+# `aussensicht_modell` gehoert der Aussensicht (Meta-Review) - als einziger Abo-Lauf
+# bleibt sie im Testfenster auf Opus 5.5. `ask_modell` gehoert dem /ask und laeuft wie
+# der C-Reviewer auf Sonnet 5.5 (R13bo-4, 02.10.2026). Reasoning ist fuer ALLE
+# Abo-Laeufe dieselbe Stufe (`reviewer_effort`), weil Reviewer, Aussensicht und /ask
+# `envs.reviewer_env` teilen.
 reviewer_modell     = "claude-sonnet-5-5"
 reviewer_modell_b   = "claude-opus-5-5"
 aussensicht_modell  = "claude-opus-5-5"
-ask_modell          = "claude-opus-5-5"
+ask_modell          = "claude-sonnet-5-5"
 reviewer_effort     = "high"
 base_url            = "https://api.deepseek.com/anthropic"
 config_dir_worker   = "g:/Harness/harness/cc-worker"

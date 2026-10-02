@@ -2171,10 +2171,14 @@ Kontext des Modells:
 Mit dem Commit R13bo-1 und dem **Neustart am Gate** beginnt ein **Testfenster**: der
 Review eines **C-Batches** läuft mit **Sonnet 5.5** (`[claude] reviewer_modell`),
 B-Strang-/Erkundungs-Batches und **unklare** Batcharten bleiben auf **Opus 5.5**
-(`reviewer_modell_b`). Die Aussensicht läuft weiter mit Opus (`aussensicht_modell`) und
-jetzt **alle 4 Batches** (`[meta] aussensicht_takt`; die **Ereignis-Auslöser** — Marker,
-Worker-Abbruch, Stillstand — bleiben **unverändert**). Das Reasoning bleibt für alle
-Abo-Läufe `high` (`[claude] reviewer_effort`).
+(`reviewer_modell_b`). Seit R13bo-4 läuft auch **`/ask`** auf **Sonnet 5.5**
+(`[claude] ask_modell`). **Einziger** Abo-Lauf auf Opus bleibt die **Außensicht**
+(`aussensicht_modell`); sie läuft jetzt **alle 4 Batches** (`[meta] aussensicht_takt`;
+die **Ereignis-Auslöser** — Marker, Worker-Abbruch, Stillstand — bleiben
+**unverändert**). Das **Reasoning** bleibt für alle Abo-Läufe `high`
+(`[claude] reviewer_effort`): Reviewer, Außensicht und `/ask` bauen ihre Umgebung
+über **eine** Quelle, `envs.reviewer_env` (`hx/ask.py:315` ruft sie auf,
+`CLAUDE_CODE_EFFORT_LEVEL` wird in `hx/envs.py:156` gesetzt).
 
 **Auswertung nach 6 Batches** (Fenster „nach dem Neustart", also 6 Batches gegen die
 **6 Batches davor**):
