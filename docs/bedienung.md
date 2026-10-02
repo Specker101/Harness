@@ -286,12 +286,17 @@ Ein Zeitlimit oder Fehler **bricht mit Meldung ab** statt zu warten; ein
 Arbeit (`g++ 16.2.0` aus MSYS2-UCRT64, Stand B158), nicht das alte MinGW.org 6.3.0.
 Beleg: `python -m hx.cli env-proof` (Abschnitt „Werkzeugkette“ im Bericht).
 
-**Reviewer-Modell.** Der Reviewer läuft mit **`claude-opus-5-5`** und Effort **high**
-(`[claude] model_reviewer`, `reviewer_effort`; umgesetzt über `--model` und
-`CLAUDE_CODE_EFFORT_LEVEL`). Weicht das Modell **laut Ausgabe** davon ab, wird der
-Review **verworfen** (Ablage `runs/b<N>/review-verworfen.md`), per Telegram gemeldet
-und pausiert — es wird nichts freigegeben. Modell und Effort stehen in `/status` und
-im Messdatenblock des Reviews.
+**Reviewer-Modell.** Der Reviewer läuft mit Effort **high** und einem Modell **je
+Batchart** (R13bo, seit 2026-10-02): **C-Batches** (Dekompilierung) mit
+**`claude-sonnet-5-5`** (`[claude] reviewer_modell`), **B-Strang-/Erkundungs-Batches**
+mit **`claude-opus-5-5`** (`reviewer_modell_b`); eine **unklare** Batchart
+(`stand.strang_von_batch` liefert nichts) nimmt die vorsichtige Seite, also Opus.
+Umgesetzt über `--model` und `CLAUDE_CODE_EFFORT_LEVEL`. Das **verwendete** Modell
+steht in `runs/b<N>/result.json` (Feld `review`) und in der Telegram-Zusammenfassung
+des Reviews. Weicht das Modell **laut Ausgabe** vom gewählten ab, wird der Review
+**verworfen** (Ablage `runs/b<N>/review-verworfen.md`), per Telegram gemeldet und
+pausiert — es wird nichts freigegeben. Modell und Effort stehen in `/status` und im
+Messdatenblock des Reviews. Testfenster und Rückfallregel: §19.
 
 **Batch-Nachrechnen.** Bleibt ein Lauf ohne Abschluss liegen (Harness stand still),
 rechnet `python -m hx.cli rebuild <N>` Tokens, Kosten und Snapshot aus
@@ -2160,4 +2165,37 @@ Kontext des Modells:
   Zusatz dahinter; ab B212 steht dort `C Koepfe referenzgleich 78 / 4006 / 0`) und eine
   fehlende Pflichtzeile wird in Log und Review-Fakten gemeldet statt still verschluckt —
   Details in §12i, Messwerte in `docs/_r13ae_retro.txt`.
+
+## 19. Testfenster „Reviewer Sonnet" (R13bo, vorgemerkt 2026-10-02)
+
+Mit dem Commit R13bo-1 und dem **Neustart am Gate** beginnt ein **Testfenster**: der
+Review eines **C-Batches** läuft mit **Sonnet 5.5** (`[claude] reviewer_modell`),
+B-Strang-/Erkundungs-Batches und **unklare** Batcharten bleiben auf **Opus 5.5**
+(`reviewer_modell_b`). Die Aussensicht läuft weiter mit Opus (`aussensicht_modell`) und
+jetzt **alle 4 Batches** (`[meta] aussensicht_takt`; die **Ereignis-Auslöser** — Marker,
+Worker-Abbruch, Stillstand — bleiben **unverändert**). Das Reasoning bleibt für alle
+Abo-Läufe `high` (`[claude] reviewer_effort`).
+
+**Auswertung nach 6 Batches** (Fenster „nach dem Neustart", also 6 Batches gegen die
+**6 Batches davor**):
+
+1. **Zahl und Gewicht der Außensicht-Befunde mit Empfänger „Reviewer"** im Fenster
+   danach gegen das Fenster davor. Quelle: `state/meta_befunde.json` (Felder
+   `empfaenger`, `gewicht`, `status`) und die Läufe `runs/meta-<N>.json` / `.md`;
+   die Quote steht in `/bilanz` (`aussensicht.zeile`).
+2. **Verbrauch je Aufruftyp UND Modell** nach dem Verfahren aus R13bn-2
+   (`docs/_r13bn_verbrauch.py`): Tokens, Kosten und Aufrufe kommen aus dem
+   `result`-Ereignis der Mitschnitte, gruppiert nach Aufruftyp (Review, Aussensicht,
+   /ask, Worker) und nach dem Modell aus `result.modelUsage`. Aufruf:
+
+       python -u docs/_r13bn_verbrauch.py --modell          # Beleg schreiben
+       python -u docs/_r13bn_verbrauch.py --stdout --modell # nur zeigen
+
+   `--modell` ist bewusst **optional** — ohne den Schalter bleibt die Ausgabe (und der
+   eingefrorene Beleg `docs/_r13bn_verbrauch.txt` aus R13bn) unverändert.
+
+**Rückfallregel.** Meldet die Außensicht in **3 Batches zwei oder mehr
+hochgewichtige Befunde mit Empfänger „Reviewer"**, geht der Reviewer **zurück auf
+Opus** (`reviewer_modell = claude-opus-5-5`; `reviewer_modell_b` bleibt). Das
+**Auswertungsergebnis kommt als Telegram-Meldung**.
 

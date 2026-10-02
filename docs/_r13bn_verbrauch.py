@@ -181,6 +181,38 @@ def tabelle(daten, quote_) -> list[str]:
     return zeilen
 
 
+def tabelle_modell(daten: dict) -> list[str]:
+    """Verbrauch je Aufruftyp UND Modell (R13bo, Auswertung des Testfensters).
+
+    Grundlage ist `result.modelUsage` - die Schluessel nennen JEDES beteiligte Modell.
+    Ein Lauf, der mehrere nennt, zaehlt unter der zusammengesetzten Kennung (das ist
+    ehrlicher als eine Aufteilung, die es in den Daten nicht gibt). Laeufe ohne
+    `result`-Ereignis (Abbruch) stehen als "(ohne Modellangabe)" und sind mitgezaehlt,
+    ihre Tokens aber nicht gemessen. Reihenfolge: Aufruftyp wie in `TYPEN`, je Typ die
+    Modelle alphabetisch. Aufruf: `python -u docs/_r13bn_verbrauch.py --modell`.
+    """
+    gruppen: dict[tuple[str, str], dict] = {}
+    for typ, d in daten.items():
+        for e in d["laeufe"]:
+            name = str(e.get("modell") or "").strip() or "(ohne Modellangabe)"
+            g = gruppen.setdefault((typ, name),
+                                   {"aufrufe": 0, "tokens": 0, "kosten": 0.0, "ohne": 0})
+            g["aufrufe"] += 1
+            g["tokens"] += int(e["tokens"])
+            g["kosten"] += float(e["cost_usd"] or 0.0)
+            g["ohne"] += 0 if e["result_event"] else 1
+    zeilen = ["", "Verbrauch je Aufruftyp UND Modell (`result.modelUsage`):",
+              "Typ | Modell | Aufrufe | Tokens (CLI) | CLI-Kosten | ohne result",
+              "---|---|---|---|---|---"]
+    for typ, _muster, _besch in TYPEN:
+        for (t, name), g in sorted(gruppen.items(), key=lambda kv: kv[0][1]):
+            if t != typ:
+                continue
+            zeilen.append(f"{typ} | {name} | {g['aufrufe']} | {zahl(g['tokens'])} | "
+                          f"${g['kosten']:.2f} | {g['ohne']}")
+    return zeilen
+
+
 def hypothese(quote_: dict, punkte: list[dict], daten: dict) -> list[str]:
     """Wie viele Reviews traegt das Abo je Woche? - ausdruecklich als HYPOTHESIS.
 
@@ -261,6 +293,10 @@ def main() -> int:
             f"Fenster: seit {seit.isoformat(timespec='minutes')} (Dateizeit der Mitschnitte)",
             f"HEAD: {git_head()}", ""]
     zeilen = kopf + tabelle(daten, quote_) + [""]
+    if "--modell" in sys.argv:
+        # R13bo: Auswertung des Testfensters "Reviewer Sonnet" (docs/bedienung.md 19).
+        # Nur auf Abruf, damit der eingefrorene R13bn-Beleg unveraendert bleibt.
+        zeilen += tabelle_modell(daten)
     zeilen += ["Laeufe OHNE `result`-Ereignis (abgebrochen) - gezaehlt, Tokens nicht "
                "gemessen: "
                + ", ".join(f"{n} {q['ohne_result']}" for n, q in quote_.items() if q["aufrufe"])]
