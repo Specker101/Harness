@@ -2208,8 +2208,12 @@ def pflichtzeile_hinweis(cfg, batch: int) -> str:
               " In den letzten Reviews fehlte sie in: "
               + ", ".join(f"B{n}" for n in fehlend) + ".")
     if s.get("strang") == "B":
+        # R13bl (02.10.2026, Nutzerentscheid 30.09.): die Grenze von 20 B-Batches ist
+        # aufgehoben - die Zahl ist eine Zaehlung, kein Budget. Wortlaut wie in
+        # `prompts/reviewer.md`; der Parser (`_RE_B_SCHRITT`) liest ohnehin nur `n/5`.
         return (f"B{batch} ist ein B-Batch ({s.get('quelle')}). In DEINER TELEGRAM_SUMMARY "
-                f"muss die Pflichtzeile `B-SCHRITT: <n>/5 <Name>, B-Batch <k> von max 20` "
+                f"muss die Pflichtzeile `B-SCHRITT: <n>/5 <Name>, B-Batch <k> "
+                f"(Zaehlung, keine Grenze - Nutzerentscheid 30.09.)` "
                 f"stehen (Stand nach diesem Batch).{zusatz}")
     if s.get("strang") == "C":
         return (f"B{batch} ist ein C-Batch ({s.get('quelle')}). In DEINER TELEGRAM_SUMMARY "

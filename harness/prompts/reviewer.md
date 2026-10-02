@@ -428,7 +428,7 @@ Ergebnis: was wurde erreicht (2-4 Punkte).
 Bewertung: wie gut, was war falsch (gefundene Fehler nennen).
 Kosten/Laufzeit: die Harness-Messwerte (Kosten, Dauer, Anfragen).
 Nächster Batch: ein Satz.
-B-SCHRITT: <n>/5 <Name>, B-Batch <k> von max 20      (PFLICHT in B-Batches, s. u.)
+B-SCHRITT: <n>/5 <Name>, B-Batch <k> (Zählung, keine Grenze – Nutzerentscheid 30.09.)
 MEILENSTEIN ERREICHT: …        (nur wenn zutreffend, s. u.)
 ABBRUCHKRITERIUM ERREICHT: …   (nur wenn zutreffend, s. u.)
 M<batch>-<n>: übernommen … / abgelehnt, Grund …  (je offener Aussensicht-Nachricht, s. u.)
@@ -445,10 +445,13 @@ WARTET AUF LIVE-AUFNAHME: … (nur Material, das fehlt - bremst nicht)
 - **In jedem B-Batch ist diese Zeile Pflicht** (sie ist der einzige maschinell lesbare
   Fortschrittswert des B-Strangs; die Aussensicht und `/bilanz` hängen daran):
 
-  `B-SCHRITT: <n>/5 <Name>, B-Batch <k> von max 20`
+  `B-SCHRITT: <n>/5 <Name>, B-Batch <k> (Zählung, keine Grenze – Nutzerentscheid 30.09.)`
 
-  Beispiel: `B-SCHRITT: 2/5 Maschine, B-Batch 2 von max 20`. `n` ist der Stand **nach**
-  diesem Batch. In C-Batches schreibst du stattdessen `B-SCHRITT: kein B-Batch (Strang C)`.
+  Beispiel: `B-SCHRITT: 2/5 Maschine, B-Batch 2 (Zählung, keine Grenze – Nutzerentscheid
+  30.09.)`. `n` ist der Stand **nach** diesem Batch. Die frühere Grenze von 20 B-Batches
+  ist seit dem 30.09.2026 **aufgehoben** (Nutzerentscheid): `k` ist nur noch eine
+  Zählung, kein Budget — es gibt kein Abbruchkriterium bei 20. In C-Batches schreibst du
+  stattdessen `B-SCHRITT: kein B-Batch (Strang C)`.
 - **Der Harness prüft die Zeile (R13aa).** Ob ein Batch ein B-Batch ist, hängt **nicht mehr
   allein** an dieser Zeile: der Harness liest zusätzlich den Auftrag des bewerteten Batches
   (`runs/b<N>/auftrag.md`, Marker „Strang B"/„B-Batch") und die Zeile `Mischverhaeltnis …`
