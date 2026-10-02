@@ -2184,6 +2184,23 @@ class Orchestrator:
                 f" Batches ausgeben; dann liegt der vorige Lauf unter"
                 f" runs/b{int(batch):03d}/lauf<k>/.")
 
+    # ------------------------------------------------------------ API-Fehler (R13bm)
+    @staticmethod
+    def api_fehler_zeile(res) -> str:
+        """Kurzzeile zu den API-/Gateway-Fehlern eines Laufs (R13bm).
+
+        Quelle ist `result.json -> stats.api_errors` (gefuellt in `worker._finish_run`
+        aus `streamjson.StreamStats.api_errors`): je Eintrag Zeitpunkt, gekuerzter Text
+        und die Zeile im Mitschnitt. Genannt wird der LETZTE - der entscheidet, ob es
+        ein Infrastrukturabbruch war.
+        """
+        eintraege = list(((res or {}).get("stats") or {}).get("api_errors") or [])
+        if not eintraege:
+            return "keine"
+        e = eintraege[-1] if isinstance(eintraege[-1], dict) else {"text": eintraege[-1]}
+        return (f"{len(eintraege)}x, zuletzt Mitschnittzeile {e.get('zeile') or '-'} "
+                f"({e.get('ts') or '-'}): {str(e.get('text') or '')[:120]}")
+
     def gate_from_review(self, p, raw_path: str, claude_ids: list[str] | None = None) -> str:
         """Uebernimmt die Reviewer-Antwort als offenen Auftrag (Gate).
 
@@ -2453,6 +2470,9 @@ class Orchestrator:
             f"- Profil: {res.get('profile')} | Programm: {res.get('program')}",
             f"- Exit-Code: {res.get('rc')} | Laufzeit: {self.dauer_line(res)} "
             f"| Abbruchgrund: {res.get('killed_reason') or 'kein Abbruch'}",
+            # R13bm: API-/Gateway-Fehler des Laufs - sonst standen sie nur in result.json
+            # und keine Anzeige nannte sie.
+            f"- API-FEHLER: {self.api_fehler_zeile(res)}",
             f"- Alarmmeldungen: {'; '.join(res.get('alarms') or []) or 'keine'}",
             f"- Aufraeumen nach dem Lauf (R13v3): {self.aufraeumen_zeile(res)}",
             f"- Letzter Abbruch (R13v3): {self.abbruch_zeile()}",

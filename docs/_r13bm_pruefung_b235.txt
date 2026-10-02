@@ -1,0 +1,10 @@
+R13bm P1 - Gegenprobe am echten Mitschnitt (nur lesend)
+Quelle: g:\Harness\harness\runs\b235\stream.jsonl
+  gelesene Zeilen: 28442
+  erkannte API-Fehler: 1
+    Zeile 28441  2026-10-01T20:15:36.413Z  300 Zeichen  API Error: API returned an empty or malformed response (HTTP 200) — check for a 
+  letzter Text ist ein API-Fehler: True
+  result-Ereignis is_error: True
+
+ERWARTET: Fehler in Zeile 28441 -> GEFUNDEN
+ERGEBNIS: OK

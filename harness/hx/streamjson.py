@@ -724,6 +724,38 @@ KOMPAKT_RUECKGANG_MIN = 20000
 KOMPAKT_RUECKGANG_ANTEIL = 0.20
 
 
+# ------------------------------------------------- API-/Gateway-Fehler (R13bm)
+# Die CLI schreibt einen Verbindungs-/Gateway-Fehler als **synthetische**
+# Assistenten-Nachricht in den Mitschnitt. Gemessen an B235
+# (`runs/b235/stream.jsonl:28441`, Fixture `tests/fixtures/b235_api_fehler.jsonl`):
+#
+#   {"type":"assistant","message":{"model":"<synthetic>","role":"assistant",
+#    "content":[{"type":"text","text":"API Error: API returned an empty or
+#                 malformed response (HTTP 200) …"}]}}
+#
+# Bis R13bl hat das NICHTS ausgewertet: `api_errors` war ein Feld ohne Schreiber
+# (immer `[]`, Beleg `docs/_r13bl_fehlerverhalten.md` Fall A3).
+API_FEHLER_TEXT = 300
+_RE_API_ERROR = re.compile(r"^\s*API\s*Error\b", re.IGNORECASE)
+
+
+def ist_api_fehler(msg: dict, text: str) -> bool:
+    """Ist diese Assistenten-Nachricht ein API-/Gateway-Fehler der CLI?
+
+    Zwei Kennzeichen, beide am echten Beleg gemessen:
+
+      * der Text **beginnt** mit `API Error` (so schreibt die CLI den Fehler), oder
+      * das Modellfeld ist der Platzhalter `<synthetic>` - dann ist die Nachricht
+        keine Modellantwort, sondern von der CLI selbst erzeugt.
+
+    Ein normaler Bericht, der den Fehler nur **erwaehnt** (nicht am Textanfang),
+    zaehlt nicht.
+    """
+    if _RE_API_ERROR.match(text or ""):
+        return True
+    return str((msg or {}).get("model") or "").strip().lower() == "<synthetic>"
+
+
 class StreamStats:
     def __init__(self, secret_watch: "SecretWatch | None" = None):
         # R13g: Ueberwachung der Schluessel. Ohne Watch kostet das nichts.
@@ -770,7 +802,12 @@ class StreamStats:
         self.denials: list[str] = []
         self.tool_errors: list[dict] = []       # echte Werkzeugfehler: {id, name, text}
         self.http_state: list[dict] = []        # HTTP-Beruehrungen des Ghidra-Zustands
-        self.api_errors: list[str] = []
+        # R13bm: API-/Gateway-Fehler der CLI mit Zeitpunkt, gekuerztem Text und der
+        # Zeile im Mitschnitt (`zeilen` ist 1-basiert, wie ein Leser zaehlt).
+        self.api_errors: list[dict] = []
+        # R13bm: kam der LETZTE Modelltext aus einer API-Fehlermeldung? Das ist die
+        # Bedingung der Klasse "Infrastrukturabbruch" (`killed_reason = "infra"`).
+        self.letzter_text_api_fehler: bool = False
         self.result: dict | None = None
         # Auftrag 2026-09-29: Fortsetzungen laufen im SELBEN Chat - der Mitschnitt traegt
         # dann MEHRERE `result`-Ereignisse. `self.result` bleibt das letzte (Antworttext,
@@ -886,6 +923,15 @@ class StreamStats:
                     txt = block.get("text") or ""
                     if txt.strip():
                         self.texts.append(txt)
+                        if ist_api_fehler(msg, txt):
+                            # R13bm: festhalten - Zeitpunkt, gekuerzter Text, Zeile.
+                            self.letzter_text_api_fehler = True
+                            self.api_errors.append(
+                                {"zeile": self.zeilen,
+                                 "ts": ev.get("timestamp") or "",
+                                 "text": " ".join(txt.split())[:API_FEHLER_TEXT]})
+                        else:
+                            self.letzter_text_api_fehler = False
                 elif btype in ("thinking", "redacted_thinking"):
                     self.reasoning_blocks += 1
                 elif btype == "tool_use":
