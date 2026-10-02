@@ -27,12 +27,24 @@ aelterer Fassung) wird **nichts** geschrieben und **nichts** behauptet.
 **Kein Fehler darf den Batch stoeren**: bei jedem Problem wird nichts ausgegeben (bzw.
 nur die Uhr-Zeile) und mit 0 beendet (der Hook ist dann wirkungslos, der Lauf geht
 weiter).
+
+**R13bl (02.10.2026, Nutzerauftrag) - R391-Sperre VOR dem Eingriff.** R391 verlangt den
+Vorhersage-Commit `B<N>: Vorhersage …` VOR dem ersten Schreibzugriff unter `port/` oder
+`scripts/`; der Reihenfolge-Waechter (`hx/reihenfolge.py`, R13as) misst das erst NACH dem
+Lauf (B218: 17 `Edit`-Aufrufe auf `port/` vor dem Commit). Der `--pre`-Zweig blockiert
+deshalb jetzt `Edit`/`Write`/`MultiEdit` auf diese beiden Baeume, solange kein solcher
+Commit existiert - Antwort `deny` mit dem Hinweis "erst Vorhersage-Commit". `analysis/`
+bleibt frei (dort wird die Vorhersage begruendet, das ist kein Eingriff in den Port).
+**Nicht gefangen werden Bash-Schreibzugriffe** (Umleitung, `Set-Content`, `Copy-Item`,
+`git checkout`): die sieht der Hook nicht als Dateipfad: dafuer bleibt der
+Reihenfolge-Waechter zustaendig.
 """
 
 from __future__ import annotations
 
 import io
 import json
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -47,6 +59,112 @@ BLOCK_DATEI = "preflight-blockiert.jsonl"
 # Verbot lesen, sondern als Nachfrage, die er begruendet beantworten kann.
 BLOCK_ZUSATZ = ("Falls alle Posten erledigt sind oder ein Posten belegt blockiert ist: "
                 "das im Batch-Dokument festhalten und den Preflight erneut starten.")
+
+# --------------------------------------------------- R391-Sperre (R13bl)
+# Wortlaut des Auftrags: Edit/Write/MultiEdit auf Pfade unter `port/` und `scripts/`.
+SPERR_VERBEN = ("Edit", "Write", "MultiEdit")
+SPERR_BAEUME = ("port", "scripts")
+# Belegdatei: eine Zeile je geblocktem Aufruf (das Review sieht damit, was passiert ist).
+VORHERSAGE_BLOCK_DATEI = "vorhersage-blockiert.jsonl"
+
+
+def _betreffs(decomp) -> list[str]:
+    """`git log --all` im Decomp-Repo - nur lesend, ein Aufruf (R13bl).
+
+    Leere Liste, wenn git fehlt oder scheitert: der Hook darf den Lauf NIE stoeren.
+    """
+    try:
+        p = subprocess.run(["git", "-C", str(decomp), "log", "--all", "--date-order",
+                            "--pretty=format:%H\x1f%cI\x1f%s"],
+                           capture_output=True, stdin=subprocess.DEVNULL, text=True,
+                           encoding="utf-8", errors="replace", timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return (p.stdout or "").splitlines() if p.returncode == 0 else []
+
+
+def _batch_nummer(state: dict) -> int:
+    """Nummer des laufenden Batches - aus der Harness-EIGENEN Zaehlung (R13bj).
+
+    NICHT aus dem Anker gelesen: `state.batch` setzt der Harness beim Start
+    (`orchestrator.own_batch()`), `state.live.batch` ist dieselbe Zahl im Betrieb (R13q).
+    """
+    for quelle in (state.get("batch"), (state.get("live") or {}).get("batch")):
+        try:
+            n = int(quelle or 0)
+        except (TypeError, ValueError):
+            continue
+        if n > 0:
+            return n
+    return 0
+
+
+def vorhersage_vorhanden(decomp, batch: int) -> bool:
+    """Beginnt ein Commit-BETREFF mit `B<N>: Vorhersage`? (R13bl)
+
+    Die Regel ist NICHT nachgebaut, sondern `hx.reihenfolge.vorhersage_muster` (R13as;
+    BOM-tolerant, Wortgrenze nach "Vorhersage"). Damit zaehlen auch
+    `B<N>: Vorhersage Fortsetzung` und `B<N>: Vorhersage-Nachtrag (…)`. Bei einer
+    **Fortsetzung oder Wiederholung** derselben Nummer wird der Commit des VORIGEN Laufs
+    gefunden - er zaehlt ausdruecklich (Nutzerauftrag).
+    """
+    from hx import reihenfolge
+    muster = reihenfolge.vorhersage_muster(batch)
+    for c in reihenfolge.vorhersage_zeilen_lesen(_betreffs(decomp)):
+        if muster.match(c[2]):
+            return True
+    return False
+
+
+def r391_grund(eingabe: dict, state: dict, decomp, lauf) -> str:
+    """Blockgrund, wenn dieser Aufruf R391 verletzt ('': durchlassen).
+
+    Reihenfolge der Pruefungen (billig zuerst): Werkzeug -> Pfad -> Zustand -> git.
+    Die Git-Abfrage laeuft also NUR fuer die drei Datei-Werkzeuge auf `port/`/`scripts/`.
+    """
+    if str(eingabe.get("tool_name") or "") not in SPERR_VERBEN or decomp is None:
+        return ""
+    from hx import reihenfolge
+    felder = eingabe.get("tool_input")
+    felder = felder if isinstance(felder, dict) else {}
+    pfad, baum = "", ""
+    for feld in ("file_path", "notebook_path", "path"):
+        wert = felder.get(feld)
+        for name in SPERR_BAEUME:
+            if reihenfolge.pfad_token(wert, decomp, name):
+                pfad, baum = str(wert or ""), name
+                break
+        if baum:
+            break
+    if not baum:
+        return ""
+    batch = _batch_nummer(state)
+    if batch <= 0:
+        return ""
+    if vorhersage_vorhanden(decomp, batch):
+        return ""
+    if lauf is not None:
+        try:
+            from hx.util import append_jsonl
+            append_jsonl(Path(lauf) / VORHERSAGE_BLOCK_DATEI,
+                         {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                          "batch": batch, "werkzeug": str(eingabe.get("tool_name") or ""),
+                          "pfad": pfad})
+        except Exception:                                                  # noqa: BLE001
+            pass
+    return (f"R391: erst der Vorhersage-Commit `B{batch}: Vorhersage …`, dann "
+            f"{baum}/ bearbeiten. Der geplante Eingriff gehoert mit Soll-Werten in die "
+            f"Vorhersage; `{pfad}` wird bis dahin nicht geschrieben. Schreiben unter "
+            f"`analysis/` ist frei.")
+
+
+def _blockieren(grund: str) -> None:
+    """PreToolUse-Antwort mit `deny` (Beleg: Hooks-Handbuch, `docs/_r13be_belege.md`)."""
+    io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8").write(json.dumps(
+        {"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                "permissionDecision": "deny",
+                                "permissionDecisionReason": grund}},
+        ensure_ascii=False))
 
 
 def _stdin_json() -> dict:
@@ -129,11 +247,7 @@ def pre_tooluse(eingabe: dict, lauf: "Path | None", state_datei, umschalt) -> in
     # der Zusatz aus dem Auftrag, damit der Worker den Stopp begruendet beantworten kann.
     grund = ("PREFLIGHT-HINWEIS: " + uhr.preflight_hinweis(minuten, umschalt)
              + " " + BLOCK_ZUSATZ)
-    io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8").write(json.dumps(
-        {"hookSpecificOutput": {"hookEventName": "PreToolUse",
-                                "permissionDecision": "deny",
-                                "permissionDecisionReason": grund}},
-        ensure_ascii=False))
+    _blockieren(grund)
     return 0
 
 
@@ -164,6 +278,17 @@ def main(argv: list[str]) -> int:
                          if "--kontext-limit" in argv else None)
         lauf = (Path(argv[argv.index("--run") + 1]) if "--run" in argv else None)
         if "--pre" in argv:
+            # R13bl: R391-Sperre zuerst - sie ist der haeufigere Fall. Der schnelle Weg
+            # bleibt: nur die drei Datei-Werkzeuge loesen das Lesen des Zustands aus,
+            # alle anderen Aufrufe gehen ohne Zustandsdatei durch.
+            decomp = (Path(argv[argv.index("--decomp") + 1])
+                      if "--decomp" in argv else None)
+            if str(eingabe.get("tool_name") or "") in SPERR_VERBEN:
+                from hx import uhr as uhr_mod
+                grund = r391_grund(eingabe, uhr_mod.lies_state(state_datei), decomp, lauf)
+                if grund:
+                    _blockieren(grund)
+                    return 0
             # R13be-2: VOR dem Werkzeugaufruf pruefen (billigster Fall zuerst: kein
             # Preflight-Aufruf -> sofort raus, ohne den Zustand zu lesen).
             return pre_tooluse(eingabe, lauf, state_datei, umschalt)

@@ -247,7 +247,18 @@ class TestZeitschwelle(unittest.TestCase):
         self.assertEqual(float(self.cfg.get("limits", "alarm_wall_s")), 9000.0)
         self.assertEqual(float(self.cfg.get("limits", "umschalt_vor_alarm_s")), 900.0)
         self.assertEqual((9000.0 - 900.0) / 60.0, 135.0)
-        self.assertEqual(float(worker.umschalt_minuten(self.cfg)["umschalt_min"]), 135.0)
+        # R13bl (02.10.2026): hier stand `assertEqual(umschalt_min, 135.0)` - eine
+        # Zusicherung auf LEBENDDATEN. `umschalt_minuten` zieht die GEMESSENE Dauer des
+        # letzten Preflight-Aufrufs vor (R13ah: `Alarm - max(15 min, Preflight + 5 min)`);
+        # sobald ein Batch mit langem Preflight dazukommt, ist sie keine 135 mehr
+        # (gemessen B236: Preflight 1032 s -> 127,795 min, Test rot - ohne dass sich am
+        # Code etwas geaendert haette). Geprueft wird deshalb die RECHNUNG, nicht die
+        # Zahl: die 135 gelten nur ohne Messung (das ist der Rueckfall `vorlauf_min`=15).
+        u = worker.umschalt_minuten(self.cfg)
+        self.assertAlmostEqual(u["umschalt_min"], 150.0 - u["vorlauf_min"], places=2)
+        self.assertAlmostEqual(u["vorlauf_min"],
+                               max(15.0, u["preflight_min"] + 5.0), places=2)
+        self.assertLessEqual(u["umschalt_min"], 135.0)
 
     def test_anstoss_vor_der_schwelle_keiner_danach(self):
         """Der Fortsetzungsanstoss haengt an derselben Zahl (EINE Zeitquelle)."""

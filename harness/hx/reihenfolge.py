@@ -145,22 +145,30 @@ def _pfad_text(wert) -> str:
     return _norm(str(wert or "")).strip("\"'")
 
 
-def port_token(text: str, decomp) -> bool:
-    """Nennt der Text eine Stelle unter `port/` des Decomp-Repos?
+def pfad_token(text: str, decomp, name: str) -> bool:
+    """Nennt der Text eine Stelle unter `<name>/` des Decomp-Repos? (R13bl)
 
-    Erkannt werden relative (`port/hybrid/x.cpp`, `port\\build`) und absolute Pfade
-    (`g:/Silent Scope Decomp/port/...`). Ein blosses `port` ohne Schraegstrich zaehlt
-    NICHT - sonst waere `$env:TEMP\\b218port` (B218, Sicherungskopie) ein Treffer.
+    Verallgemeinert aus `port_token` (R13as): die R391-Sperre im Worker-Hook braucht
+    dieselbe Erkennung fuer `scripts/`. Erkannt werden relative (`port/hybrid/x.cpp`,
+    `port\\build`) und absolute Pfade (`g:/Silent Scope Decomp/port/...`). Ein blosses
+    `port` ohne Schraegstrich zaehlt NICHT - sonst waere `$env:TEMP\\b218port` (B218,
+    Sicherungskopie) ein Treffer.
     """
     t = _pfad_text(text)
     if not t:
         return False
-    if re.search(r"(^|[^a-z0-9_])port/", t):
+    if re.search(rf"(^|[^a-z0-9_]){re.escape(name)}/", t):
         return True
     wurzel = _pfad_text(decomp) if decomp else ""
-    if wurzel and re.search(rf"(^|[^a-z0-9_]){re.escape(wurzel.rstrip('/'))}/port/", t):
+    if wurzel and re.search(
+            rf"(^|[^a-z0-9_]){re.escape(wurzel.rstrip('/'))}/{re.escape(name)}/", t):
         return True
     return False
+
+
+def port_token(text: str, decomp) -> bool:
+    """Nennt der Text eine Stelle unter `port/` des Decomp-Repos? (R13as)"""
+    return pfad_token(text, decomp, "port")
 
 
 def pfad_in_port(wert, decomp) -> bool:

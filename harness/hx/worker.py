@@ -294,7 +294,10 @@ def write_worker_hooks(cfg, rd: Path, state_datei, log=None) -> str | None:
             "--preflight-min", f"{u['preflight_min']:.1f}",
             "--preflight-batch", str(u["preflight_batch"]),
             "--kontext-limit", str(kontext_limit),
-            "--run", str(rd)]
+            "--run", str(rd),
+            # R13bl: das Decomp-Repo fuer die R391-Sperre (Vorhersage-Commit). Ohne
+            # den Schalter blockiert der Hook nichts (aeltere Einstellungsdateien).
+            "--decomp", str(cfg.decomp)]
     # R13be-2 (Nutzerauftrag 01.10.2026): derselbe Hinweis auch VOR dem Aufruf.
     # PreToolUse darf blockieren (`hookSpecificOutput.permissionDecision` =
     # "allow"|"deny"|"ask" + `permissionDecisionReason`; Beleg: Hooks-Handbuch im

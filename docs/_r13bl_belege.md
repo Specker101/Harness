@@ -121,3 +121,64 @@ Vorspann enthaelt `3600000` nicht mehr) und das Handbuch §13.
 „`3600000` kommt in `reviewer.md` nicht mehr vor" war falsch — die **historische** Nennung
 muss stehen bleiben, weg muss die **Vorschrift**-Form `timeout=3600000`; und
 `test_r13ad_fixes.py:199` pruefte noch `hard_wall_s == 14400`.
+
+---
+
+## Teil 3 — R391-Sperre im PreToolUse-Hook
+
+**Auftrag:** solange im laufenden Batch kein Commit existiert, dessen Betreff mit
+`B<N>: Vorhersage` **beginnt**, blockiert der Worker-Hook `Edit`/`Write`/`MultiEdit` auf
+Pfade unter `port/` und `scripts/`; der Worker bekommt den Hinweis „erst Vorhersage-Commit".
+Varianten (`B<N>: Vorhersage Fortsetzung`, `B<N>: Vorhersage-Nachtrag (…)`) zaehlen;
+`analysis/` bleibt frei; `N` kommt aus der Harness-eigenen Zaehlung (R13bj).
+
+### Wo es sitzt
+
+| Ort | Aenderung |
+|---|---|
+| `tools/batch_uhr.py` (`--pre`-Zweig) | neue Funktionen `r391_grund`, `vorhersage_vorhanden`, `_batch_nummer`, `_betreffs`, `_blockieren`; der Preflight-Stopp (R13be-2) laeuft unveraendert **danach** |
+| `tools/batch_uhr.py` (Modul-Docstring) | Regel, Grenzen und Zuständigkeiten beschrieben |
+| `hx/reihenfolge.py` | `port_token` zu `pfad_token(text, decomp, name)` verallgemeinert — die Sperre baut die Pfaderkennung **nicht nach** |
+| `hx/worker.py::write_worker_hooks` | `--decomp <Decomp-Repo>` in den Hook-Argumenten |
+
+Die Betreffs-Regel ist **nicht nachgebaut**: `reihenfolge.vorhersage_muster(batch)`
+(R13as, BOM-tolerant, Wortgrenze) — damit zaehlen die genannten Varianten automatisch.
+Der Parser `vorhersage_zeilen_lesen` liest dieselben `git log`-Zeilen wie der Waechter.
+
+### Im Code dokumentiert (Auftrag)
+
+* **Bash-Schreibzugriffe erfasst die Sperre nicht** (Umleitung, `Set-Content`,
+  `Copy-Item`, `git checkout`): der Hook hat dort keinen Dateipfad. Dafuer bleibt der
+  **Reihenfolge-Waechter** zustaendig — er liest den Mitschnitt nach dem Lauf und zaehlt
+  genau diese Faelle (`port_vor_vorhersage`). In B218 waren es 17 `Edit`-Aufrufe.
+* **Fortsetzung/Wiederholung derselben Nummer:** gesucht wird ein Commit mit dem Betreff
+  der LAUFENDEN Nummer, unabhaengig vom Zeitpunkt — ein im Voriauf entstandener
+  Vorhersage-Commit zaehlt also.
+* **`analysis/` bleibt frei** — dort wird die Vorhersage begruendet, das ist kein Eingriff.
+* **Ohne Nummer im Zustand wird nichts blockiert** (kein Raten); jeder Block bekommt eine
+  Zeile in `runs/b<N>/vorhersage-blockiert.jsonl`.
+
+### Test (Punkt 3)
+
+```
+test_r13bl_fixes.py  rc=0  Ran 19 tests in 27.543s ; OK
+```
+
+Der Hook wird als **Unterprozess** gefahren (so ruft die CLI ihn auf), gegen ein
+Wegwerf-Git-Repo: `Edit` auf `port/` ohne Vorhersage-Commit -> `deny`; danach durch;
+`analysis/` vorher durch; „Vorhersage-Nachtrag (Wiederholung)" und „Vorhersage
+Fortsetzung" zaehlen; fremde Batchnummer (`B236`) zaehlt **nicht**; `scripts/` und
+`MultiEdit` ebenfalls gesperrt; `PowerShell` wird **nicht** gesperrt (dokumentierte
+Grenze); der Block liegt im Beleg; ohne Batchnummer kein Block.
+
+### Nebenbefund (nicht im Auftrag, mitgeheilt)
+
+`test_r13ae_fixes.py::TestZeitschwelle::test_config_ist_900_s_und_135_min` war **rot** —
+und zwar schon vor diesem Auftrag. Er verlangte `umschalt_minuten(...) == 135.0`, aber
+diese Zahl zieht die **gemessene** Preflight-Dauer des neuesten Batches vor
+(`Alarm − max(15 min, Preflight + 5 min)`, R13ah). Gemessen mit dem lebenden Stand:
+`stand.preflight_dauer` = **1032,3 s** (Batch 236, der fehlgeschlagene Lauf) ->
+`150 − max(15, 17,205 + 5)` = **127,795 min** — exakt der gemeldete Istwert. Es ist damit
+dieselbe Lebenddaten-Zusicherung, die R13bd schon einmal entfernt hat; die Zusicherung
+prueft jetzt die **Rechnung** (`umschalt = 150 − vorlauf`, `vorlauf = max(15, preflight+5)`)
+statt einer festen Zahl.

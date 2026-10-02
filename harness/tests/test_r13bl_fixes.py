@@ -8,6 +8,9 @@
      `hard_wall_s` 14400 -> 10800, `timeout=3600000` -> `timeout=1800000` in Worker-Vorspann
      und `prompts/reviewer.md`, Handbuch §13 nachgezogen. Bedingung war "Preflight wieder
      unter 900 s" - der Preflight von B236 brauchte **456 s**.
+  3. **R391-Sperre im PreToolUse-Hook** (`tools/batch_uhr.py`): solange im laufenden Batch
+     kein Commit mit dem Betreff `B<N>: Vorhersage …` existiert, blockiert der Hook
+     `Edit`/`Write`/`MultiEdit` auf `port/` und `scripts/`; `analysis/` bleibt frei.
 
 Die weiteren Punkte dieser Runde kommen in den folgenden Commits in dieselbe Datei.
 
@@ -17,8 +20,10 @@ laufende Harness bleiben unberuehrt (kein Neustart).
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -26,6 +31,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 DOCS = ROOT.parent / "docs"
+TOOLS = ROOT / "tools"
 
 from hx import envs, reviewer, stand, worker                        # noqa: E402
 from hx.config import load_config                               # noqa: E402
@@ -149,6 +155,116 @@ class TestZeitgrenzenRueckbau(unittest.TestCase):
             self.assertIn(wert, abschnitt, f"{wert} fehlt in Paragraph 13")
         # Die alte Rueckbau-Tafel aus R13bj ist ersetzt (Spalte "Rueckbau").
         self.assertNotIn("| Rueckbau |", abschnitt)
+
+
+# ============================================ 3) R391-Sperre im Hook
+class TestR391Sperre(Basis):
+    """Punkt 3: der PreToolUse-Hook blockiert Schreibzugriffe auf port//scripts/.
+
+    Gefahren wird der ECHTE Hook als Unterprozess (so ruft die CLI ihn auf), gegen ein
+    Wegwerf-Git-Repo - nicht gegen das Decomp-Repo.
+    """
+
+    def _git(self, repo: Path, *args: str) -> None:
+        p = subprocess.run(["git", "-C", str(repo), *args], capture_output=True,
+                           stdin=subprocess.DEVNULL, text=True, encoding="utf-8",
+                           errors="replace", timeout=120)
+        self.assertEqual(p.returncode, 0, f"git {args} -> {p.stderr[:200]}")
+
+    def repo(self, vorhersage: str | None = None) -> Path:
+        """Wegwerf-Repo; `vorhersage` legt einen Commit mit diesem Betreff an."""
+        r = ensure_dir(self.tmp / "repo")
+        self._git(r, "init", "-q")
+        self._git(r, "config", "user.email", "t@example.invalid")
+        self._git(r, "config", "user.name", "Test")
+        self._git(r, "commit", "-q", "--allow-empty", "-m", "Start")
+        if vorhersage:
+            self._git(r, "commit", "-q", "--allow-empty", "-m", vorhersage)
+        return r
+
+    def hook(self, repo: Path, werkzeug: str, pfad: Path, batch: int = 237) -> tuple[str, str]:
+        """Hook aufrufen -> (permissionDecision, Begruendung); '' = nicht blockiert."""
+        lauf = ensure_dir(self.tmp / "runs" / f"b{batch}")
+        state = lauf / "state.json"
+        write_text_atomic(state, json.dumps({"batch": batch}))
+        eingabe = {"tool_name": werkzeug, "tool_input": {"file_path": str(pfad)}}
+        p = subprocess.run([sys.executable, str(TOOLS / "batch_uhr.py"),
+                            "--state", str(state), "--pre", "--run", str(lauf),
+                            "--decomp", str(repo)],
+                           input=json.dumps(eingabe).encode("utf-8"),
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180)
+        self.assertEqual(p.returncode, 0, p.stderr.decode("utf-8", "replace")[:300])
+        roh = p.stdout.decode("utf-8").strip()
+        if not roh:
+            return "", ""
+        d = json.loads(roh).get("hookSpecificOutput") or {}
+        if d.get("permissionDecision") == "allow":
+            return "", ""
+        return str(d.get("permissionDecision") or ""), str(
+            d.get("permissionDecisionReason") or "")
+
+    def test_edit_auf_port_vor_dem_vorhersage_commit_wird_blockiert(self):
+        repo = self.repo()
+        d, grund = self.hook(repo, "Edit", repo / "port" / "src" / "x.cpp")
+        self.assertEqual(d, "deny")
+        self.assertIn("Vorhersage", grund)
+        self.assertIn("B237", grund)
+
+    def test_nach_dem_vorhersage_commit_ist_es_erlaubt(self):
+        repo = self.repo("B237: Vorhersage - Soll je Bilanzzeile")
+        d, _ = self.hook(repo, "Edit", repo / "port" / "src" / "x.cpp")
+        self.assertEqual(d, "", "nach dem Vorhersage-Commit laeuft der Aufruf durch")
+
+    def test_edit_auf_analysis_ist_vorher_erlaubt(self):
+        repo = self.repo()
+        d, _ = self.hook(repo, "Edit", repo / "analysis" / "port-batch.md")
+        self.assertEqual(d, "", "analysis/ bleibt frei - dort wird die Vorhersage begruendet")
+
+    def test_nachtrag_betreff_zaehlt_als_vorhanden(self):
+        repo = self.repo("B237: Vorhersage-Nachtrag (Wiederholung)")
+        d, _ = self.hook(repo, "Edit", repo / "port" / "x.cpp")
+        self.assertEqual(d, "")
+
+    def test_fortsetzung_betreff_zaehlt_als_vorhanden(self):
+        repo = self.repo("B237: Vorhersage Fortsetzung")
+        d, _ = self.hook(repo, "Edit", repo / "port" / "x.cpp")
+        self.assertEqual(d, "")
+
+    def test_fremde_batchnummer_zaehlt_nicht(self):
+        repo = self.repo("B236: Vorhersage")
+        d, _ = self.hook(repo, "Edit", repo / "port" / "x.cpp")
+        self.assertEqual(d, "deny", "der Vorhersage-Commit muss zur LAUFENDEN Nummer gehoeren")
+
+    def test_scripts_wird_ebenfalls_gesperrt(self):
+        repo = self.repo()
+        d, grund = self.hook(repo, "Write", repo / "scripts" / "m149_bilanz.py")
+        self.assertEqual(d, "deny")
+        self.assertIn("scripts", grund)
+
+    def test_multi_edit_wird_auch_geprueft(self):
+        repo = self.repo()
+        d, _ = self.hook(repo, "MultiEdit", repo / "port" / "x.cpp")
+        self.assertEqual(d, "deny")
+
+    def test_bash_schreibt_nicht_durch_die_sperre(self):
+        """Bekannte Grenze: Bash-Schreibzugriffe faengt die Sperre NICHT (Waechter)."""
+        repo = self.repo()
+        d, _ = self.hook(repo, "PowerShell", repo / "port" / "x.cpp")
+        self.assertEqual(d, "", "PowerShell hat kein file_path - hier greift der Waechter")
+
+    def test_der_block_wird_belegt(self):
+        repo = self.repo()
+        self.hook(repo, "Edit", repo / "port" / "x.cpp")
+        beleg = self.tmp / "runs" / "b237" / "vorhersage-blockiert.jsonl"
+        self.assertTrue(beleg.is_file(), "jeder Block bekommt eine Zeile im Laufverzeichnis")
+        zeilen = [json.loads(z) for z in beleg.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(zeilen[0]["batch"], 237)
+        self.assertEqual(zeilen[0]["werkzeug"], "Edit")
+
+    def test_ohne_batchnummer_wird_nichts_behauptet(self):
+        repo = self.repo()
+        d, _ = self.hook(repo, "Edit", repo / "port" / "x.cpp", batch=0)
+        self.assertEqual(d, "", "ohne Nummer im Zustand kein Block (kein Raten)")
 
 
 if __name__ == "__main__":
