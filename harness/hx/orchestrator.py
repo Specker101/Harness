@@ -839,6 +839,14 @@ class Orchestrator:
             self.log.error("Aussensicht fehlgeschlagen", fehler=str(exc)[:250])
             self._aussensicht_gescheitert(batch, f"Ausnahme: {str(exc)[:120]}")
         else:
+            if getattr(res, "limit_reached", False):
+                # R13bm (Punkt 4): Ins Session-Limit gelaufen ist KEIN Fehlschlag - der
+                # Harness wartet auf den Reset (plus Puffer) und wiederholt die
+                # Aussensicht. Deshalb hier NICHT `_aussensicht_gescheitert` (das haette
+                # die Wiederholung auf das naechste Batch-Ende geschoben und den
+                # bezahlten Lauf verfallen lassen).
+                self._aussensicht_limit(batch, grund, res)
+                return
             ok, warum = aussensicht.gelaufen(res)
             if not ok:
                 # R13aq (30.09.2026): ein Lauf ohne Ergebnis ist KEINE Aussensicht.
@@ -926,6 +934,8 @@ class Orchestrator:
                 # den Abstand "alle N Batches") und loescht den Fehlvermerk.
                 meta.update({"letzter_lauf_batch": batch, "letzter_lauf_ts": now_iso(),
                              "geprueft_batch": batch})
+                # R13bm (Punkt 4): die Wiederholung nach einem Session-Limit ist erledigt.
+                meta.pop("nach_limit_grund", None)
                 for feld in ("gescheitert_batch", "gescheitert_grund", "gescheitert_ts"):
                     meta.pop(feld, None)
             self.state.data["meta"] = meta
@@ -956,6 +966,29 @@ class Orchestrator:
         if bericht:
             self.say(f"Bericht: {bericht}")
         self.log.warn("Aussensicht zaehlt nicht als gelaufen", batch=batch, grund=warum)
+
+    def _aussensicht_limit(self, batch: int, grund: str, res) -> None:
+        """Aussensicht ins Session-Limit gelaufen: dieselbe Warteuhr wie der Reviewer (R13bm).
+
+        Kein Fehlvermerk und keine Takt-Marke - die Aussensicht ist nach der Wartezeit
+        WIEDER FAELLIG (`meta["nach_limit_grund"]`, gelesen von `aussensicht.faellig`),
+        und `limit_wait_tick` hebt die Pause von selbst auf.
+        """
+        wann, quelle = self.limit_wait_ziel(res.text or "")
+        self.state.data["limit_wait_until"] = wann.isoformat(timespec="seconds")
+        self.state.data["limit_wait_quelle"] = "Aussensicht: " + quelle
+        meta = dict(self.state.data.get("meta") or {})
+        meta.update({"vorgemerkt": False, "vorgemerkt_grund": "",
+                     "nach_limit_grund": str(grund or "")[:200]})
+        self.state.data["meta"] = meta
+        self.state.data["paused"] = True
+        self.state.set(st.LIMIT_WAIT, "Pro-Limit erreicht (Aussensicht)")
+        self.state.save()
+        self.log.warn("Aussensicht im Session-Limit - Wartezustand", batch=batch,
+                      bis=wann.isoformat(timespec="minutes"), quelle=quelle, rc=res.rc)
+        self.say(f"Aussensicht B{batch} ist ins Session-Limit gelaufen (rc={res.rc}). "
+                 f"Ich warte bis {wann.isoformat(timespec='minutes')} ({quelle}) und "
+                 "wiederhole sie dann von selbst - der Anlass bleibt vorgemerkt.")
 
     def _ask_arbeiter(self) -> None:
         """Die Warteschlange der Fragen abarbeiten - eine nach der anderen (R13o)."""

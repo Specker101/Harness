@@ -15,7 +15,9 @@ Je Punkt ein Abschnitt, je Punkt ein Commit:
      als `review-limit-<stempel>-v<versuch>.md` (nicht `review-verworfen-…`), und die
      Wiedereinstiegszeit ist die gelesene Reset-Zeit **plus 5 min Puffer**; auch der
      zweite Review-Versuch laeuft nicht in `review_failed`.
-  4. Aussensicht an dieselbe Limit-Uhr.
+  4. **Aussensicht an dieselben Limit-Uhr**: laeuft sie ins Session-Limit, wartet der
+     Harness auf den Reset plus Puffer und wiederholt sie - kein "gescheitert, beim
+     naechsten Batch-Ende".
 
 Alles laeuft in Wegwerf-Verzeichnissen; das Decomp-Repo und der laufende Batch bleiben
 unberuehrt.
@@ -24,6 +26,7 @@ unberuehrt.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -37,6 +40,7 @@ sys.path.insert(0, str(ROOT))
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "b235_api_fehler.jsonl"
 
 from hx import protocol, state as st, streamjson, worker             # noqa: E402
+from hx import aussensicht                                          # noqa: E402
 from hx import reviewer as rvmod                                     # noqa: E402
 from hx.config import load_config                                    # noqa: E402
 from hx.orchestrator import INFRA_MAX_NEUSTARTS, Orchestrator        # noqa: E402
@@ -546,6 +550,105 @@ class TestLimitWartezustand(BasisOrch):
         self.assertNotEqual(self.orch.state.state, st.PAUSED, "kein Haltegrund")
         self.assertFalse(any("ZWEIMAL OHNE PROTOKOLLBLOCK" in t for t in self.gesagt),
                          self.gesagt)
+
+
+# ==================== 4) Die Aussensicht haengt an derselben Limit-Uhr
+class _Lauf:
+    """Attrappe fuer `proc.run_stream` (nur rc und Dauer werden gelesen)."""
+
+    rc = 1
+    duration_s = 1.0
+
+
+class TestAussensichtLimit(BasisOrch):
+    """Punkt 4: ins Session-Limit gelaufen = Wartezustand, dann Wiederholung."""
+
+    def _ergebnis(self, **kw) -> aussensicht.Ergebnis:
+        res = aussensicht.Ergebnis()
+        res.rc = 1
+        res.text = LIMIT_MELDUNG
+        res.zuege = 12
+        for k, v in kw.items():
+            setattr(res, k, v)
+        return res
+
+    def test_gelaufen_nennt_das_limit(self):
+        ok, warum = aussensicht.gelaufen(self._ergebnis(limit_reached=True))
+        self.assertFalse(ok)
+        self.assertIn("Session-Limit", warum)
+        self.assertIn("rc=1", warum)
+
+    def test_limit_im_mitschnitt_wird_erkannt(self):
+        """`aussensicht.run` liest das Limit wie der Reviewer aus dem Mitschnitt."""
+        def fake_run_stream(cmd, env, **kw):
+            Path(kw["out_path"]).write_text(
+                json.dumps({"type": "result", "subtype": "error_during_execution",
+                            "result": LIMIT_MELDUNG}) + "\n", encoding="utf-8")
+            return _Lauf()
+
+        with mock.patch.object(aussensicht, "run_stream", fake_run_stream), \
+             mock.patch.object(aussensicht.secrets, "load", lambda *a, **k: "x"), \
+             mock.patch.object(aussensicht.envs, "reviewer_env",
+                               lambda *a, **k: dict(os.environ)), \
+             mock.patch.object(aussensicht, "write_hook_settings", lambda *a, **k: None), \
+             mock.patch.object(aussensicht, "build_command", lambda *a, **k: ["claude"]):
+            res = aussensicht.run(self.cfg, self.log, self.orch.state, "Test",
+                                  mock=False)
+        self.assertTrue(res.limit_reached)
+        self.assertEqual(res.rc, 1)
+
+    def test_limit_setzt_die_warteuhr(self):
+        with mock.patch.object(aussensicht, "run",
+                               return_value=self._ergebnis(limit_reached=True)), \
+             mock.patch.object(aussensicht, "verteile") as verteile:
+            self.orch._do_aussensicht("alle 3 Batches", gruende=["alle 3 Batches"])
+        s = self.orch.state
+        self.assertEqual(s.state, st.LIMIT_WAIT)
+        self.assertTrue(s.data["paused"])
+        self.assertEqual(datetime.fromisoformat(s.data["limit_wait_until"]),
+                         LIMIT_ZIEL + timedelta(minutes=5))
+        self.assertTrue(s.data["limit_wait_quelle"].startswith("Aussensicht:"))
+        meta = dict(s.data["meta"])
+        self.assertEqual(meta.get("nach_limit_grund"), "alle 3 Batches")
+        self.assertNotIn("gescheitert_batch", meta, "ein Limit ist kein Fehlschlag")
+        self.assertNotIn("geprueft_batch", meta, "die Wiederholung wird nicht entprellt")
+        self.assertFalse(verteile.called)
+        self.assertTrue(any("wiederhole sie dann von selbst" in t for t in self.gesagt),
+                        self.gesagt)
+
+    def test_nach_der_wartezeit_ist_sie_wieder_faellig(self):
+        """Die Uhr hebt sich selbst auf, und der Anlass bleibt stehen (Punkt 4)."""
+        with mock.patch.object(aussensicht, "run",
+                               return_value=self._ergebnis(limit_reached=True)):
+            self.orch._do_aussensicht("alle 3 Batches", gruende=["alle 3 Batches"])
+        s = self.orch.state
+        self.assertIn("Wiederholung", " ".join(
+            aussensicht.faellig(self.cfg, s, log=self.log)))
+        # Entprellung darf die Wiederholung nicht schlucken (R13bm).
+        meta = dict(s.data["meta"])
+        meta["geprueft_batch"] = self.batch
+        s.data["meta"] = meta
+        self.assertTrue(any("Wiederholung nach Session-Limit" in g for g in
+                            aussensicht.faellig(self.cfg, s, log=self.log)))
+        s.data["limit_wait_until"] = (datetime.now(timezone.utc)
+                                      - timedelta(minutes=1)).isoformat(timespec="seconds")
+        self.assertTrue(self.orch.limit_wait_tick(), "die Uhr setzt von selbst fort")
+        self.assertEqual(s.state, st.IDLE)
+        self.assertFalse(s.data["paused"])
+        self.assertIn("nach_limit_grund", s.data["meta"], "der Anlass bleibt vorgemerkt")
+
+    def test_ohne_limit_bleibt_es_beim_gescheiterten_lauf(self):
+        """Ein Fehlschlag ohne Limit geht weiter den alten Weg (`gescheitert_batch`)."""
+        res = self._ergebnis(limit_reached=False, subtype="error_max_turns",
+                             text="Zwischenstand: ...")
+        with mock.patch.object(aussensicht, "run", return_value=res):
+            self.orch._do_aussensicht("alle 3 Batches", gruende=["alle 3 Batches"])
+        s = self.orch.state
+        self.assertNotEqual(s.state, st.LIMIT_WAIT)
+        self.assertNotIn("limit_wait_until", s.data)
+        self.assertEqual(s.data["meta"].get("gescheitert_batch"),
+                         int(s.batch or 0), "wie bisher: Entprellung ueber den Batch")
+        self.assertNotIn("nach_limit_grund", s.data["meta"])
 
 
 if __name__ == "__main__":

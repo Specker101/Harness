@@ -1,0 +1,31 @@
+R13bm-4: Aussensicht haengt an derselben Session-Limit-Uhr
+
+Nutzerauftrag R13bm Punkt 4. Lief die Aussensicht ins Session-Limit, galt sie als
+"gescheitert" (`_aussensicht_gescheitert`) und wurde erst beim NAECHSTEN Batch-Ende
+wiederholt - bei einem Takt von drei Batches also Stunden spaeter, mit einem
+verbrauchten Opus-Lauf. Jetzt greift dieselbe Warteuhr wie beim Reviewer.
+
+- `aussensicht.Ergebnis.limit_reached` neu; `run` setzt es aus dem ROHEN Mitschnitt
+  plus Fehlerdatei (`protocol.looks_like_limit`), genau wie `reviewer.run_review`.
+- `aussensicht.gelaufen` nennt das Limit als eigenen Grund (vor der rc-Pruefung):
+  "Aussensicht im Session-Limit (rc=…, Session-Limit, n Zuege)".
+- `orchestrator._do_aussensicht` zweigt VOR `gelaufen`/`_aussensicht_gescheitert` ab
+  und ruft `_aussensicht_limit`: Wartezeit ueber `limit_wait_ziel` (gelesene Reset-Zeit
+  PLUS 5 min Puffer, Punkt 3), Zustand `LIMIT_WAIT`, `paused`, Quelle
+  "Aussensicht: …" - und `limit_wait_tick` macht von selbst weiter.
+- Wiederholung: `meta["nach_limit_grund"]` merkt den Anlass. `aussensicht.faellig`
+  liest ihn ZUERST und liefert "Wiederholung nach Session-Limit: …", unabhaengig von
+  Takt und Entprellung (`geprueft_batch`) - der Anlass von damals muss nicht mehr
+  messbar sein. Nach einer GELAUFENEN Aussensicht wird der Vermerk geloescht.
+- Kein Fehlvermerk: `gescheitert_batch`/`gescheitert_grund` bleiben unberuehrt, die
+  Takt-Marke (`letzter_lauf_batch`) wird nicht gesetzt.
+
+Tests (`tests/test_r13bm_fixes.py`, 5 neue Faelle, zusammen 32 in der Datei):
+`gelaufen` nennt das Limit, `run` erkennt es im Mitschnitt (Attrappe `run_stream`),
+`_do_aussensicht` setzt die Warteuhr (Ziel, Quelle, Zustand, Anlass, kein
+Fehlvermerk, keine Verdikte), nach der Wartezeit ist sie wieder faellig (auch gegen
+die Entprellung) und `limit_wait_tick` setzt fort, ein Fehlschlag OHNE Limit geht
+weiter den alten Weg.
+
+Geprueft: tests/test_r13bm_fixes 32/32 OK; die betroffenen Aussensicht-Dateien
+(r13aq, r13ah, r13ar, r13w, r13ac3, r13e) 208 Tests OK.

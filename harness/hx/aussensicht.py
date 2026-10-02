@@ -1495,6 +1495,10 @@ class Ergebnis:
         self.stream_path: str = ""
         # R13ac3: die Ziehung dieses Laufs (`tiefenprobe_waehlen`).
         self.tiefe: dict = {}
+        # R13bm (Punkt 4): das Session-Limit der Aussensicht selbst - dieselbe Uhr wie
+        # beim Reviewer (`protocol.looks_like_limit`), damit der Harness nicht bis zum
+        # naechsten Batch-Ende wartet, sondern nach dem Reset wiederholt.
+        self.limit_reached: bool = False
         # R13aq: warum der Lauf NICHT als Aussensicht zaehlt (leer = gelaufen).
         self.subtype: str = ""
         self.zuege: int | None = None
@@ -1516,6 +1520,9 @@ def gelaufen(res) -> tuple[bool, str]:
     """Zaehlt dieser Lauf als gelungene Aussensicht? (R13aq) -> `(ok, grund)`.
 
     Nein, wenn
+      * der Lauf ins **Session-Limit** gelaufen ist (`res.limit_reached`, R13bm) - das ist
+        kein Fehlschlag, sondern ein Wartezustand: der Harness wartet auf den Reset
+        (plus Puffer) und wiederholt die Aussensicht dann; oder
       * `rc != 0` ist - Abbruch durch Zeitgrenze, **Zuglimit** (`error_max_turns`),
         API-Fehler; der Grund nennt `subtype` und Zugarzahl, soweit gemessen; oder
       * kein Antwortblock da ist (`0 Befunde` UND keine `<AUSSENSICHT>`-Zusammenfassung).
@@ -1526,6 +1533,11 @@ def gelaufen(res) -> tuple[bool, str]:
     Takt-Marke - der naechste automatische Lauf waere damit erst drei Batches spaeter
     gekommen, mit einem Bericht, der wie ein Ergebnis aussieht.
     """
+    if getattr(res, "limit_reached", False):
+        teile = [f"rc={res.rc}", "Session-Limit"]
+        if res.zuege:
+            teile.append(f"{int(res.zuege)} Zuege")
+        return False, "Aussensicht im Session-Limit (" + ", ".join(teile) + ")"
     if int(res.rc or 0) != 0:
         teile = [f"rc={res.rc}"]
         if res.subtype:
@@ -1587,6 +1599,13 @@ def run(cfg, log, state, grund: str, mock: bool = False,
             stats.feed(linie)
         res.text = stats.final_text() or ""
         res.modell = stats.model or ""
+        # R13bm (Punkt 4): ins Session-Limit gelaufen? Geprueft wird wie beim Reviewer
+        # (`reviewer.run_review`) der ROHE Mitschnitt samt Fehlerdatei - im Text steht
+        # die Meldung oft nur unvollstaendig.
+        roh = read_text(ziel) + "\n" + read_text(Path(cfg.root) / "runs"
+                                                 / f"meta-{batch:03d}.err.txt")
+        res.limit_reached = bool(protocol.looks_like_limit(roh)
+                                 or protocol.looks_like_limit(res.text or ""))
         # R13aq: Abbruchgrund und Zugarzahl aus dem `result`-Ereignis (gemessen
         # meta-217: subtype=error_max_turns, num_turns=31) - sie stehen im Bericht und
         # in der Meldung, wenn der Lauf nicht als Aussensicht zaehlt.
@@ -1622,6 +1641,12 @@ def faellig(cfg, state, log=None) -> list[str]:
     meta = dict(state.data.get("meta") or {})
     batch = int(state.batch or 0)
     letzte = int(meta.get("letzter_lauf_batch") or 0)
+    if meta.get("nach_limit_grund"):
+        # R13bm (Punkt 4): Die vorige Aussensicht lief ins Session-Limit. Sie wird nach
+        # der Wartezeit WIEDERHOLT - unabhaengig von Takt, Entprellung und Ausloeser:
+        # der Anlass von damals muss nicht mehr messbar sein (z.B. ein einmaliger
+        # Stillstand), und ohne diese Zeile waere der bezahlte Lauf verloren.
+        return [f"Wiederholung nach Session-Limit: {meta['nach_limit_grund']}"]
     if meta.get("geprueft_batch") == batch and not meta.get("vorgemerkt"):
         return []                              # fuer diesen Batch schon entschieden
     # Migration (Auftraege 2026-09-29): fehlende Marken werden EINMALIG gesetzt.
