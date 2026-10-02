@@ -11,7 +11,10 @@ Je Punkt ein Abschnitt, je Punkt ein Commit:
      die letzte Modellantwort ist ein API-/Gateway-Fehler. Folge: **kein** Review,
      derselbe Batch startet nach 15 min als Fortsetzung neu (Gate-Quelle `infra`, ohne
      `/approve`); nach zwei Neustarts Pause plus Telegram. Budgets gelten weiter.
-  3. Session-Limit nicht als „verworfen" ablegen; Wiederaufnahme mit 5 min Puffer.
+  3. **Session-Limit ist ein Wartezustand**, kein verworfener Review: der Rohtext liegt
+     als `review-limit-<stempel>-v<versuch>.md` (nicht `review-verworfen-…`), und die
+     Wiedereinstiegszeit ist die gelesene Reset-Zeit **plus 5 min Puffer**; auch der
+     zweite Review-Versuch laeuft nicht in `review_failed`.
   4. Aussensicht an dieselbe Limit-Uhr.
 
 Alles laeuft in Wegwerf-Verzeichnissen; das Decomp-Repo und der laufende Batch bleiben
@@ -34,6 +37,7 @@ sys.path.insert(0, str(ROOT))
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "b235_api_fehler.jsonl"
 
 from hx import protocol, state as st, streamjson, worker             # noqa: E402
+from hx import reviewer as rvmod                                     # noqa: E402
 from hx.config import load_config                                    # noqa: E402
 from hx.orchestrator import INFRA_MAX_NEUSTARTS, Orchestrator        # noqa: E402
 from hx.util import Log, ensure_dir, write_text_atomic               # noqa: E402
@@ -451,6 +455,97 @@ class TestInfraWartezeit(BasisOrch):
         self.orch._do_pause("Handarbeit")
         self.assertNotIn("infra_wait_until", s.data)
         self.assertTrue(s.data["paused"])
+
+
+# ======================== 3) Session-Limit ist ein Wartezustand, kein Fehlschlag
+LIMIT_MELDUNG = ("Usage limit reached. Your limit will reset at 2099-01-01 12:00 UTC.")
+LIMIT_ZIEL = datetime(2099, 1, 1, 12, 0, tzinfo=timezone.utc)
+
+
+class TestLimitWartezustand(BasisOrch):
+    """Punkt 3: `review-limit-…` statt `review-verworfen-…`, Wiedereinstieg mit Puffer."""
+
+    def _reviewer_state_setzen(self):
+        self.orch.state.data["reviewer"] = {
+            "session_id": "s-test", "reviews": 1, "force_rotate": False,
+            "prompt_hash": rvmod.prompt_hash(self.cfg)}
+
+    def test_puffer_auf_die_gelesene_reset_zeit(self):
+        wann, quelle = self.orch.limit_wait_ziel(LIMIT_MELDUNG)
+        self.assertEqual(wann, LIMIT_ZIEL + timedelta(minutes=5))
+        self.assertIn("Puffer", quelle)
+        self.assertIn("12:00", quelle)
+
+    def test_ohne_lesbaren_zeitpunkt_stuendlich_ohne_puffer(self):
+        """Ohne Zeitpunkt in der Meldung bleibt es bei der stuendlichen Pruefung."""
+        wann, quelle = self.orch.limit_wait_ziel("Limit erreicht, kein Datum")
+        rest = (wann - datetime.now(timezone.utc)).total_seconds()
+        self.assertGreater(rest, 55 * 60)
+        self.assertLessEqual(rest, 61 * 60)
+        self.assertIn("stuendliche", quelle)
+
+    def test_limit_review_heisst_nicht_verworfen(self):
+        """Der Rohtext wird abgelegt - aber unter `review-limit-…`, nicht `verworfen`."""
+        self._reviewer_state_setzen()
+        stub = _ReviewStub(batch=self.batch)
+        stub.limit_reached = True
+        stub.text = LIMIT_MELDUNG
+        with mock.patch("hx.orchestrator.rv.run_review", return_value=stub), \
+             mock.patch.object(self.orch, "expected_batch", return_value=self.batch):
+            res = self.orch.do_review("batch_end", "snap")
+        self.assertTrue(res.limit_reached)
+        rd = self.root / "runs" / f"b{self.batch:03d}"
+        self.assertEqual(len(list(rd.glob("review-limit-*-v1.md"))), 1,
+                         sorted(p.name for p in rd.glob("*.md")))
+        self.assertEqual(list(rd.glob("review-verworfen-*.md")), [],
+                         "ein Limit ist kein verworfener Review")
+        self.assertNotIn("review.md", [p.name for p in rd.glob("*.md")])
+        s = self.orch.state
+        self.assertEqual(s.state, st.LIMIT_WAIT)
+        self.assertTrue(s.data["paused"], "das Limit ist ein Wartezustand")
+        self.assertEqual(datetime.fromisoformat(s.data["limit_wait_until"]),
+                         LIMIT_ZIEL + timedelta(minutes=5))
+        self.assertIn("Puffer", s.data["limit_wait_quelle"])
+
+    def test_limit_im_zweiten_versuch_ist_kein_fehlschlag(self):
+        """Der zweite Versuch darf NICHT in `review_failed` laufen (Punkt 3)."""
+        kaputt = _ReviewStub(batch=self.batch)          # kein Protokollblock
+        limit = _ReviewStub(batch=self.batch)
+        limit.limit_reached = True
+        limit.text = LIMIT_MELDUNG
+        folge = [kaputt, limit]
+        gerufen: list[dict] = []
+
+        def review_mock(*a, **k):
+            gerufen.append(k)
+            return folge.pop(0) if folge else limit
+
+        self.orch.do_review = review_mock
+        # Beide Antworten sind formal ungueltig - der Punkt ist, dass das LIMIT vor jeder
+        # Bewertung greift (`if res.limit_reached: continue`) und nicht `review_failed`.
+        self.orch.review_ok = lambda res: False
+        self.orch.peak_gate = lambda *a, **k: (True, "")
+        zaehler = {"n": 0}
+
+        def poll(*a, **k):
+            zaehler["n"] += 1
+            if zaehler["n"] > 5:
+                self.orch.quit = True
+
+        self.orch.poll = poll
+        try:
+            with mock.patch("hx.orchestrator.time.sleep", lambda *_: None):
+                self.orch._loop()
+        finally:
+            self.orch.quit = False
+        self.assertEqual([k.get("attempt") for k in gerufen[:2]], [None, 2],
+                         "erst der normale Review, dann der Wiederholungsversuch")
+        self.assertGreaterEqual(len(gerufen), 2)
+        self.assertEqual(list((self.root / "logs").glob("review-verworfen-*.json")), [],
+                         "kein Fehlschlag-Protokoll fuer ein Limit")
+        self.assertNotEqual(self.orch.state.state, st.PAUSED, "kein Haltegrund")
+        self.assertFalse(any("ZWEIMAL OHNE PROTOKOLLBLOCK" in t for t in self.gesagt),
+                         self.gesagt)
 
 
 if __name__ == "__main__":

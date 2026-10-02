@@ -165,8 +165,9 @@ LAUF_BELEGE = ("auftrag.md", "stream.jsonl", "stream.err.txt", "result.json",
 # Fortsetzungsdateien (R13ad) und weitere Antwortfassungen (R13aw) kommen als Muster.
 LAUF_MUSTER = ("antwort-forts*.md", "stream-forts*.jsonl")
 # NICHT verschoben werden die Belege des REVIEWS: `review.md`, `reviewer.jsonl`,
-# `handover.jsonl`, `review-verworfen-*` und `harness-facts.md` gehoeren zur
-# Auftragskette des anstehenden Laufs und bleiben im Batchordner oben stehen.
+# `handover.jsonl`, `review-verworfen-*`, `review-limit-*` (R13bm) und
+# `harness-facts.md` gehoeren zur Auftragskette des anstehenden Laufs und bleiben im
+# Batchordner oben stehen.
 
 
 def lauf_ordner_nummer(rd: Path) -> int:

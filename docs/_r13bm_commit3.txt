@@ -1,0 +1,31 @@
+R13bm-3: Session-Limit ist ein Wartezustand - nicht "verworfen", 5 min Puffer
+
+Nutzerauftrag R13bm Punkt 3. Ein Session-Limit des Reviewers ist kein Fehlschlag -
+der Harness wartet. Trotzdem stand der Rohtext bisher als
+`review-verworfen-<stempel>-v<versuch>.md` im Batchordner, und die Wiedereinstiegszeit
+war die nackte Reset-Zeit aus der Meldung.
+
+- `do_review` legt den Rohtext bei `res.limit_reached` als
+  `review-limit-<stempel>-v<versuch>.md` ab. Der Beleg bleibt (er zeigt das Limit),
+  aber der Name behauptet nicht mehr "bewertet und verworfen".
+- `_loop`: lief der ZWEITE Review-Versuch ins Limit, ging es bisher in
+  `review_failed` - mit `logs/review-verworfen-*.json` und dem Pausen-Grund "Review
+  ohne Protokollblock", obwohl der Reviewer nur gewartet hat. Jetzt greift dort
+  derselbe Wartezustand (`if res2.limit_reached: continue`).
+- `limit_wait_ziel`: auf die GELESENE Reset-Zeit kommen 5 min Puffer
+  (`LIMIT_PUFFER_MIN`). Ohne Puffer startete der Harness sekundengenau und lief
+  sofort wieder hinein - bei einem Review kostet das beide Versuche. Ohne lesbaren
+  Zeitpunkt bleibt es bei der stuendlichen Pruefung (dort ist der Puffer ohne
+  Aussage, weil ohnehin nachgefasst wird); die Quelle im Zustand nennt beides.
+- `worker.py`: der Kommentar zu den nicht verschobenen Review-Belegen nennt
+  `review-limit-*` mit (die Datei bleibt wie `review-verworfen-*` oben stehen).
+
+Tests (`tests/test_r13bm_fixes.py`, 4 neue Faelle, zusammen 27 in der Datei):
+Puffer auf die gelesene Reset-Zeit (2099-01-01 12:00 UTC -> 12:05), ohne Zeitpunkt
+stuendlich ohne Puffer, echtes `do_review` mit Limit-Attrappe (`review-limit-*-v1.md`
+vorhanden, kein `review-verworfen-*`, kein `review.md`, Zustand LIMIT_WAIT, Ziel mit
+Puffer), Limit im zweiten Versuch (erst normal, dann `attempt=2`, kein
+`review_failed`, kein Haltegrund).
+
+Geprueft: tests/test_r13bm_fixes 27/27 OK; die betroffenen Dateien (r13e, r11,
+r13b, r13u, r13c, r13al, r13bl) 151 Tests OK.

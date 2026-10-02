@@ -40,6 +40,10 @@ PEAK_POLL_S = 20.0
 # `INFRA_MAX_NEUSTARTS` Neustarts pausiert er und der Nutzer entscheidet.
 INFRA_WARTE_MIN = 15.0
 INFRA_MAX_NEUSTARTS = 2
+# R13bm (Nutzerauftrag Punkt 3): Puffer auf die aus der Meldung GELESENE Reset-Zeit.
+# Ein Limit endet nicht auf die Sekunde; wer punktgenau weitermacht, laeuft ein zweites
+# Mal hinein (und die zwei Versuche eines Reviews waeren dann verbraucht).
+LIMIT_PUFFER_MIN = 5.0
 
 def letzter_batch_zeile(cfg, letzte: dict, stand: str = "") -> str:
     """`/status`-Zeile fuer den zuletzt GELAUFENEN Batch (R13x, Befund M208-3d).
@@ -1642,11 +1646,20 @@ class Orchestrator:
         Zeitpunkt aus der Meldung (protocol.parse_limit_reset), sonst eine Stunde
         - und dann stuendlich neu pruefen. Das Ziel steht im Zustand, damit es
         einen Harness-Neustart ueberlebt.
+
+        R13bm (Punkt 3): Auf eine GELESENE Reset-Zeit kommt `LIMIT_PUFFER_MIN` (5 min)
+        drauf. Ohne Puffer startete der Harness auf die Sekunde genau und lief sofort
+        wieder ins Limit - bei einem Review kostet das beide Versuche (`review_failed`).
+        Ohne lesbaren Zeitpunkt bleibt es bei der stuendlichen Pruefung: dort ist der
+        Puffer ohne Aussage, weil ohnehin nachgefasst wird.
         """
         wann = protocol.parse_limit_reset(meldung or "")
         jetzt = datetime.now(timezone.utc)
         if wann is not None and wann > jetzt:
-            return wann, "Zeitpunkt aus der Meldung"
+            puffer = timedelta(minutes=LIMIT_PUFFER_MIN)
+            return (wann + puffer,
+                    f"Zeitpunkt aus der Meldung ({wann.isoformat(timespec='minutes')}) "
+                    f"+ {LIMIT_PUFFER_MIN:.0f} min Puffer")
         return jetzt + timedelta(hours=1), "kein Zeitpunkt in der Meldung - stuendliche Pruefung"
 
     def limit_wait_tick(self) -> bool:
@@ -2055,7 +2068,13 @@ class Orchestrator:
         self._review_previous_raw = (res.text or "")[:4000]
         stempel = now_iso().replace(":", "").replace("-", "").replace("T", "-")[:15]
         name = "review.md" if kind == "batch_end" else "review-pre.md"
-        if not self.review_ok(res):
+        if res.limit_reached:
+            # R13bm (Punkt 3): Ein Session-Limit ist KEIN verworfener Review - es ist ein
+            # Wartezustand (`LIMIT_WAIT`, unten). Der Rohtext wird trotzdem abgelegt (er
+            # belegt das Limit), aber unter eigenem Namen: `review-verworfen-*` hiesse
+            # "bewertet und verworfen" und wuerde in den Ordnern falsch gelesen.
+            name = f"review-limit-{stempel}-v{attempt}.md"
+        elif not self.review_ok(res):
             # R13b: Nichts freigeben - Rohantwort eindeutig als Beleg ablegen (nie
             # ueberschreiben), nichts verbuchen.
             name = f"review-verworfen-{stempel}-v{attempt}.md"
@@ -3117,6 +3136,12 @@ class Orchestrator:
                     self.phase("review", f"{kind} (2. Versuch)")
                     res2 = self.do_review(kind, snap, reviewer_note=note_block, attempt=2,
                                           handover=self._review_handover)
+                    if res2.limit_reached:
+                        # R13bm (Punkt 3): Das Limit ist ein Wartezustand, kein Fehlschlag.
+                        # Ohne diese Zeile liefe der zweite Versuch in `review_failed` -
+                        # mit "review-verworfen" im Namen UND dem Pausen-Grund "Review
+                        # ohne Protokollblock", obwohl der Reviewer nur gewartet hat.
+                        continue
                     if not self.review_ok(res2):
                         # Nach zwei Versuchen: pausieren, Queue behalten, KEIN Gate.
                         self.review_failed([res, res2], kind, note_ids)
