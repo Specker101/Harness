@@ -366,9 +366,30 @@ def _c_trend_zeile(cfg) -> list[str]:
     e, l = t["erst"], t["letzt"]
     luecken = ("lueckenlos" if not t["luecken"] else
                "Luecken: " + ", ".join(f"B{b}" for b in t["luecken"]))
-    return [f"  C-Trend      : B{e['batch']} {e['koepfe']} -> B{l['batch']} {l['koepfe']} "
-            f"= {t['delta']:+d} Koepfe ({t['anzahl_batches']} Batches, {luecken}; "
-            f"Quelle: analysis/_preflight_*.txt Zeile \"C Koepfe\")"]
+    zeilen = [f"  C-Trend      : B{e['batch']} {e['koepfe']} -> B{l['batch']} {l['koepfe']} "
+              f"= {t['delta']:+d} Koepfe ({t['anzahl_batches']} Batches, {luecken}; "
+              f"Quelle: analysis/_preflight_*.txt Zeile \"C Koepfe\")"]
+    # R13bn (M243-3): derselbe Trend fuer die VOLL verifizierten Koepfe (Bahnabdeckung).
+    try:
+        v = stand.verifiziert_trend(cfg, stand.TREND_FENSTER)
+    except Exception:                                                    # noqa: BLE001
+        v = {}
+    if v.get("gemessen"):
+        ve, vl = v["erst"], v["letzt"]
+        vluecken = ("lueckenlos" if not v["luecken"] else
+                    "Luecken: " + ", ".join(f"B{b}" for b in v["luecken"]))
+        zeilen.append(
+            f"  C verifiziert: B{ve['batch']} {ve['verifiziert']} -> B{vl['batch']} "
+            f"{vl['verifiziert']} = {v['delta']:+d} Koepfe ({v['anzahl_batches']} Batches, "
+            f"{vluecken}; {len(v['c_schritte'])} C-Batch-Schritte, Median "
+            + (f"{v['median_je_c_batch']:+.0f}" if v.get("median_je_c_batch") is not None
+               else "nicht gemessen")
+            + f" je C-Batch; Quelle: Zeile \"Bahnabdeckung … verifiziert\" derselben "
+              f"Preflight-Dateien - der Kopfzaehler oben zaehlt Koepfe mit offenem Rumpf mit)")
+    elif v:
+        zeilen.append("  C verifiziert: nicht gemessen ("
+                      + str(v.get("grund") or "keine Bahnabdeckungszeile") + ")")
+    return zeilen
 
 
 def _z(wert_: int | None) -> str:

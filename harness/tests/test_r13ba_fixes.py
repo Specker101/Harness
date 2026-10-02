@@ -40,9 +40,15 @@ from hx.util import ensure_dir, write_text_atomic                  # noqa: E402
 # R13bc: der feste Stand (30.09.2026, B224) - eingefroren, nicht nachziehen (s. README).
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "stand_b224"
 # Die Werte dieses Stands (gemessen mit `docs/_r13bc_fixture.py`).
-STAND_TEXT = ("Median Zuwachs (Kopf-Batches): 4 | "
+# R13bn (M242-3): die BASIS des Medians hat gewechselt - er kommt jetzt wie das Mittel aus
+# der lueckenlosen PREFLIGHT-Reihe (`c_trend`, TREND_FENSTER) statt aus den Zeilen der
+# PLAN/IST-Tafel (die haengt an den kanonischen Bilanzdateien). Dieselben Fixture-DATEIEN
+# ergeben damit fuenf statt drei Zuwaechse: +3 (B224), +3 (B222), +1 (B220), +5 (B219),
+# +7 (B216) -> Median 3 (vorher 4 aus nur zwei Werten). Die Fixture selbst ist unveraendert.
+STAND_TEXT = ("Median Zuwachs (Kopf-Batches): 3 | "
               "Mittel ueber alle C-Batches: 2,4")
-STAND_QUELLE = "Median der Zuwaechse der Kopf-Batches (+3 (B224), +5 (B219))"
+STAND_QUELLE = ("Median der Zuwaechse der Kopf-Batches "
+                "(+3 (B224), +3 (B222), +1 (B220), +5 (B219), +7 (B216))")
 TEXT_219 = ("Median Zuwachs (Kopf-Batches): 6 | "
             "Mittel ueber alle C-Batches: 3,0")
 
@@ -393,8 +399,11 @@ class TestFesterStandRate(Basis, StandFixtureMixin):
         self.raten = stand.c_rate(self.cfg)
 
     def test_kopf_batches_und_median(self):
-        self.assertEqual(self.raten["kopf_batches"], [(224, 3), (219, 5)])
-        self.assertEqual(self.raten["median"], 4.0)
+        # R13bn: fuenf Kopf-Batches statt zwei - die Grundmenge ist die Preflight-Reihe
+        # des Trendfensters, nicht mehr die (lueckenhafte) PLAN/IST-Reihe.
+        self.assertEqual(self.raten["kopf_batches"],
+                         [(224, 3), (222, 3), (220, 1), (219, 5), (216, 7)])
+        self.assertEqual(self.raten["median"], 3.0)
         self.assertEqual(self.raten["mittel"], 2.375)
         self.assertEqual(self.raten["rate"], self.raten["median"])
         self.assertEqual(self.raten["text"], STAND_TEXT)
@@ -411,15 +420,16 @@ class TestFesterStandRate(Basis, StandFixtureMixin):
     def test_hochrechnung_rechnet_mit_dem_median(self):
         """Der Durchsatz-Block rechnet mit dem Median (nicht mit dem Mittel)."""
         text = "\n".join(stand.durchsatz_zeilen(self.cfg))
-        self.assertIn("-> 5 C-Batches bei +4.0 Koepfe je C-Batch", text)
+        # R13bn: 20 Koepfe offen bei Median 3 -> 7 C-Batches (vorher 5 bei Median 4).
+        self.assertIn("-> 7 C-Batches bei +3.0 Koepfe je C-Batch", text)
         self.assertIn("(Grundlage: " + STAND_QUELLE + ")", text)
         self.assertNotIn("-> 9 C-Batches", text)         # der alte Mittel-Wert (2,4)
 
     def test_tafel_zeigt_beide_zahlen(self):
-        """Die PLAN/IST-Tafel rechnet mit einem groesseren Fenster (n=12): Median 5."""
+        """Die PLAN/IST-Tafel zeigt dieselbe Rate wie der Durchsatz-Block (R13bn)."""
         text = stand.plan_ist_text(self.cfg, 12)
-        self.assertIn("MEDIAN der 3 Zuwaechse", text)
-        self.assertIn("(Median Zuwachs (Kopf-Batches): 5 | "
+        self.assertIn("MEDIAN der 5 Zuwaechse", text)
+        self.assertIn("(Median Zuwachs (Kopf-Batches): 3 | "
                       "Mittel ueber alle C-Batches: 2,4)", text)
 
 

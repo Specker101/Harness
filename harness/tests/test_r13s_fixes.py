@@ -262,6 +262,13 @@ class TestStand(Basis):
         # Durchsatz "nicht gemessen" und es gibt keine Hochrechnung.
         self.preflight(100, 73, 1752)
         self.preflight(101, 78, 1776)
+        # R13bn: die Kalender-Zeile braucht eine BELEGTE Grundmenge fuer den C-Anteil.
+        # Ohne Plan-Regel und ohne Strang-Beleg in den Batches sagt der Harness seit
+        # R13bn "nicht rechenbar" statt mit dem (vorher auch unbekannte Batches
+        # mitzaehlenden) Fensteranteil zu rechnen. Hier die Plan-Regel:
+        write_text_atomic(self.ana / "hybrid-plan.md",
+                          "**Mischverhaeltnis 1 B : 1 C (ENTSCHEIDUNG Reviewer):** "
+                          "B100 C, B101 C\n")
         text = "\n".join(stand.durchsatz_zeilen(self.cfg))
         self.assertIn("C Koepfe (Preflight-Messung", text)
         self.assertIn("Trend B100 73 -> B101 78 = +5 Koepfe", text)

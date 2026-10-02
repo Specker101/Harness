@@ -1,0 +1,41 @@
+﻿Profile reproduzierbar: koepfe 115, gleich 115, abweichend 0 (-)
+=== PREFLIGHT (before) 2026-10-02 01:24 ===
+Lauf 2026-10-02 01:24:49 | HEAD a9a8bdfb9c43477e47eab90348382825fd485f2a
+Werkzeugkette g++ PATH=g++ (Rev4, Built by MSYS2 project) 16.2.0 | g++ BAU=g++.exe (Rev4, Built by MSYS2 project) 16.2.0 | ppc_poc.exe 575521 B, port_selftest.exe 7570183 B, port_gl.exe 7682061 B
+Pruefung           Ergebnis                                                 Urteil
+R207 tails         704 rueckwaerts (a 31 / b 0 / c 0)                       OK
+R207 check         gebaut 704 / benannt 11157 / NICHT benannt 0             OK
+R207 sanity        704 Koepfe / auffaellig 0                                OK
+R207 nachzuegler   70/32 (12/5) + (d) 9/3                                   Meldung
+R216 A abi         263                                                      Meldung
+R216 B impl        81                                                       Meldung
+R216 C doc         78                                                       Meldung
+R216 D doc4        689/112                                                  Meldung
+P100-Selbstprobe   OK (Fenster 1, Fund 1)                                   OK
+M5 Kopf            287 Faelle / 2860 Vergleichszeilen / 0 Abweichungen, T3 34/34, T4 34/34 (Binaer aktuell) OK
+C Koepfe           115 / 6475 / 0 referenzgleich                            OK
+C Einbindung       9 / 28 / 78                                              Meldung
+Bahnabdeckung      86/115 | Bloecke 612/752 | verifiziert 87 | teilgeprueft 28 OK
+R391 Commit-Reihenfolge VERSTOSS (iii) 2 Datei(en) vor dem Commit                FEHLER
+Profil-Lauf (m227) koepfe 115, gleich 115, abweichend 0, nicht erzeugt 0, prof rc 0 0.5 s, Vergleich 0.1 s Meldung
+C verifiziert      87                                                       OK
+Formen der C-Koepfe orakelgeprueft 43 / 70 | Koepfe 115 | Faelle 20500 | Abweichungen 0 | Wirkung ohne Randwert 0 OK
+C Fallrueckgang    keiner                                                   Meldung
+Hybrid-Lauf        200000000 | 8000844C | Schranke | 2974/42599 | nein      OK
+Hybrid-Lauf 20M    20000000 | 8000EC40 | Schranke | 1474/42599 | nein       OK
+Hybrid-SPU         2 Lesezugriffe, 9 Schreibzugriffe, erste PC L 80013DFC / S 80013FB4, 7 distinkte Offsets OK
+Hybrid-Attrappe4   135 Lesezugriffe, erste PC 8000C898, Werte 00800000      OK
+Hybrid-Anteil nativ 47527/200000000 | Aufrufe alle Registry-Koepfe 2633 gleich 2629 ungleich 0 | nicht vergleichbar: 4 | davon Schatten-Zustand: 0 | Schritte im Schatten bei nativen Rufen: 47527 | Zeitbasis aus Schattenschrittzahl: 2629 | --ohne-tb (tb aus Schatten): 0 | Summe gleich: ja Meldung
+Hybrid-Funktionen nativ 7/94 | verglichen gleich: 7 | Host nötig: 3 | Gesamt 115/2087 OK
+analysis neue .py  0                                                        Meldung
+Profile reproduzierbar koepfe 115, gleich 115, abweichend 0, HEAD a9a8bdf, 10690/10A20/856B4 10690=gleich 10A20=gleich 856B4=gleich [OK] OK
+Bauliste ⊆ Registry 734 Eintraege, 0 fehlend                                 OK
+Archiv vor Batch   0                                                        OK
+Archiv Kodierung   5 (Altbestand 5)                                         OK
+Binary Quellen     6 Binaer, 0 veraltet, 0 fehlend                          OK
+REG regression     OK, 32 Faelle + 271 Anker, 0 Fehler                      OK
+REG GL-Anker       9/9 OK, 0 GL-TIMEOUT, 0 GL-UMGEBUNG, 0 sonst. FEHLER     OK
+REG GL-Referenz    9/9 gleich                                               OK
+
+Befunde: 1 - R391 Commit-Reihenfolge   (Beleg-Archiv: 2 Altfassung(en) gesichert -> analysis\_archiv)
+=> BEFORE MIT BEFUNDEN

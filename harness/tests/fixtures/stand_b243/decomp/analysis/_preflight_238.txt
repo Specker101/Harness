@@ -1,0 +1,42 @@
+﻿Profile reproduzierbar: koepfe 119, gleich 119, abweichend 0 (-)
+=== PREFLIGHT (before) 2026-10-02 05:34 ===
+Lauf 2026-10-02 05:34:47 | HEAD e220b9594ae650808f903ae208a2b36ca93d17a8
+Werkzeugkette g++ PATH=g++ (Rev4, Built by MSYS2 project) 16.2.0 | g++ BAU=g++.exe (Rev4, Built by MSYS2 project) 16.2.0 | ppc_poc.exe 575521 B, port_selftest.exe 7572643 B, port_gl.exe 7684009 B
+Pruefung           Ergebnis                                                 Urteil
+R207 tails         704 rueckwaerts (a 31 / b 0 / c 0)                       OK
+R207 check         gebaut 704 / benannt 11163 / NICHT benannt 0             OK
+R207 sanity        704 Koepfe / auffaellig 0                                OK
+R207 nachzuegler   70/32 (12/5) + (d) 9/3                                   Meldung
+R216 A abi         263                                                      Meldung
+R216 B impl        81                                                       Meldung
+R216 C doc         78                                                       Meldung
+R216 D doc4        689/112                                                  Meldung
+P100-Selbstprobe   OK (Fenster 1, Fund 1)                                   OK
+M5 Kopf            287 Faelle / 2860 Vergleichszeilen / 0 Abweichungen, T3 34/34, T4 34/34 (Binaer aktuell) OK
+C Koepfe           119 / 6913 / 0 referenzgleich                            OK
+C Koepfe live      7/119 live verglichen gleich (Hybrid-Lauf 200M)          Meldung
+C Einbindung       9 / 29 / 81                                              Meldung
+Bahnabdeckung      89/119 | Bloecke 628/788 | verifiziert 90 | teilgeprueft 29 OK
+R391 Commit-Reihenfolge OK                                                       OK
+Profil-Lauf (m227) koepfe 119, gleich 119, abweichend 0, nicht erzeugt 0, prof rc 0 604.9 s, Vergleich 0.2 s Meldung
+C verifiziert      90                                                       OK
+Formen der C-Koepfe orakelgeprueft 44 / 71 | Koepfe 119 | Faelle 20980 | Abweichungen 0 | Wirkung ohne Randwert 0 OK
+C Fallrueckgang    keiner                                                   Meldung
+Hybrid-Lauf        200000000 | 8000EC3C | Schranke | 3120/42599 | nein      OK
+Hybrid-Lauf 20M    20000000 | 8000EC40 | Schranke | 1474/42599 | nein       OK
+Hybrid-SPU         2 Lesezugriffe, 9 Schreibzugriffe, erste PC L 80013DFC / S 80013FB4, 7 distinkte Offsets OK
+Hybrid-Attrappe4   399 Lesezugriffe, erste PC 8000C898, Werte 00000000(60),00200000(68),00030000(1),11030080(2),11030001(2),11030082(2),11030003(2),11030084(2),11030005(2),11030086(2),11030007(2),11030088(2) OK
+Hybrid-Anteil nativ 57819/200000000 | Aufrufe alle Registry-Koepfe 5441 gleich 3565 ungleich 0 | nicht vergleichbar: 1876 | davon Schatten-Zustand: 0 | Schritte im Schatten bei nativen Rufen: 57819 | Zeitbasis aus Schattenschrittzahl: 3565 | --ohne-tb (tb aus Schatten): 0 | Summe gleich: ja Meldung
+Hybrid-Funktionen nativ 7/98 | verglichen gleich: 7 | Host nötig: 4 | Gesamt 119/2087 OK
+analysis neue .py  0                                                        Meldung
+Profile reproduzierbar koepfe 119, gleich 119, abweichend 0, HEAD e220b95, 10690/10A20/856B4 10690=gleich 10A20=gleich 856B4=gleich [OK] OK
+Bauliste ⊆ Registry 734 Eintraege, 0 fehlend                                 OK
+Archiv vor Batch   0                                                        OK
+Archiv Kodierung   5 (Altbestand 5)                                         OK
+Binary Quellen     6 Binaer, 0 veraltet, 0 fehlend                          OK
+REG regression     OK, 32 Faelle + 271 Anker, 0 Fehler                      OK
+REG GL-Anker       9/9 OK, 0 GL-TIMEOUT, 0 GL-UMGEBUNG, 0 sonst. FEHLER     OK
+REG GL-Referenz    9/9 gleich                                               OK
+
+Befunde: 0   (Beleg-Archiv: keine Altfassung ueberschrieben)
+=> BEFORE SAUBER

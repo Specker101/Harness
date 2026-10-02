@@ -284,9 +284,14 @@ class TestOffenerVorratGefroren(Basis):
 class TestMedianDerZuwaechseGefroren(Basis):
     """Die echten Zahlen des festen Stands B224 (Fixture) - der Befund als Regressionsschutz.
 
-    Der Median steht ueber den **Zuwaechsen** der Kopf-Batches: im Fenster der PLAN/IST-Tafel
-    (`n=12`) sind das `+3 (B224)`, `+5 (B219)`, `+7 (B216)` -> **5** (die alte Definition
-    "Median der Summen" haette 88 ergeben und ist damit widerlegt).
+    Der Median steht ueber den **Zuwaechsen** der Kopf-Batches (die alte Definition "Median
+    der Summen" haette 88 ergeben und ist damit widerlegt).
+
+    R13bn (M242-3): die Grundmenge ist jetzt die **lueckenlose Preflight-Reihe** des
+    Trendfensters statt der PLAN/IST-Zeilen (die an den kanonischen Bilanzdateien haengen).
+    Dieselben Fixture-Dateien ergeben damit `+3 (B224)`, `+3 (B222)`, `+1 (B220)`,
+    `+5 (B219)`, `+7 (B216)` -> **3** (vorher `+3`, `+5`, `+7` -> 5 aus nur drei Werten).
+    Die Fixture-DATEIEN sind unveraendert.
     """
 
     def setUp(self):
@@ -295,11 +300,12 @@ class TestMedianDerZuwaechseGefroren(Basis):
         shutil.copytree(FIXTURE / "decomp", self.decomp, dirs_exist_ok=True)
         self.ana = self.decomp / "analysis"
 
-    def test_median_der_zuwaechse_ist_fuenf(self):
+    def test_median_der_zuwaechse_ist_drei(self):
         text = stand.plan_ist_text(self.cfg, 12)
-        self.assertIn("MEDIAN der 3 Zuwaechse der C Koepfe je C-Batch mit SOLL-KOEPFE > 0 "
-                      "(+3 (B224), +5 (B219), +7 (B216)): 5 Koepfe je C-Batch", text)
-        self.assertIn("Ziel des naechsten Batches: hoechstens ca. 6", text)
+        self.assertIn("MEDIAN der 5 Zuwaechse der C Koepfe je C-Batch mit SOLL-KOEPFE > 0 "
+                      "(+3 (B224), +3 (B222), +1 (B220), +5 (B219), +7 (B216)): "
+                      "3 Koepfe je C-Batch", text)
+        self.assertIn("Ziel des naechsten Batches: hoechstens ca. 4", text)
         # Die alte Definition (Median der Summen) haette 88 ergeben.
         self.assertNotIn("88 Koepfe", text)
 

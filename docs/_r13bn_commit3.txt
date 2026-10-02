@@ -1,0 +1,51 @@
+R13bn-3: Prognose aus der lueckenlosen Reihe, echter C-Anteil, C verifiziert
+
+Nutzerauftrag R13bn Punkt 3 (Aussensicht M242-3/M243-3). Drei Aenderungen an der
+Prognose, dazu ein fester Stand fuer die Reihe B237-B243.
+
+1) **Median der Koepfe je C-Batch aus der PREFLIGHT-Reihe** (`stand.c_rate`).
+   Er kam aus den Zuwaechsen der PLAN/IST-Tafel - die haengt an den kanonischen
+   Bilanzdateien, und die fehlen fuer einzelne Batches (gemessen: B241, der
+   Bilanz-Commit c9660c3 enthaelt keine `_m241/_bilanz_241.txt`). Der Median liess
+   B241 still weg und stand zu hoch. Jetzt kommen Median UND Mittel aus derselben
+   Quelle (`c_trend`, Zeile `C Koepfe` je `_preflight_<N>.txt`) und aus demselben
+   Fenster (TREND_FENSTER); `n`/`reihen` bleiben in der Signatur, bestimmen die
+   Grundmenge aber nicht mehr.
+
+2) **Tatsaechlicher C-Anteil** (`stand.durchsatz`). `anteil_gemessen` zaehlt nur noch
+   Batches mit BELEGTEM Strang (B/C) - vorher zaehlten unbekannte als C und blaehten
+   den Anteil auf. Endet die Reihe mit >= `C_LAUF_MINDESTENS` (2) C-Batches, gilt fuer
+   die Kalender-Hochrechnung **100 %** (Strang B ruht) samt Beleg im Text; die
+   Plan-Regel wird als abweichend genannt (live: 3 C-Batches B241..B243 gegen
+   "1 B : 1 C" = 50 % in hybrid-plan.md:484).
+
+3) **Trend zusaetzlich auf `C verifiziert`**: `stand.verifiziert_trend` fuehrt die
+   Bahnabdeckungszeile derselben Preflight-Dateien lueckenlos (B231 77 -> B243 92 =
+   +15; Median +1 je C-Batch). Die Zeile steht in `durchsatz_zeilen`, in
+   `bilanz._c_trend_zeile` (also in der BILANZ-Eingabe der Aussensicht) und als
+   zweite HYPOTHESIS-Zeile in `kalender_zeilen`. Grund (M243-3): der Kopfzaehler
+   zaehlt Koepfe mit offenem Rumpf mit - 800660D4 ist nur deshalb "referenzgleich",
+   weil der Pruefstand am `bctr` aufhoert; die voll verifizierte Zahl steht bei +2
+   (B237 90 -> B243 92) gegen +4 im Kopfzaehler.
+
+Test mit der echten Reihe: neuer fester Stand `tests/fixtures/stand_b243/`
+(30 Dateien: `_preflight_236..243.txt`, `auftrag.md` B236..B243, `review.md`
+B237..B244 - der Strang kommt aus deren Pflichtzeile `B-SCHRITT:` -, `hybrid-plan.md`
+und die vorhandenen Bilanzdateien; B241 fehlt auch hier, das ist der Anlass).
+`tests/test_r13bn_fixes.py` prueft daran: Median **2** aus +4 (B237), +2 (B239),
++2 (B241) mit der Gegenprobe "faellt B241 aus der Reihe, kommt wieder 3 heraus",
+"ohne benachbarte Datei kein Schritt", C-Anteil 100 % (c_lauf 3), Mischungs- und
+Kalenderzeile ohne 50-%-Abschlag, verifizierter Trend (B236 87 -> B243 92 = +5,
+Reihe B237..B243 darin +2) in Durchsatz- und Bilanzzeile, Hochrechnung mit dem
+verifizierten Zuwachs.
+
+Angepasst (Erwartungen, KEINE Fixture-Datei geaendert): `test_r13ba_fixes` und
+`test_r13ay_fixes` am Stand `stand_b224` - dieselben Dateien ergeben jetzt fuenf
+Kopf-Batches (+3 B224, +3 B222, +1 B220, +5 B219, +7 B216) und Median 3 statt 4
+(bzw. 3 statt 5 in der Tafel); `test_r13s_fixes` bekommt eine belegte Grundmenge
+(Plan-Regel), weil der Anteil ohne Beleg seit R13bn ausdruecklich "nicht rechenbar"
+lautet statt mit dem Fensteranteil zu rechnen. Jede Aenderung ist am Ort begruendet.
+
+Geprueft: tests/test_r13bn_fixes 18/18 OK; die betroffenen Dateien (r13ba, r13ay,
+r13bb, r13s, r13aa, r13ac, r13ac3, r13ae, r13ah, r13ao, r13aq, r13ar, r13as, r13au,
+r13aw, r13ax, r13bf, r13bl, r13x, r10) 569 Tests ohne Fehlschlag.

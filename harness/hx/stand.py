@@ -47,6 +47,10 @@ MAX_DOKUMENTE = 12
 # Aussensicht-Prompt ("BILANZ: TREND DER LETZTEN 12 BATCHES", aussensicht.grenzen) -
 # damit Reviewer, Aussensicht und Bilanz dieselbe Spanne nennen.
 TREND_FENSTER = 12
+# R13bn (M242-3): so viele C-Batches am ENDE der Reihe belegen, dass Strang B ruht -
+# dann gilt fuer die Kalender-Hochrechnung der Anteil 100 % (alle Batches sind C).
+# Ein einzelner C-Batch nach einem B-Batch ist der normale Wechsel und zaehlt nicht.
+C_LAUF_MINDESTENS = 2
 
 # --------------------------------------------------------------- Ankerkopf
 _KOPFZEILE = re.compile(r"^\*\*(?P<name>[^:*]{2,30}):\*\*\s*(?P<text>.*)$")
@@ -957,16 +961,26 @@ def c_rate(cfg, n: int = STANDARD_FENSTER, reihen: list[dict] | None = None) -> 
     nachpruefbar bleibt. Faellt der Median aus (kein Kopf-Batch im Fenster), tritt das
     Mittel an seine Stelle - `quelle` sagt, welche der beiden Zahlen gerechnet wurde.
 
-    Kein Aufruf aus `durchsatz()` heraus (das waere ein Kreis: `c_rate` -> `plan_ist` ->
-    `durchsatz`); die Textbauer holen die Rate ueber `durchsatz_zeilen`.
+    **R13bn (Aussensicht M242-3).** Beide Zahlen kommen jetzt aus DERSELBEN lueckenlosen
+    Quelle: der **Preflight-Reihe** (`c_trend`, Zeile `C Koepfe` je
+    `analysis/_preflight_<N>.txt`). Vorher nahm der Median die Zuwaechse aus der
+    PLAN/IST-Reihe - die haengt an den **kanonischen Bilanzdateien**
+    (`analysis/_m<N>/_bilanz<N>.txt`), und die fehlen fuer einzelne Batches (gemessen:
+    B241, `git show --stat c9660c3`). Der Median liess diesen Batch damit still weg und
+    stand zu hoch (B237-B243: +3 statt +2 mit den Zuwaechsen +4, +2, +2). Das Mittel kam
+    schon immer aus der Preflight-Reihe - jetzt also beide.
+
+    `n` und `reihen` bleiben in der Signatur (Aufrufer `plan_ist_text`), bestimmen die
+    Grundmenge aber NICHT mehr: die ist das Trendfenster `TREND_FENSTER` (so wie beim
+    Mittel), damit Median und Mittel dieselben Schritte zaehlen.
     """
-    rows = reihen if reihen is not None else plan_ist(cfg, n)
-    kopf = [(int(r["batch"]), int(r["c_delta"])) for r in rows
-            if (r.get("strang") or "?") != "B" and (r.get("soll_koepfe") or 0) > 0
-            and r.get("c_delta") is not None]
-    med = median([d for _b, d in kopf])
     trend = c_trend(cfg, TREND_FENSTER)
     schritte = list(trend.get("c_schritte") or [])
+    kopf = [(int(s["bis"]), int(s["delta"])) for s in schritte
+            if s.get("delta") is not None
+            and (soll_koepfe(auftrags_text(cfg, int(s["bis"]))[0]) or 0) > 0]
+    kopf.sort(key=lambda p: -p[0])                 # neueste zuerst (wie bisher)
+    med = median([d for _b, d in kopf])
     mittel = ((sum(s["delta"] for s in schritte) / len(schritte)) if schritte else None)
     med_quelle = ("Median der Zuwaechse der Kopf-Batches ("
                   + ", ".join(f"{d:+d} (B{b})" for b, d in kopf) + ")"
@@ -1058,6 +1072,18 @@ def durchsatz(cfg, n: int = STANDARD_FENSTER) -> dict:
     # C-Zeile NICHTS gerechnet; der R207-Wert bleibt als eigener, benannter Zaehler.
     trend = c_trend(cfg, TREND_FENSTER)
     erg["c_trend"] = trend
+    # R13bn (M243-3): derselbe Trend fuer die VOLL verifizierten Koepfe (Bahnabdeckung).
+    # Er gehoert hierher, nicht in `durchsatz_zeilen` - die Kalender-Hochrechnung
+    # (`kalender_zeilen`) und die BILANZ lesen dieselbe Zahl.
+    ver = verifiziert_trend(cfg, TREND_FENSTER)
+    erg["c_verifiziert"] = ver
+    erg["rate_c_verifiziert"] = (ver.get("median_je_c_batch")
+                                  if ver.get("median_je_c_batch") is not None
+                                  else ver.get("mittel_je_c_batch"))
+    erg["rate_c_verifiziert_quelle"] = (
+        "Median der verifizierten Zuwaechse je C-Batch ("
+        + ", ".join(f"{s['delta']:+d} (B{s['bis']})" for s in ver["c_schritte"]) + ")"
+        if ver.get("gemessen") and ver.get("c_schritte") else "")
     if trend["gemessen"] and trend.get("mittel_je_c_batch") is not None:
         erg["mittel_c_koepfe"] = trend["mittel_je_c_batch"]
         erg["mittel_c_quelle"] = ("Preflight-Messung: C Koepfe je C-Batch "
@@ -1067,19 +1093,60 @@ def durchsatz(cfg, n: int = STANDARD_FENSTER) -> dict:
         erg["mittel_c_quelle"] = ("nicht gemessen (" +
                                    (trend.get("grund") or "keine Preflight-Reihe") + ")")
     erg["anteil_gemessen"] = (len(c_fenster) / len(fenster)) if fenster else None
+    # R13bn (M242-3): der TATSAECHLICHE C-Anteil. Gemessen wird an der lueckenlosen
+    # Preflight-Reihe und nur an Batches mit BELEGTEM Strang (B/C); unbekannte zaehlen
+    # nicht mit (vorher zaehlten sie als C und blaehten den Anteil auf).
+    arten = [(int(e["batch"]), (strang_von_batch(cfg, int(e["batch"])).get("strang") or "?"))
+             for e in (trend.get("reihe") or [])]
+    bekannt = [a for _b, a in arten if a in ("B", "C")]
+    erg["anteil_gemessen"] = (sum(1 for a in bekannt if a == "C") / len(bekannt)
+                              if bekannt else None)
+    erg["anteil_gemessen_basis"] = (f"{len(bekannt)} Batches mit belegtem Strang"
+                                     + (f", {len(arten) - len(bekannt)} ohne Beleg"
+                                        if len(arten) > len(bekannt) else ""))
+    # Der LAUFENDE ABSCHNITT am Ende der Reihe: endet sie mit mehreren C-Batches, ruht
+    # Strang B - dann ist der Anteil fuer die Hochrechnung 100 %, nicht der Mittelwert
+    # ueber eine Zeit, in der B noch mitlief (gemessen 02.10.2026: B241, B242, B243 sind
+    # C, davor B238/B240).
+    lauf_c, lauf_von = 0, 0
+    for b, a in reversed(arten):
+        if a != "C":
+            break
+        lauf_c += 1
+        lauf_von = b
+    erg["c_lauf"] = lauf_c
+    erg["c_lauf_von"] = lauf_von
     erg["anteil_c"] = plan.get("anteil")
     # R13bb (M224-5): die Zeile nennt Quelle (Datei:Zeile) UND Stand der Regel (z. B.
     # "ab B222, Nutzerentscheidung R221-1, 2026-09-30") - vorher stand nur der Wortlaut da,
     # und der kam aus der ueberholten 2:1-Zeile.
     if plan.get("anteil"):
         ort = f"{plan['datei']}:{plan['zeile_nr']}" if plan.get("zeile_nr") else plan["datei"]
-        erg["anteil_quelle"] = (f"Regel {ort} \"{plan.get('regel') or ''}\""
-                                + (f" ({plan['stand']})" if plan.get("stand") else ""))
+        plan_quelle = (f"Regel {ort} \"{plan.get('regel') or ''}\""
+                       + (f" ({plan['stand']})" if plan.get("stand") else ""))
+        erg["anteil_quelle"] = plan_quelle
     else:
+        plan_quelle = ""
         erg["anteil_quelle"] = ""
-    if not erg["anteil_c"] and erg["anteil_gemessen"]:
-        erg["anteil_c"] = erg["anteil_gemessen"]
-        erg["anteil_quelle"] = "gemessen im Fenster (kein Mischverhaeltnis in hybrid-plan.md)"
+    if lauf_c >= C_LAUF_MINDESTENS:
+        # R13bn: der gemessene Abschnitt schlaegt die Plan-Regel - die Regel beschreibt
+        # den geplanten Wechsel, der Abschnitt zeigt, dass Strang B ruht.
+        erg["anteil_c"] = 1.0
+        regel_kurz = (f"; Plan-Regel nennt {plan['anteil'] * 100:.0f} % "
+                      f"({plan.get('datei')}:{plan.get('zeile_nr') or '-'})"
+                      if plan.get("anteil") else "")
+        erg["anteil_quelle"] = (
+            f"gemessen: die letzten {lauf_c} Batches sind C "
+            f"(B{lauf_von}..B{arten[-1][0]}; Strang B ruht)" + regel_kurz)
+    elif not erg["anteil_c"]:
+        if erg["anteil_gemessen"] is not None:
+            erg["anteil_c"] = erg["anteil_gemessen"]
+            erg["anteil_quelle"] = ("gemessen an der Preflight-Reihe "
+                                     f"({erg['anteil_gemessen_basis']}): "
+                                     f"{erg['anteil_gemessen'] * 100:.0f} % C-Batches "
+                                     "(kein Mischverhaeltnis in hybrid-plan.md)")
+        else:
+            erg["anteil_quelle"] = ""
     return erg
 
 
@@ -1113,6 +1180,15 @@ def kalender_zeilen(cfg, offen: float, d: dict, einheit: str = "Koepfe",
     else:
         zeilen.append(f"{einzug}-> Kalender-Batches: nicht rechenbar (kein Anteil der "
                       f"C-Batches belegbar)")
+    # R13bn (M243-3): die zweite Rechnung auf die VOLL verifizierten Koepfe. Der
+    # Kopfzaehler zaehlt Koepfe mit offenem Rumpf mit (800660D4) - diese Zeile zeigt,
+    # wie sich dieselbe Restmenge rechnet, wenn nur Verifiziertes zaehlt.
+    ver = float(d.get("rate_c_verifiziert") or 0)
+    if ver > 0:
+        zeilen.append(f"{einzug}-> mit dem VERIFIZIERTEN Zuwachs (+{ver:.1f} {einheit} je "
+                      f"C-Batch; {d.get('rate_c_verifiziert_quelle') or 'Bahnabdeckung'}): "
+                      f"ca. {float(offen) / ver:.0f} C-Batches (HYPOTHESIS - zaehlt nur "
+                      f"voll verifizierte Koepfe)")
     return zeilen
 
 
@@ -1606,6 +1682,57 @@ def c_trend(cfg, n: int = 12) -> dict:
                               if c_schritte else None),
         "c_batches": c_batches,
         "c_schritte": c_schritte,
+        "grund": "",
+    }
+
+
+def verifiziert_trend(cfg, n: int = TREND_FENSTER) -> dict:
+    """Die Reihe **`C verifiziert`** (Bahnabdeckungszeile) aus den Preflight-Dateien.
+
+    R13bn (Aussensicht M243-3): der Kopfzaehler (`C Koepfe`, gleich zur Referenz) zaehlt
+    Koepfe mit, deren Rumpf fehlt - gemessen an 800660D4: der Vergleich endet in beiden
+    Welten am `bctr`, sobald die Fallruempfe erreichbar sind, scheitert er. Die Zahl der
+    VOLL verifizierten Koepfe bewegt sich langsamer (B240 91 -> B243 92, waehrend der
+    Kopfzaehler 122 -> 123 zeigt). Der Trend fuehrt deshalb beide Zahlen.
+
+    Quelle ist wie bei `c_trend` eine maschinengeschriebene Zeile derselben
+    Preflight-Dateien (`Bahnabdeckung … verifiziert <n> | teilgeprueft <m>` bzw.
+    `Nachrueckliste`), eine Datei je Batch - lueckenlos. Rueckgabe wie `c_trend`, nur mit
+    `median_je_c_batch`/`mittel_je_c_batch` aus den verifizierten Zuwaechsen.
+    """
+    spanne = max(1, int(n))
+    reihe = [e for e in preflight_bahnabdeckung(cfg, spanne + 1)
+             if e.get("verifiziert") is not None]
+    leer = {"gemessen": False, "reihe": reihe, "erst": None, "letzt": None, "delta": None,
+            "anzahl_batches": 0, "luecken": [], "schritte": [], "c_schritte": [],
+            "median_je_c_batch": None, "mittel_je_c_batch": None, "n_gemessen": len(reihe)}
+    if len(reihe) < 2:
+        leer["grund"] = (f"nur {len(reihe)} Preflight-Datei(en) mit der Zeile "
+                         "'Bahnabdeckung … verifiziert' im Fenster")
+        return leer
+    erst, letzt = reihe[0], reihe[-1]
+    haben = {e["batch"] for e in reihe}
+    luecken = [b for b in range(erst["batch"] + 1, letzt["batch"]) if b not in haben]
+    schritte = [{"von": a["batch"], "bis": b["batch"],
+                 "delta": int(b["verifiziert"]) - int(a["verifiziert"]),
+                 "benachbart": b["batch"] - a["batch"] == 1}
+                for a, b in zip(reihe, reihe[1:])]
+    c_nummern = {int(e["batch"]) for e in reihe
+                 if strang_von_batch(cfg, int(e["batch"])).get("strang") != "B"}
+    c_schritte = [s for s in schritte if s["benachbart"] and s["bis"] in c_nummern]
+    deltas = [s["delta"] for s in c_schritte]
+    return {
+        "gemessen": True,
+        "reihe": reihe,
+        "erst": erst, "letzt": letzt,
+        "delta": int(letzt["verifiziert"]) - int(erst["verifiziert"]),
+        "anzahl_batches": letzt["batch"] - erst["batch"],
+        "n_gemessen": len(reihe),
+        "luecken": luecken,
+        "schritte": schritte,
+        "c_schritte": c_schritte,
+        "median_je_c_batch": median(deltas),
+        "mittel_je_c_batch": (sum(deltas) / len(deltas)) if deltas else None,
         "grund": "",
     }
 
@@ -2226,9 +2353,13 @@ def pflichtzeile_hinweis(cfg, batch: int) -> str:
 def _mischung_zeile(cfg, d: dict) -> list[str]:
     """Die Mischungs-Zeile: wieviele C-Batches im Fenster - und was die Regel sagt (R13aa).
 
-    Zwei Zahlen, bewusst getrennt: **gemessen** (Anteil im Fenster) und **Regel**
-    (Mischverhaeltnis aus `hybrid-plan.md`). Die Kalender-Rechnung nimmt die Regel, wenn
-    es sie gibt - sie beschreibt die Zukunft; im Fenster liegen noch reine C-Batches.
+    Zwei Zahlen, bewusst getrennt: **gemessen** (Anteil im Fenster, nur Batches mit
+    belegtem Strang) und **Regel** (Mischverhaeltnis aus `hybrid-plan.md`).
+
+    R13bn (M242-3): die Kalender-Rechnung nimmt den **gemessenen Abschnitt**, wenn die
+    Reihe mit mehreren C-Batches endet (Strang B ruht) - die Plan-Regel beschreibt den
+    geplanten Wechsel und stand im Widerspruch zu dem, was die Batches wirklich taten.
+    Welche Zahl gilt, steht im Text (`anteil_quelle`).
     """
     gem = d.get("anteil_gemessen")
     n = int(d.get("n") or 0)
@@ -2237,12 +2368,16 @@ def _mischung_zeile(cfg, d: dict) -> list[str]:
         return []
     teile = [f"  Mischung     : {c} C von {n} Batches im Fenster ({gem * 100:.0f} %)"
              if gem is not None else "  Mischung     : nicht ermittelbar"]
+    quelle = str(d.get("anteil_quelle") or "")
     regel = d.get("anteil_c")
-    if regel and d.get("anteil_quelle", "").startswith("Regel"):
-        teile[0] += (f"; Regel {d['anteil_quelle'][6:]} -> jeder "
+    if d.get("c_lauf"):
+        teile[0] += (f"; die letzten {int(d['c_lauf'])} Batches sind C (ab B{int(d['c_lauf_von'])}) "
+                     f". Anteil fuer die Rechnung: {(regel or 0) * 100:.0f} %")
+    elif regel and quelle.startswith("Regel"):
+        teile[0] += (f"; Regel {quelle[6:]} -> jeder "
                      f"{1 / regel:.0f}. Batch ist ein C-Batch ({regel * 100:.0f} %)")
     elif regel:
-        teile[0] += f"; Anteil fuer die Rechnung: {regel * 100:.0f} % ({d['anteil_quelle']})"
+        teile[0] += f"; Anteil fuer die Rechnung: {regel * 100:.0f} % ({quelle})"
     return teile
 
 def durchsatz_alt(cfg, n: int = STANDARD_FENSTER) -> dict:
@@ -2272,6 +2407,7 @@ def durchsatz_zeilen(cfg, n: int = STANDARD_FENSTER) -> list[str]:
     d["c_rate"] = raten
     d["rate_c_koepfe"] = raten["rate"]
     d["rate_c_quelle"] = raten["quelle"]
+    ver = d.get("c_verifiziert") or {}
     if not d["fenster"]:
         return ["  Durchsatz    : nicht ermittelbar (keine Bilanzdatei gefunden)"]
     letzter = d["letzter"]
@@ -2301,6 +2437,26 @@ def durchsatz_zeilen(cfg, n: int = STANDARD_FENSTER) -> list[str]:
         zeilen.append(f"                 Quelle dieser Zeilen: analysis/{e['datei']} bis "
                       f"analysis/{l['datei']} (Zeile \"C Koepfe\", "
                       f"{trend['n_gemessen']} Dateien)")
+        # R13bn (M243-3): dieselbe Reihe fuer die VOLL verifizierten Koepfe.
+        if ver.get("gemessen"):
+            ve, vl = ver["erst"], ver["letzt"]
+            vspanne = (f"{ver['anzahl_batches']} Batches"
+                       + (", lueckenlos" if not ver["luecken"] else
+                          ", Luecken: " + ", ".join(f"B{b}" for b in ver["luecken"])))
+            zeilen.append(f"                 Trend C verifiziert (Bahnabdeckung, gleiche "
+                          f"Dateien) B{ve['batch']} {ve['verifiziert']} -> "
+                          f"B{vl['batch']} {vl['verifiziert']} = {ver['delta']:+d} Koepfe "
+                          f"({vspanne})")
+            if ver.get("median_je_c_batch") is not None:
+                zeilen.append(f"                 Rate C verifiziert: Median "
+                              f"{ver['median_je_c_batch']:+.0f} je C-Batch | Mittel "
+                              f"{ver['mittel_je_c_batch']:+.1f} je C-Batch "
+                              f"({len(ver['c_schritte'])} C-Batch-Schritte) - die Zahl der "
+                              f"VOLL verifizierten Koepfe; der Kopfzaehler oben zaehlt "
+                              f"Koepfe mit offenem Rumpf mit")
+        else:
+            zeilen.append("                 C verifiziert: nicht gemessen ("
+                          + str(ver.get("grund") or "keine Bahnabdeckungszeile") + ")")
     else:
         zeilen.append("                 NICHT GEMESSEN: "
                       + str(trend.get("grund") or "keine Preflight-Reihe gefunden"))

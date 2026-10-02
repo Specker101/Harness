@@ -8,8 +8,11 @@ Je Punkt ein Abschnitt, je Punkt ein Commit:
      hoechstens eine Ausloesung. Anlass: EINE Marke aus der B241-Review hat vier
      Außensicht-Laeufe ausgeloest (meta-240 bis meta-243).
   2. Nur messen: Verbrauch je Aufruftyp (Beleg `docs/_r13bn_verbrauch.txt`).
-  3. Prognose (M242-3/M243-3): Median aus der lueckenlosen Preflight-Reihe, tatsaechlicher
-     C-Anteil, Trend zusaetzlich auf `C verifiziert`.
+  3. **Prognose** (M242-3/M243-3): der Median der Koepfe je C-Batch kommt aus der
+     **lueckenlosen Preflight-Reihe** statt aus den Bilanzdateien (die fuer einzelne
+     Batches fehlen - B241), die Kalender-Hochrechnung nimmt den **gemessenen C-Anteil**
+     (Strang B ruht -> 100 %), und der Trend fuehrt **zusaetzlich** `C verifiziert`.
+     Stand: `tests/fixtures/stand_b243` (Reihe B236-B243).
 
 Alles laeuft in Wegwerf-Verzeichnissen; das Decomp-Repo wird nur gelesen.
 """
@@ -25,7 +28,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from hx import aussensicht                                          # noqa: E402
+from hx import aussensicht, bilanz, stand                            # noqa: E402
 from hx.config import load_config                                   # noqa: E402
 from hx.orchestrator import Orchestrator                            # noqa: E402
 from hx.util import Log, ensure_dir, write_text_atomic              # noqa: E402
@@ -182,6 +185,96 @@ class TestAbbruchMarkeEinmal(Basis):
         """Ohne das Verbuchen im Orchestrator bliebe die Sperre wirkungslos."""
         quelle = inspect.getsource(Orchestrator._do_aussensicht)
         self.assertIn("marker_marke_setzen", quelle)
+
+
+# ============================== 3) Prognose: Median, C-Anteil, "C verifiziert"
+FIXTURE_B243 = Path(__file__).resolve().parent / "fixtures" / "stand_b243"
+
+
+class BasisStand(Basis):
+    """Der eingefrorene Stand `stand_b243` (Reihe B236..B243) im Wegwerf-Verzeichnis."""
+
+    def setUp(self):
+        super().setUp()
+        shutil.copytree(FIXTURE_B243 / "root", self.root, dirs_exist_ok=True)
+        shutil.copytree(FIXTURE_B243 / "decomp", self.decomp, dirs_exist_ok=True)
+        self.ana = self.decomp / "analysis"
+
+
+class TestPrognoseStandB243(BasisStand):
+    """Punkt 3 mit der echten Reihe B237-B243 (M242-3/M243-3)."""
+
+    def test_median_kommt_aus_der_preflight_reihe(self):
+        r = stand.c_rate(self.cfg)
+        self.assertEqual(r["kopf_batches"], [(241, 2), (239, 2), (237, 4)])
+        self.assertEqual(r["median"], 2.0, "+4 (B237), +2 (B239), +2 (B241)")
+        self.assertEqual(r["mittel"], 1.6, "alle C-Batch-Schritte des Fensters")
+        self.assertIn("+2 (B241)", r["quelle"], "der Batch steht in der Grundmenge")
+
+    def test_der_batch_ohne_bilanzdatei_zaehlt_mit(self):
+        """B241 hat keine kanonische Bilanzdatei - genau der Anlass von M242-3."""
+        self.assertFalse((self.ana / "_m241").exists())
+        self.assertIn(241, [b for b, _d in stand.c_rate(self.cfg)["kopf_batches"]])
+
+    def test_ohne_die_preflight_datei_steht_die_alte_zahl(self):
+        """Gegenprobe: faellt B241 aus der Reihe, kommt wieder 3 heraus (so war es)."""
+        (self.ana / "_preflight_241.txt").unlink()
+        r = stand.c_rate(self.cfg)
+        self.assertEqual([b for b, _d in r["kopf_batches"]], [239, 237])
+        self.assertEqual(r["median"], 3.0)
+
+    def test_ohne_benachbarte_datei_kein_schritt(self):
+        """Die Reihe muss LUECKENLOS sein - ein fehlender Nachbar ergibt keinen Schritt."""
+        (self.ana / "_preflight_239.txt").unlink()
+        r = stand.c_rate(self.cfg)
+        self.assertNotIn(239, [b for b, _d in r["kopf_batches"]])
+
+    def test_c_anteil_ist_der_gemessene_abschnitt(self):
+        d = stand.durchsatz(self.cfg)
+        self.assertEqual(d["c_lauf"], 3, "B241, B242, B243 sind C-Batches")
+        self.assertEqual(d["anteil_c"], 1.0, "Strang B ruht - kein 50-%-Abschlag")
+        self.assertIn("B241..B243", d["anteil_quelle"])
+        self.assertIn("Plan-Regel nennt 50 %", d["anteil_quelle"])
+
+    def test_mischungszeile_nennt_den_abschnitt(self):
+        zeile = "\n".join(stand._mischung_zeile(self.cfg, stand.durchsatz(self.cfg)))
+        self.assertIn("die letzten 3 Batches sind C (ab B241)", zeile)
+        self.assertIn("Anteil fuer die Rechnung: 100 %", zeile)
+
+    def test_kalenderzeile_ohne_50_prozent_abschlag(self):
+        d = dict(stand.durchsatz(self.cfg), rate_c_koepfe=6.0, rate_c_quelle="Median (Test)")
+        zeilen = "\n".join(stand.kalender_zeilen(self.cfg, 30, d))
+        self.assertIn("-> 5 C-Batches bei +6.0 Koepfe je C-Batch", zeilen)
+        self.assertIn("ca. 5 KALENDER-Batches", zeilen)      # 5 / 1.0, nicht 5 / 0,5
+        self.assertNotIn("ca. 10 KALENDER-Batches", zeilen)
+
+    def test_verifizierter_trend_steht_daneben(self):
+        v = stand.verifiziert_trend(self.cfg)
+        self.assertTrue(v["gemessen"], v.get("grund"))
+        self.assertEqual((v["erst"]["batch"], v["erst"]["verifiziert"]), (236, 87))
+        self.assertEqual((v["letzt"]["batch"], v["letzt"]["verifiziert"]), (243, 92))
+        self.assertEqual(v["delta"], 5)
+        reihe = {e["batch"]: e["verifiziert"] for e in v["reihe"]}
+        self.assertEqual(reihe[237], 90)
+        # Die Reihe B237..B243 darin: +2 - der Kopfzaehler meldet im selben Fenster +4
+        # (der Kopf 800660D4 ist nur deshalb "referenzgleich", weil der Pruefstand am
+        # `bctr` aufhoert; M243-3).
+        self.assertEqual(reihe[243] - reihe[237], 2)
+
+    def test_durchsatzzeile_und_bilanz_nennen_ihn(self):
+        text = "\n".join(stand.durchsatz_zeilen(self.cfg))
+        self.assertIn("Trend C verifiziert (Bahnabdeckung", text)
+        self.assertIn("B236 87 -> B243 92 = +5", text)
+        self.assertIn("Rate C verifiziert: Median +1 je C-Batch", text)
+        btext = "\n".join(bilanz._c_trend_zeile(self.cfg))
+        self.assertIn("C verifiziert: B236 87 -> B243 92 = +5", btext)
+        self.assertIn("Median +1 je C-Batch", btext)
+
+    def test_hochrechnung_mit_verifiziertem_zuwachs(self):
+        d = dict(stand.durchsatz(self.cfg), rate_c_koepfe=6.0, rate_c_quelle="Median (Test)")
+        zeilen = "\n".join(stand.kalender_zeilen(self.cfg, 30, d))
+        self.assertIn("VERIFIZIERTEN Zuwachs (+1.0 Koepfe je C-Batch", zeilen)
+        self.assertIn("ca. 30 C-Batches (HYPOTHESIS", zeilen)
 
 
 if __name__ == "__main__":
