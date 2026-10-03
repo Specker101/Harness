@@ -1363,6 +1363,17 @@ class StreamStats:
                  if isinstance(ev.get("num_turns"), int)]
         return sum(werte) if werte else None
 
+    def letzter_aufruf(self) -> str:
+        """Der zuletzt BEGONNENE Werkzeugaufruf als kurze Zeile ('' = keiner). (R13bq)
+
+        Fuer die Stillstands-Warnung (`proc.run_stream` -> `stille_info`): sie soll sagen,
+        WORAUF gewartet wird, nicht nur dass gewartet wird.
+        """
+        if not self.tools:
+            return ""
+        t = self.tools[-1]
+        return f"{t.get('name')}: {kurz_input(t.get('input') or {})}"[:200]
+
     def runden(self) -> int:
         """Werkzeugrunden: Modellantworten MIT Werkzeugaufruf (R13ar).
 

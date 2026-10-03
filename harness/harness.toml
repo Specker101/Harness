@@ -86,6 +86,12 @@ hard_cost_usd     = 2.0
 daily_budget_usd  = 10.0
 reviewer_wall_s   = 900
 reviewer_alarm_s  = 600
+# R13bq (03.10.2026, Nutzerauftrag): Stillstands-Warnung des Mitschnitts. Kommt so viele
+# Minuten KEINE Zeile mehr an, schreibt `proc.run_stream` eine WARN-Zeile (Konsole +
+# Protokoll) mit dem zuletzt begonnenen Werkzeugaufruf. Vorgabe **20 min**: die
+# gemessenen langen Aufrufe (B257: 1323,7 / 1082,8 / 974,5 / 962,7 / 879,0 s) sollen
+# nicht jeden Batch anschlagen - gemeldet wird erst, wenn es laenger still bleibt.
+stille_warn_min   = 20
 
 # R13ad (Auftrag 2026-09-29): die Umschaltschwelle liegt `umschalt_vor_alarm_s` Sekunden
 # VOR der Alarmgrenze. Ab hier arbeitet der Worker die Nachrueckliste ab bzw. streicht

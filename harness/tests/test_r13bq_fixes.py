@@ -22,7 +22,9 @@ from __future__ import annotations
 
 import ctypes
 import inspect
+import json
 import os
+import shutil
 import sys
 import unittest
 from pathlib import Path
@@ -30,7 +32,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from hx import cli, util                                          # noqa: E402
+from hx import cli, proc, streamjson, util, worker               # noqa: E402
+from hx.config import load_config                                # noqa: E402
+from hx.util import Log, ensure_dir                              # noqa: E402
 
 
 class TestQuickEdit(unittest.TestCase):
@@ -77,6 +81,92 @@ class TestQuickEdit(unittest.TestCase):
         self.assertEqual(nachher.value & util.ENABLE_QUICK_EDIT, 0)
         # und der Aufruf meldet Erfolg, wenn es ein Handle gibt
         self.assertTrue(util.konsole_quickedit_aus())
+
+
+class TestStilleWarnung(unittest.TestCase):
+    """Punkt 2 - Warnung, wenn laenger keine Zeile im Mitschnitt ankommt."""
+
+    def test_unter_der_schwelle_keine_meldung(self):
+        self.assertEqual(util.stille_warnung(0, 1200, 0), (0, ""))
+        self.assertEqual(util.stille_warnung(1199.9, 1200, 0), (0, ""))
+
+    def test_erste_meldung_bei_voller_schwelle(self):
+        stufe, text = util.stille_warnung(1200, 1200, 0)
+        self.assertEqual(stufe, 1)
+        self.assertIn("kein Mitschnitt-Zeichen seit 20 min", text)
+        self.assertIn("1. Meldung", text)
+
+    def test_jede_volle_schwelle_eine_meldung(self):
+        # 30 min bei 20-min-Schwelle: Stufe 1 ist schon gemeldet -> nichts.
+        self.assertEqual(util.stille_warnung(1800, 1200, 1), (1, ""))
+        stufe, text = util.stille_warnung(3600, 1200, 1)
+        self.assertEqual(stufe, 3)
+        self.assertIn("seit 60 min", text)
+        self.assertIn("3. Meldung", text)
+
+    def test_abgeschaltet_und_kaputte_werte(self):
+        self.assertEqual(util.stille_warnung(9999, 0, 0), (0, ""))
+        self.assertEqual(util.stille_warnung(9999, None, 2), (0, ""))
+        self.assertEqual(util.stille_warnung(-5, 1200, 0), (0, ""))
+
+    def test_der_worker_reicht_die_schwelle_durch(self):
+        quelle = inspect.getsource(worker.run_batch)
+        self.assertIn("stille_warn_s=stille_warn_s", quelle)
+        self.assertIn("stille_info=stats.letzter_aufruf", quelle)
+
+    def test_schwelle_steht_in_der_konfiguration(self):
+        cfg = load_config()
+        self.assertEqual(float(cfg.get("limits", "stille_warn_min", 20)), 20)
+
+    def test_letzter_aufruf_nennt_das_werkzeug(self):
+        st = streamjson.StreamStats()
+        self.assertEqual(st.letzter_aufruf(), "")
+        st.feed(json.dumps({"type": "assistant", "message": {
+            "id": "m1", "model": "deepseek-flash[1m]",
+            "content": [{"type": "tool_use", "id": "t1", "name": "PowerShell",
+                         "input": {"command": "python -u scripts/preflight.py before"}}]}}))
+        self.assertIn("PowerShell", st.letzter_aufruf())
+        self.assertIn("preflight.py", st.letzter_aufruf())
+
+    def test_der_echte_lauf_meldet_die_stille(self):
+        """Echter Kindprozess, der schweigt - mit kleiner Schwelle, kein langes Warten.
+
+        Gemessen wird der ganze Weg: `proc.run_stream` zaehlt die Stille, schreibt die
+        WARN-Zeile ins Protokoll (Konsole) und ruft `stille_info` fuer den Zusatz.
+        """
+        tmp = ensure_dir(Path(ROOT) / "tests" / "_tmp_r13bq")
+        try:
+            log = Log(tmp / "log.jsonl", echo=False)
+            kind = [sys.executable, "-u", "-c",
+                    "import time; time.sleep(1.0); print('fertig', flush=True)"]
+            res = proc.run_stream(kind, os.environ, str(ROOT), tmp / "s.jsonl",
+                                  log=log, stille_warn_s=0.3,
+                                  stille_info=lambda: "PowerShell: test.py")
+            self.assertGreaterEqual(res.stille_warnungen, 2)
+            self.assertGreaterEqual(res.stille_max_s, 0.5)
+            zeilen = (tmp / "log.jsonl").read_text(encoding="utf-8")
+            self.assertIn("Mitschnitt still", zeilen)
+            self.assertIn("PowerShell: test.py", zeilen)
+            # Die Ausgabe des Kindes kommt trotzdem vollstaendig an.
+            self.assertIn("fertig", (tmp / "s.jsonl").read_text(encoding="utf-8"))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_ohne_schwelle_keine_meldung(self):
+        tmp = ensure_dir(Path(ROOT) / "tests" / "_tmp_r13bq")
+        try:
+            log = Log(tmp / "log.jsonl", echo=False)
+            kind = [sys.executable, "-u", "-c",
+                    "import time; time.sleep(0.8); print('x', flush=True)"]
+            res = proc.run_stream(kind, os.environ, str(ROOT), tmp / "s2.jsonl",
+                                  log=log, stille_warn_s=None)
+            self.assertEqual(res.stille_warnungen, 0)
+            self.assertEqual(res.stille_max_s, 0.0)
+            # Ohne Schwelle gibt es NICHTS zu melden - das Protokoll bleibt (leer).
+            p = tmp / "log.jsonl"
+            self.assertFalse(p.is_file() and "Mitschnitt still" in p.read_text("utf-8"))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":

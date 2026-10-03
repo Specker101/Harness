@@ -1053,6 +1053,10 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
         # Chat). Alle Ereignisse laufen in DENSELBEN `stats` - damit gelten Anfragen- und
         # Kostenlimit ueber den GANZEN Batch. Die harte Wanduhr wird je Teillauf um die
         # bereits verbrauchte Zeit gekuerzt.
+        # R13bq: Stillstands-Warnung. Vorgabe 20 min - die gemessenen langen
+        # Werkzeugaufrufe (B257: 1323,7 / 1082,8 / 974,5 s) sollen NICHT jeden Batch
+        # anschlagen; sie stehen ohnehin als `langsamste` Aufrufe im Ergebnis.
+        stille_warn_s = float(cfg.get("limits", "stille_warn_min", 20)) * 60.0
         laeufe: list[dict] = []
         fortsetzungen: list[dict] = []
         fortsetz_text = prompt
@@ -1076,6 +1080,8 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
                                                             time.time()),
                                  log=log, cancel=cancel, stdin_text=fortsetz_text,
                                  stderr_path=fehler, job=job,
+                                 stille_warn_s=stille_warn_s,
+                                 stille_info=stats.letzter_aufruf,
                                  on_start=(pid_merken if resume else on_start_erster))
                 laeufe.append({"run": run, "ziel": ziel, "resume": resume})
                 if resume and ziel.is_file():

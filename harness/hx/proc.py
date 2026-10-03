@@ -16,7 +16,7 @@ import threading
 import time
 from pathlib import Path
 
-from .util import ensure_dir, now_iso
+from .util import ensure_dir, now_iso, stille_warnung
 
 
 def kill_tree(pid: int) -> None:
@@ -49,13 +49,17 @@ class StreamRun:
         self.finished_at: str | None = None
         # R13j: Wie lange wurde nach dem Kind-Ende auf das Ausgabeende gewartet?
         self.eof_offen_s: float | None = None
+        # R13bq: Stillstands-Meldungen (kein Zeichen im Mitschnitt) und die laengste Stille.
+        self.stille_warnungen: int = 0
+        self.stille_max_s: float = 0.0
 
 
 def run_stream(cmd: list[str], env: dict, cwd: str, out_path: str | Path,
                on_event=None, hard_wall_s: float | None = None,
                cancel=None, log=None, stdin_text: str | None = None,
                stderr_path: str | Path | None = None, on_start=None,
-               eof_gnade_s: float = 60.0, job=None) -> StreamRun:
+               eof_gnade_s: float = 60.0, job=None,
+               stille_warn_s: float | None = 1200.0, stille_info=None) -> StreamRun:
     """Startet den Prozess, liest stdout zeilenweise (UTF-8) und ruft on_event(line).
 
     on_event(line) darf "kill" zurueckgeben -> Prozessbaum wird beendet und
@@ -72,6 +76,13 @@ def run_stream(cmd: list[str], env: dict, cwd: str, out_path: str | Path,
     `job` (R13v3): ein `aufraeumen.Job`. Der frisch gestartete Kindprozess wird ihm
     sofort zugewiesen; beim Schliessen des Jobs beendet Windows alles, was dann noch
     darin laeuft (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`).
+
+    `stille_warn_s` / `stille_info` (R13bq): kommen so viele Sekunden KEINE Zeile mehr
+    an, steht eine WARN-Zeile im Protokoll (und damit im Konsolenfenster) - mit dem
+    zuletzt begonnenen Werkzeugaufruf, den `stille_info()` nachliefert. Anlass: in B257
+    schien der Mitschnitt 45 min leer, ohne dass das Fenster etwas dazu sagte (die Zeit
+    steckte in blockierenden Werkzeugaufrufen und in der Pufferung der CLI). `None`
+    schaltet die Warnung ab.
     """
     res = StreamRun()
     out_path = Path(out_path)
@@ -151,6 +162,7 @@ def run_stream(cmd: list[str], env: dict, cwd: str, out_path: str | Path,
         start = time.time()
         letzte_zeile = start
         last_cancel_check = 0.0
+        stille_stufe = 0
         drain_deadline = None
         while True:
             try:
@@ -186,6 +198,25 @@ def run_stream(cmd: list[str], env: dict, cwd: str, out_path: str | Path,
                         drain_deadline = now + 10
                 except Exception:
                     pass
+            # R13bq: Stillstand melden - die Konsole sagt dann selbst, dass (noch) nichts
+            # kommt. Die Stufe waechst bei jeder vollen Schwelle; `util.stille_warnung`
+            # rechnet (reine Funktion), hier wird nur geloggt und gezaehlt.
+            if stille_warn_s and not res.killed_reason:
+                still = now - letzte_zeile
+                res.stille_max_s = max(res.stille_max_s, round(still, 1))
+                stufe, text = stille_warnung(still, stille_warn_s, stille_stufe)
+                if text:
+                    stille_stufe = stufe
+                    res.stille_warnungen += 1
+                    info = ""
+                    if stille_info is not None:
+                        try:
+                            info = str(stille_info() or "")[:160]
+                        except Exception:
+                            info = ""
+                    if log:
+                        log.warn("Mitschnitt still - " + text,
+                                 letzte_zeile_s=round(still, 1), letzter_aufruf=info)
             if drain_deadline and time.time() > drain_deadline:
                 break
             if (not res.killed_reason and eof_gnade_s and proc.poll() is not None

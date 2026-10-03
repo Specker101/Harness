@@ -368,6 +368,28 @@ def konsole_quickedit_aus(log=None) -> bool:
         return False
 
 
+def stille_warnung(dauer_s: float, schwelle_s: float, letzte_stufe: int) -> tuple[int, str]:
+    """(neue Stufe, Text) fuer die Stillstands-Warnung des Mitschnitts (R13bq).
+
+    Anlass (gemessen 2026-10-03, B257): zwischen dem Start der Fortsetzung (20:21) und
+    dem ersten sichtbaren Inhalt schien der Mitschnitt 45 min leer - das Harness-Fenster
+    sagte dazu nichts. Die Zeit steckte in blockierenden Werkzeugaufrufen (93,7 % der
+    Batch-Zeit, Einzelaufrufe bis 1323 s) und in der Pufferung der claude-CLI.
+
+    Gemeldet wird bei jeder VOLLEN Schwelle (1x, 2x, 3x …): eine lange Stille soll
+    sichtbar bleiben, ohne das Protokoll zuzumuellen. `Text == ""` heisst: jetzt nicht
+    melden. Reine Rechnung - der Aufrufer (proc.run_stream) entscheidet ueber Log/Text.
+    """
+    if schwelle_s is None or float(schwelle_s) <= 0:
+        return 0, ""
+    dauer = max(0.0, float(dauer_s))
+    stufe = int(dauer // float(schwelle_s))
+    if stufe <= int(letzte_stufe):
+        return int(letzte_stufe), ""
+    return stufe, (f"kein Mitschnitt-Zeichen seit {dauer / 60.0:.0f} min "
+                   f"(Schwelle {float(schwelle_s) / 60.0:.0f} min, {stufe}. Meldung)")
+
+
 # ------------------------------------------------------------------- Logging
 
 class Log:
