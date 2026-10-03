@@ -1,0 +1,50 @@
+R13bq Punkt 4 - Sonde: schreibt die claude-CLI blockweise?
+Zeitpunkt: 2026-10-03T22:59:06+02:00
+Modell: deepseek-flash[1m] | config_dir: g:/Harness/harness/cc-worker | base_url: https://api.deepseek.com/anthropic
+Aufruf: C:/Users/Benji/.local/bin/claude.exe -p --output-format stream-json --verbose --model … --max-turns 1   (Prompt ueber stdin, kein MCP)
+
+### A) stdout = PIPE (wie im Harness)
+   rc=0 Dauer=2.8 s Bytes=6221 Stuecke=11
+   Stueck  1: bei    1.27 s      2150 B
+   Stueck  2: bei    2.58 s       192 B
+   Stueck  3: bei    2.59 s       192 B
+   Stueck  4: bei    2.61 s       192 B
+   Stueck  5: bei    2.61 s       192 B
+   Stueck  6: bei    2.61 s       192 B
+   Stueck  7: bei    2.61 s       192 B
+   Stueck  8: bei    2.61 s       192 B
+   Stueck  9: bei    2.62 s       611 B   Inhalt-Zeit 2026-10-03T20:59:09.618Z -> Ankunft +0.00 s spaeter (Verzug)
+   Stueck 10: bei    2.70 s       554 B   Inhalt-Zeit 2026-10-03T20:59:09.635Z -> Ankunft +0.07 s spaeter (Verzug)
+   Stueck 11: bei    2.77 s      1562 B
+   stderr: [claude-code:unrecognized_model] {"model":"deepseek-flash[1m]","query_source":"sdk"}
+
+### B) stdout = DATEI (Gegenprobe)
+   rc=0 Dauer=3.0 s Bytes=10154 Proben=13
+   bei    0.00 s  Datei        0 B
+   bei    0.25 s  Datei        0 B
+   bei    0.50 s  Datei        0 B
+   bei    0.75 s  Datei        0 B
+   bei    1.00 s  Datei        0 B
+   bei    1.25 s  Datei        0 B
+   bei    1.50 s  Datei     2150 B
+   bei    1.75 s  Datei     2150 B
+   bei    2.00 s  Datei     2150 B
+   bei    2.25 s  Datei     2150 B
+   bei    2.52 s  Datei     2342 B
+   bei    2.77 s  Datei     8570 B
+   bei    3.02 s  Datei    10154 B
+   stderr: [claude-code:unrecognized_model] {"model":"deepseek-flash[1m]","query_source":"sdk"}
+
+### Verdikt
+   A) erstes Byte bei 1.27 s von 2.8 s Laufzeit, 11 Stuecke fuer 6221 B, groesste Luecke 1.31 s
+   B) Datei bei der ersten Probe 0 B, am Ende 10154 B
+   -> A: die Ausgabe kam unterwegs an (kein reines Endpuffern in diesem Lauf).
+   -> B: die Datei waechst WAEHREND des Laufs (kein Endpuffern).
+
+### Was diese Sonde NICHT zeigt
+   Der Aufruf ist KURZ (kein Werkzeugaufruf, kein MCP-Server) - genau die Lage,
+   in der B257/B258 die 0-Byte-Phasen auftraten, ist damit NICHT nachgestellt.
+   Belegt ist nur: am Rohr und an der Datei kommt die Ausgabe WAEHREND des Laufs
+   an - eine allgemeine Blockpufferung der CLI gibt es nicht.
+
+Belege fuer die Ausgangsbeobachtung (B257/B258) stehen in docs/_r13bq_belege.md.
