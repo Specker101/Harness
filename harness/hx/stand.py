@@ -2260,8 +2260,15 @@ _RE_STRANG_ZEILE = re.compile(r"^\s*\**\s*Strang\s+([BC])\b", re.IGNORECASE | re
 _RE_STRANG_PFLICHT = re.compile(r"^\s*\**\s*STRANG\s*:\s*([BC])\b", re.IGNORECASE | re.MULTILINE)
 _RE_SOLL_STRANG = re.compile(r"SOLL-KOEPFE[^\n]{0,80}?\bStrang\s+([BC])\b", re.IGNORECASE)
 
+# R13bp (2026-10-03, Nutzerauftrag): REIHENFOLGE GEKLAERT. Primaerquelle ist die
+# Pflichtzeile `STRANG: B|C` (bzw. `SOLL-KOEPFE: n (Strang B, …)`) im AUFTRAG DES BATCHES
+# SELBST; der Auftragstext des Batches kommt direkt danach. Die Pflichtzeile
+# `B-SCHRITT:` des Reviews ist nur noch RUECKFALL: das Review von B254 liegt im Ordner
+# b255 und trug dort die B-SCHRITT-Zeile des NACHFOLGENDEN B-Batches ("B-SCHRITT: 4/5
+# Boot bis Hauptschleife, B-Batch 26") - B254 (ein C-Batch) galt dadurch als B-Batch.
 STRANG_QUELLEN = ("Pflichtzeile STRANG/SOLL-KOEPFE im Auftrag",
-                  "Pflichtzeile B-SCHRITT im Review", "Auftrag runs/b<N>/auftrag.md",
+                  "Auftrag des Batches (Strang-Zeile/Marker)",
+                  "Pflichtzeile B-SCHRITT im Review (Rueckfall)",
                   "analysis/hybrid-plan.md")
 
 
@@ -2479,17 +2486,25 @@ def strang_von_batch(cfg, batch: int) -> dict:
       0. **Pflichtzeile** `STRANG: B|C` bzw. `SOLL-KOEPFE: <n> (Strang B, …)` der
          Instruktion, die diesen Batch bestellt hat (`runs/b<N>/auftrag.md`, sonst
          `runs/b<N>/review.md` → `auftrags_text`, R13ac2).
-      1. **Pflichtzeile** `B-SCHRITT: <n>/5 …` bzw. `B-SCHRITT: kein B-Batch (Strang C)`
-         in der Review-Zusammenfassung dieses Batches (R13w).
-      2. **Auftrag** `runs/b<N>/auftrag.md`, wenn er diesen Batch ausdruecklich nennt
-         ("B208 ist der ERSTE Batch von Strang B", "B210 ist ein C-Batch").
+      1. **Auftrag des Batches selbst** (R13bp): dieselbe Instruktion, wenn ihr Fliesstext
+         diesen Batch beim Strang nennt - "Strang C (Handport)…", "B208 ist der ERSTE
+         Batch von Strang B" (`_auftrag_strang`).
+      2. **Rueckfall**: die Pflichtzeile `B-SCHRITT: <n>/5 …` bzw. `B-SCHRITT: kein
+         B-Batch (Strang C)` im Review, das diesen Batch BEWERTET hat (R13w).
       3. **`analysis/hybrid-plan.md`**, Zeile "Mischverhaeltnis …" (`B208 B, B209 B, B210 C`).
-      4. **Auftrag**, sonst: eine Zeile, die mit dem Strang beginnt ("Strang B, Batch 2
-         von hoechstens 20; …" nennt den Batch, um den der Auftrag geht).
 
     Bleibt es leer (`strang == ""`), wird **nichts** geraten: der Batch zaehlt dann wie
     bisher als C-Batch (die vorsichtige Seite - ein C-Batch zu viel zeigt eine Bewegung
     zu viel, aber verschluckt keinen Befund).
+
+    **R13bp (2026-10-03, Nutzerauftrag - gemessen).** Vorher stand die B-SCHRITT-Zeile an
+    Stelle 1 und die Auftragszeile an Stelle 2. Das Review von Batch N liegt im Ordner
+    `runs/b<N+1>` (R13x) - dort steht damit die Zusammenfassung des Batches, der N
+    BEWERTET; eine B-SCHRITT-Zeile kann darin den naechsten B-Batch beschreiben
+    (`runs/b255/review.md`: "B-SCHRITT: 4/5 Boot bis Hauptschleife, B-Batch 26",
+    waehrend B254 ein C-Batch war). B254 galt dadurch als B-Batch und B255 nur zufaellig
+    richtig. Die B-SCHRITT-Zeile ist deshalb **Rueckfall**; die Auftragszeile des eigenen
+    Batches ("Strang C (Handport)…" in `runs/b254/auftrag.md`) entscheidet vorher.
     """
     # R13ac2 ZUERST: die ausdrueckliche Pflichtzeile der Instruktion ist der beste Beleg -
     # B211 trug nur sie ("SOLL-KOEPFE: 0 (Strang B, …)") und galt sonst als C-Batch.
@@ -2497,17 +2512,17 @@ def strang_von_batch(cfg, batch: int) -> dict:
     s = _pflicht_strang(text)
     if s in ("B", "C"):
         return {"strang": s, "quelle": f"{STRANG_QUELLEN[0]} ({quelle})"}
+    # R13bp: der AUFTRAG DES BATCHES SELBST (nicht der Review des Folge-Batches).
+    if text:
+        s = _auftrag_strang(text, batch)
+        if s in ("B", "C"):
+            return {"strang": s, "quelle": f"{STRANG_QUELLEN[1]} ({quelle})"}
     review = review_zu_batch(cfg, batch)
     if review:
         if _RE_B_SCHRITT.search(review):
-            return {"strang": "B", "quelle": STRANG_QUELLEN[1]}
+            return {"strang": "B", "quelle": STRANG_QUELLEN[2]}
         if _RE_B_SCHRITT_C.search(review):
-            return {"strang": "C", "quelle": STRANG_QUELLEN[1]}
-    auftrag = _auftrag_zu_batch(cfg, batch)
-    if auftrag:
-        s = _auftrag_strang(auftrag, batch)
-        if s in ("B", "C"):
-            return {"strang": s, "quelle": STRANG_QUELLEN[2]}
+            return {"strang": "C", "quelle": STRANG_QUELLEN[2]}
     plan = plan_mischung(cfg)
     if plan.get("paare", {}).get(int(batch)):
         return {"strang": plan["paare"][int(batch)],

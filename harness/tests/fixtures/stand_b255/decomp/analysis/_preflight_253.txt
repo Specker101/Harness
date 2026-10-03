@@ -1,0 +1,45 @@
+﻿Profile reproduzierbar: koepfe 150, gleich 150, abweichend 0 (-)
+=== PREFLIGHT (before) 2026-10-03 09:38 ===
+Lauf 2026-10-03 09:38:01 | HEAD 7743c8240a8305f2e291285b7644a7c5978cca3a
+Werkzeugkette g++ PATH=g++ (Rev4, Built by MSYS2 project) 16.2.0 | g++ BAU=g++.exe (Rev4, Built by MSYS2 project) 16.2.0 | ppc_poc.exe 575521 B, port_selftest.exe 7601332 B, port_gl.exe 7713210 B
+Pruefung           Ergebnis                                                 Urteil
+R207 tails         704 rueckwaerts (a 31 / b 0 / c 0)                       OK
+R207 check         gebaut 704 / benannt 11200 / NICHT benannt 0             OK
+R207 sanity        704 Koepfe / auffaellig 0                                OK
+R207 nachzuegler   70/32 (12/5) + (d) 9/3                                   Meldung
+R216 A abi         263                                                      Meldung
+R216 B impl        81                                                       Meldung
+R216 C doc         78                                                       Meldung
+R216 D doc4        689/112                                                  Meldung
+P100-Selbstprobe   OK (Fenster 1, Fund 1)                                   OK
+M5 Kopf            287 Faelle / 2860 Vergleichszeilen / 0 Abweichungen, T3 34/34, T4 34/34 (Binaer aktuell) OK
+C Koepfe           149 / 8456 / 0 referenzgleich | davon teilgeprueft 34 / Bloecke ohne Begruendung 158 / Pruefstand kann nicht erzeugen 38 / Rumpf offen 1 (106 Insn) OK
+C Koepfe live      7/150 live verglichen gleich (Hybrid-Lauf 200M)          Meldung
+C Einbindung       18 / 38 / 94                                             Meldung
+Bahnabdeckung      115/150 | Bloecke 1005/1213 | verifiziert 116 | teilgeprueft 34 | Pruefstand kann nicht erzeugen 38 | Material fehlt 0 | ohne Begruendung 158 OK
+R391 Commit-Reihenfolge OK                                                       OK
+Ausgefuehrte Menge 1081/2076 | 50636 Insn | Spannen-Insn 69355 | davon nicht referenzgleich 63890 | referenzgleich Insn 5465 | referenzgleich 107 | nicht referenzgleich 974 | Rumpf offen 0 | referenzgleich aber teilgeprueft 27 | MAME-Coverage 4825/50636 | Quelle capture/ppc_coverage.bin+capture/ppc_cov_boot.bin (2026-08-31) Meldung
+Profil-Lauf (m227) koepfe 150, gleich 150, abweichend 0, nicht erzeugt 0, prof rc 0 0.7 s, Vergleich 0.2 s Meldung
+C verifiziert      116                                                      OK
+Formen der C-Koepfe orakelgeprueft 47 / 75 | Koepfe 150 | Faelle 30560 | Abweichungen 0 | Wirkung ohne Randwert 0 OK
+C Fallrueckgang    keiner                                                   Meldung
+Hybrid-Lauf        200000000 | 8000EC3C | Schranke | 3120/42599 | nein      OK
+Hybrid-Lauf 20M    20000000 | 8000EC40 | Schranke | 1474/42599 | nein       OK
+Hybrid-SPU         2 Lesezugriffe, 9 Schreibzugriffe, erste PC L 80013DFC / S 80013FB4, 7 distinkte Offsets OK
+Hybrid-Attrappe4   399 Lesezugriffe, erste PC 8000C898, Werte 00000000(60),00200000(68),00030000(1),11030080(2),11030001(2),11030082(2),11030003(2),11030084(2),11030005(2),11030086(2),11030007(2),11030088(2) OK
+Hybrid-Anteil nativ 57819/200000000 | Aufrufe alle Registry-Koepfe 5441 gleich 3565 ungleich 0 | nicht vergleichbar: 1876 | davon Schatten-Zustand: 0 | Schritte im Schatten bei nativen Rufen: 57819 | Zeitbasis aus Schattenschrittzahl: 3565 | --ohne-tb (tb aus Schatten): 0 | Summe gleich: ja Meldung
+Hybrid-Funktionen nativ 7/98 | verglichen gleich: 7 | Host nötig: 4 | Gesamt 150/2087 OK
+Hybrid-A4          Schritte bis erster Eintritt echter Halt 696571792 | Anteil nativ NICHT GEMESSEN (Kalibriersumme B231: 1511) | Rufe ohne Kalibrierwert 195348 | Halt-PC 8001684C | Selbstsprung-PC 8001684C | Halt-Art Selbstsprung OK
+Zwischenspeicher   Zwischenspeicher Treffer                                 Meldung
+analysis neue .py  0                                                        Meldung
+Profile reproduzierbar koepfe 150, gleich 150, abweichend 0, HEAD 7743c82, 10690/10A20/856B4 10690=gleich 10A20=gleich 856B4=gleich [OK] OK
+Bauliste ⊆ Registry 734 Eintraege, 0 fehlend                                 OK
+Archiv vor Batch   0                                                        OK
+Archiv Kodierung   5 (Altbestand 5)                                         OK
+Binary Quellen     6 Binaer, 0 veraltet, 0 fehlend                          OK
+REG regression     OK, 32 Faelle + 271 Anker, 0 Fehler                      OK
+REG GL-Anker       9/9 OK, 0 GL-TIMEOUT, 0 GL-UMGEBUNG, 0 sonst. FEHLER     OK
+REG GL-Referenz    9/9 gleich                                               OK
+
+Befunde: 0   (Beleg-Archiv: 3 Altfassung(en) gesichert -> analysis\_archiv)
+=> BEFORE SAUBER

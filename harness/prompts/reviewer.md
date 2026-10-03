@@ -442,6 +442,20 @@ WARTET AUF LIVE-AUFNAHME: … (nur Material, das fehlt - bremst nicht)
 
 ### Strang B: Fortschritt und Auslöser melden (R13w, Nutzerentscheid 2026-09-28)
 
+- **Pflichtzeile in JEDER Instruktion (R13bp, 2026-10-03):** die erste Zeile deines
+  `<DS_INSTRUCTION>`-Blocks ist
+
+  `STRANG: B` bzw. `STRANG: C`
+
+  Sie sagt, welchem Strang der Batch gehört, den die Instruktion **bestellt**. Der Harness
+  liest sie als **erste** Quelle der Batch-Art (`stand.strang_von_batch`, Platz 0); erst
+  danach zählen der übrige Auftragstext und — nur als Rückfall — die `B-SCHRITT`-Zeile des
+  Reviews. Grund (gemessen): die `B-SCHRITT`-Zeile steht im Review, das den Batch
+  **bewertet** hat, und beschrieb in `runs/b255/review.md` den **nachfolgenden** B-Batch
+  ("B-SCHRITT: 4/5 Boot bis Hauptschleife, B-Batch 26"), während B254 ein C-Batch war —
+  B254 galt dadurch als B-Batch. Schreibst du die Zeile nicht, bleibt die Art eine
+  Ableitung aus dem Fließtext.
+
 - **In jedem B-Batch ist diese Zeile Pflicht** (sie ist der einzige maschinell lesbare
   Fortschrittswert des B-Strangs; die Aussensicht und `/bilanz` hängen daran):
 
