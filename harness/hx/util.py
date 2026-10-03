@@ -315,6 +315,59 @@ def tail_lines(path: str | Path, n: int) -> list:
     return lines[-n:]
 
 
+# ------------------------------------------------------------------ Konsole (R13bq)
+# Der Harness schreibt JEDE Log-Zeile mit `print(..., flush=True)` (`Log._emit` oben).
+# Steht das Konsolenfenster im Markiermodus (QuickEdit, Windows-Standard), BLOCKIERT
+# dieser Schreibvorgang, bis die Auswahl aufgehoben wird - der druckende Thread steht.
+# Waehrend eines Batches drucken der Takt-Thread (Telegram-/Limit-Warnungen) und der
+# Haupt-Thread; ein stehender Takt-Thread sieht dann auch /stop und /pause nicht mehr,
+# denn der STOP-Marker wird in `orchestrator.poll()` (Takt-Thread) gelesen. Der WORKER
+# ist nicht betroffen: seine Ausgabe geht in `runs/b<N>/stream*.jsonl` (Datei, kein
+# Konsolenhandle) - das Fenster steht, der Batch laeuft weiter. Gemeldet 2026-10-03
+# (B257: Fenster zeigte nichts mehr, der Mitschnitt wuchs weiter).
+STD_INPUT_HANDLE = -10
+ENABLE_QUICK_EDIT = 0x0040
+ENABLE_EXTENDED_FLAGS = 0x0080
+
+
+def ohne_quickedit_modus(mode: int) -> int:
+    """Konsolen-EINGABEmodus ohne QuickEdit (reine Rechnung, damit pruefbar)."""
+    return (int(mode) & ~ENABLE_QUICK_EDIT) | ENABLE_EXTENDED_FLAGS
+
+
+def konsole_quickedit_aus(log=None) -> bool:
+    """QuickEdit im EIGENEN Konsolenfenster abschalten; `True` = steht jetzt aus.
+
+    Ohne Konsolenhandle (umgeleitete Ausgabe, Testlauf, Dienst) gibt es nichts zu
+    schalten - dann `False`. Fehler werden geschluckt und geloggt: die Abschaltung ist
+    eine Bequemlichkeit, kein Betriebsmittel. Rueckgabe `True` heisst auch "war schon
+    aus" - der Aufrufer soll nicht zwischen beiden Faellen unterscheiden muessen.
+    """
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+        k = ctypes.windll.kernel32
+        handle = k.GetStdHandle(STD_INPUT_HANDLE)
+        mode = ctypes.c_uint32()
+        if not k.GetConsoleMode(handle, ctypes.byref(mode)):
+            if log:
+                log.info("Konsole: kein Konsolenhandle - QuickEdit bleibt, wie es ist")
+            return False
+        neu = ohne_quickedit_modus(mode.value)
+        if neu == mode.value:
+            return True                      # war schon aus
+        if not k.SetConsoleMode(handle, neu):
+            if log:
+                log.warn("Konsole: SetConsoleMode fehlgeschlagen")
+            return False
+        return True
+    except Exception as exc:                 # noqa: BLE001 - nie toedlich
+        if log:
+            log.warn("Konsole: QuickEdit nicht abgeschaltet", fehler=str(exc)[:120])
+        return False
+
+
 # ------------------------------------------------------------------- Logging
 
 class Log:

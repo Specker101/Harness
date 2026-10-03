@@ -26,7 +26,8 @@ import sys
 from pathlib import Path
 
 from .config import load_config
-from .util import Log, ensure_dir, now_iso, read_json, read_text, write_text_atomic
+from .util import (Log, ensure_dir, konsole_quickedit_aus, now_iso, read_json, read_text,
+                   write_text_atomic)
 
 
 def _log(cfg, name: str = "harness") -> Log:
@@ -41,6 +42,11 @@ def cmd_run(args) -> int:
     if args.mock:
         cfg.data.setdefault("mock", {})["enabled"] = True
     log = _log(cfg)
+    # R13bq: QuickEdit aus - sonst blockiert ein markierter Text im Fenster jeden
+    # `print(..., flush=True)` und mit ihm den druckenden Thread (s. `util.konsole_
+    # quickedit_aus`). Nur eine Bequemlichkeit: Fehler sind harmlos.
+    if konsole_quickedit_aus(log):
+        log.info("Konsole: QuickEdit abgeschaltet (Markieren blockiert sonst die Ausgabe)")
     log.info("Harness startet", config=str(cfg.path), mock=bool(args.mock))
     orch = Orchestrator(cfg, log, mock=bool(args.mock))
     try:
