@@ -364,8 +364,9 @@ def build_command(cfg, profile, run_path: Path, session_id: str,
     denied = profile.mcp_denied_names() if profile.mcp else ["mcp__ghidra"]
     # R13v (2026-09-28): das WARTE-PRIMITIV sperren. Gemessen in B207: zwei
     # Abfrageschleifen kosteten 1083,7 s (`stream.jsonl:76873/77152`). Der erlaubte
-    # Weg fuer lange Laeufe steht im Vorspann (`Wait-Process -Timeout`, oder synchron
-    # mit `timeout` bis 600000 ms).
+    # Weg fuer lange Laeufe steht im Vorspann: EIN blockierender Aufruf mit `timeout`
+    # bis 1800000 ms (R13bo-5 hat den Hintergrund-Weg `Start-Process`/`Wait-Process`
+    # dort entfernt - er widersprach R13aj).
     # NACHGEMESSEN am 2026-09-28 mit echtem claude-Lauf (tools/r13v_sperrprobe.py,
     # Beleg docs/_r13v_sperrprobe.txt): die Sperre wirkt NICHT als Praefix-Regel.
     # `PowerShell(Start-Sleep*)` lehnt `Start-Sleep` an JEDER Stelle des Befehls ab -
@@ -927,8 +928,9 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
                 log.warn("Warteschleife erkannt", art=art, grund=neu_warte[0].get("grund"),
                          warte_s=letzte, summe_s=summe, befehl=neu_warte[0].get("kurz"))
                 if art == "kill":
-                    res.alarms.append(text + "\nABBruch: erlaubt sind `Wait-Process -Timeout`"
-                                             " oder ein synchroner Aufruf mit `timeout`.")
+                    res.alarms.append(text + "\nABBruch: erlaubt ist EIN blockierender "
+                                             "Aufruf mit `timeout` (bis 1800000 ms) - "
+                                             "kein Nachfragen im Hintergrund.")
                     if notify:
                         notify("ABBRUCH - " + text)
                     res.killed_reason = "warteschleife"
@@ -1656,19 +1658,20 @@ RECHENZEIT (R13v/R13ah, gemessen 2026-09-28 - bitte einhalten)
   not complete within its 600s timeout and was moved to the background"). Genau das fuehrte
   in B207 zu zwei Abfrageschleifen und **1084 s verlorener Wartezeit**, in B174 zu 1993 s,
   in B213/B214 zu Kappungen von Preflight und `mutalle`.
-- **Der erlaubte Weg fuer alles, was laenger als ein paar Minuten dauert:**
-  1. **Synchron mit ausdruecklicher Zeitgrenze:** beim Werkzeugaufruf `timeout`
-     mitgeben (Millisekunden, **bis 1800000 = 30 min**). Das ist der Normalfall fuer
-     `c_kopf.py prof`, `vergl alle`, `preflight.py`, `port_build.ps1`, Mutationslaeufe.
-     Gemessen (R13ah): `timeout=600000` ist KEINE Erhoehung - das war schon die alte
-     Obergrenze; wer mehr braucht, muss mehr setzen.
-     R13bl (02.10.2026): die Grenze war in R13bj vorlaeufig auf 60 min erhoeht, weil der
-     Preflight von B235 mit **1799 s** genau an der alten 1800-s-Grenze stand. Der
-     Preflight von B236 brauchte **456 s** - die Bedingung fuer den Rueckbau ist erfuellt,
-     es gilt wieder **30 min**. Wer laenger braucht, nimmt Weg 2.
-  2. **Nur wenn es laenger als 30 min dauern kann:** `Start-Process … -PassThru` und
-     dann **EIN** `Wait-Process -Id $p.Id -Timeout 480` - und danach die Ausgabe
-     lesen. Kein zweiter Wartebefehl, keine Schleife.
+- **Der erlaubte Weg fuer alles, was laenger als ein paar Minuten dauert: EIN normaler,
+  blockierender Aufruf mit ausdruecklicher Zeitgrenze.** Beim Werkzeugaufruf `timeout`
+  mitgeben (Millisekunden, **bis 1800000 = 30 min**). Das ist der Normalfall fuer
+  `c_kopf.py prof`, `vergl alle`, `preflight.py`, `port_build.ps1`, Mutationslaeufe.
+  Gemessen (R13ah): `timeout=600000` ist KEINE Erhoehung - das war schon die alte
+  Obergrenze (R13aj); wer mehr braucht, muss mehr setzen.
+  R13bl (02.10.2026): die Grenze war vorlaeufig auf 60 min erhoeht, weil der Preflight von
+  B235 mit **1799 s** genau an der alten 1800-s-Grenze stand. Der Preflight von B236
+  brauchte **456 s** - es gilt wieder **30 min**.
+- **Hybrid-Laeufe NIE parallel.** Ein `hybrid_lauf.exe`-Lauf und alles, was dieselben
+  Aufzeichnungen liest, laeuft **allein** und blockierend - nie zwei gleichzeitig.
+- **Laeuft etwas voraussichtlich laenger als 30 min:** nicht in den Hintergrund schieben
+  und nicht nachfragen/pollen, sondern die **Stopp-Schalter** bzw. das **Vorwaermskript**
+  benutzen, das der Auftrag dafuer nennt - und den Rest in die NACHRUECKLISTE schreiben.
 - **`Start-Sleep` ist GESPERRT** - nachgemessen am 2026-09-28 mit echtem Lauf: das
   Werkzeug lehnt `Start-Sleep` an JEDER Stelle ab (nackt, hinter `;`, in `if (…) { … }`,
   in der Schleife) und loest auch den Alias `sleep` auf (`docs/_r13v_sperrprobe.txt`).
@@ -1676,9 +1679,6 @@ RECHENZEIT (R13v/R13ah, gemessen 2026-09-28 - bitte einhalten)
   Harness erkennt sie im Mitschnitt, meldet sie und **bricht den Lauf ab**, sobald 300 s
   Wartezeit zusammenkommen (`streamjson.warte_muster`). Das gilt auch fuer Formen, die
   die Sperre nicht faengt (`[Threading.Thread]::Sleep(2000)`).
-- **Unabhaengige Rechenlaeufe parallel starten, nicht nacheinander.** Die Maschine hat
-  4 Kerne; ein Lauf ueber alle IDs in EINEM Prozess ist fast immer schneller als viele
-  Einzelaufrufe hintereinander (jeder zahlt das Laden erneut).
 - Fortschritt pruefen statt warten: Dateigroesse/mtime oder Prozess-CPU-Delta
   (`(Get-Process -Id N).CPU`) in EINEM kurzen Aufruf, ohne Schleife.
 

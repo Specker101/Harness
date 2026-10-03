@@ -210,7 +210,10 @@ class TestAnzeige(Base):
         pre = worker.WORKER_PREAMBLE
         self.assertIn("RECHENZEIT", pre)
         self.assertIn("parallel", pre)
-        self.assertIn("Wait-Process -Id $p.Id -Timeout", pre)
+        # R13bo-5: der Hintergrund-Weg (Start-Process/Wait-Process) ist gestrichen -
+        # der blockierende Aufruf ist der einzige erlaubte Weg.
+        self.assertIn("Hybrid-Laeufe NIE parallel", pre)
+        self.assertNotIn("Wait-Process -Id $p.Id", pre)
         self.assertNotIn("kurzem Schritt (10-20 s)", pre)
 
 

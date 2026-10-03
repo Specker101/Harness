@@ -149,5 +149,44 @@ class TestReihe(Basis):
         self.assertIn("nicht gemessen", d["text"])
 
 
+class TestWorkerVorlage(Basis):
+    """Punkt 3 (R13bo-5-3): die Worker-Vorlage widerspricht R13aj/R13bj nicht mehr.
+
+    Gestrichen sind "Unabhaengige Rechenlaeufe parallel starten" und der
+    Hintergrund-"Weg 2" mit `Start-Process`/`Wait-Process`; ersetzt durch EINEN
+    blockierenden Aufruf (timeout bis 1800000), "Hybrid-Laeufe nie parallel" und den
+    Verweis auf Stopp-Schalter/Vorwaermskript des Auftrags.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from hx import worker
+        self.pre = worker.WORKER_PREAMBLE
+
+    def test_gestrichene_saetze_fehlen(self):
+        for satz in ("Unabhaengige Rechenlaeufe parallel starten",
+                     "nicht nacheinander",
+                     "Wer laenger braucht, nimmt Weg 2",
+                     "Weg 2",
+                     "Wait-Process -Id $p.Id",
+                     "Nur wenn es laenger als 30 min dauern kann"):
+            self.assertNotIn(satz, self.pre, f"gestrichen: {satz!r}")
+
+    def test_ersatzregeln_stehen_drin(self):
+        self.assertIn("blockierender Aufruf mit ausdruecklicher Zeitgrenze", self.pre)
+        self.assertIn("bis 1800000 = 30 min", self.pre)
+        self.assertIn("Hybrid-Laeufe NIE parallel", self.pre)
+        self.assertIn("Stopp-Schalter", self.pre)
+        self.assertIn("Vorwaermskript", self.pre)
+
+    def test_erzeugter_prompt_traegt_die_regeln(self):
+        from hx import worker
+        voll = worker.build_prompt(self.cfg, "AUFTRAG-TEXT", "", None, "none")
+        self.assertIn("Hybrid-Laeufe NIE parallel", voll)
+        self.assertIn("bis 1800000 = 30 min", voll)
+        self.assertNotIn("Weg 2", voll)
+        self.assertNotIn("Unabhaengige Rechenlaeufe parallel starten", voll)
+
+
 if __name__ == "__main__":
     unittest.main()

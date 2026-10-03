@@ -164,7 +164,11 @@ class TestSperrenUndVorspann(unittest.TestCase):
 
     def test_vorspann_nennt_den_erlaubten_weg(self):
         v = worker.WORKER_PREAMBLE
-        self.assertIn("Wait-Process -Id $p.Id -Timeout", v)
+        # R13bo-5: EIN blockierender Aufruf (timeout bis 1800000) - der Hintergrund-Weg
+        # mit `Start-Process`/`Wait-Process` ist entfernt (Widerspruch zu R13aj).
+        self.assertIn("blockierender Aufruf mit ausdruecklicher Zeitgrenze", v)
+        self.assertNotIn("Wait-Process -Id $p.Id", v)
+        self.assertIn("Hybrid-Laeufe NIE parallel", v)
         self.assertIn("timeout", v)
         self.assertIn("Start-Sleep", v)
         self.assertIn("GESPERRT", v)
