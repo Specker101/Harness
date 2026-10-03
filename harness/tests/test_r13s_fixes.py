@@ -321,7 +321,10 @@ class TestStand(Basis):
                       text)
         self.assertIn("+5 (B101)", text)
         self.assertIn("5 Koepfe je C-Batch", text)
-        self.assertIn("Ziel des naechsten Batches: hoechstens ca.", text)
+        # R13bo-5: die Zielgroesse fuer C (Insn) steht in der C-INSN-Zeile; die
+        # Kopf-Medianzeile ist nur noch Einordnung (kein "hoechstens ca. N Koepfe").
+        self.assertIn("C-INSN (Ausgefuehrte Menge, referenzgleich", text)
+        self.assertNotIn("hoechstens ca.", text)
 
     def test_fragen_text_entscheidbar_und_unklar(self):
         self.anker()

@@ -220,7 +220,12 @@ class TestMedianDerZuwaechse(Basis):
         self.assertIn("+7 (B216)", text)
         self.assertIn("+5 (B219)", text)
         self.assertIn("6 Koepfe je C-Batch", text)
-        self.assertIn("Ziel des naechsten Batches: hoechstens ca. 8", text)
+        # R13bo-5: die Zielgroesse fuer C ist die eigene referenzgleiche INSN - die
+        # Kopf-Medianzeile ist nur noch Einordnung.
+        self.assertIn("nur Einordnung - die ZIELGROESSE fuer C steht in der "
+                      "C-INSN-Zeile", text)
+        self.assertIn("C-INSN (Ausgefuehrte Menge, referenzgleich", text)
+        self.assertNotIn("hoechstens ca.", text)
         # R13ba (M221-5): die zweite Grundmenge steht mit Definition daneben -
         # die Summenzeile ist durch die Rate-Zeile ersetzt.
         self.assertIn("Median Zuwachs (Kopf-Batches): 6", text)
@@ -305,7 +310,8 @@ class TestMedianDerZuwaechseGefroren(Basis):
         self.assertIn("MEDIAN der 5 Zuwaechse der C Koepfe je C-Batch mit SOLL-KOEPFE > 0 "
                       "(+3 (B224), +3 (B222), +1 (B220), +5 (B219), +7 (B216)): "
                       "3 Koepfe je C-Batch", text)
-        self.assertIn("Ziel des naechsten Batches: hoechstens ca. 4", text)
+        # R13bo-5: kein Kopf-Ziel mehr; die Zielgroesse steht in der C-INSN-Zeile.
+        self.assertNotIn("hoechstens ca.", text)
         # Die alte Definition (Median der Summen) haette 88 ergeben.
         self.assertNotIn("88 Koepfe", text)
 

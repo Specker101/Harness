@@ -47,6 +47,9 @@ MAX_DOKUMENTE = 12
 # Aussensicht-Prompt ("BILANZ: TREND DER LETZTEN 12 BATCHES", aussensicht.grenzen) -
 # damit Reviewer, Aussensicht und Bilanz dieselbe Spanne nennen.
 TREND_FENSTER = 12
+# R13bo-5: so viele C-Batches bilden die Zielgroesse "eigene referenzgleiche Insn"
+# (Median) und die Spanne der Prognose.
+INSN_FENSTER = 4
 # R13bn (M242-3): so viele C-Batches am ENDE der Reihe belegen, dass Strang B ruht -
 # dann gilt fuer die Kalender-Hochrechnung der Anteil 100 % (alle Batches sind C).
 # Ein einzelner C-Batch nach einem B-Batch ist der normale Wechsel und zaehlt nicht.
@@ -998,6 +1001,97 @@ def c_rate(cfg, n: int = STANDARD_FENSTER, reihen: list[dict] | None = None) -> 
             "text": rate_text(med, mittel)}
 
 
+def c_insn_text(d: dict) -> str:
+    """Die C-INSN-Zeilen fuer den Review-Prompt (R13bo-5) - '' wenn nicht gemessen."""
+    if not d.get("gemessen"):
+        return ("C-INSN (Ausgefuehrte Menge, referenzgleich): nicht gemessen ("
+                + str(d.get("grund") or "keine Preflight-Reihe") + ")")
+    reihe = d["c_reihe"]
+    einzeln = ", ".join(f"B{e['batch']} {int(e['insn'])}" for e in reihe)
+    ziel = (f"ZIEL des naechsten C-Batches: {d['median']:.0f} Insn (Median der letzten "
+            f"{len(reihe)} C-Batches; Spanne {d['min']:.0f}..{d['max']:.0f})")
+    h = d.get("hypothese")
+    return "\n".join([f"C-INSN (Ausgefuehrte Menge, referenzgleich, eigen): {einzeln}",
+                      ziel, h]) if h else "\n".join(
+        [f"C-INSN (Ausgefuehrte Menge, referenzgleich, eigen): {einzeln}", ziel])
+
+
+def c_insn_rate(cfg, k: int = INSN_FENSTER) -> dict:
+    """Eigene referenzgleiche Insn je C-Batch -> Median, Spanne, Prognose (R13bo-5).
+
+    Anlass (Aussensicht **M249-4**, gemessen 03.10.2026): das Ziel fuer C stand in
+    **Koepfen** ("hoechstens ca. N"), waehrend die laufende Phase nur 176..510 Insn je
+    C-Batch schafft. Die Zielgroesse ist jetzt die **eigene referenzgleiche Insn** aus
+    der Preflight-Zeile `Ausgefuehrte Menge`.
+
+    * "Eigene Insn" eines Batches = **Zuwachs** der kumulierten referenzgleichen Insn
+      (`ausgefuehrte_menge`) gegenueber dem vorigen GEMESSENEN Batch. Ein Batch mit
+      Luecke davor zaehlt nicht (nichts raten).
+    * Gezaehlt werden nur **C-Batches** (`stand.strang_von_batch`); der **Median** der
+      letzten `k` ist die Zielgroesse.
+    * Ausgewiesene **`Zweitkopien`** von Zwillingen werden je Batch abgezogen (die
+      Preflight-Zeile schreibt das Feld heute nicht - dann 0).
+    * **Prognose** = offene Rumpf-Insn (`davon nicht referenzgleich` des neuesten Batches)
+      / Median, mit der Spanne aus min/max der letzten `k` - als **HYPOTHESIS**.
+
+    Rueckgabe: `{gemessen, reihe, c_reihe, median, min, max, offen_insn, teilgeprueft,
+    offen_batch, hypothese, text, grund}`.
+    """
+    k = max(2, int(k))
+    reihe = ausgefuehrte_menge(cfg, k + 4)
+    leer = {"gemessen": False, "reihe": reihe, "c_reihe": [], "median": None, "min": None,
+            "max": None, "offen_insn": None, "teilgeprueft": None, "offen_batch": None,
+            "hypothese": "", "text": "", "grund": ""}
+    if len(reihe) < 2:
+        leer["grund"] = (f"nur {len(reihe)} Preflight-Datei(en) mit der Zeile "
+                         "'Ausgefuehrte Menge'")
+        leer["text"] = c_insn_text(leer)
+        return leer
+    eigene: list[dict] = []
+    for a, b in zip(reihe, reihe[1:]):
+        if int(b["batch"]) - int(a["batch"]) != 1:
+            continue                                     # Luecke: nicht raten
+        if a.get("ref_insn") is None or b.get("ref_insn") is None:
+            continue
+        eigene.append({"batch": int(b["batch"]),
+                       "insn": int(b["ref_insn"]) - int(a["ref_insn"])
+                               - int(b.get("zweitkopien") or 0)})
+    c_reihe = [e for e in eigene
+               if strang_von_batch(cfg, int(e["batch"])).get("strang") != "B"]
+    letzte = c_reihe[-k:]
+    if not letzte:
+        leer["c_reihe"] = c_reihe
+        leer["grund"] = "kein C-Batch-Zuwachs im Fenster"
+        leer["text"] = c_insn_text(leer)
+        return leer
+    werte = [int(e["insn"]) for e in letzte]
+    med = median(werte)
+    neu = reihe[-1]
+    offen = neu.get("offen_insn")
+    prognose = (offen / med) if (offen is not None and med) else None
+    p_von = (offen / max(werte)) if (offen is not None and max(werte)) else None
+    p_bis = (offen / min(werte)) if (offen is not None and min(werte)) else None
+    hypothese = ""
+    if prognose is not None:
+        hypothese = (f"HYPOTHESIS: {int(offen)} offene Rumpf-Insn (davon nicht "
+                     f"referenzgleich, B{neu['batch']}) / Median {med:.0f} Insn "
+                     f"= ca. {prognose:.0f} C-Batches"
+                     + (f" (Spanne ca. {p_von:.0f}..{p_bis:.0f} bei Median "
+                        f"{min(werte)}..{max(werte)})" if p_von is not None else "")
+                     + (f"; davon in teilgeprueften Koepfen {neu['teilgeprueft']}"
+                        if neu.get("teilgeprueft") is not None else "")
+                     + " - Insn der ausgefeuhrten Menge, nicht der Kopfzaehler")
+    elif offen is None:
+        hypothese = "HYPOTHESIS: keine Prognose - offene Rumpf-Insn fehlen in der Zeile"
+    aus = {"gemessen": True, "reihe": reihe, "c_reihe": c_reihe, "median": med,
+           "min": min(werte), "max": max(werte), "offen_insn": offen,
+           "teilgeprueft": neu.get("teilgeprueft"), "offen_batch": int(neu["batch"]),
+           "zweitkopien": sum(int(e.get("zweitkopien") or 0) for e in letzte),
+           "hypothese": hypothese, "grund": ""}
+    aus["text"] = c_insn_text(aus)
+    return aus
+
+
 def durchsatz(cfg, n: int = STANDARD_FENSTER) -> dict:
     """Verifizierte Koepfe und Insn je Batch plus Hochrechnung (R13s).
 
@@ -1823,6 +1917,69 @@ def preflight_c_koepfe(cfg, anzahl: int = 4) -> list[dict]:
                             "koepfe": int(m.group(1)), "faelle": int(m.group(2)),
                             "abweichungen": int(m.group(3))})
                 break
+    return out
+
+
+# ------------------------------------------- Ausgefuehrte Menge: referenzgleiche Insn
+# (R13bo-5, Aussensicht M249-4). Zielgroesse fuer C ist seit dem Insn-Auftrag die
+# referenzgleiche Insn der ausgefeuhrten Menge, nicht die Kopfzahl. Zeile ab B247:
+#   "Ausgefuehrte Menge 1081/2076 | 50636 Insn | Spannen-Insn 69355 |
+#    davon nicht referenzgleich 65052 | referenzgleich Insn 4813 | referenzgleich 97 |
+#    nicht referenzgleich 982 | Rumpf offen 0 | referenzgleich aber teilgeprueft 24 |
+#    MAME-Coverage 4173/50636 | Quelle …"
+# B244..B250 tragen das Feld `referenzgleich Insn` noch nicht - es wird dann aus
+# `Spannen-Insn - davon nicht referenzgleich` abgeleitet (B250: 69355-65052 = 4303).
+_RE_AUSG_ZEILE = _preflight_zeile("Ausgefuehrte Menge", r"(?P<rest>[^\n]*)$")
+_RE_AUSG_REF_INSN = re.compile(r"referenzgleich\s+Insn\s+(\d+)")
+_RE_AUSG_SPANNEN = re.compile(r"Spannen-Insn\s+(\d+)")
+_RE_AUSG_DAVON_NICHT = re.compile(r"davon\s+nicht\s+referenzgleich\s+(\d+)")
+_RE_AUSG_TEILGEPRUEFT = re.compile(r"referenzgleich\s+aber\s+teilgeprueft\s+(\d+)")
+# Optionales Feld - der Preflight schreibt es heute NICHT (dann 0). Wenn die
+# Decomp-Seite "Zweitkopien <n>" ausweist, wird der Wert je Batch abgezogen.
+_RE_AUSG_ZWEITKOPIEN = re.compile(r"Zweitkopien?\s*:?\s*(\d+)")
+
+
+def ausgefuehrte_menge(cfg, anzahl: int = 8) -> list[dict]:
+    """Die Zeile `Ausgefuehrte Menge` je Preflight-Datei (R13bo-5).
+
+    Rueckgabe je Batch: `{batch, datei, ref_insn, ref_insn_quelle, spannen_insn,
+    offen_insn, teilgeprueft, zweitkopien}`.
+      * `ref_insn` = kumulierte **referenzgleiche Insn** (Feld `referenzgleich Insn`;
+        fehlt es, aus `Spannen-Insn - davon nicht referenzgleich` abgeleitet),
+      * `offen_insn` = `davon nicht referenzgleich` - die noch **offenen Rumpf-Insn**,
+      * `teilgeprueft` = `referenzgleich aber teilgeprueft` ("davon in teilgeprueften
+        Koepfen"),
+      * `zweitkopien` = optionales `Zweitkopien <n>` (0, wenn nicht ausgewiesen).
+    Fehlt die Zeile, fehlt der Eintrag - es wird nichts geschaetzt.
+    """
+    out: list[dict] = []
+    for batch, pfad in preflight_dateien(cfg, max(1, int(anzahl))):
+        try:
+            text = preflight_text(pfad)[0]
+        except OSError:
+            continue
+        for zeile in text.splitlines():
+            if not _RE_AUSG_ZEILE.match(zeile):
+                continue
+            m_ref = _RE_AUSG_REF_INSN.search(zeile)
+            m_spann = _RE_AUSG_SPANNEN.search(zeile)
+            m_nicht = _RE_AUSG_DAVON_NICHT.search(zeile)
+            m_teil = _RE_AUSG_TEILGEPRUEFT.search(zeile)
+            m_zweit = _RE_AUSG_ZWEITKOPIEN.search(zeile)
+            if m_ref:
+                ref, quelle = int(m_ref.group(1)), "Feld referenzgleich Insn"
+            elif m_spann and m_nicht:
+                ref = int(m_spann.group(1)) - int(m_nicht.group(1))
+                quelle = "abgeleitet: Spannen-Insn - davon nicht referenzgleich"
+            else:
+                ref, quelle = None, ""
+            out.append({"batch": batch, "datei": pfad.name, "ref_insn": ref,
+                        "ref_insn_quelle": quelle,
+                        "spannen_insn": int(m_spann.group(1)) if m_spann else None,
+                        "offen_insn": int(m_nicht.group(1)) if m_nicht else None,
+                        "teilgeprueft": int(m_teil.group(1)) if m_teil else None,
+                        "zweitkopien": int(m_zweit.group(1)) if m_zweit else 0})
+            break
     return out
 
 
@@ -2932,8 +3089,12 @@ def plan_ist_text(cfg, n: int = STANDARD_FENSTER) -> str:
         einzeln = ", ".join(f"{r['c_delta']:+d} (B{r['batch']})" for r in basis)
         zeilen.append(f"MEDIAN der {len(basis)} Zuwaechse der C Koepfe je C-Batch "
                       f"mit SOLL-KOEPFE > 0 ({einzeln}): {med:.0f} Koepfe je C-Batch "
-                      f"(Ziel des naechsten Batches: hoechstens ca. {med * 1.3:.0f})")
+                      f"(nur Einordnung - die ZIELGROESSE fuer C steht in der "
+                      "C-INSN-Zeile darunter, R13bo-5)")
         zeilen.append("  (" + raten["text"] + ")")
+    # R13bo-5 (Aussensicht M249-4): die Zielgroesse fuer C ist die eigene
+    # referenzgleiche Insn (Preflight-Zeile "Ausgefuehrte Menge"), nicht die Kopfzahl.
+    zeilen.append(c_insn_rate(cfg, INSN_FENSTER)["text"])
     if rueckfall:
         zeilen.append("* Laufzeit NICHT aus runs/b<N>/result.json, sondern aus dem "
                       "Rueckfall (" + "; ".join(rueckfall) + ")")
