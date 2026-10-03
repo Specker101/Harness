@@ -700,9 +700,18 @@ def hybrid_stillstand(cfg) -> str:
                    or HYBRID_STILLSTAND_BATCHES))
     verlauf = stand.hybrid_a4_verlauf(cfg, n + 4)
     reihe = [e for e in verlauf if ist_b_batch(cfg, int(e["batch"]))]
-    if len(reihe) < n:
+    # R13bp (Punkt 4, Nutzerauftrag): Zwischenspeicher-Treffer sind KEINE eigene Messung -
+    # der Preflight druckt dann die Rohausgabe eines aelteren A4-Laufs erneut ab (gemessen
+    # 2026-10-03: B250 und B252-B255 trugen alle denselben Wert, nur B249 und B251 hatten
+    # selbst gemessen). Solche Eintraege fallen aus der VERGLEICHSREIHE, sonst meldet der
+    # Waechter einen Stillstand, den niemand gemessen hat. Ist die Herkunft unbekannt
+    # (Preflight ohne Zeile `Zwischenspeicher`, jeder Lauf vor B250), bleibt der Eintrag
+    # stehen - es wird nichts behauptet.
+    ohne_cache = [e for e in reihe if e.get("cache") is not True]
+    ausgelassen = [e for e in reihe if e.get("cache") is True]
+    if len(ohne_cache) < n:
         return ""
-    letzte = reihe[-n:]
+    letzte = ohne_cache[-n:]
     pcs = {e["halt_pc"] for e in letzte}
     if len(pcs) != 1:
         return ""
@@ -711,10 +720,14 @@ def hybrid_stillstand(cfg) -> str:
         return ""                      # die Schrittzahl STEIGT - also Fortschritt
     b_erst, b_letzt = letzte[0]["batch"], letzte[-1]["batch"]
     b_reihe = ", ".join(f"B{e['batch']}" for e in letzte)
+    zusatz = ("" if not ausgelassen else
+              "; ausgelassen (Zwischenspeicher-Treffer, keine eigene Messung): "
+              + ", ".join(f"B{e['batch']}" for e in ausgelassen))
     return (f"{HYBRID_GRUND} haengt: Halt-PC {letzte[-1]['halt_pc']} unveraendert und "
             f"Schritte {wege[0]} -> {wege[-1]} steigt nicht "
             f"({b_reihe}, Quelle analysis/{letzte[-1]['datei']}, Zeile \"Hybrid-A4\") "
-            f"- kein Fortschritt ueber {n} B-Batches (B{b_erst} bis B{b_letzt})")
+            f"- kein Fortschritt ueber {n} B-Batches (B{b_erst} bis B{b_letzt})"
+            f"{zusatz}")
 
 
 def hybrid_neuester_b(cfg) -> int:
@@ -722,6 +735,10 @@ def hybrid_neuester_b(cfg) -> int:
 
     R13bo-5: dieselbe Quelle wie `hybrid_stillstand` - die Marke muss zu der Reihe
     passen, die der Melder vergleicht (sonst feuert derselbe Stand erneut).
+    R13bp: die Marke nimmt ALLE Eintraege, auch Zwischenspeicher-Treffer. Der Melder
+    vergleicht nur die eigenen Messungen (`hybrid_stillstand`) - waere die Marke daraus
+    gebildet, stuende sie auf einem aelteren Batch als der zuletzt gesehene B-Batch und
+    derselbe Stand wuerde bei jeder Pruefung erneut gemeldet.
     """
     reihe = [e for e in stand.hybrid_a4_verlauf(cfg, 6) if ist_b_batch(cfg, int(e["batch"]))]
     return int(reihe[-1]["batch"]) if reihe else 0

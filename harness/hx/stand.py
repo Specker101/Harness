@@ -1670,6 +1670,29 @@ _RE_HYBRID_A4_ZEILE = re.compile(r"^Hybrid-A4\b(?P<rest>[^\n]*)$", re.IGNORECASE
 _RE_A4_SCHRITTE = re.compile(r"Schritte\b[^\d\n]*(\d+)", re.IGNORECASE)
 _RE_A4_HALT_PC = re.compile(r"\bHalt-PC\s+((?:0[xX])?[0-9A-Fa-f]+)")
 _RE_A4_HALT_ART = re.compile(r"\bHalt-Art\s+(\S+)")
+# R13bp (Punkt 4): Der PREFLIGHT schreibt seit B250 eine eigene Zeile mit der Herkunft der
+# A4-Werte (`scripts/m212_zeilen.py:934-937`, B250 TEIL 1):
+#   "Zwischenspeicher   Zwischenspeicher Treffer Meldung"
+#   "Zwischenspeicher   Zwischenspeicher neu Meldung"
+# `Treffer` heisst: die Rohausgabe kam aus `port/build/hybrid_cache/<key>.txt`, es wurde
+# KEIN eigener A4-Lauf gefahren - die Zahlen sind eine Wiederholung einer aelteren Messung.
+_RE_ZWISCHEN_ZEILE = re.compile(r"^Zwischenspeicher\b(?P<rest>[^\n]*)$", re.IGNORECASE)
+
+
+def cache_herkunft(text: str):
+    """`True` = Zwischenspeicher-Treffer, `False` = eigener Lauf, `None` = unbekannt.
+
+    Quelle ist der Text der Preflight-Zeile `Zwischenspeicher` (R13bp). Fehlt die Zeile
+    (jeder Preflight vor B250), wird **nichts** behauptet: `None`.
+    """
+    t = str(text or "").lower()
+    if not t:
+        return None
+    if re.search(r"\btreffer\b", t):
+        return True
+    if re.search(r"\bneu\b", t):
+        return False
+    return None
 
 
 def preflight_hybrid_fehler(zeilen) -> bool:
@@ -1695,6 +1718,12 @@ def hybrid_a4_verlauf(cfg, anzahl: int = 8) -> list[dict]:
     echter Halt". Preflights mit einer **Hybrid**-Zeile im Status `FEHLER` werden
     AUSGELASSEN (`preflight_hybrid_fehler`, Aussensicht M236-7); fehlt die A4-Zeile
     (vor B240), fehlt der Eintrag - es wird nichts geschaetzt.
+
+    **R13bp (Punkt 4):** zusaetzlich `cache` (True = Zwischenspeicher-Treffer, False =
+    eigener Lauf, None = Zeile fehlt) und `cache_text` aus der Zeile `Zwischenspeicher`.
+    Ein Treffer ist eine WIEDERHOLUNG einer aelteren Messung (B250 und B252-B255 trugen
+    alle denselben A4-Wert, gemessen am 2026-10-03) - wer eine Reihe vergleicht, muss
+    solche Eintraege ausnehmen (`aussensicht.hybrid_stillstand`).
     """
     out: list[dict] = []
     for batch, pfad in preflight_dateien(cfg, max(1, int(anzahl))):
@@ -1705,6 +1734,12 @@ def hybrid_a4_verlauf(cfg, anzahl: int = 8) -> list[dict]:
         zeilen = text.splitlines()
         if preflight_hybrid_fehler(zeilen):
             continue
+        zw = ""
+        for zeile in zeilen:
+            mz = _RE_ZWISCHEN_ZEILE.match(zeile)
+            if mz:
+                zw = mz.group("rest").strip()
+                break
         for zeile in zeilen:
             m = _RE_HYBRID_A4_ZEILE.match(zeile)
             if not m:
@@ -1718,7 +1753,9 @@ def hybrid_a4_verlauf(cfg, anzahl: int = 8) -> list[dict]:
                         "halt_pc": halt.group(1).upper(),
                         "art": art.group(1) if art else "",
                         "weg": int(weg.group(1)),
-                        "rest": m.group("rest").strip()})
+                        "rest": m.group("rest").strip(),
+                        "cache": cache_herkunft(zw),
+                        "cache_text": zw})
             break
     return out
 

@@ -19,6 +19,7 @@ Alles im Attrappenbetrieb: kein Netz, keine API-Kosten, kein Ghidra.
 
 from __future__ import annotations
 
+import re
 import shutil
 import sys
 import unittest
@@ -27,7 +28,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from hx import stand                                             # noqa: E402
+from hx import aussensicht, stand                                  # noqa: E402
 from hx.config import load_config                                # noqa: E402
 from hx.util import ensure_dir, write_text_atomic                # noqa: E402
 
@@ -181,6 +182,80 @@ class TestReihenfolge(Basis):
         """Der eigene Auftrag darf FREMDE Batches nennen, ohne selbst B zu werden."""
         self.auftrag(209, "Der naechste Batch B210 ist ein C-Batch; B211 wird wieder B.\n")
         self.assertEqual(stand.strang_von_batch(self.cfg, 209)["strang"], "")
+
+
+class TestA4Reihe(Basis, StandFixtureMixin):
+    """R13bp Punkt 4: Zwischenspeicher-Treffer fallen aus der Vergleichsreihe.
+
+    Der Preflight schreibt seit B250 die Zeile `Zwischenspeicher … Treffer|neu` - sie sagt,
+    ob die A4-Werte aus `port/build/hybrid_cache/` kamen (Wiederholung einer aelteren
+    Messung) oder in DIESEM Lauf entstanden. Im festen Stand: B250 und B252-B255 sind
+    Treffer, selbst gemessen haben nur B249 (ohne Zeile) und B251.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.stand_laden()
+
+    # ---------------------------------------------------------------- Hilfen
+    def cache_setzen(self, batch: int, wert: str) -> None:
+        """Die Herkunftszeile des Preflights umschreiben ('Treffer'/'neu')."""
+        p = self.ana / f"_preflight_{batch}.txt"
+        text = p.read_text(encoding="utf-8-sig")
+        neu = re.sub(r"(?m)^Zwischenspeicher\b.*$",
+                     f"Zwischenspeicher  Zwischenspeicher {wert}  Meldung", text)
+        self.assertNotEqual(text, neu, f"_preflight_{batch}.txt hat keine Zeile")
+        write_text_atomic(p, neu)
+
+    def als_b_batch(self, batch: int) -> None:
+        """Einen Batch im Wegwerf-Repo zum B-Batch machen (Auftrag statt Kopie)."""
+        self.auftrag(batch, f"=== AUFTRAG ===\nStrang B (Hybrid-Laeufer), B-Batch {batch}.\n")
+
+    # ---------------------------------------------------------------- Faelle
+    def test_die_herkunft_wird_gelesen(self):
+        reihe = {e["batch"]: e for e in stand.hybrid_a4_verlauf(self.cfg, 7)}
+        self.assertTrue(reihe[250]["cache"], reihe[250]["cache_text"])
+        self.assertFalse(reihe[251]["cache"], reihe[251]["cache_text"])
+        for b in (252, 253, 254, 255):
+            self.assertTrue(reihe[b]["cache"], f"B{b}: {reihe[b]['cache_text']}")
+        self.assertIsNone(reihe[249]["cache"], "vor B250 gab es die Zeile nicht")
+
+    def test_cache_treffer_kommen_nicht_in_die_vergleichsreihe(self):
+        """Ohne die Ausnahme meldete der Waechter einen Stillstand, den niemand gemessen hat.
+
+        B-Batches der Reihe sind B249 (ohne Zeile), B250 und B255 (beide Treffer) - also
+        bleibt EINE eigene Messung uebrig, und die reicht fuer den Vergleich nicht.
+        """
+        self.assertEqual(aussensicht.hybrid_stillstand(self.cfg), "")
+
+    def test_mit_drei_eigenen_messungen_meldet_er_wieder(self):
+        """Gegenprobe: dieselben Werte, aber als eigener Lauf - jetzt schlaegt er an."""
+        self.cache_setzen(250, "neu")
+        self.cache_setzen(255, "neu")
+        text = aussensicht.hybrid_stillstand(self.cfg)
+        self.assertIn("haengt", text)
+        self.assertIn("8001684C", text)
+        self.assertIn("B249", text)
+        self.assertIn("B250", text)
+        self.assertIn("B255", text)
+        self.assertNotIn("ausgelassen", text, "hier wurde nichts ausgelassen")
+
+    def test_ausgelassene_eintraege_werden_genannt(self):
+        """Bei genug eigenen Messungen nennt der Text, was ausgelassen wurde."""
+        for b in (251, 252, 253, 254):
+            self.als_b_batch(b)
+        self.cache_setzen(252, "neu")
+        text = aussensicht.hybrid_stillstand(self.cfg)
+        self.assertIn("haengt", text)
+        self.assertIn("ausgelassen (Zwischenspeicher-Treffer, keine eigene Messung)", text)
+        self.assertIn("B250", text)
+        self.assertIn("B253", text)
+
+    def test_die_marke_bleibt_der_neueste_b_batch(self):
+        """Die Marke darf nicht auf die gefilterte Reihe zeigen (sonst Dauerfeuer)."""
+        self.assertEqual(aussensicht.hybrid_neuester_b(self.cfg), 255)
+        self.cache_setzen(255, "neu")
+        self.assertEqual(aussensicht.hybrid_neuester_b(self.cfg), 255)
 
 
 if __name__ == "__main__":
