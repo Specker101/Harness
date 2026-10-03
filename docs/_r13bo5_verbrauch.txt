@@ -1,0 +1,42 @@
+R13bo-5 Punkt 5 - Verbrauch seit dem Neustart (Verfahren R13bn-2)
+Zeitpunkt: 2026-10-03T12:10:51+00:00
+Neustart: 2026-10-02 21:44:00 lokal (UTC+2) = 2026-10-02T19:44:00Z (logs/start-stderr.log)
+Fenster: Mitschnitte mit Dateizeit >= 2026-10-02T19:44+00:00
+HEAD: 269632a R13bo-5-3: Worker-Vorlage widerspricht R13aj/R13bj nicht mehr
+Quelle der Zahlen: `result`-Ereignis der CLI (Tokens, total_cost_usd, num_turns); Modell aus `result.modelUsage`.
+
+Typ | Aufrufe | Tokens (CLI) | Eingabe neu | Cache gelesen | Cache neu | Ausgabe | Anteil am Abo | Mittel je Aufruf | CLI-Kosten
+---|---|---|---|---|---|---|---|---|---
+Review | 8 | 7 284 213 | 104 | 5 852 931 | 1 301 156 | 130 022 | 32.4 % | 910 527 | $62.49
+Aussensicht | 3 | 14 692 186 | 246 | 14 132 018 | 458 508 | 101 414 | 65.4 % | 4 897 395 | $8.52
+/ask | 2 | 504 818 | 30 | 395 247 | 99 486 | 10 055 | 2.2 % | 252 409 | $0.58
+Worker | 13 | 211 671 157 | 1 487 356 | 209 016 704 | 0 | 1 167 097 | (eigene API) | 16 282 397 | $139.25
+
+
+Verbrauch je Aufruftyp UND Modell (`result.modelUsage`):
+Typ | Modell | Aufrufe | Tokens (CLI) | CLI-Kosten | ohne result
+---|---|---|---|---|---
+Review | claude-opus-5-5 | 4 | 5 142 671 | $18.98 | 0
+Review | claude-opus-5-5,claude-sonnet-5-5 | 4 | 2 141 542 | $43.51 | 0
+Aussensicht | claude-opus-5-5 | 3 | 14 692 186 | $8.52 | 0
+/ask | claude-sonnet-5-5 | 2 | 504 818 | $0.58 | 0
+Worker | deepseek-flash[1m] | 13 | 211 671 157 | $139.25 | 0
+
+Rate-Limit-Verlauf seit dem Neustart (13 Messpunkte):
+  Zeit (UTC) | Aufruftyp | Woche | Sitzung
+  02.10. 19:49 | Review      |   4.0 % |  26.0 %
+  02.10. 20:54 | Review      |   5.0 % |  37.0 %
+  02.10. 23:29 | Aussensicht |   8.0 % |  61.0 %
+  02.10. 23:31 | Review      |   8.0 % |  71.0 %
+  03.10. 01:36 | Aussensicht |  12.0 % |  27.0 %
+  03.10. 01:37 | Review      |  13.0 % |  37.0 %
+  03.10. 04:02 | Review      |  14.0 % |  51.0 %
+  03.10. 06:04 | Review      |  14.0 % |   7.0 %
+  03.10. 07:38 | /ask        |  15.0 % |   8.0 %
+  03.10. 07:45 | Review      |  15.0 % |  12.0 %
+  03.10. 09:29 | Aussensicht |  16.0 % |  24.0 %
+  03.10. 09:31 | Review      |  16.0 % |  30.0 %
+  03.10. 12:05 | /ask        |  19.0 % |  17.0 %
+
+logs/rate-limit.json (zuletzt 2026-10-03T12:05:11+00:00 durch /ask):
+  Sitzung (5 h): 17 % (Reset 03.10.2026 18:20 (UTC+02:00)) | Woche (7 Tage): 19 % (Reset 06.10.2026 07:00 (UTC+02:00))
