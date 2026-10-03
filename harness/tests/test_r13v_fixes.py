@@ -41,6 +41,14 @@ ERLAUBT = ("$t=Get-Date; python -u scripts/c_kopf.py vergl alle *> "
 WAITPROC = ("$p = Start-Process -FilePath python -ArgumentList '-u','scripts/c_kopf.py','mutalle' "
             "-PassThru; Wait-Process -Id $p.Id -Timeout 480; Get-Content "
             "analysis\\_m207\\_c_kopf_mutation.txt -Tail 5")
+# R13bp (2026-10-03): der ECHTE Aufruf aus B255, der 20 Minuten Wartezeit nicht meldete.
+# Wortlaut aus `runs/b255/stream.jsonl:98809`; das Werkzeug dauerte 602,5 s
+# (`runs/b255/result.json`, `stats.laufzeit.langsamste`), gemeldet waren 0,5 s.
+WAIT_B255 = ("$p=Get-Process hybrid_lauf -ErrorAction SilentlyContinue; if($p){ "
+             "$pid2=$p.Id; \"warte auf PID $pid2\"; Wait-Process -Id $pid2 -Timeout 600 "
+             "-ErrorAction SilentlyContinue }; $q=Get-Process hybrid_lauf -ErrorAction "
+             "SilentlyContinue; if($q){\"noch da CPU=$([math]::Round($q.CPU,1))s\"}else"
+             "{\"hybrid beendet\"}")
 
 
 class TestMuster(unittest.TestCase):
@@ -56,10 +64,34 @@ class TestMuster(unittest.TestCase):
         self.assertIsNone(streamjson.warte_muster("Start-Sleep -Seconds 5"))
 
     def test_erlaubter_weg_ist_erlaubt(self):
-        for befehl in (ERLAUBT, WAITPROC,
+        for befehl in (ERLAUBT,
                        "python -u scripts/preflight.py before *> analysis\\_preflight_207.txt",
                        "Start-Process -FilePath python -ArgumentList 'x' -Wait"):
             self.assertIsNone(streamjson.warte_muster(befehl), befehl[:60])
+
+    def test_wait_process_wird_gezaehlt_ist_aber_erlaubt(self):
+        """R13bp (Nutzerauftrag): `Wait-Process` gehoert in die Wartebilanz.
+
+        B255 wartete zweimal 602 s auf den Hybrid-Lauf und meldete `warteschleifen: 0`,
+        `warte_s: 0,5 s` (`runs/b255/result.json`). Gezaehlt wird die Obergrenze des
+        Aufrufs (`-Timeout 600`), die im Mitschnitt gemessene Dauer war 602,5 s.
+        """
+        for befehl in (WAIT_B255, WAITPROC):
+            grund = streamjson.warte_muster(befehl)
+            self.assertEqual(grund, streamjson.WARTE_WAITPROC_GRUND, befehl[:60])
+            self.assertTrue(streamjson.warte_erlaubt(grund))
+        self.assertAlmostEqual(streamjson.warte_sekunden(WAIT_B255), 600.0, places=1)
+        self.assertAlmostEqual(streamjson.warte_sekunden(WAITPROC), 480.0, places=1)
+        # Ohne Zeitangabe bleibt es bei "gezaehlt, aber nicht geschaetzt".
+        self.assertEqual(streamjson.warte_muster("Wait-Process -Id 1234"),
+                         streamjson.WARTE_WAITPROC_GRUND)
+        self.assertEqual(streamjson.warte_sekunden("Wait-Process -Id 1234"), 0.0)
+
+    def test_wait_process_macht_eine_abfrageschleife_nicht_erlaubt(self):
+        """Vorher stand `Wait-Process` ganz oben: JEDER Befehl damit war still erlaubt."""
+        grund = streamjson.warte_muster(POLL40 + "; Wait-Process -Id 5 -Timeout 600")
+        self.assertIn("Abfrageschleife", grund)
+        self.assertFalse(streamjson.warte_erlaubt(grund))
 
     def test_schleife_mit_prozessabfrage_ohne_schlaf(self):
         grund = streamjson.warte_muster("for ($i=0; $i -lt 10; $i++) { Get-Process -Id 4996 }")
@@ -129,17 +161,30 @@ class TestStatsUndFakten(unittest.TestCase):
 
     def test_mitschnitt_zaehlt_die_warteschleifen(self):
         st = self._feed(POLL40, ERLAUBT, WAITPROC, POLL28)
-        self.assertEqual(len(st.warteschleifen), 2)
+        # R13bp: `Wait-Process` zaehlt mit - drei Eintraege, zwei davon VERBOTEN.
+        self.assertEqual(len(st.warteschleifen), 3)
+        self.assertEqual(len(streamjson.warte_verstoesse(st.warteschleifen)), 2)
         self.assertEqual(st.warteschleifen[0]["werkzeug"], "PowerShell")
         self.assertIn("Abfrageschleife", st.warteschleifen[0]["grund"])
         p = st.laufzeit_profil()
-        self.assertEqual(p["warteschleifen"], 2)
+        self.assertEqual(p["warteschleifen"], 3)
         self.assertGreater(p["warteschleifen_s"], 1000.0)
 
-    def test_nur_erlaubte_befehle_ergeben_null(self):
+    def test_die_echte_b255_wartezeit_steht_in_der_bilanz(self):
+        """R13bp: zwei echte Aufrufe aus B255 = 1200 s Wartezeit (gemeldet: 0,5 s)."""
+        st = self._feed(WAIT_B255, WAIT_B255)
+        p = st.laufzeit_profil()
+        self.assertEqual(p["warteschleifen"], 2)
+        self.assertAlmostEqual(p["warteschleifen_s"], 1200.0, places=1)
+        self.assertAlmostEqual(st.wait_seconds, 1200.0, places=1)
+        # Und entscheidend: KEIN Verstoss - die Notbremse bleibt still.
+        self.assertEqual(streamjson.warte_verstoesse(st.warteschleifen), [])
+
+    def test_nur_erlaubte_befehle_ergeben_keinen_abbruch(self):
         st = self._feed(ERLAUBT, WAITPROC, WAITPROC)
-        self.assertEqual(len(st.warteschleifen), 0)
-        self.assertEqual(st.laufzeit_profil()["warteschleifen_s"], 0.0)
+        self.assertEqual(len(st.warteschleifen), 2, "Wait-Process zaehlt (R13bp)")
+        self.assertEqual(streamjson.warte_verstoesse(st.warteschleifen), [])
+        self.assertAlmostEqual(st.laufzeit_profil()["warteschleifen_s"], 960.0, places=1)
 
 
 class TestSperrenUndVorspann(unittest.TestCase):

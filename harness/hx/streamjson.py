@@ -281,7 +281,18 @@ _SCHLEIFE_RE = re.compile(r"for\s*\(\s*\$[a-z]+\s*=\s*0;", re.IGNORECASE)
 _WA_POLL = re.compile(r"(?:for|while)\s*\(|do\s*\{", re.IGNORECASE)
 _WA_SLEEP = re.compile(r"start-sleep|\bsleep\s+\d", re.IGNORECASE)
 _WA_PROC = re.compile(r"get-process|get-ciminstance|tasklist", re.IGNORECASE)
-_WA_WAITPROC = re.compile(r"wait-process|start-process[^\n]*-wait\b", re.IGNORECASE)
+# R13bp (2026-10-03, Nutzerauftrag): `Wait-Process` gehoert in die Wartebilanz. Gemessen in
+# B255 (`runs/b255/stream.jsonl:98809` und `:101715`): das Modell wartete zweimal
+# `Wait-Process -Id $pid2 -Timeout 600` auf den Hybrid-Lauf - je Aufruf 602,5 s / 602,3 s
+# (also gut 20 min), waehrend `result.json` "warteschleifen: 0, warte_s: 0,5 s" meldete.
+# Der Aufruf ist ERLAUBT (der Abbruch haengt an den verbotenen Mustern, s. `warte_erlaubt`),
+# er wird nur gezaehlt. `Start-Process -Wait` bleibt wie bisher erlaubt UND ungezaehlt
+# (dort gibt es keine Zeitangabe, die man schaetzen koennte).
+_WA_WAITPROC = re.compile(r"\bwait-process\b", re.IGNORECASE)
+_WA_STARTPROC_WAIT = re.compile(r"start-process[^\n]*-wait\b", re.IGNORECASE)
+_WA_WAITPROC_TIMEOUT = re.compile(r"wait-process[^\n]*?-timeout\s+(\d+)", re.IGNORECASE)
+# Der Grund, an dem `warte_erlaubt` ein ERLAUBTES Wartemuster erkennt.
+WARTE_WAITPROC_GRUND = "Warten auf einen Prozess (Wait-Process)"
 # Ein Warten auf eine feste Zeit ist auch ohne Schleife eine Warteschleife im Geist.
 _WA_FEST = re.compile(r"start-sleep\s+(?:-seconds\s+)?(\d+(?:\.\d+)?)", re.IGNORECASE)
 WARTE_FEST_AB_S = 30.0          # ab hier ist ein fester Schlaf keine Pause mehr
@@ -311,23 +322,41 @@ def warte_normalisiert(text) -> str:
     return t
 
 
-def warte_muster(befehl) -> str | None:
-    """Erkennt Warteschleifen in einem Befehl (R13v). `None` = erlaubt.
+def warte_erlaubt(grund) -> bool:
+    """Ist das ein ERLAUBTES Wartemuster? (R13bp) `True` = zaehlt mit, bricht aber nicht ab.
 
-    Erlaubt und NICHT gemeldet:
-      * `Wait-Process -Timeout <s>` (der benannte Weg fuer lange Laeufe),
+    Die Unterscheidung ist noetig, seit `Wait-Process` gezaehlt wird: die Notbremse
+    (`warte_entscheidung`) darf einen Aufruf nicht toeten, den der Harness selbst als
+    erlaubten Weg nennt.
+    """
+    return str(grund or "").startswith(WARTE_WAITPROC_GRUND)
+
+
+def warte_verstoesse(warteschleifen) -> list:
+    """Die NICHT erlaubten Eintraege einer Warteschleifen-Liste (R13bp)."""
+    return [w for w in (warteschleifen or []) if not warte_erlaubt((w or {}).get("grund"))]
+
+
+def warte_muster(befehl) -> str | None:
+    """Erkennt Warteschleifen in einem Befehl (R13v, R13bp). `None` = keine Wartezeit.
+
+    ERLAUBT und NICHT gemeldet (aber ab R13bp GEZAEHLT, s. `warte_erlaubt`):
+      * `Wait-Process … -Timeout <s>` bzw. ein nacktes `Wait-Process`
+        (Grund `WARTE_WAITPROC_GRUND`; die Notbremse sieht nur die verbotenen Muster),
       * `Start-Process -Wait`,
+    erlaubt UND ungezaehlt:
       * ein fester `Start-Sleep` unter 30 s (kurze Kunstpause),
       * jeder Befehl ohne Schlaf/Prozessabfrage.
     Gemeldet:
       * Poll-Schleife: `for`/`while`/`do` MIT `Start-Sleep`/`Get-Process`,
       * fester Schlaf ab 30 s,
       * Schleife, die einen Prozess abfragt (auch ohne Schlaf-Schaetzung).
+
+    R13bp: die VERBOTENEN Muster werden ZUERST geprueft. Vorher stand `Wait-Process` ganz
+    oben und machte einen Befehl still erlaubt, auch wenn er eine Abfrageschleife enthielt.
     """
     t = warte_normalisiert(befehl)
     if not t:
-        return None
-    if _WA_WAITPROC.search(t):
         return None
     if _WA_POLL.search(t) and (_WA_SLEEP.search(t) or _WA_PROC.search(t)):
         return "Abfrageschleife (for/while + Start-Sleep/Get-Process)"
@@ -340,6 +369,10 @@ def warte_muster(befehl) -> str | None:
             pass
     if _WA_POLL.search(t) and _WA_PROC.search(t):
         return "Schleife mit Prozessabfrage"
+    if _WA_WAITPROC.search(t):
+        return WARTE_WAITPROC_GRUND
+    if _WA_STARTPROC_WAIT.search(t):
+        return None
     return None
 
 
@@ -361,15 +394,22 @@ def warte_entscheidung(anzahl: int, summe_s: float, einzel_s: float) -> tuple[st
 
 
 def warte_sekunden(befehl) -> float:
-    """Reine Wartezeit in einem Befehl schaetzen (R13h).
+    """Reine Wartezeit in einem Befehl schaetzen (R13h, R13bp).
 
     `Start-Sleep -Seconds 300` garantiert Wanduhr - auch wenn die Arbeit laengst
     fertig ist. Bei einer Poll-Schleife (`for ($i=0; ...)`) wird der Schritt mit der
     Schleifenzahl multipliziert, weil das die Obergrenze des Wartens ist.
     (Gemessen 2026-09-26: b174 hatte 19 solcher Befehle, zusammen 1993 s.)
+
+    R13bp: `Wait-Process … -Timeout N` zaehlt mit der Obergrenze `N`. Gemessen in B255:
+    zweimal `-Timeout 600`, die beiden Aufrufe dauerten 602,5 s und 602,3 s
+    (`runs/b255/stream.jsonl:98809` / `:101715`, Dauer aus `result.json`).
     """
     text = warte_normalisiert(befehl)
-    if not text or ("sleep" not in text.lower()):
+    if not text:
+        return 0.0
+    klein = text.lower()
+    if "sleep" not in klein and "wait-process" not in klein:
         return 0.0
     summe = 0.0
     for t in _SLEEP_RE.findall(text):
@@ -384,6 +424,10 @@ def warte_sekunden(befehl) -> float:
     if m and summe:
         zahlen = re.findall(r"-lt\s+(\d+)", text)
         summe *= max(1, int(zahlen[0]) if zahlen else 1)
+    # R13bp: Wait-Process steht NACH der Schleifen-Vielfachen-Regel - die Obergrenze gilt
+    # je Aufruf, nicht je Schleifenschritt (das Modell setzt Wait-Process einzeln ab).
+    for n in _WA_WAITPROC_TIMEOUT.findall(text):
+        summe += float(n)
     return summe
 
 

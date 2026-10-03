@@ -1,0 +1,7 @@
+﻿R13bp Punkt 3 - Wartezeit in B255 (Mitschnitt stream.jsonl)
+----------------------------------------------------------------------------------------------------
+stream.jsonl      :98809   PowerShell Warten auf einen Prozess (Wait-Process)    600.0 s  erlaubt
+stream.jsonl      :101715  PowerShell Warten auf einen Prozess (Wait-Process)    600.0 s  erlaubt
+----------------------------------------------------------------------------------------------------
+Summe: 2 Aufrufe / 1200.0 s Wartezeit   (davon erlaubt: 2 / 1200.0 s, verboten: 0 / 0.0 s)
+Meldung in result.json (alt, gemessen): warteschleifen = 0, warte_s = 0,5 s

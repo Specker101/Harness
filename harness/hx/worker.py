@@ -920,30 +920,41 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
             # (`runs/b207/stream.jsonl:76873/77152`), in B174 waren es 1993 s - der
             # Vorspann verbot das nur in Prosa. Die Notbremse ist dieselbe wie beim
             # Prozessabbau (R13i): der Lauf endet mit klarem Grund statt in Wartezeit.
+            # R13bp (03.10.2026): `Wait-Process` zaehlt seit dem Nutzerauftrag MIT
+            # (B255: zweimal 602 s, gemeldet 0,5 s), ist aber KEIN Verstoss - die
+            # Notbremse sieht nur `streamjson.warte_verstoesse`.
             neu_warte = stats.warteschleifen[gemeldet_warte[0]:]
             if neu_warte:
                 gemeldet_warte[0] = len(stats.warteschleifen)
                 res.warteschleifen = list(stats.warteschleifen)
-                summe = sum(float(w.get("warte_s") or 0) for w in stats.warteschleifen)
-                letzte = float(neu_warte[0].get("warte_s") or 0)
-                art, grund = streamjson.warte_entscheidung(len(stats.warteschleifen),
-                                                           summe, letzte)
-                text = ("WARTESCHLEIFE (" + str(neu_warte[0].get("grund")) + "): "
-                        + str(neu_warte[0].get("kurz")) + f" - {grund}")
-                log.warn("Warteschleife erkannt", art=art, grund=neu_warte[0].get("grund"),
-                         warte_s=letzte, summe_s=summe, befehl=neu_warte[0].get("kurz"))
-                if art == "kill":
-                    res.alarms.append(text + "\nABBruch: erlaubt ist EIN blockierender "
-                                             "Aufruf mit `timeout` (bis 1800000 ms) - "
-                                             "kein Nachfragen im Hintergrund.")
-                    if notify:
-                        notify("ABBRUCH - " + text)
-                    res.killed_reason = "warteschleife"
-                    return "kill"
-                if art == "alarm":
-                    res.alarms.append(text)
-                    if notify:
-                        notify("Hinweis - " + text)
+                neu_verboten = [w for w in neu_warte
+                                if not streamjson.warte_erlaubt(w.get("grund"))]
+                if not neu_verboten:
+                    log.info("Wartezeit (erlaubt) erkannt", grund=neu_warte[0].get("grund"),
+                             warte_s=neu_warte[0].get("warte_s"),
+                             verbotener_teil=0)
+                else:
+                    verboten = streamjson.warte_verstoesse(stats.warteschleifen)
+                    summe = sum(float(w.get("warte_s") or 0) for w in verboten)
+                    letzte = float(neu_verboten[0].get("warte_s") or 0)
+                    art, grund = streamjson.warte_entscheidung(len(verboten), summe, letzte)
+                    text = ("WARTESCHLEIFE (" + str(neu_verboten[0].get("grund")) + "): "
+                            + str(neu_verboten[0].get("kurz")) + f" - {grund}")
+                    log.warn("Warteschleife erkannt", art=art,
+                             grund=neu_verboten[0].get("grund"), warte_s=letzte,
+                             summe_s=summe, befehl=neu_verboten[0].get("kurz"))
+                    if art == "kill":
+                        res.alarms.append(text + "\nABBruch: erlaubt ist EIN blockierender "
+                                                 "Aufruf mit `timeout` (bis 1800000 ms) - "
+                                                 "kein Nachfragen im Hintergrund.")
+                        if notify:
+                            notify("ABBRUCH - " + text)
+                        res.killed_reason = "warteschleife"
+                        return "kill"
+                    if art == "alarm":
+                        res.alarms.append(text)
+                        if notify:
+                            notify("Hinweis - " + text)
             # R13g: Schluessel-Zugriff sofort melden (Werkzeug nennen, nie den Wert).
             neu = stats.secret_hits[gemeldet[0]:]
             if neu:
