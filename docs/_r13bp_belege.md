@@ -197,7 +197,30 @@ der neueste B-Batch. Mitgelaufen: `test_r13ah`, `test_r13w`, `test_r13bo5`, `tes
   B249–B255 (byteweise, UTF-8-BOM), Aufträge B249–B255, Reviews `b255` (bewertet B254,
   irreführende `B-SCHRITT`-Zeile) und `b256` (bewertet B255). README mit Bauanleitung und
   den gemessenen Erwartungen.
+  **Byte-Treue geprüft:** alle 16 Dateien MD5-gleich zur lebenden Quelle, Blob-Länge gleich
+  der Arbeitsbaum-Länge (`.gitattributes`: `harness/tests/fixtures/** -text`). Achtung
+  Falle: ein Vergleich über `git hash-object <lebende Datei>` täuscht, weil dort `text=auto`
+  greift und CRLF→LF normalisiert — die 7 Preflight-Kopien erschienen damit fälschlich
+  abweichend.
 * `docs/_r13bp_probe.py` — liest **nur** und zeigt je Batch die Klasse samt Quelle sowie
   die Zeilen, die jede Quelle tragen würde (Gegenprobe zur Tabelle in Punkt 1).
 * `docs/_r13bp_wait_b255.py` + `docs/_r13bp_wait_b255.txt` — fährt den echten Mitschnitt
   von B255 durch den Leser; Beleg zu Punkt 3.
+
+## Volle Reihe am Gate
+
+`docs/_r13av_volle_reihe.txt` (gefahren im Gate-Fenster, Zustand `GATE_APPROVAL batch=256`,
+kein Worker):
+
+```
+HEAD: 976ee00 R13bp-5: Belege der vier Punkte
+Harness-Zustand: state=GATE_APPROVAL batch=256 worker=False
+Dauer: 492.1 s
+Tests: 1479 | Fehler: 0 | Fehlschläge: 0 | übersprungen: 0
+ERGEBNIS: OK
+```
+
+Vor dieser Runde waren es 1457 Tests (R13bo-5); die 22 neuen sind die Fälle aus
+`test_r13bp_fixes.py` (17) und den erweiterten `test_r13v_fixes.py` (+2) bzw.
+`test_r13bf_fixes.py` (+2), dazu die angepassten Erwartungen.
+
