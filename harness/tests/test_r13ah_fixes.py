@@ -50,6 +50,21 @@ from hx.util import Log, ensure_dir, write_text_atomic             # noqa: E402
 
 HYBRID = "Hybrid-Lauf        215 | 800138F0 | MMIO | 28/407 | 0                OK"
 
+# R13bo-5: Der Stillstands-Melder liest die Zeile `Hybrid-A4` (echter Halt-PC), nicht
+# mehr `Hybrid-Lauf` (dort steht die 200M-Schranke).
+def a4(halt: str, weg: int, art: str = "Selbstsprung") -> str:
+    return (f"Hybrid-A4          Schritte bis erster Eintritt echter Halt {weg} | "
+            "Anteil nativ NICHT GEMESSEN (Kalibriersumme B231: 1511) | "
+            f"Rufe ohne Kalibrierwert 195348 | Halt-PC {halt} | "
+            f"Selbstsprung-PC {halt} | Halt-Art {art}  OK")
+
+
+# Eine Hybrid-Zeile im Status FEHLER, wie sie ein unsauberer Preflight traegt
+# (Aussensicht M236-7). Der Status ist das LETZTE Wort - das blosse Wort „FEHLER" steht
+# in jeder Preflight-Datei in der GL-Zeile („0 sonst. FEHLER") und taugt nicht.
+FEHLER_ZEILE = ("Hybrid-Funktionen nativ 7/98 | verglichen gleich: 7 | "
+                "Host noetig: 4 | Gesamt 152/2087 FEHLER")
+
 
 def hybrid(halt: str, weg: int, gesamt: int = 407, nr: str = "215",
            art: str = "MMIO", rest: str = "0") -> str:
@@ -402,10 +417,11 @@ class TestHybridVerlauf(Basis):
 
 class TestHybridStillstand(Basis):
     def reihe(self, *werte: tuple[int, str, int]) -> None:
-        """`(batch, halt_pc, weg)` je B-Batch - schreibt Preflight + Auftrag."""
+        """`(batch, halt_pc, weg)` je B-Batch - schreibt Preflight (`Hybrid-Lauf` UND
+        `Hybrid-A4`) und Auftrag. R13bo-5: der Melder liest die A4-Zeile."""
         for batch, halt, weg in werte:
             self.strang(batch, "B")
-            self.preflight(batch, hybrid(halt, weg))
+            self.preflight(batch, hybrid(halt, weg), a4(halt, weg))
 
     def gruende(self, batch: int) -> list[str]:
         s = self.state(tag=f"harness/b{batch}-start", batch=batch)
@@ -418,7 +434,8 @@ class TestHybridStillstand(Basis):
         self.reihe((212, "800138F0", 28), (213, "800138F0", 28), (214, "800138F0", 28))
         text = aussensicht.hybrid_stillstand(self.cfg)
         self.assertIn("Hybrid-Lauf haengt: Halt-PC 800138F0", text)
-        self.assertIn("Wegmass 28/407 -> 28/407 steigt nicht", text)
+        self.assertIn("Schritte 28 -> 28 steigt nicht", text)
+        self.assertIn('Zeile "Hybrid-A4"', text)
         self.assertIn("(B212, B213, B214", text)
         self.assertIn("kein Fortschritt ueber 3 B-Batches (B212 bis B214)", text)
         self.assertEqual(len(self.hybrid_grund(self.gruende(214))), 1)
@@ -439,8 +456,53 @@ class TestHybridStillstand(Basis):
     def test_gefallenes_wegmass_zaehlt_als_stillstand(self):
         """\"steigt nicht\" schliesst Rueckschritte ein - sie sind kein Fortschritt."""
         self.reihe((212, "800138F0", 28), (213, "800138F0", 28), (214, "800138F0", 27))
-        self.assertIn("Wegmass 28/407 -> 27/407 steigt nicht",
+        self.assertIn("Schritte 28 -> 27 steigt nicht",
                       aussensicht.hybrid_stillstand(self.cfg))
+
+    def test_liest_a4_nicht_hybrid_lauf(self):
+        """R13bo-5: `Hybrid-Lauf` (200M-Schranke) ist NICHT die gemessene Quelle."""
+        # Hybrid-Lauf zeigt Schranke + sogar steigendes Wegmass, A4 denselben echten
+        # Halt -> Ausloeser (er kommt aus A4).
+        for b in (212, 213, 214):
+            self.strang(b, "B")
+            self.preflight(b, hybrid("8000EC3C", 3000 + b, nr="200000000",
+                                     art="Schranke", rest="nein"),
+                           a4("8001684C", 696571792))
+        text = aussensicht.hybrid_stillstand(self.cfg)
+        self.assertIn("Halt-PC 8001684C", text)
+        # A4 aendert sich -> KEIN Stillstand, obwohl Hybrid-Lauf stehen bleibt.
+        self.strang(215, "B")
+        self.preflight(215, hybrid("8000EC3C", 3120, nr="200000000", art="Schranke",
+                                   rest="nein"),
+                       a4("8000A164", 181055466, art="Form"))
+        self.assertEqual(aussensicht.hybrid_stillstand(self.cfg), "")
+
+    def test_nur_c_batches_loesen_nicht_aus(self):
+        """R13bo-5: ruht Strang B (3 C-Batches), schweigt der Melder."""
+        self.reihe((212, "8001684C", 696571792), (213, "8001684C", 696571792),
+                   (214, "8001684C", 696571792))
+        self.assertTrue(aussensicht.hybrid_stillstand(self.cfg))
+        for b in (215, 216, 217):
+            self.strang(b, "C")
+            self.preflight(b, hybrid("8000EC3C", 3120, nr="200000000", art="Schranke",
+                                     rest="nein"), a4("8001684C", 696571792))
+        self.assertEqual(aussensicht.hybrid_stillstand(self.cfg), "",
+                         "drei C-Batches in Folge -> Strang B ruht, kein Ausloeser")
+
+    def test_fehler_preflight_faellt_aus_der_reihe(self):
+        """R13bo-5/M236-7: ein Preflight mit FEHLER-Zeile zaehlt nicht mit."""
+        # B212/B213 gleicher Halt; B214 ANDERER Halt MIT Fehlerzeile; B215 wieder gleich.
+        # Ohne Filter waere die letzte Reihe B213/B214/B215 (verschiedene Halts) -> kein
+        # Ausloeser; MIT Filter faellt B214 heraus -> B212/B213/B215 -> Ausloeser.
+        self.reihe((212, "8001684C", 696571792), (213, "8001684C", 696571792))
+        self.strang(214, "B")
+        self.preflight(214, hybrid("8000EC3C", 3120, nr="200000000", art="Schranke",
+                                   rest="nein"),
+                       a4("8000A164", 181055466, art="Form"), FEHLER_ZEILE)
+        self.reihe((215, "8001684C", 696571792))
+        text = aussensicht.hybrid_stillstand(self.cfg)
+        self.assertIn("(B212, B213, B215", text)
+        self.assertNotIn("B214", text)
 
     def test_c_batch_zaehlt_nicht_mit(self):
         """B212, B213 ist ein C-Batch, B214 - die Reihe hat nur ZWEI B-Batches."""

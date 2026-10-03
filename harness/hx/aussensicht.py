@@ -115,16 +115,24 @@ SOLL_NULL_SERIE = 3
 
 # Entprellung des Stillstands-Ausloesers (R13ah, Aussensicht B214 Befund 4). Das Feld
 # `B-SCHRITT:` des Reviews mass nichts (B212 2/5, B213 2/5 - waehrend der Hybrid-Lauf in
-# B214 von 28/407 auf 448/42599 lief). Gemessen wird jetzt die ZEILE `Hybrid-Lauf` der
-# Preflight-Datei: Feld 2 (Halt-PC) und Feld 4 (Wegmass-Zaehler). Der Preflight liegt VOR
-# dem Review vor - der Ausloeser kommt damit frueher. Die Marke haelt die Nummer des
-# neuesten VERGLICHENEN B-Batches (hier: der Preflight-Dateiname, also der Batch selbst).
+# B214 von 28/407 auf 448/42599 lief). Der Preflight liegt VOR dem Review vor - der
+# Ausloeser kommt damit frueher.
+# R13bo-5 (03.10.2026, Aussensicht M239-2/M236-7): gemessen wird der Halt-PC der Zeile
+# **`Hybrid-A4`** (der ECHTE Halt), nicht mehr der der Zeile `Hybrid-Lauf` - deren Feld 2
+# ist die 200M-SCHRANKE und bleibt stehen (B250 loeste damit einen Lauf aus, obwohl B248
+# einen neuen Halt erreicht hatte). Preflights mit FEHLER-Zeilen fallen aus der Reihe.
+# Die Marke haelt die Nummer des neuesten VERGLICHENEN B-Batches (hier: der
+# Preflight-Dateiname, also der Batch selbst).
 MARKE_HYBRID_SCHLUESSEL = "hybrid_gemeldet_bis"
-# Der Wortlaut des Grundes (Kennung fuer `hybrid_beteiligt`).
+# Der Wortlaut des Grundes (Kennung fuer `hybrid_beteiligt`). Bleibt `Hybrid-Lauf` - so
+# heisst der Ausloeser; die QUELLE der Zahl nennt die Meldung selbst (`Zeile "Hybrid-A4"`).
 HYBRID_GRUND = "Hybrid-Lauf"
 # Wie viele B-Batches IN FOLGE denselben Halt-PC und kein steigendes Wegmass zeigen
 # muessen (`[meta] bschritt_stillstand_batches`, Vorgabe 3).
 HYBRID_STILLSTAND_BATCHES = 3
+# R13bo-5: Ruhe-Erkennung. Waren die letzten so vielen Batches ALLE C-Batches, ruht der
+# B-Strang - der Melder schweigt dann (B250: Opus-Lauf der Aussensicht ohne B-Fortschritt).
+HYBRID_RUHE_C_BATCHES = 3
 
 # R13bn (Aussensicht M241-4/M242-5/M243-2): die beiden MARKER-Ausloeser bekommen dieselbe
 # `gemeldet_bis`-Sperre wie Kernzahl, c_soll_null und Hybrid-Lauf. Vorher nahm
@@ -663,7 +671,7 @@ def summaries(cfg, n: int) -> list[tuple[int, str]]:
 # `b_schritt_stillstand` sind ENTFALLEN. Sie lasen die Pflichtzeile `B-SCHRITT: <n>/5`
 # aus den Review-Zusammenfassungen - eine Zahl, die nichts mass (B212 2/5, B213 2/5,
 # waehrend der Hybrid-Lauf in B214 von 28/407 auf 448/42599 lief). Der Stillstand wird
-# jetzt aus der Preflight-Zeile `Hybrid-Lauf` gemessen (`hybrid_stillstand` unten), die
+# jetzt aus der Preflight-Zeile `Hybrid-A4` gemessen (`hybrid_stillstand` unten), die
 # VOR dem Review vorliegt. Die Klassifikation "B-Batch oder C-Batch" (`stand.strang_von_
 # batch`) nutzt die Zeile weiterhin als einen Beleg - sie bleibt deshalb im Prompt.
 
@@ -671,19 +679,27 @@ def summaries(cfg, n: int) -> list[tuple[int, str]]:
 def hybrid_stillstand(cfg) -> str:
     """Steht der Hybrid-Lauf ueber die letzten B-Batches still? ('' = nein)
 
-    Verglichen werden die letzten `[meta] bschritt_stillstand_batches` **B-Batches in
-    Folge** (Vorgabe 3), fuer die es eine Zeile `Hybrid-Lauf` gibt. Stillstand heisst:
-    der **Halt-PC** (Feld 2) ist in allen gleich **und** das **Wegmass** (Feld 4,
-    Zaehler) steigt nicht.
+    R13bo-5 (Aussensicht M239-2/M236-7): verglichen wird der **Halt-PC der Zeile
+    `Hybrid-A4`** (der ECHTE Halt), nicht der der Zeile `Hybrid-Lauf` - dort steht die
+    200M-Schranke, die auch dann stehen bleibt, wenn der Lauf weiterzieht (B250). Ein
+    Preflight mit `FEHLER`-Zeile faellt aus der Reihe (`stand.hybrid_a4_verlauf`).
 
-    C-Batches zaehlen nicht mit (sie haben keinen B-Fortschritt), und Batches ohne die
-    Zeile (vor B212) fehlen in der Reihe - beides wird NICHT geraten.
+    Verglichen werden die letzten `[meta] bschritt_stillstand_batches` **B-Batches**
+    (Vorgabe 3) mit A4-Zeile. Stillstand heisst: der Halt-PC ist in allen gleich **und**
+    die Schritte bis zum ersten echten Halt steigen nicht.
+
+    Der Melder **schweigt**, solange die letzten `HYBRID_RUHE_C_BATCHES` Batches alle
+    C-Batches waren (Strang B ruht); waehrend einer B-Phase gilt er normal. C-Batches
+    zaehlen nicht mit, und Batches ohne A4-Zeile (vor B240) fehlen in der Reihe - beides
+    wird NICHT geraten.
     """
+    if not any(ist_b_batch(cfg, int(b))
+               for b, _p in stand.preflight_dateien(cfg, HYBRID_RUHE_C_BATCHES)):
+        return ""
     n = max(2, int(grenzen(cfg).get("bschritt_stillstand_batches")
                    or HYBRID_STILLSTAND_BATCHES))
-    verlauf = stand.hybrid_verlauf(cfg, n + 4)
-    reihe = [e for e in verlauf
-             if str(stand.strang_von_batch(cfg, int(e["batch"])).get("strang")) == "B"]
+    verlauf = stand.hybrid_a4_verlauf(cfg, n + 4)
+    reihe = [e for e in verlauf if ist_b_batch(cfg, int(e["batch"]))]
     if len(reihe) < n:
         return ""
     letzte = reihe[-n:]
@@ -692,20 +708,22 @@ def hybrid_stillstand(cfg) -> str:
         return ""
     wege = [int(e["weg"]) for e in letzte]
     if any(b > a for a, b in zip(wege, wege[1:])):
-        return ""                      # das Wegmass STEIGT - also Fortschritt
+        return ""                      # die Schrittzahl STEIGT - also Fortschritt
     b_erst, b_letzt = letzte[0]["batch"], letzte[-1]["batch"]
     b_reihe = ", ".join(f"B{e['batch']}" for e in letzte)
-    return (f"Hybrid-Lauf haengt: Halt-PC {letzte[-1]['halt_pc']} unveraendert und "
-            f"Wegmass {wege[0]}/{letzte[0]['weg_gesamt']} -> "
-            f"{wege[-1]}/{letzte[-1]['weg_gesamt']} steigt nicht "
-            f"({b_reihe}, Quelle analysis/{letzte[-1]['datei']}, Zeile \"Hybrid-Lauf\") "
+    return (f"{HYBRID_GRUND} haengt: Halt-PC {letzte[-1]['halt_pc']} unveraendert und "
+            f"Schritte {wege[0]} -> {wege[-1]} steigt nicht "
+            f"({b_reihe}, Quelle analysis/{letzte[-1]['datei']}, Zeile \"Hybrid-A4\") "
             f"- kein Fortschritt ueber {n} B-Batches (B{b_erst} bis B{b_letzt})")
 
 
 def hybrid_neuester_b(cfg) -> int:
-    """Die Nummer des neuesten B-Batches mit `Hybrid-Lauf`-Zeile (0 = keiner)."""
-    reihe = [e for e in stand.hybrid_verlauf(cfg, 6)
-             if str(stand.strang_von_batch(cfg, int(e["batch"])).get("strang")) == "B"]
+    """Die Nummer des neuesten B-Batches mit `Hybrid-A4`-Zeile (0 = keiner).
+
+    R13bo-5: dieselbe Quelle wie `hybrid_stillstand` - die Marke muss zu der Reihe
+    passen, die der Melder vergleicht (sonst feuert derselbe Stand erneut).
+    """
+    reihe = [e for e in stand.hybrid_a4_verlauf(cfg, 6) if ist_b_batch(cfg, int(e["batch"]))]
     return int(reihe[-1]["batch"]) if reihe else 0
 
 

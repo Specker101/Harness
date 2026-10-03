@@ -1563,6 +1563,72 @@ def hybrid_verlauf(cfg, anzahl: int = 8) -> list[dict]:
     return out
 
 
+# ------------------------------------------------- Hybrid-A4: der ECHTE Halt-PC (R13bo-5)
+# Anlass (Aussensicht M239-2, gemessen 2026-10-03): Der Stillstands-Melder las den
+# Halt-PC der Zeile `Hybrid-Lauf`. Deren Feld 2 ist die **200M-Schranke** (8000EC3C) -
+# sie bleibt stehen, waehrend der Lauf weiterzieht (B248 erreichte 8000A164, B249/B250
+# 8001684C). Deshalb loeste der Melder in B250 einen Lauf aus, obwohl Fortschritt da war.
+# Die Zeile `Hybrid-A4` nennt den echten Halt:
+#   "Hybrid-A4          Schritte bis erster Eintritt echter Halt 696571792 | Anteil nativ
+#    NICHT GEMESSEN … | Rufe ohne Kalibrierwert 195348 | Halt-PC 8001684C |
+#    Selbstsprung-PC 8001684C | Halt-Art Selbstsprung  OK"
+_RE_HYBRID_A4_ZEILE = re.compile(r"^Hybrid-A4\b(?P<rest>[^\n]*)$", re.IGNORECASE)
+_RE_A4_SCHRITTE = re.compile(r"Schritte\b[^\d\n]*(\d+)", re.IGNORECASE)
+_RE_A4_HALT_PC = re.compile(r"\bHalt-PC\s+((?:0[xX])?[0-9A-Fa-f]+)")
+_RE_A4_HALT_ART = re.compile(r"\bHalt-Art\s+(\S+)")
+
+
+def preflight_hybrid_fehler(zeilen) -> bool:
+    """Traegt eine **Hybrid**-Zeile den Status `FEHLER`? (Aussensicht M236-7, R13bo-5)
+
+    Geprueft wird nur der STATUS (das letzte Wort) der Zeilen, deren Etikett mit `Hybrid`
+    beginnt. Das blosse Wort `FEHLER` taugt NICHT: die GL-Zeile heisst in JEDEM Preflight
+    "0 GL-TIMEOUT, 0 GL-UMGEBUNG, 0 sonst. FEHLER" - damit waere jede Datei ausgeschlossen
+    (gemessen 2026-10-03, erster Anlauf lieferte eine leere Reihe).
+    """
+    for z in (zeilen or []):
+        z = str(z).strip()
+        if z.startswith("Hybrid") and z.endswith("FEHLER"):
+            return True
+    return False
+
+
+def hybrid_a4_verlauf(cfg, anzahl: int = 8) -> list[dict]:
+    """Die Zeile `Hybrid-A4` je Preflight-Datei (R13bo-5) - der ECHTE Halt-PC.
+
+    Rueckgabe je Batch in dem die Zeile steht: `{batch, datei, halt_pc, art, weg, rest}`.
+    `halt_pc` ist der `Halt-PC` der A4-Zeile, `weg` die "Schritte bis erster Eintritt
+    echter Halt". Preflights mit einer **Hybrid**-Zeile im Status `FEHLER` werden
+    AUSGELASSEN (`preflight_hybrid_fehler`, Aussensicht M236-7); fehlt die A4-Zeile
+    (vor B240), fehlt der Eintrag - es wird nichts geschaetzt.
+    """
+    out: list[dict] = []
+    for batch, pfad in preflight_dateien(cfg, max(1, int(anzahl))):
+        try:
+            text = preflight_text(pfad)[0]
+        except OSError:
+            continue
+        zeilen = text.splitlines()
+        if preflight_hybrid_fehler(zeilen):
+            continue
+        for zeile in zeilen:
+            m = _RE_HYBRID_A4_ZEILE.match(zeile)
+            if not m:
+                continue
+            weg = _RE_A4_SCHRITTE.search(zeile)
+            halt = _RE_A4_HALT_PC.search(zeile)
+            if not (weg and halt):
+                break
+            art = _RE_A4_HALT_ART.search(zeile)
+            out.append({"batch": batch, "datei": pfad.name,
+                        "halt_pc": halt.group(1).upper(),
+                        "art": art.group(1) if art else "",
+                        "weg": int(weg.group(1)),
+                        "rest": m.group("rest").strip()})
+            break
+    return out
+
+
 # Der Preflight-Aufruf in `stats.laufzeit.langsamste` (`runs/b<N>/result.json`) - erkannt
 # am Befehl, nicht am Werkzeugnamen (der ist immer "PowerShell").
 _RE_PREFLIGHT_AUFRUF = re.compile(r"preflight\.py", re.IGNORECASE)
