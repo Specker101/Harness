@@ -130,3 +130,22 @@ Erzeugungszeit `19:05:41Z` = **21:05:41 Ortszeit**, also die „4 MB um 21:06" a
 
 Die Punkte-2-Warnung liefert ab jetzt zu jeder solchen Phase Zeitstempel im Protokoll; die
 nächste Wiederholung ist damit datiert statt geraten.
+
+---
+
+## Volle Reihe am Gate
+
+`docs/_r13av_volle_reihe.txt` (gefahren im Gate-Fenster, Zustand `GATE_APPROVAL batch=258`,
+kein Worker):
+
+```
+HEAD: 0be8ecf R13bq-4: Sonde zur CLI-Ausgabe (Punkt 4, NUR MESSUNG)
+Harness-Zustand: state=GATE_APPROVAL batch=258 worker=False
+Dauer: 633.5 s
+Tests: 1493 | Fehler: 0 | Fehlschläge: 0 | übersprungen: 0
+ERGEBNIS: OK
+```
+
+Vor dieser Runde waren es 1479 Tests (R13bp); die 14 neuen sind
+`tests/test_r13bq_fixes.py` (5 × QuickEdit, 9 × Stille-Warnung).
+
