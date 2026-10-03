@@ -190,6 +190,24 @@ class TestZweiterPreflight(unittest.TestCase):
         self.assertIn("port/ oder scripts/", t)
         self.assertNotIn("Nach der Nacharbeit neuer Preflight", t)
 
+    def test_gilt_satz_erlaubt_weitere_arbeit_und_verlangt_danach_einen_preflight(self):
+        """R13bp Punkt 2: der Gilt-Satz liess offen, ob unter port/scripts gearbeitet
+        werden darf. Er sagt jetzt beides - die Arbeit ist ERLAUBT, und danach gilt ein
+        neuer Preflight (der letzte)."""
+        t = self.text(preflight_geprueft=True)
+        self.assertIn("Weitere Arbeit unter port/ und scripts/ ist erlaubt; danach ein "
+                      "neuer Preflight, der letzte gilt (R13bf).", t)
+        # Der Erledigt-Satz steht weiterhin ZULETZT (er uebersteuert beide Preflight-Saetze).
+        self.assertTrue(t.rstrip().endswith("kein Preflight und keine Bilanz."), t[-120:])
+
+    def test_die_neuen_saetze_schliessen_sich_aus(self):
+        neu = self.text(preflight_erneut=True)
+        gilt = self.text(preflight_geprueft=True)
+        self.assertIn("Nach der Nacharbeit neuer Preflight", neu)
+        self.assertNotIn("Weitere Arbeit unter port/", neu)
+        self.assertIn("Weitere Arbeit unter port/", gilt)
+        self.assertNotIn("Nach der Nacharbeit neuer Preflight", gilt)
+
     def test_ohne_preflight_kein_preflight_satz(self):
         t = self.text()
         self.assertNotIn("neuer Preflight", t)

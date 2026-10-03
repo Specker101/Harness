@@ -530,8 +530,13 @@ UEBERTRAG_TEXT = "Kein Fortsetzungsanstoss: " + UEBERTRAG_GRUND
 # `scripts/` etwas geaendert hat - sonst ist der vorhandene Stand noch gueltig.
 PREFLIGHT_NEU_TEXT = (" Nach der Nacharbeit neuer Preflight, der letzte gilt (der frühere "
                       "ist überholt); danach Bilanz aktualisieren und committen.")
+# R13bp (2026-10-03, Nutzerauftrag): der Satz sagte bisher NUR, dass kein neuer Preflight
+# noetig ist - und liess offen, ob unter `port/`/`scripts/` ueberhaupt noch gearbeitet
+# werden darf. Ergaenzt: die Arbeit ist erlaubt, und DANACH gilt ein neuer Preflight.
 PREFLIGHT_GILT_TEXT = (" Kein neuer Preflight nötig, der vorhandene gilt - seit dem letzten "
-                       "Preflight wurde unter port/ oder scripts/ nichts geändert.")
+                       "Preflight wurde unter port/ oder scripts/ nichts geändert."
+                       " Weitere Arbeit unter port/ und scripts/ ist erlaubt; danach ein "
+                       "neuer Preflight, der letzte gilt (R13bf).")
 # Steht IMMER am Ende - auch nach dem Preflight-Satz: ist die Liste schon erledigt, ist die
 # Antwort "NACHRUECKLISTE ERLEDIGT" und sonst nichts (R13bf, Nutzerauftrag).
 ERLEDIGT_TEXT = (" Ist die Nachrückliste schon vollständig erledigt (kein offener Posten), "
