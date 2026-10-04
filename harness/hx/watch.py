@@ -474,16 +474,20 @@ class Watcher:
     # ------------------------------------------------------------- Nachspielen
     def _replay(self) -> int:
         rd = self._run_dir()
-        stream = rd / "stream.jsonl"
         rev_stream = rd / "reviewer.jsonl"
         res = read_json(rd / "result.json", {}) or {}
         hat_review = (rd / "review.md").is_file() or (rd / "review-pre.md").is_file()
+        # R13bv-2: auch das Nachspielen liest die GANZE Reihe (`stream.jsonl` +
+        # `stream-forts<k>.jsonl`) - dieselben Hilfsfunktionen wie live.
+        reihe = self._mitschnitt_reihe(rd)
         self._p(f"watch: {rd.name}  (nachspielen)", "bold")
-        if not any((stream.is_file(), rev_stream.is_file(), res, hat_review)):
+        if not any((reihe, rev_stream.is_file(), res, hat_review)):
             self._p(f"(noch kein Mitschnitt unter {rd})", "yellow")
             return 1
-        if stream.is_file():
-            self._tail(stream, "WORKER", "seen")
+        if len(reihe) > 1:
+            self._p("  Mitschnitte: " + ", ".join(p.name for _n, p in reihe), "dim")
+        if reihe:
+            self._tail_reihe(rd, "WORKER", "seen_forts")
         if rev_stream.is_file():
             # R13e: der Reviewer-Mitschnitt in diesem Ordner gehoert zum VORIGEN
             # Batch (das Review von N liegt in b<N+1>). Deshalb hier benennen,
@@ -493,7 +497,7 @@ class Watcher:
             self._tail(rev_stream, "REVIEWER", "seen_reviewer")
         self._print_stats(force=True)
         self._summary(res)
-        if not res and stream.is_file():
+        if not res and reihe:
             self._p("(fuer diesen Lauf gibt es keine Kennzahlen-Datei - "
                     "gezeigt wurde der Mitschnitt selbst)", "yellow")
         self._print_review()
@@ -522,8 +526,13 @@ class Watcher:
         if gate:
             self._show_gate(gate)
             return 0
-        if zust == "DS_WORKING" and retention.mitschnitt_vorhanden(rd / "stream.jsonl"):
-            self._tail(rd / "stream.jsonl", "WORKER", "seen_worker")
+        # R13bv-2: das Einmalbild zeigt die ganze Reihe; die Bedingung prueft die REIHE,
+        # nicht nur den ersten Teil (eine Fortsetzung ohne `stream.jsonl` gibt es auch).
+        reihe = self._mitschnitt_reihe(rd)
+        if zust == "DS_WORKING" and reihe:
+            if len(reihe) > 1:
+                self._p("  Mitschnitte: " + ", ".join(p.name for _n, p in reihe), "dim")
+            self._tail_reihe(rd, "WORKER", "seen_forts")
             self._print_stats(force=True)
         elif (rd / "result.json").is_file():
             # Fertiger Lauf: nur die Kennzahlen, nicht den ganzen Mitschnitt.

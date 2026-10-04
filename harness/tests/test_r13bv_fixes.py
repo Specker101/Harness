@@ -268,5 +268,70 @@ class TestZahlenzeile(Basis):
         self.assertEqual(aus.getvalue().count("laufend:"), 1, aus.getvalue())
 
 
+# ------------------------------- 4) Nachspielen (`--batch`) und Einmalbild (`--once`)
+class TestNachspielenUndEinmalbild(Basis):
+    """R13bv-2: beide Lesepfade nehmen dieselben Hilfsfunktionen wie `_follow_live`."""
+
+    def test_nachspielen_liest_die_fortsetzungen(self):
+        rd = self.run_dir(266)
+        self.mitschnitt(rd / "stream.jsonl", "TEIL1")
+        self.mitschnitt(rd / "stream-forts1.jsonl", "FORTS1")
+        self.mitschnitt(rd / "stream-forts2.jsonl", "FORTS2")
+        w = watch.Watcher(self.cfg, self.log, color=False, batch=266)
+        aus = StringIO()
+        with redirect_stdout(aus):
+            self.assertEqual(w.run(), 0)
+        text = aus.getvalue()
+        self.assertIn("(nachspielen)", text)
+        self.assertEqual(text.count("TEIL1"), 1, text)
+        self.assertEqual(text.count("FORTS1"), 1, text)
+        self.assertEqual(text.count("FORTS2"), 1, text)
+        self.assertIn("--- Fortsetzung 1 ---", text)
+        self.assertIn("--- Fortsetzung 2 ---", text)
+        self.assertLess(text.index("TEIL1"), text.index("FORTS1"))
+        self.assertLess(text.index("FORTS1"), text.index("FORTS2"))
+
+    def test_nachspielen_nennt_die_teile(self):
+        rd = self.run_dir(266)
+        self.mitschnitt(rd / "stream.jsonl", "TEIL1")
+        self.mitschnitt(rd / "stream-forts1.jsonl", "FORTS1")
+        aus = StringIO()
+        with redirect_stdout(aus):
+            watch.Watcher(self.cfg, self.log, color=False, batch=266).run()
+        self.assertIn("Mitschnitte: stream.jsonl, stream-forts1.jsonl", aus.getvalue())
+
+    def test_nachspielen_ohne_teile_bleibt_bei_der_meldung(self):
+        """Kein Mitschnitt im Ordner: dieselbe Meldung wie vorher, kein Absturz."""
+        rd = self.run_dir(266)
+        aus = StringIO()
+        with redirect_stdout(aus):
+            self.assertEqual(watch.Watcher(self.cfg, self.log, color=False, batch=266).run(), 1)
+        self.assertIn("noch kein Mitschnitt", aus.getvalue())
+
+    def test_einmalbild_liest_die_fortsetzungen(self):
+        self.zustand(266)
+        rd = self.run_dir(266)
+        self.mitschnitt(rd / "stream.jsonl", "TEIL1")
+        self.mitschnitt(rd / "stream-forts1.jsonl", "FORTS1")
+        aus = StringIO()
+        with redirect_stdout(aus):
+            self.assertEqual(watch.Watcher(self.cfg, self.log, color=False, once=True).run(), 0)
+        text = aus.getvalue()
+        self.assertEqual(text.count("TEIL1"), 1, text)
+        self.assertIn("--- Fortsetzung 1 ---", text)
+        self.assertIn("FORTS1", text)
+        self.assertIn("Mitschnitte: stream.jsonl, stream-forts1.jsonl", text)
+
+    def test_einmalbild_auch_ohne_ersten_teil(self):
+        """Nur die Fortsetzung vorhanden (erster Teil weg/gepackt) - sie wird gezeigt."""
+        self.zustand(266)
+        rd = self.run_dir(266)
+        self.mitschnitt(rd / "stream-forts1.jsonl", "FORTS1")
+        aus = StringIO()
+        with redirect_stdout(aus):
+            watch.Watcher(self.cfg, self.log, color=False, once=True).run()
+        self.assertIn("FORTS1", aus.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()
