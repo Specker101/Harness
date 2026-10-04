@@ -289,27 +289,32 @@ class TestWandler(Basis):
         self.assertFalse(erg["ausgefuehrt"])
         self.assertEqual(erg["quellen"], 8)
         self.assertEqual(erg["kopiert"], 0)
+        self.assertEqual(erg["geloescht"], 0)
         self.assertEqual({z["aktion"] for z in erg["zeilen"]}, {"kopieren"})
         self.assertEqual({z["vorhanden"] for z in erg["zeilen"]}, {"nein"})
+        self.assertEqual({z["hash_gleich"] for z in erg["zeilen"]}, {"-"})
         for batch in (208, 209):
             for art in ("md", "json", "jsonl", "err"):
                 self.assertFalse(self.neu(batch, art).exists())
         self.assertEqual({p.name: read_text(p) for p in sorted(self.runs().iterdir())}, vorher)
 
-    def test_trockenlauf_zeigt_die_vier_spalten(self):
+    def test_trockenlauf_zeigt_hash_spalte_und_bilanz(self):
         self._alt_lage()
         tafel = aussensicht.ablage_tafel(aussensicht.ablage_wandeln(self.cfg))
         kopf = [z for z in tafel.splitlines() if "Datei" in z and "Aktion" in z][0]
-        for spalte in ("Datei", "Ziel", "vorhanden", "Aktion"):
+        for spalte in ("Datei", "Ziel", "Hash gleich", "Aktion"):
             self.assertIn(spalte, kopf)
         self.assertIn("runs/b208/meta.md", tafel)
         self.assertIn("Trockenlauf", tafel)
+        self.assertIn("kopiert: 0, geloescht: 0, behalten: 0", tafel)
 
     def test_ausfuehren_kopiert_und_laesst_die_originale(self):
+        """Ohne --verschieben bleibt das Original liegen (Beleg, Rueckweg)."""
         self._alt_lage()
         erg = aussensicht.ablage_wandeln(self.cfg, ausfuehren=True)
         self.assertEqual(erg["kopiert"], 8)
         self.assertEqual(erg["belegt"], 0)
+        self.assertEqual(erg["geloescht"], 0)
         for batch in (208, 209):
             for art in ("md", "json", "jsonl", "err"):
                 quelle, ziel = self.alt(batch, art), self.neu(batch, art)
@@ -324,6 +329,7 @@ class TestWandler(Basis):
         self.assertEqual(erg["kopiert"], 0)
         self.assertEqual(erg["gleich"], 8)
         self.assertEqual({z["aktion"] for z in erg["zeilen"]}, {"schon da"})
+        self.assertEqual({z["hash_gleich"] for z in erg["zeilen"]}, {"ja"})
 
     def test_belegtes_ziel_wird_nicht_ueberschrieben(self):
         self._alt_lage()
@@ -331,9 +337,74 @@ class TestWandler(Basis):
         erg = aussensicht.ablage_wandeln(self.cfg, ausfuehren=True)
         self.assertEqual(erg["belegt"], 1)
         self.assertEqual(read_text(fremd), "FREMD\n")
-        self.assertEqual([z["aktion"] for z in erg["zeilen"] if z["batch"] == 208
-                          and z["art"] == "json"], ["Ziel belegt"])
+        zeile = [z for z in erg["zeilen"] if z["batch"] == 208 and z["art"] == "json"]
+        self.assertEqual(zeile[0]["aktion"],
+                         "Ziel belegt (Hash verschieden) - Original bleibt")
+        self.assertEqual(zeile[0]["hash_gleich"], "nein")
         self.assertIn("Ziel belegt", aussensicht.ablage_tafel(erg))
+
+    # --------------------------------------------------- verschieben (R13bs)
+    def test_verschieben_loescht_das_original(self):
+        """Gleiche Datei: kopiert und danach das lose Original entfernt."""
+        self._alt_lage()
+        erg = aussensicht.ablage_wandeln(self.cfg, ausfuehren=True, verschieben=True)
+        self.assertEqual(erg["kopiert"], 8)
+        self.assertEqual(erg["geloescht"], 8)
+        self.assertEqual(erg["behalten"], 0)
+        self.assertEqual({z["aktion"] for z in erg["zeilen"]},
+                         {"kopiert + Original geloescht"})
+        for batch in (208, 209):
+            for art in ("md", "json", "jsonl", "err"):
+                self.assertTrue(self.neu(batch, art).is_file(), f"Kopie {art} fehlt")
+                self.assertFalse(self.alt(batch, art).exists(), f"Original {art} liegt noch")
+        self.assertIn("kopiert: 8, geloescht: 8, behalten: 0",
+                      aussensicht.ablage_tafel(erg))
+
+    def test_verschieben_loescht_auch_ohne_neue_kopie(self):
+        """Die Ziele sind schon gleich - die Originale verschwinden trotzdem (kein Kopieren)."""
+        self._alt_lage()
+        aussensicht.ablage_wandeln(self.cfg, ausfuehren=True)      # nur kopieren
+        erg = aussensicht.ablage_wandeln(self.cfg, ausfuehren=True, verschieben=True)
+        self.assertEqual(erg["kopiert"], 0)
+        self.assertEqual(erg["geloescht"], 8)
+        self.assertEqual(erg["behalten"], 0)
+        self.assertEqual({z["aktion"] for z in erg["zeilen"]},
+                         {"Original geloescht (Kopie gleich)"})
+        self.assertFalse(self.alt(208, "md").exists())
+        self.assertTrue(self.neu(208, "md").is_file())
+
+    def test_verschieben_laesst_abweichendes_original_liegen(self):
+        """Verschiedener Inhalt: nichts wird kopiert, nichts geloescht, Grund in der Tafel."""
+        self._alt_lage()
+        fremd = write_text_atomic(self.neu(208, "json"), "FREMD\n")
+        erg = aussensicht.ablage_wandeln(self.cfg, ausfuehren=True, verschieben=True)
+        self.assertEqual(erg["kopiert"], 7)
+        self.assertEqual(erg["geloescht"], 7)
+        self.assertEqual(erg["behalten"], 1)
+        self.assertEqual(read_text(fremd), "FREMD\n", "das Ziel bleibt unberuehrt")
+        self.assertTrue(self.alt(208, "json").is_file(), "das Original bleibt liegen")
+        self.assertIn("Ziel belegt", aussensicht.ablage_tafel(erg))
+
+    def test_verschieben_trockenlauf_aendert_nichts(self):
+        self._alt_lage()
+        vorher = {p.name: read_text(p) for p in sorted(self.runs().iterdir())}
+        erg = aussensicht.ablage_wandeln(self.cfg, verschieben=True)     # ohne --ausfuehren
+        self.assertTrue(erg["verschieben"])
+        self.assertFalse(erg["ausgefuehrt"])
+        self.assertEqual(erg["kopiert"], 0)
+        self.assertEqual(erg["geloescht"], 0)
+        self.assertEqual(erg["geplant_kopieren"], 8)
+        self.assertEqual(erg["geplant_loeschen"], 8)
+        self.assertEqual({z["aktion"] for z in erg["zeilen"]},
+                         {"kopieren + Original loeschen"})
+        for batch in (208, 209):
+            for art in ("md", "json", "jsonl", "err"):
+                self.assertFalse(self.neu(batch, art).exists())
+                self.assertTrue(self.alt(batch, art).is_file())
+        self.assertEqual({p.name: read_text(p) for p in sorted(self.runs().iterdir())}, vorher)
+        tafel = aussensicht.ablage_tafel(erg)
+        self.assertIn("Trockenlauf", tafel)
+        self.assertIn("geplant loeschen: 8", tafel)
 
     def test_batches_einschraenken(self):
         self._alt_lage()
@@ -357,10 +428,12 @@ class TestCli(Basis):
         args = cli.build_parser().parse_args(["meta-ablage"])
         self.assertEqual(args.cmd, "meta-ablage")
         self.assertFalse(args.ausfuehren, "Trockenlauf ist die Vorgabe")
+        self.assertFalse(args.verschieben, "Verschieben ist nicht die Vorgabe")
         self.assertEqual(args.batches, "")
         args = cli.build_parser().parse_args(["meta-ablage", "--batches", "208-210,215",
-                                              "--ausfuehren"])
+                                              "--ausfuehren", "--verschieben"])
         self.assertTrue(args.ausfuehren)
+        self.assertTrue(args.verschieben)
         self.assertEqual(args.batches, "208-210,215")
 
     def test_cli_batchliste_und_tafel(self):

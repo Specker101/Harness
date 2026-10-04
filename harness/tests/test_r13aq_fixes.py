@@ -88,6 +88,19 @@ class Basis(unittest.TestCase):
 
 
 # --------------------------------------------------- 1) Was zaehlt als gelaufen?
+def _meta_beleg(batch: int, endung: str) -> Path:
+    """Ein echter Aussensicht-Beleg auf der Platte: neuer Ort zuerst, alter als Rueckfall.
+
+    R13br hat die Ablage in den Batchordner gelegt (`runs/b<N>/meta.*`). R13bs: diese
+    Tests lesen BEIDE Orte, sonst verloeren sie ihren Vergleich, sobald die losen
+    Dateien einmal weggeraeumt sind. Zurueck kommt der neue Pfad, wenn keiner existiert -
+    so nennt die Skip-Meldung den Ort, der erwartet wurde.
+    """
+    neu = ROOT / "runs" / f"b{batch:03d}" / f"meta{endung}"
+    alt = ROOT / "runs" / f"meta-{batch:03d}{endung}"
+    return neu if neu.is_file() or not alt.is_file() else alt
+
+
 class TestGelaufen(unittest.TestCase):
     def test_rc_ungleich_null_zaehlt_nicht(self):
         ok, warum = aussensicht.gelaufen(_ergebnis(rc=1, subtype="error_max_turns",
@@ -113,9 +126,9 @@ class TestGelaufen(unittest.TestCase):
 
     def test_der_echte_meta_217_ist_das_beispiel(self):
         """Der gescheiterte Lauf, wie er auf der Platte steht (Mitschnitt, kein Mock)."""
-        p = ROOT / "runs" / "meta-217.jsonl"
+        p = _meta_beleg(217, ".jsonl")
         if not p.is_file():
-            self.skipTest("runs/meta-217.jsonl fehlt")
+            self.skipTest(f"{p} fehlt (weder runs/b217/ noch runs/meta-217.jsonl)")
         letzte = None
         for z in p.read_text(encoding="utf-8", errors="replace").splitlines():
             try:
@@ -129,7 +142,7 @@ class TestGelaufen(unittest.TestCase):
         self.assertTrue(letzte.get("is_error"))
         self.assertEqual(int(letzte.get("num_turns") or 0), 31)
         # Und der Bericht des Laufs: 0 Befunde, Rohantwort nur ein Zwischenstand.
-        md = read_text(ROOT / "runs" / "meta-217.md")
+        md = read_text(_meta_beleg(217, ".md"))
         self.assertIn("befunde=0", md)
         self.assertIn("Zwischenstand", md)
 

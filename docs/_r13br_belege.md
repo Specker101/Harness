@@ -127,3 +127,47 @@ nur, damit jederzeit ein Rückweg existiert).
 Zwei Tests lesen die alten losen Dateien namentlich und überspringen sich, wenn sie
 fehlen (`test_r13aq_fixes.py:116`, `test_r13ar_fixes.py:80-99` — Vorrichtungen zu
 meta-214/217); ein Löschen nimmt diesen Vergleich, kostet aber keinen Ausfall.
+
+---
+
+# Nachtrag R13bs (2026-10-04) — `meta-ablage --verschieben`
+
+**Auftrag (Nutzer).** Das Werkzeug `meta-ablage` um `--verschieben` erweitern; Trockenlauf
+bleibt Standard, `--ausfuehren` weiterhin nötig. Es kopiert wie bisher und löscht danach das
+lose Original in `runs/` **nur**, wenn die Kopie am Ziel existiert und **Größe und SHA-256**
+gleich sind. Bei Abweichung oder Kollision bleibt das Original liegen, mit Grund in der Tafel
+(`Datei | Ziel | Hash gleich | Aktion`). Schlusszeile `kopiert, geloescht, behalten`.
+
+**Umsetzung.** `ablage_wandeln(..., verschieben=False)`; neuer Helfer `_gleich(quelle, ziel)`
+(Größe **und** SHA-256, `OSError` = nicht gleich). Reihenfolge je Datei: Lage am Ziel
+feststellen (`fehlt`/`gleich`/`verschieden`) → Plan → kopieren → **Kopie nachlesen** →
+erst dann löschen. `verschieden` wird nie überschrieben und nie gelöscht. `--verschieben`
+ohne `--ausfuehren` ist ein reiner Trockenlauf (`geplant kopieren: n, geplant loeschen: n`).
+Tafel jetzt `Datei | Ziel | Hash gleich | Aktion` mit `-` für „am Ziel liegt noch nichts".
+
+**Gemessen (Trockenlauf gegen den echten Bestand, HEAD `a5a8cf1`):**
+
+    Quellen: 131 - kopiert: 0, geloescht: 0, behalten: 0
+    Trockenlauf: geplant kopieren: 131, geplant loeschen: 131 - nichts geaendert.
+    lose meta-Dateien vorher=131 nachher=131, Kopien im Zielordner: 0
+
+**Tests.** `test_r13br_fixes.py` 33 Tests (neu: `test_verschieben_loescht_das_original`,
+`test_verschieben_loescht_auch_ohne_neue_kopie`, `test_verschieben_laesst_abweichendes_
+original_liegen`, `test_verschieben_trockenlauf_aendert_nichts`, Hash-Spalte/Bilanz;
+`test_ausfuehren_kopiert_und_laesst_die_originale` belegt, dass **ohne** `--verschieben`
+nichts verschwindet). Weiter: `test_r13aq_fixes` 30, `test_r13ar_fixes` 30,
+`test_r13w_fixes` 45 — grün.
+
+**Zwei Lose-Leser auf beide Orte (R13bs).** `test_r13aq_fixes.py` und
+`test_r13ar_fixes.py` suchen die Belege meta-214/217 über den neuen Helfer `_meta_beleg()`
+zuerst in `runs/b<N>/meta.*`, dann in `runs/meta-<N>.*`; die Skip-Meldung nennt beide Orte.
+Damit bleiben die Vergleiche gültig, wenn die losen Dateien einmal weggeräumt werden.
+
+**Volle Reihe am Gate** (Arbeitsbaum = `a5a8cf1` + dieser Diff; das Belegwerkzeug schreibt
+den HEAD beim Start, also den Commit davor):
+
+    HEAD: a5a8cf1   Zustand: state=GATE_APPROVAL batch=259 worker=False
+    Dauer: 638.1 s
+    Tests: 1526 | Fehler: 0 | Fehlschläge: 0 | übersprungen: 0
+    ERGEBNIS: OK
+    (R13br: 1522 → +4 = die vier neuen Verschieben-Tests)

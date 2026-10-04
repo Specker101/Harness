@@ -176,11 +176,12 @@ def cmd_meta(args) -> int:
 
 
 def cmd_meta_ablage(args) -> int:
-    """Die losen Aussensicht-Belege in die Batch-Ordner kopieren (R13br).
+    """Die losen Aussensicht-Belege in die Batch-Ordner bringen (R13br/R13bs).
 
     Trockenlauf ist die Vorgabe: ohne `--ausfuehren` wird nur die Tafel
-    `Datei | Ziel | vorhanden | Aktion` gezeigt. Kopiert wird ausschliesslich; die
-    Originale in `runs/` bleiben liegen (sie sind Belege, Nutzerauftrag R13br).
+    `Datei | Ziel | Hash gleich | Aktion` gezeigt. Kopiert wird immer; das lose Original
+    in `runs/` verschwindet nur mit `--verschieben` - und nur, wenn die Kopie am Ziel in
+    Groesse und SHA-256 gleich ist (sonst bleibt es als Beleg liegen).
     """
     from . import aussensicht
     cfg = load_config(args.config)
@@ -195,7 +196,8 @@ def cmd_meta_ablage(args) -> int:
         else:
             nums.append(int(teil))
     erg = aussensicht.ablage_wandeln(cfg, ausfuehren=bool(getattr(args, "ausfuehren", False)),
-                                     batches=nums or None)
+                                     batches=nums or None,
+                                     verschieben=bool(getattr(args, "verschieben", False)))
     _druck(aussensicht.ablage_tafel(erg))
     return 0
 
@@ -1344,7 +1346,12 @@ def build_parser() -> argparse.ArgumentParser:
     ma = sub.add_parser("meta-ablage",
                         help="Aussensicht-Belege in die Batch-Ordner kopieren (Trockenlauf)")
     ma.add_argument("--ausfuehren", action="store_true",
-                    help="wirklich kopieren (Vorgabe: nur zeigen); Originale bleiben liegen")
+                    help="wirklich kopieren (Vorgabe: nur zeigen); ohne --verschieben "
+                         "bleiben die Originale liegen")
+    ma.add_argument("--verschieben", action="store_true",
+                    help="das lose Original nach dem Kopieren loeschen - nur wenn die "
+                         "Kopie in Groesse und SHA-256 gleich ist (wirkt nur mit "
+                         "--ausfuehren; Vorgabe: Trockenlauf)")
     ma.add_argument("--batches", default="",
                     help="nur diese Batches, z. B. 208-216,230 (Vorgabe: alle)")
     sub.add_parser("rotate", help="Reviewer-Session beim naechsten Review wechseln")

@@ -38,6 +38,18 @@ DRINGEND = ("JETZT die Antwort im Blockformat schreiben, Unvollständiges als ni
 SITZUNG_217 = "d19c9eda-fe57-4fae-8cbc-8c154e7745db"
 
 
+def _meta_beleg(batch: int, endung: str) -> Path:
+    """Ein echter Aussensicht-Beleg auf der Platte: neuer Ort zuerst, alter als Rueckfall.
+
+    R13br hat die Ablage in den Batchordner gelegt (`runs/b<N>/meta.*`). R13bs: diese
+    Tests lesen BEIDE Orte, sonst verloeren sie ihren Vergleich, sobald die losen
+    Dateien einmal weggeraeumt sind. Zurueck kommt der neue Pfad, wenn keiner existiert.
+    """
+    neu = ROOT / "runs" / f"b{batch:03d}" / f"meta{endung}"
+    alt = ROOT / "runs" / f"meta-{batch:03d}{endung}"
+    return neu if neu.is_file() or not alt.is_file() else alt
+
+
 def zeile(mid: str, tools: int = 0, text: str = "") -> str:
     """Eine stream-json-Zeile: eine Modellantwort mit `tools` Werkzeugaufrufen."""
     bloecke: list[dict] = []
@@ -78,10 +90,11 @@ class TestRunden(unittest.TestCase):
 
     def test_echte_laeufe_und_num_turns_sind_verschieden(self):
         """meta-214: 35 laut `num_turns`, aber nur 23 Runden - deshalb lief er durch."""
-        p14 = ROOT / "runs" / "meta-214.jsonl"
-        p17 = ROOT / "runs" / "meta-217.jsonl"
+        p14 = _meta_beleg(214, ".jsonl")
+        p17 = _meta_beleg(217, ".jsonl")
         if not (p14.is_file() and p17.is_file()):
-            self.skipTest("runs/meta-214.jsonl oder meta-217.jsonl fehlt")
+            self.skipTest(f"{p14} oder {p17} fehlt (runs/b<N>/meta.jsonl bzw. "
+                          "runs/meta-N.jsonl)")
         for pfad, runden, turns, subtype in ((p14, 23, 35, "success"),
                                              (p17, 30, 31, "error_max_turns")):
             st = streamjson.StreamStats()

@@ -788,16 +788,34 @@ bleiben alte Aussensichten, die Quote im Register, die Wiederholungsregel („zu
 gescheitert", §12r), die Rotation der Tiefenprobe und die Fensterlogik von `/bilanz`/`/status`
 unverändert gültig, **ohne dass ein Beleg angefasst wird**.
 
-**Die vorhandenen losen Dateien wurden nicht gelöscht oder verschoben.** Wer sie in die
-Batch-Ordner bringen will, kopiert sie:
+**Diesen Umbau hat kein Beleg gekostet: die vorhandenen losen Dateien wurden nicht
+gelöscht und nicht verschoben.** Wer sie in die Batch-Ordner bringen will, benutzt den
+Wandler (R13bs: er kann sie auf Wunsch auch entfernen):
 
-    python -m hx.cli meta-ablage                     # Trockenlauf (Vorgabe): nur die Tafel
-    python -m hx.cli meta-ablage --ausfuehren        # kopieren
-    python -m hx.cli meta-ablage --batches 208-216,230   # nur diese Batches
+    python -m hx.cli meta-ablage                          # Trockenlauf (Vorgabe): nur die Tafel
+    python -m hx.cli meta-ablage --ausfuehren             # kopieren (Originale bleiben liegen)
+    python -m hx.cli meta-ablage --ausfuehren --verschieben   # kopieren + Original entfernen
+    python -m hx.cli meta-ablage --batches 208-216,230    # nur diese Batches
 
-Ausgabe ist die Tafel `Datei | Ziel | vorhanden | Aktion`. Das Werkzeug **kopiert nur**, die
-Originale in `runs/` bleiben liegen (Belege); ein Ziel mit **anderem** Inhalt wird als
-„Ziel belegt" gemeldet und **nicht** überschrieben.
+Ausgabe ist die Tafel `Datei | Ziel | Hash gleich | Aktion` (`Hash gleich`: `ja`/`nein`/`-`,
+`-` heisst: am Ziel liegt noch nichts). Das Werkzeug **kopiert** immer; das lose Original in
+`runs/` verschwindet **nur** mit `--verschieben` **und** nur, wenn die Kopie am Ziel in
+**Grösse und SHA-256** gleich ist. Sonst bleibt es liegen, mit dem Grund in der Tafel:
+
+| Lage am Ziel | Aktion | Original |
+|---|---|---|
+| fehlt | `kopieren` bzw. `kopiert` | bleibt (ohne `--verschieben`) bzw. `kopiert + Original geloescht` |
+| gleich | `schon da` | bleibt bzw. `Original geloescht (Kopie gleich)` |
+| **verschieden** | `Ziel belegt (Hash verschieden) - Original bleibt` | bleibt (nichts wird überschrieben) |
+| Kopie nicht bestätigt | `Kopie nicht bestaetigt - Original bleibt` | bleibt |
+
+Schlusszeile: `Quellen: n - kopiert: n, geloescht: n, behalten: n`; `behalten` zählt die
+Originale, die liegen bleiben (Kollision oder nicht bestätigte Kopie). Im Trockenlauf steht
+stattdessen `geplant kopieren: n, geplant loeschen: n - nichts geaendert`, und es wird
+nichts angefasst. `--verschieben` ohne `--ausfuehren` ist deshalb ein reiner Trockenlauf
+(er zeigt nur, was gelöscht würde). **Löschen ist immer die letzte Handlung:** erst kopieren,
+dann Grösse und SHA-256 der Kopie nachlesen, dann das Original entfernen — schlägt das
+Löschen fehl, bleibt das Original und die Tafel nennt den Grund.
 
 **Wächter (kein Überschreiben).** Liegt am neuen Ort eine Datei, die nicht von dieser
 Aussensicht stammt (`meta.md` ohne unseren Kopf, `meta.json` ohne `batch`/`rc`, unlesbarer

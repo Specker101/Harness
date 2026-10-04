@@ -2143,24 +2143,39 @@ def _sha256(p: Path) -> str:
     return h.hexdigest()
 
 
-def ablage_wandeln(cfg, ausfuehren: bool = False,
-                   batches: list[int] | None = None) -> dict:
-    """Die losen Belege `runs/meta-<N>.*` in die Batch-Ordner KOPIEREN (R13br).
+def _gleich(quelle: Path, ziel: Path) -> bool:
+    """Groesse UND SHA-256 gleich? Nur dann darf ein Original geloescht werden."""
+    try:
+        if not ziel.is_file() or ziel.stat().st_size != quelle.stat().st_size:
+            return False
+        return _sha256(quelle) == _sha256(ziel)
+    except OSError:
+        return False
+
+
+def ablage_wandeln(cfg, ausfuehren: bool = False, batches: list[int] | None = None,
+                   verschieben: bool = False) -> dict:
+    """Die losen Belege `runs/meta-<N>.*` in die Batch-Ordner bringen (R13br).
 
     Trockenlauf ist die Vorgabe (`ausfuehren=False`) - es wird nur berichtet, nichts
-    geaendert. Die Originale werden NIE geloescht oder verschoben: die Belege bleiben, wo
-    sie sind (Nutzerauftrag R13br), der Wandler ist damit umkehrbar.
+    geaendert. **Kopiert** wird immer, geloescht nur mit `verschieben=True` (R13bs):
+    ein Original in `runs/` verschwindet **nur**, wenn die Kopie am Ziel existiert und
+    **Groesse und SHA-256** gleich sind. Bei Abweichung oder Kollision bleibt das
+    Original liegen - mit Grund in der Tafel.
 
-    Ein vorhandenes Ziel wird NICHT ueberschrieben: gleicher Inhalt (SHA-256) -> "schon da",
-    anderer Inhalt -> "Ziel belegt" (gemeldet, nichts geschrieben).
+    Ein vorhandenes Ziel wird NICHT ueberschrieben: gleicher Inhalt -> "schon da",
+    anderer Inhalt -> "Ziel belegt" (gemeldet, nichts geschrieben, nichts geloescht).
 
-    Rueckgabe: `{"zeilen": [...], "quellen": n, "kopiert": n, "gleich": n, "belegt": n,
-    "ausgefuehrt": bool}`; je Zeile `{datei, ziel, vorhanden, aktion, batch, art}`.
+    Rueckgabe: `{"zeilen": [...], "quellen": n, "kopiert": n, "geloescht": n,
+    "behalten": n, "gleich": n, "belegt": n, "ausgefuehrt": bool, "verschieben": bool,
+    "geplant_kopieren": n, "geplant_loeschen": n}`;
+    je Zeile `{datei, ziel, vorhanden, hash_gleich, aktion, batch, art}`.
     """
     runs = Path(cfg.root) / "runs"
     gewaehlt = {int(b) for b in batches} if batches else None
     zeilen: list[dict] = []
-    kopiert = gleich = belegt = 0
+    kopiert = geloescht = behalten = gleich = belegt = 0
+    geplant_kopieren = geplant_loeschen = 0
     quellen = 0
     if runs.is_dir():
         for p in sorted(runs.iterdir()):
@@ -2171,49 +2186,100 @@ def ablage_wandeln(cfg, ausfuehren: bool = False,
                 continue
             quellen += 1
             ziel = pfad_neu(cfg, nummer, art)
-            if not ziel.exists():
-                vorhanden, aktion = "nein", "kopieren"
-            elif _sha256(p) == _sha256(ziel):
-                vorhanden, aktion = "ja (gleich)", "schon da"
+            # 1) Lage am Zielort: fehlt / gleich / verschieden
+            if not ziel.is_file():
+                vorhanden, hash_gleich, lage = "nein", "-", "fehlt"
+            elif _gleich(p, ziel):
+                vorhanden, hash_gleich, lage = "ja", "ja", "gleich"
             else:
-                vorhanden, aktion = "ja (verschieden)", "Ziel belegt"
-            if aktion == "kopieren" and ausfuehren:
-                ensure_dir(ziel.parent)
-                shutil.copy2(p, ziel)
-                aktion = "kopiert"
-            if aktion == "kopiert":
-                kopiert += 1
-            elif aktion == "schon da":
-                gleich += 1
-            elif aktion == "Ziel belegt":
+                vorhanden, hash_gleich, lage = "ja", "nein", "verschieden"
+            # 2) Plan (im Trockenlauf die Anzeige, sonst das Ziel)
+            if lage == "verschieden":
+                plan = "Ziel belegt (Hash verschieden) - Original bleibt"
+            elif verschieben and lage == "fehlt":
+                plan = "kopieren + Original loeschen"
+            elif verschieben:
+                plan = "Original loeschen (Kopie gleich)"
+            else:
+                plan = "kopieren" if lage == "fehlt" else "schon da"
+            if lage == "fehlt":
+                geplant_kopieren += 1
+            if verschieben and lage != "verschieden":
+                geplant_loeschen += 1
+            # 3) Ausfuehren
+            aktion = plan
+            if lage == "verschieden":
                 belegt += 1
+                behalten += 1
+            elif lage == "gleich":
+                gleich += 1
+            if ausfuehren and lage != "verschieden":
+                if lage == "fehlt":
+                    ensure_dir(ziel.parent)
+                    shutil.copy2(p, ziel)
+                    kopiert += 1
+                # Nachlesen: die Kopie muss in Groesse UND SHA-256 stimmen, sonst
+                # wird nichts geloescht (das Original ist der Beleg).
+                if verschieben:
+                    if _gleich(p, ziel):
+                        try:
+                            p.unlink()
+                            geloescht += 1
+                            aktion = ("kopiert + Original geloescht" if lage == "fehlt"
+                                      else "Original geloescht (Kopie gleich)")
+                        except OSError as exc:                      # noqa: BLE001
+                            behalten += 1
+                            aktion = (f"Loeschen fehlgeschlagen "
+                                      f"({exc.__class__.__name__}) - Original bleibt")
+                    else:
+                        behalten += 1
+                        aktion = "Kopie nicht bestaetigt - Original bleibt"
+                else:
+                    aktion = "kopiert" if lage == "fehlt" else "schon da"
             zeilen.append({"datei": f"runs/{p.name}", "ziel": _rel(cfg, ziel),
-                           "vorhanden": vorhanden, "aktion": aktion,
-                           "batch": int(nummer), "art": art})
+                           "vorhanden": vorhanden, "hash_gleich": hash_gleich,
+                           "aktion": aktion, "batch": int(nummer), "art": art})
     reihenfolge = list(ABLAGE)
     zeilen.sort(key=lambda z: (z["batch"], reihenfolge.index(z["art"])))
-    return {"zeilen": zeilen, "quellen": quellen, "kopiert": kopiert, "gleich": gleich,
-            "belegt": belegt, "ausgefuehrt": bool(ausfuehren)}
+    return {"zeilen": zeilen, "quellen": quellen, "kopiert": kopiert,
+            "geloescht": geloescht, "behalten": behalten, "gleich": gleich,
+            "belegt": belegt, "ausgefuehrt": bool(ausfuehren),
+            "verschieben": bool(verschieben),
+            "geplant_kopieren": geplant_kopieren,
+            "geplant_loeschen": geplant_loeschen}
 
 
 def ablage_tafel(erg: dict) -> str:
-    """Die Tafel `Datei | Ziel | vorhanden | Aktion` samt Bilanzzeile."""
-    kopf = ("Datei", "Ziel", "vorhanden", "Aktion")
-    rows = [kopf] + [(z["datei"], z["ziel"], z["vorhanden"], z["aktion"])
+    """Die Tafel `Datei | Ziel | Hash gleich | Aktion` samt Bilanzzeile."""
+    kopf = ("Datei", "Ziel", "Hash gleich", "Aktion")
+    rows = [kopf] + [(z["datei"], z["ziel"], z.get("hash_gleich", "-"), z["aktion"])
                      for z in erg.get("zeilen") or []]
     breiten = [max(len(str(r[i])) for r in rows) for i in range(4)]
     linien = ["  ".join(str(r[i]).ljust(breiten[i]) for i in range(4)).rstrip()
               for r in rows]
     trenner = "  ".join("-" * b for b in breiten)
-    kopfzeile = ("Aussensicht-Belege: " + ("KOPIERT" if erg.get("ausgefuehrt")
-                                           else "Trockenlauf (nichts geaendert) - "
-                                                "--ausfuehren kopiert"))
+    verschieben = bool(erg.get("verschieben"))
+    if erg.get("ausgefuehrt"):
+        kopfzeile = "Aussensicht-Belege: KOPIERT" + (" + VERSCHOBEN" if verschieben
+                                                     else " (Originale bleiben liegen)")
+    else:
+        kopfzeile = ("Aussensicht-Belege: Trockenlauf (nichts geaendert) - "
+                     "--ausfuehren kopiert"
+                     + (", --verschieben loescht danach das Original (nur bei gleicher "
+                        "Groesse und gleichem SHA-256)" if verschieben else ""))
     out = [kopfzeile, "", linien[0], trenner, *linien[1:], "",
            (f"Quellen: {erg.get('quellen', 0)} - kopiert: {erg.get('kopiert', 0)}, "
-            f"schon da: {erg.get('gleich', 0)}, Ziel belegt: {erg.get('belegt', 0)}")]
+            f"geloescht: {erg.get('geloescht', 0)}, behalten: {erg.get('behalten', 0)}")]
+    if not erg.get("ausgefuehrt"):
+        out.append(f"Trockenlauf: geplant kopieren: {erg.get('geplant_kopieren', 0)}, "
+                   f"geplant loeschen: {erg.get('geplant_loeschen', 0)} - nichts geaendert.")
+    elif not verschieben:
+        out.append("Ohne --verschieben bleiben alle Originale in runs/ liegen.")
     if erg.get("belegt"):
         out.append("Ziel belegt heisst: im Batch-Ordner liegt eine ANDERE Datei - sie "
-                   "wurde nicht angefasst, von Hand pruefen (der Waechter der "
-                   "Aussensicht bricht dort ebenfalls ab).")
-    out.append("Die Originale in runs/ bleiben unangetastet (der Wandler kopiert nur).")
+                   "wurde nicht angefasst und das Original bleibt liegen (der Waechter "
+                   "der Aussensicht bricht dort ebenfalls ab).")
+    if verschieben or not erg.get("ausgefuehrt"):
+        out.append("Geloescht wird nur, wenn die Kopie am Ziel in Groesse und SHA-256 "
+                   "gleich ist; sonst bleibt das Original als Beleg liegen.")
     return "\n".join(out)
