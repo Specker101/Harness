@@ -1186,7 +1186,12 @@ def durchsatz(cfg, n: int = STANDARD_FENSTER) -> dict:
         erg["mittel_c_koepfe"] = 0.0
         erg["mittel_c_quelle"] = ("nicht gemessen (" +
                                    (trend.get("grund") or "keine Preflight-Reihe") + ")")
-    erg["anteil_gemessen"] = (len(c_fenster) / len(fenster)) if fenster else None
+    erg["anteil_fenster"] = (len(c_fenster) / len(fenster)) if fenster else None
+    # R13bt (M264-5): `anteil_gemessen` ist die Quote in der PREFLIGHT-REIHE (unten
+    # gesetzt) - eine ANDERE Grundmenge als `c_fenster/n`. Genau daran ist die
+    # Mischungs-Zeile gescheitert ("0 C von 2 Batches im Fenster (31 %)"): Zaehler und
+    # Nenner kamen aus dem Fenster, die Prozentzahl aus der Reihe. Jede Zahl nennt
+    # jetzt ihre eigene Grundmenge (`anteil_fenster` / `anteil_gemessen`).
     # R13bn (M242-3): der TATSAECHLICHE C-Anteil. Gemessen wird an der lueckenlosen
     # Preflight-Reihe und nur an Batches mit BELEGTEM Strang (B/C); unbekannte zaehlen
     # nicht mit (vorher zaehlten sie als C und blaehten den Anteil auf).
@@ -1210,6 +1215,21 @@ def durchsatz(cfg, n: int = STANDARD_FENSTER) -> dict:
         lauf_von = b
     erg["c_lauf"] = lauf_c
     erg["c_lauf_von"] = lauf_von
+    # R13bt (M264-5): der SPIEGELFALL - Strang B laeuft, C ruht. Gezaehlt wird die
+    # B-Serie am Ende der Reihe und der letzte C-Batch davor (B255..B264 = zehn reine
+    # B-Batches, letzter C-Batch B254). R13bn behandelt nur den Fall "Reihe endet mit
+    # C-Batches"; hier stand deshalb weiter der Plan-Anteil (50 %), obwohl seit zehn
+    # Batches kein C-Batch mehr lief.
+    lauf_b, letzter_c = 0, 0
+    for b, a in reversed(arten):
+        if a == "B":
+            lauf_b += 1
+            continue
+        if a == "C":
+            letzter_c = b
+        break
+    erg["lauf_b"] = lauf_b
+    erg["letzter_c_batch"] = letzter_c
     erg["anteil_c"] = plan.get("anteil")
     # R13bb (M224-5): die Zeile nennt Quelle (Datei:Zeile) UND Stand der Regel (z. B.
     # "ab B222, Nutzerentscheidung R221-1, 2026-09-30") - vorher stand nur der Wortlaut da,
@@ -1232,6 +1252,15 @@ def durchsatz(cfg, n: int = STANDARD_FENSTER) -> dict:
         erg["anteil_quelle"] = (
             f"gemessen: die letzten {lauf_c} Batches sind C "
             f"(B{lauf_von}..B{arten[-1][0]}; Strang B ruht)" + regel_kurz)
+    elif lauf_b >= C_LAUF_MINDESTENS and not c_fenster:
+        # R13bt (M264-5): Strang B laeuft, C ruht - dann gibt es nichts hochzurechnen.
+        # Vorher stand hier der Plan-Anteil (50 %) als "Anteil fuer die Rechnung",
+        # obwohl seit zehn Batches kein C-Batch mehr lief; die Kalender-Zahl war damit
+        # eine Aussage ueber einen Strang, der gar nicht laeuft.
+        erg["anteil_c"] = None
+        erg["anteil_quelle"] = (
+            f"keine C-Hochrechnung: die letzten {lauf_b} Batches sind B "
+            f"(ab B{letzter_c + 1}; letzter C-Batch B{letzter_c}) - Strang C ruht")
     elif not erg["anteil_c"]:
         if erg["anteil_gemessen"] is not None:
             erg["anteil_c"] = erg["anteil_gemessen"]
@@ -2628,21 +2657,40 @@ def pflichtzeile_hinweis(cfg, batch: int) -> str:
 def _mischung_zeile(cfg, d: dict) -> list[str]:
     """Die Mischungs-Zeile: wieviele C-Batches im Fenster - und was die Regel sagt (R13aa).
 
-    Zwei Zahlen, bewusst getrennt: **gemessen** (Anteil im Fenster, nur Batches mit
-    belegtem Strang) und **Regel** (Mischverhaeltnis aus `hybrid-plan.md`).
+    Zwei Zahlen, bewusst getrennt: **gemessen im Fenster** (`anteil_fenster`, dieselbe
+    Grundmenge wie `c_fenster/n`) und **gemessen an der Preflight-Reihe**
+    (`anteil_gemessen`, andere Grundmenge).
 
     R13bn (M242-3): die Kalender-Rechnung nimmt den **gemessenen Abschnitt**, wenn die
     Reihe mit mehreren C-Batches endet (Strang B ruht) - die Plan-Regel beschreibt den
     geplanten Wechsel und stand im Widerspruch zu dem, was die Batches wirklich taten.
     Welche Zahl gilt, steht im Text (`anteil_quelle`).
+
+    R13bt (M264-5, 2026-10-04): **keine Prozentzahl aus gemischten Groessen.** Vorher
+    stand `{c} C von {n} Batches im Fenster ({anteil_gemessen:.0f} %)` - Zaehler und
+    Nenner aus dem Fenster, die Prozentzahl aus der Preflight-Reihe. Gemessen am
+    2026-10-04 ergab das "0 C von 2 Batches im Fenster (31 %)". Jetzt nennt jeder Wert
+    seine Grundmenge; ruht Strang C (B-Serie am Ende), wird das gesagt statt einen
+    Plan-Anteil als Rechengroesse auszugeben.
     """
-    gem = d.get("anteil_gemessen")
     n = int(d.get("n") or 0)
-    c = len(d.get("c_fenster") or [])
     if not n:
         return []
-    teile = [f"  Mischung     : {c} C von {n} Batches im Fenster ({gem * 100:.0f} %)"
-             if gem is not None else "  Mischung     : nicht ermittelbar"]
+    c = len(d.get("c_fenster") or [])
+    fen = [int(e["batch"]) for e in (d.get("fenster") or [])]
+    # Die Prozentzahl dieser Zeile kommt aus IHREN Zahlen (c/n) - nicht aus einer
+    # anderen Grundmenge. `anteil_fenster` ist derselbe Wert, wenn er berechnet wurde.
+    p_fenster = d.get("anteil_fenster")
+    if p_fenster is None:
+        p_fenster = c / n
+    teile = [f"  Mischung     : {c} C von {n} Batches im Fenster = "
+             f"{p_fenster * 100:.0f} %"
+             + (f"   (Fenster B{min(fen)}..B{max(fen)})" if fen else "")]
+    gem = d.get("anteil_gemessen")
+    if gem is not None:
+        teile.append(f"                 gemessen an der Preflight-Reihe "
+                     f"({d.get('anteil_gemessen_basis') or 'Grundmenge unbekannt'}): "
+                     f"C-Anteil {gem * 100:.0f} %")
     quelle = str(d.get("anteil_quelle") or "")
     regel = d.get("anteil_c")
     if d.get("c_lauf"):
@@ -2653,6 +2701,11 @@ def _mischung_zeile(cfg, d: dict) -> list[str]:
                      f"{1 / regel:.0f}. Batch ist ein C-Batch ({regel * 100:.0f} %)")
     elif regel:
         teile[0] += f"; Anteil fuer die Rechnung: {regel * 100:.0f} % ({quelle})"
+    elif d.get("lauf_b"):
+        teile.append(f"                 Strang B laeuft seit B{int(d.get('letzter_c_batch') or 0) + 1}"
+                     f" ohne C-Batch ({int(d['lauf_b'])} Batches mit belegtem Strang, "
+                     f"letzter C-Batch B{int(d.get('letzter_c_batch') or 0)}) - die "
+                     "C-Hochrechnung ruht (kein Anteil aus der Plan-Regel)")
     return teile
 
 def durchsatz_alt(cfg, n: int = STANDARD_FENSTER) -> dict:

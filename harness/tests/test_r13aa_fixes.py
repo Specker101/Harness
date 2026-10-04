@@ -188,9 +188,14 @@ class TestEchteBelege(unittest.TestCase):
         # Der Fehler war: "ca. 369 Batches" ohne Mischverhaeltnis (Befund M209-3).
         text = "\n".join(stand.durchsatz_zeilen(ECHTER_CFG))
         self.assertIn("je C-Batch", text)
-        self.assertIn("KALENDER-Batches", text)
         self.assertIn("Mischung", text)
         self.assertNotIn("Batches fuer die", text)
+        # R13bt (M264-5): die Kalender-Zahl kommt NUR mit einem belegten C-Anteil.
+        # Ruht Strang C (reine B-Reihe), steht dort der Grund - kein Plan-Anteil als
+        # Rechengroesse. Beide Zustaende sind zulaessig, der jeweils andere Text nicht.
+        if "KALENDER-Batches" not in text:
+            self.assertIn("nicht rechenbar", text)
+            self.assertIn("Strang B laeuft seit", text)
 
 
 # --------------------------------------------------------- 1) Klassifikation (Attrappen)
@@ -431,8 +436,11 @@ class TestHochrechnung(Basis):
         self.assertEqual(stand.kalender_zeilen(self.cfg, 0, self._d()), [])
 
     def test_mischung_nennt_beide_zahlen(self):
+        # R13bt: die Prozentzahl gehoert zu IHREM Bruch (c von n) - und die zweite Zahl
+        # nennt ihre eigene Grundmenge. Vorher standen c/n aus dem Fenster und die
+        # Prozentzahl aus der Preflight-Reihe nebeneinander ("0 C von 2 (31 %)").
         zeile = stand._mischung_zeile(self.cfg, self._d())[0]
-        self.assertIn("4 C von 5 Batches im Fenster (80 %)", zeile)
+        self.assertIn("4 C von 5 Batches im Fenster = 80 %", zeile)
         self.assertIn('Regel hybrid-plan.md: "2 B : 1 C"', zeile)
         self.assertIn("33 %", zeile)
 
