@@ -1,0 +1,41 @@
+STANDARD_FENSTER=5  TREND_FENSTER=12  C_LAUF_MINDESTENS=2
+
+== Strang je Batch (strang_von_batch, Quelle):
+  B254: C   Auftrag des Batches (Strang-Zeile/Marker) (runs/b254/auftrag.md)
+  B255: B   Auftrag des Batches (Strang-Zeile/Marker) (runs/b255/auftrag.md)
+  B256: B   Pflichtzeile STRANG/SOLL-KOEPFE im Auftrag (runs/b256/auftrag.md)
+  B257: B   Pflichtzeile STRANG/SOLL-KOEPFE im Auftrag (runs/b257/auftrag.md)
+  B258: B   Pflichtzeile STRANG/SOLL-KOEPFE im Auftrag (runs/b258/auftrag.md)
+  B259: B   Pflichtzeile STRANG/SOLL-KOEPFE im Auftrag (runs/b259/auftrag.md)
+  B260: B   Pflichtzeile STRANG/SOLL-KOEPFE im Auftrag (runs/b260/auftrag.md)
+  B261: B   Pflichtzeile STRANG/SOLL-KOEPFE im Auftrag (runs/b261/auftrag.md)
+  B262: B   Pflichtzeile STRANG/SOLL-KOEPFE im Auftrag (runs/b262/auftrag.md)
+  B263: B   Pflichtzeile STRANG/SOLL-KOEPFE im Auftrag (runs/b263/auftrag.md)
+  B264: B   Pflichtzeile STRANG/SOLL-KOEPFE im Auftrag (runs/b264/auftrag.md)
+  B265: B   Pflichtzeile STRANG/SOLL-KOEPFE im Auftrag (runs/b265/auftrag.md)
+
+== durchsatz(cfg, STANDARD_FENSTER):
+  n                 = 2   fenster = [262, 260]
+  c_fenster         = []  (len=0)
+  anteil_gemessen   = 0.3076923076923077
+  anteil_gemessen_basis = 13 Batches mit belegtem Strang
+  anteil_c (Regel)  = None
+  anteil_quelle     = keine C-Hochrechnung: die letzten 9 Batches sind B (ab B255; letzter C-Batch B254) - Strang C ruht
+  c_lauf=0 c_lauf_von=0
+
+== c_trend(cfg, TREND_FENSTER) - die zweite Quelle:
+  gemessen=True grund=
+  reihe (13): [(251, '?'), (252, '?'), (253, '?'), (254, '?'), (255, '?'), (257, '?'), (258, '?'), (259, '?'), (260, '?'), (261, '?'), (262, '?'), (263, '?'), (264, '?')]
+  bekannt (B/C)     = 0 von 13  -> C-Anteil = None
+
+== was die BILANZ heute ausgibt:
+    Mischung     : 0 C von 2 Batches im Fenster = 0 %   (Fenster B260..B262)
+                   gemessen an der Preflight-Reihe (13 Batches mit belegtem Strang): C-Anteil 31 %
+                   Strang B laeuft seit B255 ohne C-Batch (9 Batches mit belegtem Strang, letzter C-Batch B254) - die C-Hochrechnung ruht (kein Anteil aus der Plan-Regel)
+
+== VORHER: dieselben Zahlen durch die alte Formel (harness/hx/stand.py:2644@0a6c07b^):
+  Mischung     : 0 C von 2 Batches im Fenster (31 %); Regel hybrid-plan.md:510 "1 B : 1 C" -> jeder 2. Batch ist ein C-Batch (50 %)
+  ^ Zaehler/Nenner aus dem FENSTER, Prozentzahl aus der PREFLIGHT-REIHE, Rechenanteil aus der PLAN-REGEL - drei Grundmengen in einer Zeile.
+
+== sauber getrennt (Vorschlag):
+  Mischung     : 0 C von 2 Batches im Fenster = 0 %   (Fenster B260..B262)

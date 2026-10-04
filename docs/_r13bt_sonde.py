@@ -53,6 +53,17 @@ def main() -> int:
     for z in stand._mischung_zeile(cfg, d):
         print(f"  {z}")
 
+    print("\n== VORHER: dieselben Zahlen durch die alte Formel "
+          "(harness/hx/stand.py:2644@0a6c07b^):")
+    if d.get("n"):
+        gem = d.get("anteil_gemessen")
+        regel = 0.5 if not d.get("anteil_c") else d.get("anteil_c")
+        print(f"  Mischung     : {len(cfen)} C von {int(d['n'])} Batches im Fenster "
+              f"({gem * 100:.0f} %); Regel hybrid-plan.md:510 \"1 B : 1 C\" -> jeder "
+              f"{1 / regel:.0f}. Batch ist ein C-Batch ({regel * 100:.0f} %)")
+        print("  ^ Zaehler/Nenner aus dem FENSTER, Prozentzahl aus der PREFLIGHT-REIHE, "
+              "Rechenanteil aus der PLAN-REGEL - drei Grundmengen in einer Zeile.")
+
     print("\n== sauber getrennt (Vorschlag):")
     if d.get("n"):
         c, n = len(cfen), int(d["n"])
@@ -67,4 +78,15 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # Der Beleg wird SELBST als UTF-8/LF geschrieben: eine PowerShell-Umleitung (`*>`)
+    # legt UTF-16 an, und der Beleg waere dann binaer (Lehre aus B157/R382).
+    import contextlib
+    import io
+
+    ziel = Path(__file__).with_suffix(".txt")
+    puffer = io.StringIO()
+    with contextlib.redirect_stdout(puffer):
+        main()
+    ziel.write_text(puffer.getvalue(), encoding="utf-8", newline="\n")
+    sys.stdout.reconfigure(encoding="utf-8")
+    print(f"geschrieben: {ziel} ({len(puffer.getvalue())} Zeichen)")
