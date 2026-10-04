@@ -2255,3 +2255,67 @@ hochgewichtige Befunde mit Empfänger „Reviewer"**, geht der Reviewer **zurüc
 Opus** (`reviewer_modell = claude-opus-5-5`; `reviewer_modell_b` bleibt). Das
 **Auswertungsergebnis kommt als Telegram-Meldung**.
 
+## 20. R13bt (04.10.2026): Mischung getrennt, Stillstandszähler der B-Phase
+
+Zwei Befunde der Außensicht zu B264 (M264-5) und die daraus folgende Regel.
+
+### 20a. Keine Mischrechnung aus zwei Grundmengen
+
+`/bilanz` zeigte `Mischung : 0 C von 2 Batches im Fenster (31 %)`. Zähler und Nenner
+kamen aus dem **BILANZ-Fenster** (nur die letzten Batches mit kanonischer Bilanzdatei,
+das waren zwei), die **31 %** aus der **Preflight-Reihe** (13 Batches mit belegtem
+Strang, davon 4 C). Die Zeile widersprach sich selbst — und die **50 %** aus der
+Plan-Regel waren im Kalender die Rechengröße, obwohl seit B255 **zehn reine
+B-Batches** gelaufen waren.
+
+Die Zeile nennt jetzt **getrennt**, woher jede Zahl kommt:
+
+```text
+  Mischung     : 0 C von 2 Batches im Fenster = 0 %   (Fenster B260..B262)
+                 gemessen an der Preflight-Reihe (13 Batches mit belegtem Strang): C-Anteil 31 %
+                 Strang B laeuft seit B255 ohne C-Batch (9 Batches mit belegtem Strang,
+                 letzter C-Batch B254) - die C-Hochrechnung ruht (kein Anteil aus der Plan-Regel)
+```
+
+Der **Prozentsatz kommt aus den eigenen Zahlen** (`c / n` des Fensters), die
+Reihen-Quote steht als eigene, benannte Zeile daneben. Läuft die Reihe rückwärts
+**reine B-Batches**, ruht die C-Hochrechnung (`anteil_c = None`) — dann **verschwindet
+die Kalender-Prognose** („nicht rechenbar") statt einen Plan-Anteil zu zitieren.
+
+### 20b. Der Stillstandszähler der B-Phase
+
+Regel (`analysis/hybrid-plan.md:257-274`, Nutzerklarstellung 2026-10-03): **Schwelle
+4 B-Batches ohne Station**, Zähler **ab jeder Station neu**. Eine Station ist
+
+* (a) ein **Halt mit Halt-Art ≠ Schranke**,
+* (b) ein **belegter neuer Zustand der Betriebsmodus-Kette** oder
+* (c) ein **gewachsener Präfix** gegen eine **Kaltstart**-Referenz,
+
+jeweils durch **Kern- oder Modelländerung**, mit Vorgabe EIN und im gültigen Preflight.
+In einer reinen B-Reihe ist der Zähler das **Fortschrittsmaß** (§20a).
+
+`/bilanz` hat dafür eine eigene Zeile:
+
+```text
+  B-Phase      : 3 B-Batches in Folge ohne Station (B262..B264); Schwelle 4
+```
+
+**C-Batches zählen nicht mit und setzen nicht zurück.** Der Harness **rät** die Station
+nicht: er liest die **Pflichtzeile** `STATION: ja|nein` aus dem Review, das den Batch
+bewertet hat (`runs/b<N+1>/review.md`, R13w) — der Reviewer schreibt sie in seine
+Zusammenfassung (`harness/prompts/reviewer.md`). Fehlt sie, endet der Lauf dort, und die
+Zeile nennt sich selbst eine **Untergrenze**:
+
+```text
+  B-Phase      : Stillstandszähler nicht belegt (kein B-Batch der letzten Batches mit `STATION: ja|nein`)
+                 B265 ist noch nicht bewertet (Review fehlt) - der Zaehler gilt bis dahin
+                 ab B264 ohne STATION:-Vermerk - der Zaehler ist eine UNTERGRENZE
+                 (Regel: hybrid-plan.md:257-274, Pflichtzeile seit R13bt)
+```
+
+Der **neueste**, noch unbewertete Batch sperrt die Zeile also nicht. Erreicht der
+Zähler die Schwelle, sagt die Zeile `SCHWELLE 4 ERREICHT - OFFENE FRAGE an den Nutzer`.
+
+Belege: `docs/_r13bt_sonde.py` (Befund 1, vorher/nachher), `docs/_r13bt_sonde2.py`
+(Echt-Daten-Lage oben), Tests `harness/tests/test_r13bt_fixes.py` (11).
+

@@ -429,6 +429,7 @@ Bewertung: wie gut, was war falsch (gefundene Fehler nennen).
 Kosten/Laufzeit: die Harness-Messwerte (Kosten, Dauer, Anfragen).
 Nächster Batch: ein Satz.
 B-SCHRITT: <n>/5 <Name>, B-Batch <k> (Zählung, keine Grenze – Nutzerentscheid 30.09.)
+STATION: ja|nein                (PFLICHT, s. u. - ob DIESER Batch eine Station war)
 MEILENSTEIN ERREICHT: …        (nur wenn zutreffend, s. u.)
 ABBRUCHKRITERIUM ERREICHT: …   (nur wenn zutreffend, s. u.)
 M<batch>-<n>: übernommen … / abgelehnt, Grund …  (je offener Aussensicht-Nachricht, s. u.)
@@ -473,6 +474,18 @@ WARTET AUF LIVE-AUFNAHME: … (nur Material, das fehlt - bremst nicht)
   **`PROTOKOLL-WARNUNG`** im nächsten Review-Prompt und wird im Protokoll vermerkt.
   Grund (gemessen): sie fehlte in jedem Review seit B205 — und der Auslöser „Kernzahl ohne
   Bewegung" hielt B208/B209 deshalb für C-Batches und schlug falsch an.
+- **Pflichtzeile `STATION: ja|nein` in deiner Zusammenfassung (R13bt, 2026-10-04, M264-5).**
+  Sie sagt, ob der **bewertete** Batch eine **Station** war. Regel wortgetreu in
+  `analysis/hybrid-plan.md:257-274` (Nutzerklarstellung 2026-10-03): eine Station ist
+  (a) ein Halt mit Halt-Art ≠ Schranke, (b) ein belegter neuer Zustand der
+  Betriebsmodus-Kette oder (c) ein gewachsener Präfix gegen eine **Kaltstart**-Referenz —
+  jeweils durch eine Kern- oder Modelländerung, mit Vorgabe EIN und im gültigen
+  Preflight. Der **Stillstandszähler** zählt daraus die **B-Batches in Folge ohne
+  Station**, Schwelle **4**, Zähler **ab jeder Station neu** (C-Batches zählen nicht mit
+  und setzen ihn nicht zurück). In einer reinen B-Reihe ist er das **Fortschrittsmaß**
+  (der C-Anteil ruht dann; die Mischungs-Zeile sagt das). Der Harness liest die Zeile als
+  **einzige** Quelle der Station — er rät sie nicht: fehlt sie, nennt `/bilanz` den
+  Zähler eine **Untergrenze** und den Batch eine Lücke.
 - **Nur wenn es wirklich zutrifft**, zusätzlich eine dieser Zeilen — sie lösen sofort eine
   **Aussensicht** (Meta-Review) aus:
   - `MEILENSTEIN ERREICHT: <welcher, mit Beleg>`

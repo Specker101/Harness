@@ -2601,6 +2601,148 @@ def ist_b_batch(cfg, batch: int) -> bool:
     return strang_von_batch(cfg, batch).get("strang") == "B"
 
 
+# ------------------------------------- Stationen / Stillstandszähler (R13bt, M264-5)
+# Regel (wortgetreu, `analysis/hybrid-plan.md:257-274`, Nutzerklarstellung 2026-10-03):
+#   "Als Sicherung gilt die Stillstandserkennung mit der Schwelle **4 B-Batches ohne
+#    Station**; der Zaehler wird **ab jeder Station neu** gestartet."
+# Eine Station ist (a) ein Halt mit Halt-Art != Schranke, (b) ein belegter neuer Zustand
+# der Betriebsmodus-Kette oder (c) ein gewachsener Praefix gegen eine Kaltstart-Referenz
+# - jeweils durch eine Kern- oder Modellaenderung, mit Vorgabe EIN und im gueltigen
+# Preflight. **Diese Entscheidung trifft der Reviewer** (er sieht Kern-/Modellaenderung,
+# Vorgabe und Preflight); der Harness RATET sie nicht, sondern liest sie aus der
+# Pflichtzeile `STATION: ja|nein` - genau wie `STRANG: B|C`.
+STATION_SCHWELLE = 4
+STATION_ZEILE = "STATION: ja|nein"
+STATION_QUELLE = ("Pflichtzeile STATION im Review, das den Batch bewertet (R13w)")
+_RE_STATION = re.compile(r"^\s*STATION:\s*(ja|nein)\b", re.M | re.I)
+
+
+def station_von_batch(cfg, batch: int) -> dict:
+    """`{"station": True|False|None, "quelle": "…"}` - war dieser B-Batch eine Station?
+
+    Gelesen wird die Pflichtzeile `STATION: ja|nein` aus dem Review, das diesen Batch
+    BEWERTET hat (R13w: das Review zu Batch N liegt in `runs/b<N+1>/`). Fehlt sie, wird
+    **nichts geraten**: `station = None`, und `stillstand_zaehler` nennt den Batch als
+    Luecke, statt ihn stillschweigend als "ohne Station" zu zaehlen.
+    """
+    review = review_zu_batch(cfg, batch) or ""
+    m = _RE_STATION.search(review)
+    if m:
+        return {"station": m.group(1).lower() == "ja", "quelle": STATION_QUELLE}
+    return {"station": None, "quelle": ""}
+
+
+def _batch_nummern(cfg, bis_batch: int | None, anzahl: int) -> list[int]:
+    """Batch-Nummern mit Ordner in `runs/`, absteigend, hoechstens `anzahl`."""
+    try:
+        nummern = sorted(int(p.name[1:]) for p in (Path(cfg.root) / "runs").iterdir()
+                         if p.is_dir() and p.name.startswith("b") and p.name[1:].isdigit())
+    except (OSError, ValueError):
+        return []
+    if bis_batch:
+        nummern = [n for n in nummern if n <= int(bis_batch)]
+    return list(reversed(nummern[-max(1, int(anzahl)):]))
+
+
+def stillstand_zaehler(cfg, bis_batch: int | None = None, anzahl: int = 30) -> dict:
+    """B-Batches in Folge OHNE Station - Zaehler ab jeder Station neu (R13bt/M264-5).
+
+    Regel `analysis/hybrid-plan.md:257-274`: Schwelle **4 B-Batches ohne Station**,
+    Zaehler **ab jeder Station neu**. **C-Batches zaehlen nicht mit und setzen den
+    Zaehler nicht zurueck** (Beleg im Plan: "Gezaehlte B-Batches ohne Bewegung: B225 und
+    B227 (B224/B226/B228 sind C-Batches). B229 ist der dritte B-Batch").
+
+    Gelaufen wird **rueckwaerts** ab dem neuesten Batch; gezaehlt werden nur Batches mit
+    **belegter** Stations-Aussage. Endet der Lauf an einem Batch ohne Beleg, wird er dort
+    abgebrochen und als Luecke gemeldet (`luecke_ab`) - der Zaehler ist dann eine
+    **Untergrenze** ("seit B<x> ohne Beleg"), nie eine geratene Zahl.
+
+    Rueckgabe: `{zaehler, von, bis, luecke_ab, grenze_ab, station_bei, schwelle,
+    schwelle_erreicht, offen, reihe: [(batch, "ja"|"nein"|"?")]}`.
+
+    Zwei Sonderfaelle, beide aus der Praxis:
+
+      * Ordner ohne `auftrag.md` sind **keine** Batches (Review-Ordner des Folge-Batches)
+        und werden uebersprungen.
+      * Der **neueste** B-Batch hat oft noch kein Review (er laeuft oder wartet darauf).
+        Ein solcher fuehrender Batch wird uebersprungen und in `offen` genannt - sonst
+        stuende die Zeile dauerhaft auf "nicht belegt". Ein Loch **tiefer** in der Reihe
+        stoppt den Lauf (der Zaehler wird dann eine Untergrenze).
+    """
+    zaehler = 0
+    von = bis = 0
+    luecke_ab: int | None = None
+    grenze_ab: int | None = None
+    station_bei: int | None = None
+    offen: list[int] = []
+    reihe: list[tuple[int, str]] = []
+    for nummer in _batch_nummern(cfg, bis_batch, anzahl):
+        if not (Path(cfg.root) / "runs" / f"b{nummer:03d}" / "auftrag.md").is_file():
+            continue                     # kein Batch - nur der Review-Ordner des Vorgaengers
+        art = strang_von_batch(cfg, nummer).get("strang")
+        if art == "C":
+            continue                     # C-Batch: zaehlt nicht, setzt nicht zurueck
+        if art != "B":
+            grenze_ab = nummer           # nicht klassifizierbar -> Lauf endet hier
+            break
+        review = review_zu_batch(cfg, nummer)
+        if not review:
+            if not reihe and not offen:  # noch nicht bewerteter neuester Batch
+                offen.append(nummer)
+                continue
+            luecke_ab = nummer           # Review fehlt mitten in der Reihe
+            break
+        m = _RE_STATION.search(review)
+        if not m:
+            luecke_ab = nummer           # Review da, Pflichtzeile fehlt
+            break
+        if m.group(1).lower() == "ja":
+            station_bei = nummer
+            reihe.append((nummer, "ja"))
+            break
+        zaehler += 1
+        von = nummer
+        bis = bis or nummer
+        reihe.append((nummer, "nein"))
+    return {"zaehler": zaehler, "von": von, "bis": bis, "luecke_ab": luecke_ab,
+            "grenze_ab": grenze_ab, "station_bei": station_bei, "offen": offen,
+            "schwelle": STATION_SCHWELLE,
+            "schwelle_erreicht": zaehler >= STATION_SCHWELLE, "reihe": reihe}
+
+
+def b_phase_zeile(cfg, z: dict | None = None) -> list[str]:
+    """Die B-Phasen-Zeile: wie viele B-Batches stehen in Folge ohne Station (R13bt).
+
+    Sie ist das **Fortschrittsmass der B-Phase** (`analysis/hybrid-plan.md:274`) - im
+    Gegensatz zur C-Hochrechnung, die in einer reinen B-Reihe ruht (`_mischung_zeile`).
+    """
+    z = z or stillstand_zaehler(cfg)
+    if z["zaehler"]:
+        zeile = (f"  B-Phase      : {z['zaehler']} B-Batches in Folge ohne Station "
+                 f"(B{z['von']}..B{z['bis']})"
+                 + ("; SCHWELLE {s} ERREICHT - OFFENE FRAGE an den Nutzer"
+                    .format(s=z["schwelle"]) if z["schwelle_erreicht"] else
+                    f"; Schwelle {z['schwelle']}"))
+    elif z["station_bei"]:
+        zeile = (f"  B-Phase      : Station in B{z['station_bei']} - Zaehler neu "
+                 f"(0 B-Batches ohne Station seitdem)")
+    else:
+        zeile = ("  B-Phase      : Stillstandszähler nicht belegt (kein B-Batch der "
+                 "letzten Batches mit `" + STATION_ZEILE + "`)")
+    zeilen = [zeile]
+    if z.get("offen"):
+        zeilen.append(f"                 B{z['offen'][0]} ist noch nicht bewertet "
+                      "(Review fehlt) - der Zaehler gilt bis dahin")
+    if z["luecke_ab"]:
+        zeilen.append(f"                 ab B{z['luecke_ab']} ohne STATION:-Vermerk - "
+                      f"der Zaehler ist eine UNTERGRENZE (Regel: "
+                      f"hybrid-plan.md:257-274, Pflichtzeile seit R13bt)")
+    elif z["grenze_ab"]:
+        zeilen.append(f"                 Lauf endet an B{z['grenze_ab']} (Strang nicht "
+                      "belegbar) - der Zaehler ist eine UNTERGRENZE")
+    return zeilen
+
+
 def ohne_pflichtzeile(cfg, anzahl: int = 6) -> list[int]:
     """B-Batches der letzten `anzahl` Bewertungen, deren Review die Pflichtzeile fehlen laesst."""
     out: list[int] = []
@@ -2821,6 +2963,7 @@ def durchsatz_zeilen(cfg, n: int = STANDARD_FENSTER) -> list[str]:
                       f"+{d.get('mittel_c_koepfe_r207', 0.0):.1f} Koepfe je C-Batch "
                       f"(R207-Zaehler, {len(c_batches)} von {d['n']}: {namen})")
     zeilen += _mischung_zeile(cfg, d)
+    zeilen += b_phase_zeile(cfg)
     if raten.get("text"):
         zeilen.append(f"                 C-Rate je C-Batch: {raten['text']}")
     messung = d.get("paket_e_messung") or {}
