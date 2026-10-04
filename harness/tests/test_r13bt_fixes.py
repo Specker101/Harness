@@ -35,7 +35,8 @@ sys.path.insert(0, str(ROOT))
 
 from hx import stand                                              # noqa: E402
 from hx.config import load_config                                 # noqa: E402
-from hx.util import ensure_dir, write_text_atomic                 # noqa: E402
+from hx.util import (ensure_dir, open_shared_read, read_text,     # noqa: E402
+                     write_text_atomic)
 
 
 class Basis(unittest.TestCase):
@@ -170,13 +171,50 @@ class TestMischung(Basis):
                       stand._mischung_zeile(self.cfg, d)[0])
 
 
-# ------------------------------------------------- 3) Die BILANZ zeigt beides
+# ------------------------------------------------- 4) Die BILANZ zeigt beides
 class TestBilanzblock(Basis):
     def test_bilanz_hat_eine_b_phasen_zeile(self):
         self.lage_258_bis_264()
         text = "\n".join(stand.durchsatz_zeilen(self.cfg))
         self.assertIn("B-Phase", text)
         self.assertIn("3 B-Batches in Folge ohne Station", text)
+
+
+# --------------------------- 5) Teilen Lesen auf Nicht-ASCII-Pfaden (R13bt-3)
+class TestNichtAsciiPfade(Basis):
+    """GEMESSEN (2026-10-04): `_winapi.CreateFile` scheitert an Umlauten im Pfad.
+
+    Probe (vier Faelle, je Datei vorhanden, `Path.is_file()` True, `open()` ok):
+
+    =========================  =============  ==================
+    Pfad                       `open()`       `read_text` davor
+    =========================  =============  ==================
+    ascii/ascii                ok             ok
+    ascii/umlaut-name          ok             WinError 2
+    umlaut-dir/ascii           ok             WinError 3
+    umlaut-dir/umlaut-name     ok             WinError 3
+    =========================  =============  ==================
+    """
+
+    def test_datei_mit_umlaut_im_namen(self):
+        p = self.root / "grüße.md"
+        write_text_atomic(p, "STATION: ja\n")
+        self.assertTrue(p.is_file())
+        self.assertEqual(read_text(p), "STATION: ja\n")
+        with open_shared_read(p) as fh:
+            self.assertEqual(fh.read(), "STATION: ja\n")
+
+    def test_ordner_mit_umlaut(self):
+        p = ensure_dir(self.root / "Läufe" / "b264") / "review.md"
+        write_text_atomic(p, "STATION: nein\n")
+        self.assertEqual(read_text(p), "STATION: nein\n")
+
+    def test_review_zu_batch_liest_umlaut_pfad(self):
+        """Der Stillstandszähler darf an einem Umlaut-Pfad nicht scheitern."""
+        p = ensure_dir(self.root / "runs") / "b264"
+        write_text_atomic(p / "auftrag.md", "STRANG: B\n")
+        write_text_atomic(p / "review.md", "STATION: ja\n")
+        self.assertIn("STATION: ja", stand.review_zu_batch(self.cfg, 263))
 
 
 if __name__ == "__main__":

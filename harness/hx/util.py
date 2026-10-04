@@ -143,7 +143,18 @@ def open_shared_read(path: str | Path):
 def _oeffne_shared(path: str | Path, binaer: bool):
     """Gemeinsamer Teil von `open_shared_read` und `open_shared_read_bytes`."""
     p = str(path)
-    if os.name != "nt":
+    if os.name != "nt" or not p.isascii():
+        # GEMESSEN (R13bt-3, 2026-10-04): `_winapi.CreateFile` scheitert an JEDEM
+        # Nicht-ASCII-Zeichen im Pfad - bei einem Umlaut im Dateinamen mit
+        # FileNotFoundError/WinError 2, bei einem Umlaut im Elternordner mit
+        # WinError 3 - obwohl `Path.is_file()` True sagt und `open()` dieselbe
+        # Datei problemlos liest (Vier-Faelle-Probe:
+        # docs/_r13bt3_pfade.py). Ein Lauf-Ordner oder ein Clone unter einem
+        # Benutzernamen mit Umlaut haette damit JEDE geteilte Lesung (Review,
+        # Zustand, Log) als fehlende Datei oder als Absturz erscheinen lassen.
+        # Die Freigabe zum Loeschen brauchen wir fuer unsere eigenen Dateien
+        # (Zeilenenden-tolerant, immer ASCII) - fuer alles andere ist Lesen
+        # ohne diese Freigabe besser als ein Fehler.
         if binaer:
             return open(p, "rb")
         return open(p, "r", encoding="utf-8", errors="replace")

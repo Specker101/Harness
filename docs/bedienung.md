@@ -2319,3 +2319,31 @@ Zähler die Schwelle, sagt die Zeile `SCHWELLE 4 ERREICHT - OFFENE FRAGE an den 
 Belege: `docs/_r13bt_sonde.py` (Befund 1, vorher/nachher), `docs/_r13bt_sonde2.py`
 (Echt-Daten-Lage oben), Tests `harness/tests/test_r13bt_fixes.py` (11).
 
+### 20c. Pfade mit Umlauten: geteiltes Lesen wich aus (R13bt-3)
+
+Gefunden beim Schreiben der Tests (der Wegwerf-Ordner trug einen Umlaut): das geteilte
+Lesen `open_shared_read` (R13d — öffnet über `_winapi.CreateFile` mit
+`FILE_SHARE_DELETE`, damit ein Leser spätere Löschungen nicht blockiert) scheitert an
+**jedem Nicht-ASCII-Zeichen** im Pfad — obwohl die Datei vorhanden ist (`Path.is_file()`
+sagt True) und `open()` dieselbe Datei problemlos liest:
+
+```text
+  Pfad                         is_file  open()     _winapi roh                read_text (nach R13bt-3)
+  ascii/ascii                  True     ok         ok                         'x\n'
+  ascii/umlaut-name            True     ok         FAIL errno=2 winerror=2    'x\n'
+  umlaut-dir/ascii             True     ok         FAIL errno=2 winerror=3    'x\n'
+  umlaut-dir/umlaut-name       True     ok         FAIL errno=2 winerror=3    'x\n'
+```
+
+WinError 2 = der **Dateiname** ist nicht ASCII, WinError 3 = ein **Elternordner** ist es
+nicht. Wirkung: ein Clone oder ein Lauf-Ordner unter einem Pfad mit Umlaut (etwa einem
+Benutzernamen) hätte **jede** geteilte Lesung — Review, Zustand, Log — als fehlende Datei
+oder als Absturz erscheinen lassen; auch der neue Stillstandszähler (§20b) hätte eine
+Lücke gemeldet, die es nicht gibt. `_oeffne_shared` weicht deshalb bei nicht-ASCII-Pfaden
+auf `open()` aus — die Löschfreigabe brauchen nur die eigenen, immer ASCII-benannten
+Dateien (Zustand, `.ctl`, Logs).
+
+Belege: `docs/_r13bt3_pfade.py`/`.txt` (vier Fälle; die Rohspalte ruft die
+Windows-Funktion direkt auf und zeigt den Defekt damit **unabhängig** vom Ausweichen),
+Tests `TestNichtAsciiPfade` in `harness/tests/test_r13bt_fixes.py`.
+

@@ -1,0 +1,14 @@
+Vier Faelle, je Datei VORHANDEN (geschrieben mit write_text_atomic):
+  Pfad                         is_file  open()     _winapi roh                    read_text (nach R13bt-3)
+  ascii/ascii                  True     ok         ok                             'x\n'
+  ascii/umlaut-name            True     ok         FAIL errno=2 winerror=2        'x\n'
+  umlaut-dir/ascii             True     ok         FAIL errno=2 winerror=3        'x\n'
+  umlaut-dir/umlaut-name       True     ok         FAIL errno=2 winerror=3        'x\n'
+
+Deutung: WinError 2 = Dateiname nicht ASCII, WinError 3 = Elternordner nicht
+ASCII. `_oeffne_shared` weicht seit R13bt-3 fuer solche Pfade auf `open()` aus
+(die Freigabe FILE_SHARE_DELETE brauchen nur unsere eigenen ASCII-Dateien).
+Ein Clone unter einem Benutzernamen mit Umlaut haette sonst jede geteilte
+Lesung (Review, Zustand, Log) als fehlende Datei oder als Absturz erscheinen
+lassen - der Stillstandszähler (R13bt-2) haette eine Luecke gemeldet, die es
+nicht gibt.
