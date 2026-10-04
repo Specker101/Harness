@@ -773,9 +773,42 @@ Session** (kein Verlauf) mit dem Reviewer-Modell über das Abo.
 | **Ausgabe** | `<AUSSENSICHT>` (2–4 Zeilen, inkl. Stichprobenergebnisse) + je Befund `<BEFUND n gewicht empfaenger>Beleg/Aussage/Empfehlung</BEFUND>` + `<PRUEFUNG id status/>` zu früheren Befunden. **Höchstens 7** Befunde, sortiert nach Gewicht (`hoch`/`mittel`/`niedrig`), Empfänger `Reviewer` oder `Nutzer` |
 | **Belegpflicht** | gültig ist `Datei:Zeile` **oder** eine Zahl mit Quelldatei **oder** `Eingabe <Abschnitt>` (ein Eingabeblock beim Namen genannt) **oder** ein Lauf-/Belegordner (`runs/b<N>`, `runs/b<N>/result.json`) **oder** `Fehlstelle: gesucht in <Ort>, nicht gefunden`. Nur Befunde **ganz ohne** Beleg werden verworfen — und im Bericht als verworfen **genannt** und unter `/fragen` als „verworfen — prüfen?" gezeigt (R13aa, s. u.) |
 | **Verteilung** | Empfänger `Reviewer` → **eine `/claude`-Nachricht je Befund** in die Queue; Empfänger `Nutzer` → Telegram **und** unter `/fragen` |
-| **Ablage** | Bericht `runs/meta-<batch>.md` (mit Rohantwort), Maschinenfassung `runs/meta-<batch>.json`, Mitschnitt `runs/meta-<batch>.jsonl`, Register `state/meta_befunde.json` |
+| **Ablage** | im Ordner des **bewerteten** Batches (R13br, s. u.): Bericht `runs/b<N>/meta.md` (mit Rohantwort), Maschinenfassung `runs/b<N>/meta.json`, Mitschnitt `runs/b<N>/meta.jsonl`, stderr `runs/b<N>/meta.err.txt`, Hook-Einstellungen `runs/b<N>/meta-hooks.json`; Register `state/meta_befunde.json` |
 | **Anzeige** | `/bilanz` zeigt die **Quote** des Registers: `Aussensicht: n Befunde, davon u uebernommen, a abgelehnt, o offen   (letzte Aussensicht: Batch N; k Befunde in diesem Lauf; Takt: alle 3 Batches)`; `/status` zeigt dieselbe Zeile (hinter dem Vorgemerkten) |
 | **Grenzen** | harte Zeitgrenze `[meta] wall_s` (Vorgabe 900 s); schlägt der Lauf fehl, wird das gemeldet und der Betrieb läuft weiter. Die Aussensicht blockiert **ihren eigenen** Lauf (synchron wie der Review) |
+
+**Ablage im Batch-Ordner — alter Ort bleibt lesbar (R13br, 2026-10-04).** Die Dateien der
+Aussensicht liegen im Ordner des Batches, den sie **bewertet** (`runs/b<N>/meta.*`); vorher
+lagen sie lose in `runs/` (`meta-<N>.md`, `.json`, `.jsonl`, `.err.txt`, `-hooks.json`).
+Fehlt der Batch-Ordner (z. B. bei `/meta` im Gate), legt die Aussensicht ihn an.
+
+**Gelesen werden BEIDE Orte** — zuerst `runs/b<N>/meta.*`, als Rückfall `runs/meta-<N>.*`;
+liegt derselbe Batch an beiden Orten, gilt der **neue** (er zählt nicht doppelt). Deshalb
+bleiben alte Aussensichten, die Quote im Register, die Wiederholungsregel („zuletzt
+gescheitert", §12r), die Rotation der Tiefenprobe und die Fensterlogik von `/bilanz`/`/status`
+unverändert gültig, **ohne dass ein Beleg angefasst wird**.
+
+**Die vorhandenen losen Dateien wurden nicht gelöscht oder verschoben.** Wer sie in die
+Batch-Ordner bringen will, kopiert sie:
+
+    python -m hx.cli meta-ablage                     # Trockenlauf (Vorgabe): nur die Tafel
+    python -m hx.cli meta-ablage --ausfuehren        # kopieren
+    python -m hx.cli meta-ablage --batches 208-216,230   # nur diese Batches
+
+Ausgabe ist die Tafel `Datei | Ziel | vorhanden | Aktion`. Das Werkzeug **kopiert nur**, die
+Originale in `runs/` bleiben liegen (Belege); ein Ziel mit **anderem** Inhalt wird als
+„Ziel belegt" gemeldet und **nicht** überschrieben.
+
+**Wächter (kein Überschreiben).** Liegt am neuen Ort eine Datei, die nicht von dieser
+Aussensicht stammt (`meta.md` ohne unseren Kopf, `meta.json` ohne `batch`/`rc`, unlesbarer
+Mitschnitt), bricht der Lauf **vor** dem bezahlten API-Aufruf mit
+`Ablage-Kollision: … Nicht gestartet, nichts geschrieben` ab; der Fall wird als gescheiterte
+Aussensicht gemeldet. Ein **Wiederholungslauf derselben Nummer** (eigene Dateien, z. B. nach
+Session-Limit, §12r) ist ausdrücklich erlaubt und überschreibt sie. `meta.err.txt` und
+`meta-hooks.json` sind Hilfsdateien dieses Harness und werden je Lauf neu geschrieben — sie
+stehen nicht unter dem Wächter. **Nicht** verschoben werden diese Dateien von
+`worker.sichere_vorgaenger` (die Liste `LAUF_BELEGE` führt sie nicht): ein Nachlauf derselben
+Batch-Nummer trifft sie am neuen Ort an und bricht dort mit der klaren Meldung ab.
 
 **Tiefenprobe — ein zufälliger Batch je Lauf (R13ac3, 2026-09-29).** Zusätzlich zur
 Stichprobe des neuesten Batches zieht der Harness **vor** jedem Lauf **einen** Batch aus den
@@ -785,7 +818,7 @@ Eingabeblock `=== TIEFENPROBE (Pflicht): BATCH <N> ===` samt seiner Rohbelege (A
 **in der Tiefe**: die Denkblöcke, die Belege und jede prüfbare Behauptung des
 Abschlussberichts gegen die Rohdaten. Die Nummer steht im Bericht
 (`- Tiefenprobe: Batch N aus dem Fenster B…B…`) — auch dann, wenn das Modell sie nicht
-nennt; zusätzlich trägt `runs/meta-<batch>.json` den Schlüssel `tiefenprobe`.
+nennt; zusätzlich trägt `runs/b<batch>/meta.json` den Schlüssel `tiefenprobe`.
 
 **Rotation.** Die gezogenen Nummern stehen im Register (`state/meta_befunde.json` →
 `tiefenprobe.gezogen`); **derselbe Batch kommt erst wieder, wenn alle anderen des Fensters
@@ -1319,7 +1352,7 @@ Jetzt gilt:
 |---|---|
 | **Gelaufen ist …** | `rc == 0` **und** ein gelesener Antwortblock (`<AUSSENSICHT>` bzw. mindestens ein Befund). Sonst `gelaufen=False` mit Grund (`rc=1, error_max_turns, 31 Zuege` / `kein AUSSENSICHT-Block in der Antwort (0 Befunde)`) |
 | **Keine Marke** | `letzter_lauf_batch`/`letzter_lauf_ts` bleiben stehen; auch die drei Stillstands-Marken werden nicht gesetzt. Telegram: `Aussensicht B<N> gescheitert (<Grund>), wird beim nächsten Batch-Ende wiederholt` |
-| **Nichts angewendet** | keine Verdikte, keine Queue-Nachricht, kein Registereintrag. Der Bericht `runs/meta-<N>.md` wird trotzdem geschrieben (Beleg) und trägt `- ERGEBNIS: GESCHEITERT (…)`; `runs/meta-<N>.json` trägt `gelaufen: false` |
+| **Nichts angewendet** | keine Verdikte, keine Queue-Nachricht, kein Registereintrag. Der Bericht `runs/b<N>/meta.md` wird trotzdem geschrieben (Beleg) und trägt `- ERGEBNIS: GESCHEITERT (…)`; `runs/b<N>/meta.json` trägt `gelaufen: false` |
 | **Wiederholung** | genau einmal, beim **nächsten** Batch-Ende (`aussensicht.faellig` meldet `Wiederholung nach gescheiterter Aussensicht B<N>`). Im selben Batch wird nicht wiederholt — sonst liefe die Schleife sofort wieder los |
 | **Zuglimit** | `[meta] meta_max_turns` (Name aus dem Auftrag), sonst `[meta] max_turns`; Vorgabe **50** = 35 gemessene Züge + Reserve (vorher 30). `harness.toml:131`, Rückfall in `hx/aussensicht.py` (`STANDARD`) |
 | **Frist im Prompt** | `ZEITLIMIT: Schreibe spaetestens nach <max-5> Zuegen die Antwort im Blockformat, auch wenn die Tiefenprobe unvollstaendig ist; Unvollstaendiges als nicht geprueft kennzeichnen.` — zusätzlich als Abschnitt in `prompts/aussensicht.md` |
@@ -1351,10 +1384,10 @@ Das Zuglimit war bisher nur eine Zahl im Prompt („spätestens nach max−8 Zü
 | Punkt | Verhalten |
 |---|---|
 | **Limit** | `[meta] max_turns` = **70** (Alias `meta_max_turns` hat Vorrang, `aussensicht.max_turns`); der Lauf wird damit mit `--max-turns 70` gestartet. R13aq: 30 → 50, **R13at: 50 → 70** — Begründung und die gemessenen Zahlen stehen in `docs/_r13at_belege.md` (der Auftragstext nennt `num_turns=41` = 82 %, die CLI zählt **30 von 50 Runden** = 60 %) |
-| **Zuguhr** | PostToolUse-Hook `tools/aussensicht_uhr.py`, gehängt über `--settings runs/meta-<N>-hooks.json` (`aussensicht.write_hook_settings`, gibt `--limit` **und** `--frist` mit): nach jedem Werkzeugaufruf `AUSSENSICHT-UHR: Zug X von Y (Werkzeugrunden). Noch R Zuege bis zum Abbruch.` |
+| **Zuguhr** | PostToolUse-Hook `tools/aussensicht_uhr.py`, gehängt über `--settings runs/b<N>/meta-hooks.json` (`aussensicht.write_hook_settings`, gibt `--limit` **und** `--frist` mit): nach jedem Werkzeugaufruf `AUSSENSICHT-UHR: Zug X von Y (Werkzeugrunden). Noch R Zuege bis zum Abbruch.` |
 | **Frist** | ab `Zug >= Limit - FRIST_ABSTAND` zusätzlich `JETZT die Antwort im Blockformat schreiben, Unvollständiges als nicht geprüft kennzeichnen.` — **R13at: `FRIST_ABSTAND = 8`** (vorher 5), EINE Quelle in `hx/aussensicht.py`: der Auftrag (`ZEITLIMIT: Schreibe spaetestens nach … Zuegen`) und der Hook lesen dieselbe Zahl. Wer `--frist` nicht mitgibt, bekommt 8 |
 | **Was X ist** | die Zahl, die die CLI selbst zählt: **Werkzeugrunden** — gezählt im Transcript der Sitzung (`transcript_path` aus der Hook-Eingabe, `hx.streamjson.runden_aus_zeilen`), damit parallele Aufrufe in einer Antwort nicht doppelt zählen. Gemessen mit echtem Lauf: das Modell nennt die Zeile wörtlich (`docs/_r13ar_probe_hook.txt`) |
-| **Frühwarnung** | braucht ein **gelungener** Lauf mehr als 80 % des Limits (in Runden): Telegram `Aussensicht B<N>: X von Y Zuegen genutzt - Limit pruefen` + dieselbe Zeile im Bericht (`- LIMIT PRUEFEN: …`), Log `Zuglimit fast erreicht`. Immer im Bericht: `- Zuege (Werkzeugrunden): X von Y - num_turns laut CLI: N`; `runs/meta-<N>.json` trägt `zug_runden` |
+| **Frühwarnung** | braucht ein **gelungener** Lauf mehr als 80 % des Limits (in Runden): Telegram `Aussensicht B<N>: X von Y Zuegen genutzt - Limit pruefen` + dieselbe Zeile im Bericht (`- LIMIT PRUEFEN: …`), Log `Zuglimit fast erreicht`. Immer im Bericht: `- Zuege (Werkzeugrunden): X von Y - num_turns laut CLI: N`; `runs/b<N>/meta.json` trägt `zug_runden` |
 | **Kein Fehler stört** | fehlt/unlesbar ist das Transcript oder fehlt `--limit`, gibt der Hook nichts aus (Exit 0) |
 
 Messwerte (Runden gegen `num_turns`, alle Läufe meta-208…meta-218, Limit je Lauf), die
@@ -2185,7 +2218,8 @@ die **Ereignis-Auslöser** — Marker, Worker-Abbruch, Stillstand — bleiben
 
 1. **Zahl und Gewicht der Außensicht-Befunde mit Empfänger „Reviewer"** im Fenster
    danach gegen das Fenster davor. Quelle: `state/meta_befunde.json` (Felder
-   `empfaenger`, `gewicht`, `status`) und die Läufe `runs/meta-<N>.json` / `.md`;
+   `empfaenger`, `gewicht`, `status`) und die Läufe `runs/b<N>/meta.json` / `meta.md`
+   (alte Aussensichten: `runs/meta-<N>.*`);
    die Quote steht in `/bilanz` (`aussensicht.zeile`).
 2. **Verbrauch je Aufruftyp UND Modell** nach dem Verfahren aus R13bn-2
    (`docs/_r13bn_verbrauch.py`): Tokens, Kosten und Aufrufe kommen aus dem
