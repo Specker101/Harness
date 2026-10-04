@@ -116,12 +116,14 @@ kontext_limit        = 1000000
 kontext_schwelle     = 550000
 # So oft darf ein frueh beendeter Lauf im SELBEN Chat fortgesetzt werden (R13ad).
 max_fortsetzungen    = 2
-# R13bb (2026-09-30, Nutzerauftrag): hat der Worker schon einen Preflight gestartet, wird
-# trotzdem fortgesetzt, wenn bis zur Umschaltschwelle noch MINDESTENS so viele Minuten
-# bleiben. Der vorhandene Preflight-Stand wird vorher archiviert (R13ah), der Anstoss
-# verlangt am Ende einen NEUEN Preflight ("der letzte gilt"). Darunter bleibt es beim
-# UEBERTRAG (kein zweiter Preflight in den Rest hinein). Grund der Lockerung (gemessen):
-# der Preflight dauert jetzt ~5 min, B224 endete bei 45 min mit 3 von 5 Koepfen.
+# R13bb (2026-09-30, Nutzerauftrag); seit R13bw (05.10.2026) NICHT mehr tragend: hat der
+# Worker schon einen Preflight gestartet, wurde nur fortgesetzt, wenn bis zur
+# Umschaltschwelle noch MINDESTENS so viele Minuten blieben ("der neue Preflight muss in
+# den Rest passen"). Diese Bremse liess fuenf Laeufe bei 119-133 min enden, obwohl die
+# Batch-Uhr die Umschaltschwelle noch nicht erreicht hatte (Grundwert 135 min, vorgezogen um
+# die gemessene Preflight-Dauer - B255, B259, B260, B264, B268; Aussensicht M268-3). Jetzt
+# entscheidet die Uhr allein; der Wert ist nur noch die MERKGRENZE fuer den Beleg
+# (`fortsetzungen[k].rest_knapp`, Log `Fortsetzung trotz Preflight`).
 fortsetzung_min_rest_min = 20
 
 [peak]

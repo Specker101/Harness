@@ -76,6 +76,8 @@ class WorkerResult:
         self.antwort_dateien: list[str] = []
         # R13aw: warum es keinen (weiteren) Fortsetzungsanstoss gab - und ob es ein
         # UEBERTRAG nach einem Preflight war (Befund M219-5).
+        # R13bw: der UEBERTRAG-Fall tritt nicht mehr ein (die Uhr entscheidet allein); das
+        # Feld bleibt, damit die Leser alter `result.json` denselben Schluessel finden.
         self.fortsetzung_grund: str = ""
         self.fortsetzung_uebertrag: bool = False
 
@@ -521,7 +523,15 @@ def archiviere_preflight_vor_fortsetzung(cfg, state, fortsetzung: int, log=None)
 
 
 # Wortlaut der Uebertrag-Regel (R13aw, Aussensicht B219 Befund 5): nach einem gueltigen
-# Preflight wird die Nachrueckliste NICHT mehr per Fortsetzung angefasst.
+# Preflight wurde die Nachrueckliste NICHT mehr per Fortsetzung angefasst, wenn bis zur
+# Umschaltschwelle weniger als `limits.fortsetzung_min_rest_min` Minuten blieben.
+# **R13bw (2026-10-05, Aussensicht M268-3): AUFGEHOBEN** - die Uhr entscheidet allein.
+# Gemessen endeten mit der Bremse B255 (132,5 min), B259 (127,9), B260 (130,6), B264
+# (130,9) und B268 (119,2) unter der Umschaltschwelle (Grundwert 135 min; sie wird um die
+# GEMESSENE Preflight-Dauer vorgezogen - fuer B268 liegt sie bei 122,6 min, der Rest war
+# dort 3,4 min). Neue Laeufe tragen den
+# Grund nicht mehr; die beiden Konstanten bleiben, weil `orchestrator.fortsetzungen_zeile`
+# damit die `result.json` ALTERER Batches im Klartext anzeigt.
 UEBERTRAG_GRUND = "Preflight bereits gelaufen, offene Nachrueckliste -> UEBERTRAG"
 UEBERTRAG_TEXT = "Kein Fortsetzungsanstoss: " + UEBERTRAG_GRUND
 
@@ -633,22 +643,33 @@ def fortsetzung_pruefen(cfg, run, stats, auftrag_text: str, minuten: float,
       c) `kontext_letzte_anfrage` < `kontext_schwelle`,
       d) der Auftrag enthaelt einen Abschnitt `NACHRUECKLISTE`,
       e) es gab weniger als `max_fortsetzungen` Anstoesse,
-      f) R13aw/R13bb: ein schon gelaufener Preflight steht dem Anstoss nur noch entgegen,
-         wenn bis zur Umschaltschwelle **weniger als `limits.fortsetzung_min_rest_min`**
-         Minuten bleiben (Rueckgabe dann `uebertrag=True`).
+      f) R13bw: ein schon gelaufener Preflight steht dem Anstoss **nicht** entgegen. Er wird
+         als `preflight_erneut=True` vermerkt (der Anstoss verlangt am Ende einen neuen
+         Preflight); der Rest bis zur Umschaltschwelle steht als Zahl in `rest_min`, und
+         `rest_knapp` zeigt an, dass er unter `limits.fortsetzung_min_rest_min` liegt.
 
-    Grund fuer (f) (gemessen, `runs/b217`, `b218`, `b219`): die Fortsetzung lief nach einem
-    gueltigen Preflight weiter und startete zum Teil einen ZWEITEN (B217) oder DRITTEN
-    (B218) Preflight - die Nachrueckliste haette in den naechsten Batch gehoert, der
-    Preflight-Stand ist ohnehin schon gemessen.
+    Geschichte von (f): R13aw sperrte den Anstoss nach einem Preflight ganz (gemessen
+    `runs/b217`, `b218`, `b219`: die Fortsetzung lief weiter und startete einen ZWEITEN bzw.
+    DRITTEN Preflight - die Nachrueckliste gehoerte in den naechsten Batch). R13bb lockerte
+    das auf „mindestens `limits.fortsetzung_min_rest_min` Minuten Rest\", R13bw hat den
+    Vorbehalt gestrichen - die Uhr entscheidet allein.
 
-    **R13bb (Aussensicht B224, Nutzerauftrag 30.09.2026) - die Regel ist gelockert.**
-    Gemessen: der Preflight dauert jetzt ~5 min, und B224 endete bei 45 min mit 3 von 5
-    Koepfen. Bleibt danach genug Zeit, ist die Fortsetzung **erlaubt**: der Stand von vor
-    der Fortsetzung wird vorher archiviert (`archiviere_preflight_vor_fortsetzung`, R13ah),
-    und am Ende laeuft ein **neuer** Preflight, dessen Ergebnis gilt (`preflight_erneut` im
-    Anstoss-Text). Unter `fortsetzung_min_rest_min` bleibt es beim UEBERTRAG - der neue
-    Preflight muss vollstaendig in den Rest passen.
+    **R13bb (Aussensicht B224, Nutzerauftrag 30.09.2026).** Gemessen: der Preflight dauert
+    jetzt ~5 min, und B224 endete bei 45 min mit 3 von 5 Koepfen. Der Stand von vor der
+    Fortsetzung wird vorher archiviert (`archiviere_preflight_vor_fortsetzung`, R13ah), und
+    am Ende laeuft ein **neuer** Preflight, dessen Ergebnis gilt (`preflight_erneut` im
+    Anstoss-Text).
+
+    **R13bw (Aussensicht M268-3, Nutzerauftrag 2026-10-05) - der Rest-Vorbehalt ist weg.**
+    R13bb hatte die Fortsetzung noch an `limits.fortsetzung_min_rest_min` (Default 20 min)
+    gebunden: unter 20 min Rest bis zur Umschaltschwelle wurde uebertragen. Gemessen endeten
+    so fuenf Laeufe zwischen 119 und 133 min, obwohl die Batch-Uhr die Umschaltschwelle noch
+    nicht erreicht hatte (Grundwert 135 min; sie liegt um die **gemessene** Preflight-Dauer
+    vorgezogen - fuer B268 bei 122,6 min, der Rest war dort 3,4 min) - der Batch horte zu
+    frueh auf, ohne dass die Nachrueckliste erledigt war. Jetzt entscheidet
+    die Uhr allein: liegt `minuten` unter `umschalt_min`, ist die Nachrueckliste offen und
+    sind die uebrigen Bedingungen erfuellt, wird fortgesetzt; der Rest steht nur noch als
+    `rest_min`/`rest_knapp` im Beleg (`log.info("Fortsetzung trotz Preflight", …)`).
     """
     max_f = int(cfg.get("limits", "max_fortsetzungen", 2))
     if len(fortsetzungen) >= max_f:
@@ -674,11 +695,13 @@ def fortsetzung_pruefen(cfg, run, stats, auftrag_text: str, minuten: float,
     if not hat_nachrueckliste(auftrag_text):
         return {"ja": False, "grund": "kein Abschnitt NACHRUECKLISTE im Auftrag"}
     if preflight_gestartet(stats):
+        # R13bw: kein Rest-Vorbehalt mehr. Die Uhr ist oben schon geprueft
+        # (`minuten < umschalt_min`), die Nachrueckliste ist offen - der Anstoss laeuft.
+        # `rest_knapp` meldet nur noch, dass der Rest unter der Merkgrenze liegt.
         rest = umschalt_min - minuten
         min_rest = float(cfg.get("limits", "fortsetzung_min_rest_min", 20))
-        if rest >= min_rest:
-            return {"ja": True, "grund": "", "preflight_erneut": True, "rest_min": rest}
-        return {"ja": False, "grund": UEBERTRAG_GRUND, "uebertrag": True, "rest_min": rest}
+        return {"ja": True, "grund": "", "preflight_erneut": True, "rest_min": rest,
+                "rest_knapp": bool(rest < min_rest)}
     return {"ja": True, "grund": ""}
 
 
@@ -1106,16 +1129,14 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
                 entsch = fortsetzung_pruefen(cfg, run, stats, prompt, minuten, fortsetzungen,
                                              killed_reason=res.killed_reason, log=log)
                 if not entsch["ja"]:
-                    # R13aw: der Uebertrag nach einem Preflight wird im Klartext gemeldet
-                    # (so steht es auch in den Review-Fakten) - sonst sieht es aus wie ein
-                    # gewoehnliches Ende mit offener Nachrueckliste.
-                    if entsch.get("uebertrag"):
-                        log.info(UEBERTRAG_TEXT)
-                    else:
-                        log.info("Kein Fortsetzungsanstoss", grund=entsch["grund"],
-                                 teillaeufe=len(laeufe))
+                    # R13aw: der Absagegrund wird im Klartext gemeldet (so steht er auch in
+                    # den Review-Fakten) - sonst sieht es aus wie ein gewoehnliches Ende mit
+                    # offener Nachrueckliste. R13bw: den UEBERTRAG-Sonderfall gibt es nicht
+                    # mehr, seit die Uhr allein entscheidet (`res.fortsetzung_uebertrag`
+                    # bleibt als Schluessel in `result.json` stehen und ist immer False).
+                    log.info("Kein Fortsetzungsanstoss", grund=entsch["grund"],
+                             teillaeufe=len(laeufe))
                     res.fortsetzung_grund = str(entsch["grund"])
-                    res.fortsetzung_uebertrag = bool(entsch.get("uebertrag"))
                     break
                 kontext = stats.kontext_stats()["kontext_letzte_anfrage"]
                 # R13bf (Teil D): einen ZWEITEN Preflight nur verlangen, wenn seit dem
@@ -1143,6 +1164,12 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
                                       # R13bb: dieser Anstoss laeuft NACH einem Preflight -
                                       # am Ende gilt der neue (s. Anstoss-Text).
                                       "preflight_erneut": bool(entsch.get("preflight_erneut")),
+                                      # R13bw: Rest bis zur Umschaltschwelle - nur noch
+                                      # Beleg (frueher war genau dieser Wert die Bremse).
+                                      "rest_min": (round(float(entsch["rest_min"]), 1)
+                                                   if entsch.get("rest_min") is not None
+                                                   else None),
+                                      "rest_knapp": bool(entsch.get("rest_knapp")),
                                       # R13bf (Teil D): was der Anstoss WIRKLICH verlangt
                                       # und warum - Belege fuer den Reviewer.
                                       "preflight_neu": bool(pf_neu),
@@ -1163,6 +1190,7 @@ def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str
                 if entsch.get("preflight_erneut"):
                     log.info("Fortsetzung trotz Preflight",
                              rest_min=round(float(entsch.get("rest_min") or 0.0), 1),
+                             rest_knapp=bool(entsch.get("rest_knapp")),
                              vorher_archiviert=bool(res.preflight_archiv),
                              neuer_preflight=bool(pf_neu))
                 fortsetz_text = fortsetzungs_text(

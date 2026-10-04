@@ -6,13 +6,18 @@ in der Fortsetzung (`981a8bd`), B218 mit drei Preflights. Aussage: „nach dem P
 `port/`", „Preflight erst nach der Nachrueckliste" und die automatische Fortsetzung stossen
 zusammen; die Fortsetzung laeuft in den schon gemessenen Stand hinein.
 
-Regel: hat der Worker in diesem Batch schon einen Preflight **gestartet**
-(`streamjson.ist_preflight_aufruf`), gibt es keinen Anstoss mehr - die offene Nachrueckliste
-wird **uebertragen**. Log und Review-Fakten nennen den Grund im Klartext:
+Regel (R13ax, 30.09.2026): hat der Worker in diesem Batch schon einen Preflight
+**gestartet** (`streamjson.ist_preflight_aufruf`), gab es keinen Anstoss mehr - die offene
+Nachrueckliste wurde **uebertragen**. Log und Review-Fakten nannten den Grund im Klartext:
 `Kein Fortsetzungsanstoss: Preflight bereits gelaufen, offene Nachrueckliste -> UEBERTRAG`.
 
-Die Archivierung „Preflight vor Fortsetzung" (R13ah) bleibt als Code stehen - dieser Zweig
-wird praktisch nur noch erreicht, wenn die Regel einmal gelockert wird.
+**R13bw (2026-10-05, Aussensicht M268-3) hat diese Regel aufgehoben.** Die Bremse liess fuenf
+Laeufe bei 119-133 min enden, obwohl erst bei 135 min umgeschaltet wird (B255, B259, B260,
+B264, B268): unter der Umschaltschwelle wird jetzt auch nach einem Preflight fortgesetzt
+(`preflight_erneut`, Log `Fortsetzung trotz Preflight`). Der **Wortlaut** der Konstanten
+bleibt festgeschrieben - `orchestrator.fortsetzungen_zeile` zeigt damit die `result.json`
+aelterer Batches im Klartext. Die Archivierung „Preflight vor Fortsetzung" (R13ah) ist
+seitdem wieder im Regelfall aktiv.
 """
 
 from __future__ import annotations
@@ -137,13 +142,17 @@ class TestFortsetzungPruefen(unittest.TestCase):
         self.assertTrue(e["preflight_erneut"])
         self.assertFalse(e.get("uebertrag"))
 
-    def test_nach_preflight_unter_20_min_bleibt_uebertrag(self):
+    def test_nach_preflight_unter_20_min_wird_angestossen(self):
+        """R13bw: der Rest bis zur Umschaltschwelle ist keine Bremse mehr, nur eine
+        Merkgrenze (`rest_knapp`) - der Anstoss laeuft trotzdem."""
         u = worker.umschalt_minuten(self.cfg)["umschalt_min"]
         e = worker.fortsetzung_pruefen(self.cfg, self._run(), self._stats(preflight=True),
                                       self.AUFTRAG, u - 10, [])
-        self.assertFalse(e["ja"])
-        self.assertEqual(e["grund"], worker.UEBERTRAG_GRUND)
-        self.assertTrue(e["uebertrag"])
+        self.assertTrue(e["ja"], e)
+        self.assertTrue(e["preflight_erneut"])
+        self.assertLess(e["rest_min"], 20)
+        self.assertTrue(e["rest_knapp"])
+        self.assertFalse(e.get("uebertrag"))
 
     def test_wortlaut_ist_festgeschrieben(self):
         self.assertEqual(worker.UEBERTRAG_TEXT, TEXT)
@@ -165,10 +174,11 @@ class TestFortsetzungPruefen(unittest.TestCase):
         self.assertIn("cancel", e["grund"])
         self.assertFalse(e.get("uebertrag"))
 
-    def test_im_lauf_wird_der_text_geloggt(self):
+    def test_im_lauf_gibt_es_den_uebertrag_nicht_mehr(self):
+        """R13bw: den Sonderfall gibt es nicht mehr - jeder Absagegrund steht im Klartext."""
         quelle = inspect.getsource(worker.run_batch)
-        self.assertIn("log.info(UEBERTRAG_TEXT)", quelle)
-        self.assertIn("res.fortsetzung_uebertrag = bool(entsch.get(\"uebertrag\"))", quelle)
+        self.assertNotIn("log.info(UEBERTRAG_TEXT)", quelle)
+        self.assertIn('log.info("Kein Fortsetzungsanstoss", grund=entsch["grund"]', quelle)
 
 
 class TestErgebnisUndFakten(unittest.TestCase):

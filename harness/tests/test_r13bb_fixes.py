@@ -1,11 +1,14 @@
 """Tests fuer R13bb (2026-09-30): vier Harness-Punkte aus Aussensicht B224 / Review B225.
 
 Punkt 1 (dieser Teil): FORTSETZUNG NACH EINEM FRUEHEN PREFLIGHT WIEDER ERLAUBEN (R13ax
-anpassen). Bleibt bis zur Umschaltschwelle mindestens `limits.fortsetzung_min_rest_min`
-(Default 20) Minuten, wird trotz gelaufenem Preflight fortgesetzt: der vorhandene Stand
-wird vorher archiviert (R13ah), der Anstoss verlangt am Ende einen NEUEN Preflight
-("der letzte gilt"). Darunter bleibt es beim UEBERTRAG.
-Grund (gemessen): der Preflight dauert jetzt ~5 min, B224 endete bei 45 min mit 3/5 Koepfen.
+anpassen). R13bb erlaubte sie, solange bis zur Umschaltschwelle mindestens
+`limits.fortsetzung_min_rest_min` (Default 20) Minuten blieben - darunter blieb es beim
+UEBERTRAG. **R13bw (05.10.2026, Aussensicht M268-3) hat diesen Rest-Vorbehalt aufgehoben:**
+die Uhr entscheidet allein, der Rest steht nur noch als `rest_min`/`rest_knapp` im Beleg.
+Gemessen endeten mit der Bremse B255 (132,5 min), B259 (127,9), B260 (130,6), B264 (130,9)
+und B268 (119,2) vor der Umschaltschwelle von 135 min.
+Grund der Lockerung (R13bb, gemessen): der Preflight dauert jetzt ~5 min, B224 endete bei
+45 min mit 3/5 Koepfen.
 
 Wegwerf-Verzeichnisse unter `tests/_tmp_r13bb`; die Konfiguration wird gelesen (der neue
 Schluessel steht in `harness.toml`).
@@ -99,28 +102,32 @@ class TestFortsetzungNachFruehemPreflight(unittest.TestCase):
         self.assertFalse(e.get("uebertrag"))
         self.assertGreaterEqual(e["rest_min"], 20)
 
-    def test_unter_20_min_bleibt_uebertrag(self):
+    def test_unter_20_min_wird_jetzt_angestossen(self):
+        """R13bw: der Rest ist keine Bremse mehr - nur noch eine Merkgrenze."""
         u = self.umschalt()
         e = self.entsch(u - 10)
-        self.assertFalse(e["ja"])
-        self.assertEqual(e["grund"], TEXT.replace("Kein Fortsetzungsanstoss: ", ""))
-        self.assertTrue(e["uebertrag"])
+        self.assertTrue(e["ja"], e)
+        self.assertTrue(e["preflight_erneut"])
         self.assertLess(e["rest_min"], 20)
-        self.assertFalse(e.get("preflight_erneut"))
+        self.assertTrue(e["rest_knapp"])
+        self.assertFalse(e.get("uebertrag"))
+        self.assertFalse(e.get("grund"))
 
     def test_genau_20_min_zaehlt_als_genug(self):
-        """Die Grenze ist einschliesslich: 20 min Rest = Anstoss."""
+        """Die Merkgrenze ist einschliesslich: bei genau 20 min Rest ist nichts knapp."""
         u = self.umschalt()
         e = self.entsch(u - 20)
         self.assertTrue(e["ja"], e)
+        self.assertFalse(e.get("rest_knapp"))
 
-    def test_schwelle_ist_einstellbar(self):
-        """`fortsetzung_min_rest_min` wird gelesen - nicht fest verdrahtet."""
+    def test_merkgrenze_ist_einstellbar(self):
+        """`fortsetzung_min_rest_min` wird gelesen - als Merkgrenze, nicht als Bremse."""
         self.cfg.data["limits"]["fortsetzung_min_rest_min"] = 60
         u = self.umschalt()
         e = self.entsch(u - 25)
-        self.assertFalse(e["ja"])
-        self.assertTrue(e["uebertrag"])
+        self.assertTrue(e["ja"], e)
+        self.assertTrue(e["rest_knapp"])
+        self.assertFalse(e.get("uebertrag"))
 
     def test_ohne_preflight_aendert_sich_nichts(self):
         u = self.umschalt()

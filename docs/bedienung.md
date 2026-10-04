@@ -1503,26 +1503,29 @@ Bericht, der vorher verschwand).
 drei, B219 lief in einen abgebrochenen hinein; in B219 lag der Preflight bei 60 von 75 min,
 obwohl NACHRUECKLISTE 1 offen war.
 
-**Regel (R13ax):** hat der Worker in diesem Batch schon einen Preflight **gestartet**
-(`streamjson.ist_preflight_aufruf`), gibt es keinen Anstoß mehr — die offene Nachrückliste
-wird **übertragen**.
+**Regel (R13ax), gelockert R13bb und R13bw.** Hat der Worker in diesem Batch schon einen
+Preflight **gestartet** (`streamjson.ist_preflight_aufruf`), entscheidet die **Batch-Uhr**:
+unter der Umschaltschwelle wird angestoßen, darüber nicht. Die fruehere Rest-Bremse
+(R13ax/R13aw: „unter 20 min Rest wird uebertragen") ist mit **R13bw (05.10.2026)
+aufgehoben** — sie liess fuenf Laeufe bei 119-133 min enden (B255, B259, B260, B264, B268).
 
-**Lockerung (R13bb, 30.09.2026).** Der Preflight dauert jetzt ~5 min, und B224 endete bei
-45 min mit 3 von 5 Köpfen. Deshalb gilt jetzt:
-
-| Rest bis zur Umschaltschwelle | Verhalten |
+| Stand nach dem Preflight | Verhalten |
 |---|---|
-| **≥ `limits.fortsetzung_min_rest_min`** (Default **20** min) | **Anstoß** — der Stand von vor der Fortsetzung wird vorher archiviert (R13ah, `_m<N>/_preflight_<N>_vor_fortsetzung<k>.txt`). Ob der Anstoß einen **neuen** Preflight verlangt, hängt seit R13bf (01.10.2026) davon ab, ob seit dem letzten Preflight unter `port/` oder `scripts/` etwas geändert wurde: ja → *„Nach der Nacharbeit neuer Preflight, der letzte gilt (der frühere ist überholt); danach Bilanz aktualisieren und committen."*; nein → *„Kein neuer Preflight nötig, der vorhandene gilt - seit dem letzten Preflight wurde unter port/ oder scripts/ nichts geändert. Weitere Arbeit unter port/ und scripts/ ist erlaubt; danach ein neuer Preflight, der letzte gilt (R13bf)."* (der zweite Satz kam mit **R13bp**, 03.10.2026 — vorher ließ der Text offen, ob unter `port/`/`scripts/` überhaupt noch gearbeitet werden darf). Nicht messbar (kein Preflight-Zeitpunkt, kein Git) → im Zweifel **neuer** Preflight. Der Anstoß steht in `result.json` als `fortsetzungen[k].preflight_erneut` (Entscheidung) und `preflight_neu` (was der Text verlangte) + `preflight_aenderung` (Belege), im Log als `Fortsetzung trotz Preflight` bzw. `Kein neuer Preflight noetig` |
-| **< 20 min** | **Übertrag** wie bisher |
+| Batch-Uhr **< Umschaltschwelle** (Grundwert 135 min, vorgezogen um die gemessene Preflight-Dauer), Nachrückliste offen | **Anstoß** — der Rest bis zur Schwelle steht als `fortsetzungen[k].rest_min`, `rest_knapp` markiert „unter `limits.fortsetzung_min_rest_min`" (nur noch Merkgrenze). Der Stand von vor der Fortsetzung wird vorher archiviert (R13ah, `_m<N>/_preflight_<N>_vor_fortsetzung<k>.txt`). Ob der Anstoß einen **neuen** Preflight verlangt, hängt seit R13bf (01.10.2026) davon ab, ob seit dem letzten Preflight unter `port/` oder `scripts/` etwas geändert wurde: ja → *„Nach der Nacharbeit neuer Preflight, der letzte gilt (der frühere ist überholt); danach Bilanz aktualisieren und committen."*; nein → *„Kein neuer Preflight nötig, der vorhandene gilt - seit dem letzten Preflight wurde unter port/ oder scripts/ nichts geändert. Weitere Arbeit unter port/ und scripts/ ist erlaubt; danach ein neuer Preflight, der letzte gilt (R13bf)."* (der zweite Satz kam mit **R13bp**, 03.10.2026 — vorher ließ der Text offen, ob unter `port/`/`scripts/` überhaupt noch gearbeitet werden darf). Nicht messbar (kein Preflight-Zeitpunkt, kein Git) → im Zweifel **neuer** Preflight. Der Anstoß steht in `result.json` als `fortsetzungen[k].preflight_erneut` (Entscheidung) und `preflight_neu` (was der Text verlangte) + `preflight_aenderung` (Belege), im Log als `Fortsetzung trotz Preflight` bzw. `Kein neuer Preflight noetig` |
+| Batch-Uhr **≥ Umschaltschwelle** | kein Anstoß: `kein weiterer Anstoss: Batch-Uhr <x> min >= Umschaltschwelle 135 min` |
 
 * Ist die Nachrückliste schon erledigt, antwortet der Worker nur `NACHRUECKLISTE ERLEDIGT`
   (der Satz steht im Anstoß **zuletzt**, damit er den Preflight-Satz übersteuert) — der Batch
   endet dann ohne neuen Preflight, und der vorhandene Stand bleibt gültig (R13bf).
 
-* Log und Review-Fakten im Übertrag-Fall: `Kein Fortsetzungsanstoss: Preflight bereits
-  gelaufen, offene Nachrueckliste -> UEBERTRAG` (angehängt an die Fortsetzungszeile, auch
-  wenn es vorher Anstöße gab).
-* `result.json`: `fortsetzung_grund` und `fortsetzung_uebertrag` (oben und in `stats`).
+* Log und Review-Fakten nennen den Absagegrund im Klartext (`Kein Fortsetzungsanstoss:
+  <grund>`). Der Übertrag-Satz `Preflight bereits gelaufen, offene Nachrueckliste ->
+  UEBERTRAG` steht **nur noch** in Läufen **vor R13bw** (05.10.2026): damals wurde nach
+  einem Preflight unter 20 min Rest übertragen. Seitdem entscheidet die Uhr allein — der
+  Batch läuft bis zur Umschaltschwelle weiter (gemessen endeten B255, B259, B260, B264 und
+  B268 bei 119-133 min — unter der Schwelle, aber unter 20 min Rest).
+* `result.json`: `fortsetzung_grund` und `fortsetzung_uebertrag` (oben und in `stats`);
+  `fortsetzung_uebertrag` ist seit R13bw immer `false`.
 * Nur ein **Start** zählt — eine bloße Nennung in `description`, ein `Select-String`-Filter
   oder ein `Read` der Preflight-Datei nicht (dieselbe Definition wie beim Preflight-Zähler).
 * Die Archivierung „Preflight vor Fortsetzung" (R13ah) ist damit wieder im Regelfall aktiv.

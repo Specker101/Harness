@@ -183,26 +183,29 @@ Fortsetzung gilt der **LETZTE** `preflight`-Lauf als der eine gueltige; frühere
 desselben Batches sind **überholt** und **kein Regelverstoß**. Prüfe also, ob am Ende ein
 gueltiger Preflight vorliegt (nicht, ob es genau einen gab).
 
-**Nach einem Preflight wird nur noch bei wenig Rest NICHT fortgesetzt (R13aw, geaendert
-R13bb, Aussensicht B224).** Hat der Worker in diesem Batch schon einen `preflight`-Lauf
-**gestartet**, setzt der Harness ihn nur dann nicht mehr fort, wenn bis zur
-Umschaltschwelle **weniger als `limits.fortsetzung_min_rest_min` Minuten** (Default 20)
-bleiben. Dann werden die offenen Posten **in den naechsten Batch uebertragen**; in den
-Messdaten steht
-`Kein Fortsetzungsanstoss: Preflight bereits gelaufen, offene Nachrueckliste -> UEBERTRAG`.
-Das ist **kein Regelverstoß und kein Abbruch** — es ist die vorgesehene Uebergabe. Pruefe
-deshalb, ob die uebertragenen Posten im naechsten Auftrag/Anker wieder auftauchen
-(`UEBERTRAG:`-Zeile), statt den fehlenden zweiten Preflight zu bemaengeln.
+**Nach einem Preflight wird fortgesetzt, solange die Uhr es hergibt (R13aw → R13bb →
+R13bw).** Hat der Worker in diesem Batch schon einen `preflight`-Lauf **gestartet** und
+liegt die Batch-Uhr noch **unter** der Umschaltschwelle, stoesst der Harness weiter an: der
+Anstoss verlangt am Ende einen neuen Preflight (`fortsetzungen[k].preflight_erneut`), im Log
+steht `Fortsetzung trotz Preflight`, und der Stand von **vor** der Fortsetzung liegt als
+`_m<N>/_preflight_<N>_vor_fortsetzung<k>.txt`. **R13bw (05.10.2026):** die frueher hier
+greifende Rest-Bremse (`limits.fortsetzung_min_rest_min`, Default 20 min - darunter wurde
+uebertragen) ist **aufgehoben**; sie liess fuenf Laeufe bei 119-133 min enden, obwohl die
+Batch-Uhr die Umschaltschwelle noch nicht erreicht hatte (Grundwert 135 min, vorgezogen um
+die gemessene Preflight-Dauer; B255, B259, B260, B264, B268 - Aussensicht M268-3). Der Wert
+ist nur noch eine Merkgrenze (`fortsetzungen[k].rest_knapp`). Ein `UEBERTRAG` nach Preflight
+entsteht damit **nicht mehr**; steht der Satz `Preflight bereits gelaufen, offene
+Nachrueckliste -> UEBERTRAG` in einer `result.json`, ist der Lauf **aelter** als R13bw -
+damals gehorten die offenen Posten in den naechsten Batch, also pruefe die
+`UEBERTRAG:`-Zeile.
 
-**Bleibt genug Zeit, wird fortgesetzt (R13bb, 30.09.2026).** Der Preflight dauert jetzt
-~5 min; B224 endete bei 45 min mit 3 von 5 Koepfen. Der Harness stoesst dann an und sichert
-den Stand von **vor** der Fortsetzung (`_m<N>/_preflight_<N>_vor_fortsetzung<k>.txt`).
-In den Messdaten steht der Anstoss als `fortsetzungen[k].preflight_erneut`, im Log als
-`Fortsetzung trotz Preflight`. In diesem Fall pruefst du **nicht** „genau ein
-gueltiger Lauf", sondern dass am Ende **einer** gueltig ist (der letzte; fruehere sind
-ueberholt) und dass der archivierte Stand vor der Fortsetzung existiert. Eine
-`NACHRUECKLISTE` bleibt Pflicht: sie greift bei einem **fruehen** Ende ohne Preflight und im
-UEBERTRAG-Fall.
+**Mehrere Preflights je Batch sind der Regelfall (R13bb/R13bw).** Je Fortsetzung nach einem
+Preflight laeuft am Ende ein weiterer; einen **neuen** verlangt der Anstoss nur, wenn seit
+dem letzten Lauf unter `port/` oder `scripts/` etwas geaendert wurde (R13bf,
+`fortsetzungen[k].preflight_neu`). Pruefe deshalb **nicht** „genau ein gueltiger Lauf",
+sondern dass am Ende **einer** gueltig ist (der letzte; fruehere sind ueberholt) und dass der
+archivierte Stand vor der Fortsetzung existiert. Eine `NACHRUECKLISTE` bleibt Pflicht: sie
+greift bei einem **fruehen** Ende ohne Preflight.
 
 **Ein zweiter Preflight nur bei Aenderung (R13bf, 01.10.2026).** Der Anstoss verlangt den
 neuen Preflight **nur**, wenn seit dem letzten Preflight unter `port/` oder `scripts/`

@@ -2672,8 +2672,10 @@ class Orchestrator:
         gehoeren sichtbar in den Review - sonst sieht es aus wie ein regulaerer Abschluss.
 
         R13aw: dazu der GRUND, warum nicht (weiter) angestossen wurde. Nach einem
-        Preflight heisst das UEBERTRAG (Befund M219-5) - die Nachrueckliste gehoert in den
+        Preflight hiess das UEBERTRAG (Befund M219-5) - die Nachrueckliste gehoerte in den
         naechsten Batch, ein zweiter Preflight im selben Batch waere eine Doppelmessung.
+        R13bw (2026-10-05): diese Bremse ist aufgehoben; der Zweig bleibt, damit die
+        `result.json` ALTERER Batches weiter im Klartext angezeigt wird.
         """
         liste = list((st or {}).get("fortsetzungen") or [])
         teile = []
@@ -2683,8 +2685,9 @@ class Orchestrator:
                          f"{str(f.get('antwort_kurz') or '(keine Antwort)')[:120]}")
         grund = ""
         if (st or {}).get("fortsetzung_uebertrag"):
-            grund = ("Kein Fortsetzungsanstoss: Preflight bereits gelaufen, offene "
-                     "Nachrueckliste -> UEBERTRAG")
+            # R13bw: nur noch fuer aeltere Laeufe - der Wortlaut kommt aus dem Worker,
+            # damit diese Zweitschrift nicht still altert.
+            grund = wk.UEBERTRAG_TEXT
         elif (st or {}).get("fortsetzung_grund"):
             grund = f"kein weiterer Anstoss: {st['fortsetzung_grund']}"
         text = " | ".join(teile) if teile else "keine"
