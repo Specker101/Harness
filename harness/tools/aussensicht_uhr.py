@@ -1,7 +1,8 @@
 """Zuguhr der Aussensicht als Claude-Code-Hook (R13ar, 30.09.2026).
 
 Wird vom Harness als `PostToolUse`-Hook in den Lauf der Aussensicht gehaengt
-(Einstellungsdatei `runs/meta-<N>-hooks.json`, erzeugt in `hx/aussensicht.py`). Der Hook
+(Einstellungsdatei `runs/b<N>/meta-hooks.json`, erzeugt in `hx/aussensicht.py`; vor R13br
+`runs/meta-<N>-hooks.json`). Der Hook
 laeuft nach JEDEM Werkzeugaufruf und gibt eine Zeile `additionalContext` aus; die CLI
 haengt sie als System-Reminder neben das Werkzeugergebnis.
 

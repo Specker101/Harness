@@ -433,8 +433,9 @@ def verworfene_speichern(cfg, batch: int, liste: list[dict]) -> list[str]:
     """Verworfene Befunde ins Register uebernehmen (Kennung `M<batch>-v<n>`).
 
     R13aa (Punkt 2): ein Befund, den nur die Beleg-Regel aussortiert hat, ist damit
-    nicht verloren - er steht mit Wortlaut in `runs/meta-<batch>.md`, im Register und in
-    `/fragen` ("verworfen - pruefen?"). Eine EIGENE Kennung (`-v1`) ist noetig, weil die
+    nicht verloren - er steht mit Wortlaut in `runs/b<N>/meta.md` (R13br; vorher
+    `runs/meta-<batch>.md`), im Register und in `/fragen` ("verworfen - pruefen?").
+    Eine EIGENE Kennung (`-v1`) ist noetig, weil die
     Nummern der angenommenen Befunde beim Verteilen nach Gewicht neu vergeben werden -
     sonst koennten zwei Eintraege dieselbe Kennung tragen.
     """
@@ -2017,7 +2018,7 @@ def faellig(cfg, state, log=None) -> list[str]:
 
 def bericht(cfg, batch: int, grund: str, res: Ergebnis, verteilung: dict,
             gruende: list[str]) -> str:
-    """Der Bericht `runs/meta-<batch>.md`."""
+    """Der Bericht `runs/b<batch>/meta.md` (R13br; vorher `runs/meta-<batch>.md`)."""
     zeilen = [
         f"# Aussensicht Batch {batch}",
         "",
