@@ -1667,6 +1667,21 @@ ARBEITSUMFELD
   Fehlt dir ein MCP-Werkzeug, melde es zusaetzlich als
   `<TOOL_REQUEST>mcp__ghidra__<name></TOOL_REQUEST>` - statt zu raten.
 
+ROM-ADRESSEN SUCHEN (R13az, nachgezogen 2026-10-04)
+- **Zuerst das Werkzeug, nicht der eigene Grep:** `python scripts/port_suche.py <adresse>`
+  (auch `0x8002379c`, `FUN_800261c4`, `8002379C+0x1A`). Es loest die Adresse auf den
+  **Funktionseintrag** auf, sucht in `port/` und `analysis/`, laesst Bau-, Archiv- und
+  Rohdateien aus und **klassifiziert** jeden Treffer (Funktionsbeleg vs. Datenwort/Maske).
+  Mit `--schreiben` legt es den Beleg ab. **Seine Ausgabe gehoert ins Batch-Dokument.**
+- Erst wenn DAS leer ist, ist es eine Fehlstelle:
+  `Fehlstelle: gesucht in port/ und analysis/, nicht gefunden (port_suche.py <adresse>)`.
+- **Suchst du selbst per Grep:** `path` IMMER setzen (`port` ZUERST, dann `analysis`),
+  `-i` benutzen, die Adresse **nackt ohne `0x`** suchen (sie trifft `8002379C`,
+  `0x8002379C` und `FUN_8002379C` zugleich), `head_limit` mindestens **80**.
+- Bei einer **Instruktionsadresse** (Halt-PC mitten in einer Funktion) zuerst den
+  **Funktionseintrag** bestimmen und den suchen: im Port liegen die Belege unter dem
+  Eintrag, nicht unter der Instruktion (`800237B4` -> `FUN_8002379C`).
+
 ABLAUF
 1. Auftrag lesen, dann Anker/Regeln lesen, dann arbeiten.
 2. Den Auftrag vollständig abarbeiten — mehrere Teile in einem Zug, kein Mini-Schritt.
