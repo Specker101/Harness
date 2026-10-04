@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -23,6 +24,17 @@ STYLES = {
     "reset": "\x1b[0m", "bold": "\x1b[1m", "dim": "\x1b[2m",
     "cyan": "\x1b[36m", "yellow": "\x1b[33m", "red": "\x1b[31m", "green": "\x1b[32m",
 }
+
+# R13bv (Nutzerauftrag 2026-10-04): FORTSETZUNGS-MITSCHNITTE. Nach einer Fortsetzung im
+# selben Chat schreibt der Worker nach `runs/b<N>/stream-forts<k>.jsonl` (hx/worker.py:1067,
+# k ab 1; `LAUF_MUSTER` in hx/worker.py:166). `/watch` las nur `stream.jsonl` und blieb
+# danach stumm, obwohl der Worker weiterarbeitete (gemessen: B266, stream-forts1.jsonl).
+FORTS_MUSTER = re.compile(r"^stream-forts(\d+)\.jsonl$")
+# Trennzeile beim Wechsel auf eine Fortsetzung - EINMAL je Datei.
+FORTS_TRENNER = "--- Fortsetzung {n} ---"
+# Herzschlag: so lange ohne neue Zeile zeigt watch an, dass es noch wartet. ohne das ist
+# nicht unterscheidbar, ob der Worker rechnet oder der Zuschauer steht.
+HERZSCHLAG_S = 60.0
 
 # B (R13c): Denkbloecke live, abgesetzt und gekuerzt. Reine Anzeige - fasst weder
 # Harness noch Kosten an (gelesen wird nur der Mitschnitt).
@@ -85,8 +97,14 @@ class Watcher:
         self.seen = 0                # beim Nachspielen
         self.seen_worker = 0         # live
         self.seen_reviewer = 0       # live
+        # R13bv: je Mitschnittdatei ein eigener Stand `{dateiname: {"zeilen": n,
+        # "trenner": bool}}` - so erscheint keine Zeile doppelt und ein spaeter
+        # auftauchender Fortsetzungs-Stream wird ohne Neustart mitgelesen.
+        self.seen_forts: dict[str, dict] = {}
         self.review_shown = False
         self.started = time.time()
+        self._letzte_zeile = 0.0     # Zeitpunkt der letzten angezeigten Zeile
+        self._letzter_beat = 0.0     # Zeitpunkt des letzten Herzschlags
         self._last_stats = 0.0
         self._stats_key = None
 
@@ -166,6 +184,89 @@ class Watcher:
                 self._render_line(line, who=who)
             setattr(self, counter, len(alle))
         return len(alle)
+
+    # ---------------------------------------------------- Fortsetzungen (R13bv)
+    def _mitschnitt_reihe(self, rd: Path) -> list[tuple[int, Path]]:
+        """Alle Mitschnitte EINES Laufs in Lauf-Reihenfolge (R13bv).
+
+        `stream.jsonl` ist Nummer 0 (der erste Teil), danach `stream-forts1.jsonl`,
+        `stream-forts2.jsonl`, … **numerisch** sortiert - `forts10` kommt nach `forts9`,
+        nicht alphabetisch nach `forts1`. Gepackte Varianten (`….jsonl.zip`, R13p) werden
+        mitgenommen, wenn die entpackte Datei fehlt.
+        """
+        reihe: list[tuple[int, Path]] = []
+        haupt = rd / "stream.jsonl"
+        if haupt.is_file() or Path(str(haupt) + ".zip").is_file():
+            reihe.append((0, haupt))
+        for p in list(rd.glob("stream-forts*.jsonl")) + list(rd.glob("stream-forts*.jsonl.zip")):
+            m = FORTS_MUSTER.match(p.name[:-4] if p.name.endswith(".zip") else p.name)
+            if not m:
+                continue
+            ziel = rd / p.name[:-4] if p.name.endswith(".zip") else p
+            if p.name.endswith(".zip") and ziel.is_file():
+                continue                      # entpackte Fassung hat Vorrang
+            reihe.append((int(m.group(1)), ziel))
+        return sorted(reihe, key=lambda e: (e[0], str(e[1])))
+
+    def _tail_reihe(self, rd: Path, who: str, zaehler: str,
+                    trenner: str = FORTS_TRENNER) -> bool:
+        """Die ganze Mitschnitt-Reihe eines Laufs anzeigen (R13bv).
+
+        Rueckgabe: `True`, wenn mindestens eine NEUE Zeile angezeigt wurde. Je Datei
+        fuehrt watch einen eigenen Zeilenzaehler (`self.<zaehler>`); dadurch erscheint
+        keine Zeile doppelt, und eine Datei, die erst spaeter auftaucht, wird ab ihrem
+        Anfang gelesen - ohne Neustart des Zuschauers. Beim Wechsel auf eine Fortsetzung
+        kommt EINMAL eine Trennzeile.
+        """
+        stand = getattr(self, zaehler, None)
+        if not isinstance(stand, dict):
+            stand = {}
+            setattr(self, zaehler, stand)
+        neu = False
+        for nummer, pfad in self._mitschnitt_reihe(rd):
+            alle = retention.mitschnitt_zeilen(pfad)
+            if alle is None:
+                continue
+            eintrag = stand.setdefault(pfad.name, {"zeilen": 0, "trenner": False})
+            if len(alle) < int(eintrag.get("zeilen") or 0):
+                # Die Datei ist KLEINER geworden: derselbe Ordner wurde fuer einen neuen
+                # Lauf derselben Nummer wiederverwendet (die Vorgaengerbelege wandern nach
+                # `lauf<k>/`). Von vorn lesen, sonst fehlt der Anfang des neuen Laufs.
+                eintrag["zeilen"] = 0
+            start = int(eintrag["zeilen"])
+            if len(alle) <= start:
+                continue
+            if nummer and not eintrag.get("trenner"):
+                eintrag["trenner"] = True
+                self._p("")
+                self._p(trenner.format(n=nummer), "bold")
+            for line in alle[start:]:
+                self._render_line(line, who=who)
+            eintrag["zeilen"] = len(alle)
+            neu = True
+        return neu
+
+    def _neueste_mitschnitt_datei(self, rd: Path) -> str:
+        """Name der neuesten vorhandenen Mitschnittdatei (`stream.jsonl` zuletzt vor forts)."""
+        reihe = self._mitschnitt_reihe(rd)
+        return reihe[-1][1].name if reihe else ""
+
+    def _herzschlag(self, b: int, rd: Path) -> None:
+        """Statuszeile, wenn der Mitschnitt schweigt (R13bv).
+
+        Anlass (gemessen an B266): nach dem Ende des ersten Laufs kam ueber 40 min keine
+        Zeile mehr, obwohl der Worker in `stream-forts1.jsonl` weiterarbeitete - die
+        Anzeige sah aus wie gestorben. Gedrosselt auf EINE Zeile je `HERZSCHLAG_S`; die
+        regulaere Statuszeile bei Zahlenaenderung (`_print_stats`) bleibt unveraendert.
+        """
+        jetzt = time.time()
+        still = jetzt - (self._letzte_zeile or self.started)
+        if still < HERZSCHLAG_S or (jetzt - self._letzter_beat) < HERZSCHLAG_S:
+            return
+        self._letzter_beat = jetzt
+        name = self._neueste_mitschnitt_datei(rd)
+        self._p(f"[{time.strftime('%H:%M:%S')}] Batch {b} laufend, letzte Aktivität vor "
+                f"{still / 60:.1f} min" + (f" (Mitschnitt: {name})" if name else ""), "dim")
 
     def _render_thinking(self, text: str):
         """Denkblock abgesetzt/gedimmt; leere Bloecke (display: omitted) ueberspringen."""
@@ -501,6 +602,10 @@ class Watcher:
                             self.stats = streamjson.StreamStats()
                             self._stats_key = None
                             self.seen_worker = 0
+                            # R13bv: die Staende der Mitschnitt-Reihe gelten je Lauf-Ordner.
+                            self.seen_forts = {}
+                            self._letzte_zeile = time.time()
+                            self._letzter_beat = 0.0
                             # R13e: neuer Batch -> Batch-Ende wieder anzeigen. Vorher
                             # blieb `review_shown` gesetzt, deshalb erschien das Ende
                             # jedes weiteren Batches nie mehr im Fenster.
@@ -511,8 +616,15 @@ class Watcher:
                                     + (" (pausiert - laeuft zu Ende)" if stt.get("paused") else ""),
                                     "bold")
                             self._p(self._limits_text(), "dim")
-                        if self._tail(rd / "stream.jsonl", "WORKER", "seen_worker"):
+                        # R13bv: ALLE Mitschnitte dieses Laufs - `stream.jsonl` und die
+                        # Fortsetzungen `stream-forts<k>.jsonl` in numerischer Reihenfolge.
+                        if self._tail_reihe(rd, "WORKER", "seen_forts"):
+                            self._letzte_zeile = time.time()
                             self._print_stats()
+                        else:
+                            # Nichts Neues: nach HERZSCHLAG_S Stille einmal melden,
+                            # dass der Batch weiter laeuft (die Zahlen-Zeile bleibt).
+                            self._herzschlag(b, rd)
                     else:
                         last_worker_dir = None
                     if (rd / "result.json").is_file() and not self.review_shown:
