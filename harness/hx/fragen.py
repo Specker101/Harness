@@ -228,7 +228,10 @@ def _aussensicht_posten(cfg) -> list[dict]:
         out.append({"id": str(b.get("id")),
                     "art": f"Aussensicht ({b.get('gewicht')})",
                     "label": f"AUSSENSICHT (Gewicht {b.get('gewicht')})",
-                    "quelle": f"runs/meta-{int(b.get('batch') or 0):03d}.md",
+                    # R13br: der Bericht liegt seit R13br im Batchordner
+                    # (`runs/b<N>/meta.md`); der Helfer nennt den Ort, an dem er liegt,
+                    # und faellt fuer alte Aussensichten auf `runs/meta-<N>.md` zurueck.
+                    "quelle": aussensicht.anzeige_pfad(cfg, int(b.get("batch") or 0)),
                     "bremst": False,
                     "zur_kenntnis": False,
                     "frage": str(b.get("aussage") or ""), "rohtext": "",
@@ -270,7 +273,7 @@ def _verworfene_posten(cfg) -> list[dict]:
         out.append({"id": str(b.get("id")),
                     "art": f"Aussensicht (verworfen, Gewicht {b.get('gewicht')})",
                     "label": "AUSSENSICHT (verworfen - pruefen?)",
-                    "quelle": f"runs/meta-{letzte:03d}.md (Rohantwort dort)",
+                    "quelle": aussensicht.anzeige_pfad(cfg, letzte) + " (Rohantwort dort)",
                     "bremst": False,
                     "zur_kenntnis": False,
                     "frage": str(b.get("aussage") or ""), "rohtext": "",

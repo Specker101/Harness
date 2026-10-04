@@ -175,6 +175,31 @@ def cmd_meta(args) -> int:
     return 0
 
 
+def cmd_meta_ablage(args) -> int:
+    """Die losen Aussensicht-Belege in die Batch-Ordner kopieren (R13br).
+
+    Trockenlauf ist die Vorgabe: ohne `--ausfuehren` wird nur die Tafel
+    `Datei | Ziel | vorhanden | Aktion` gezeigt. Kopiert wird ausschliesslich; die
+    Originale in `runs/` bleiben liegen (sie sind Belege, Nutzerauftrag R13br).
+    """
+    from . import aussensicht
+    cfg = load_config(args.config)
+    nums: list[int] = []
+    for teil in str(getattr(args, "batches", "") or "").split(","):
+        teil = teil.strip()
+        if not teil:
+            continue
+        if "-" in teil:
+            a, b = teil.split("-", 1)
+            nums += list(range(int(a), int(b) + 1))
+        else:
+            nums.append(int(teil))
+    erg = aussensicht.ablage_wandeln(cfg, ausfuehren=bool(getattr(args, "ausfuehren", False)),
+                                     batches=nums or None)
+    _druck(aussensicht.ablage_tafel(erg))
+    return 0
+
+
 def cmd_thinking(args) -> int:
     """Denkbloecke des Workers auf der Konsole (R13r) - wie Telegram `/thinking [N] [voll]`.
 
@@ -1316,6 +1341,12 @@ def build_parser() -> argparse.ArgumentParser:
     mt = sub.add_parser("meta", help="Aussensicht (Meta-Review) starten bzw. vormerken")
     mt.add_argument("--grund", default="", help="Anlass im Bericht (Vorgabe: Befehl)")
     mt.add_argument("--mock", action="store_true", help="Attrappe ohne API-Kosten")
+    ma = sub.add_parser("meta-ablage",
+                        help="Aussensicht-Belege in die Batch-Ordner kopieren (Trockenlauf)")
+    ma.add_argument("--ausfuehren", action="store_true",
+                    help="wirklich kopieren (Vorgabe: nur zeigen); Originale bleiben liegen")
+    ma.add_argument("--batches", default="",
+                    help="nur diese Batches, z. B. 208-216,230 (Vorgabe: alle)")
     sub.add_parser("rotate", help="Reviewer-Session beim naechsten Review wechseln")
     sub.add_parser("profiles")
     sub.add_parser("probe-telegram")
@@ -1375,6 +1406,7 @@ def main(argv: list[str] | None = None) -> int:
         "thinking": cmd_thinking,
         "fragen": cmd_fragen,
         "meta": cmd_meta,
+        "meta-ablage": cmd_meta_ablage,
         "rotate": cmd_rotate,
         "probe-telegram": cmd_probe, "allowlist-add": cmd_allowlist, "demo": cmd_demo,
         "show-prompts": cmd_show_prompts,

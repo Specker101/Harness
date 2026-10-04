@@ -46,10 +46,12 @@ Belege/Regeln dieser Datei: `docs/_r13w_belege.md`, Doku `docs/bedienung.md`.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import random
 import re
+import shutil
 import sys
 import time
 import uuid
@@ -214,20 +216,154 @@ def grenzen(cfg) -> dict:
 
 
 # ------------------------------------------------------------------ Ablage
+# R13br (2026-10-04, Nutzerauftrag): Die Aussensicht legt ihre Dateien in den Ordner des
+# BEWERTETEN Batches (`runs/b<N>/meta.*`), nicht mehr lose nach `runs/` (`runs/meta-<N>.*`).
+# Damit liegen die Belege eines Batches beieinander (Auftrag, Antwort, Review, Aussensicht),
+# und `runs/` waechst nicht mit jeder Aussensicht weiter zu. Gelesen werden BEIDE Ablagen:
+# zuerst der neue Ort, als Rueckfall der alte - alte Aussensichten bleiben damit gueltig,
+# ohne dass ein Beleg angefasst werden muss.
+#
+#  art     neuer Name (runs/b<N>/)  alter Name (runs/)      Rolle
+#  md      meta.md                  meta-<N>.md             Bericht (Beleg)
+#  json    meta.json                meta-<N>.json           Maschinenfassung (Beleg)
+#  jsonl   meta.jsonl               meta-<N>.jsonl          Mitschnitt (Beleg)
+#  err     meta.err.txt             meta-<N>.err.txt        stderr des Laufs (Hilfsdatei)
+#  hooks   meta-hooks.json          meta-<N>-hooks.json     Hook-Einstellungen (Hilfsdatei)
+ABLAGE = {
+    "md": ("meta.md", "meta-{n:03d}.md"),
+    "json": ("meta.json", "meta-{n:03d}.json"),
+    "jsonl": ("meta.jsonl", "meta-{n:03d}.jsonl"),
+    "err": ("meta.err.txt", "meta-{n:03d}.err.txt"),
+    "hooks": ("meta-hooks.json", "meta-{n:03d}-hooks.json"),
+}
+# Nur die drei BELEGE werden gegen fremde Dateien im Batchordner verteidigt
+# (`ablage_konflikt`). `err` und `hooks` gehoeren DIESEM Harness und werden je Lauf neu
+# geschrieben; ein Wiederholungslauf derselben Batch-Nummer darf an ihnen nicht scheitern.
+BELEGE = ("md", "json", "jsonl")
+
+
+class AblageKonflikt(RuntimeError):
+    """Am Zielort der Aussensicht liegt eine Datei, die nicht von ihr stammt."""
+
+
+def batch_ordner(cfg, batch: int, anlegen: bool = False) -> Path:
+    """`runs/b<N>` - mit `anlegen=True` auch dann, wenn der Ordner noch fehlt.
+
+    Im Normalfall legt ihn der Worker an (`worker.run_dir`, beim Laufstart). Fehlen kann er
+    bei `/meta` in Pause/Gate/Leerlauf oder bei einer Nummer, fuer die nie ein Worker lief -
+    deshalb legt die Aussensicht ihn selbst an, bevor sie schreibt.
+    """
+    p = Path(cfg.root) / "runs" / f"b{int(batch):03d}"
+    return ensure_dir(p) if anlegen else p
+
+
+def pfad_neu(cfg, batch: int, art: str) -> Path:
+    """Der neue Ort `runs/b<N>/meta.md|json|jsonl|err.txt|hooks.json`."""
+    return batch_ordner(cfg, batch) / ABLAGE[art][0]
+
+
+def pfad_alt(cfg, batch: int, art: str) -> Path:
+    """Der alte, lose Ort `runs/meta-<N>.*` (wird nur noch gelesen)."""
+    return Path(cfg.root) / "runs" / ABLAGE[art][1].format(n=int(batch))
+
+
+def pfad(cfg, batch: int, art: str) -> Path:
+    """Wo die Datei LIEGT: neuer Ort, sonst alter Ort, sonst der neue Ort (als Ziel)."""
+    neu = pfad_neu(cfg, batch, art)
+    if neu.exists():
+        return neu
+    alt = pfad_alt(cfg, batch, art)
+    return alt if alt.exists() else neu
+
+
 def bericht_pfad(cfg, batch: int) -> Path:
-    return Path(cfg.root) / "runs" / f"meta-{int(batch):03d}.md"
+    """Ziel des Berichts - und damit der neue Ort (`runs/b<N>/meta.md`)."""
+    return pfad_neu(cfg, batch, "md")
 
 
 def json_pfad(cfg, batch: int) -> Path:
-    return Path(cfg.root) / "runs" / f"meta-{int(batch):03d}.json"
+    return pfad_neu(cfg, batch, "json")
 
 
 def stream_pfad(cfg, batch: int) -> Path:
-    return Path(cfg.root) / "runs" / f"meta-{int(batch):03d}.jsonl"
+    return pfad_neu(cfg, batch, "jsonl")
+
+
+def err_pfad(cfg, batch: int) -> Path:
+    return pfad_neu(cfg, batch, "err")
+
+
+def hooks_pfad(cfg, batch: int) -> Path:
+    return pfad_neu(cfg, batch, "hooks")
+
+
+def anzeige_pfad(cfg, batch: int, art: str = "md") -> str:
+    """Der Ablageort als Text fuer Anzeigen (`/fragen`): dort, wo die Datei liegt."""
+    p = pfad(cfg, batch, art)
+    try:
+        return p.relative_to(Path(cfg.root)).as_posix()
+    except ValueError:                                    # root ist nicht Elternordner
+        return p.as_posix()
 
 
 def ledger_pfad(cfg) -> Path:
     return Path(cfg.sub("state")) / "meta_befunde.json"
+
+
+# ------------------------------------------------- Ablage-Waechter (R13br)
+def _kopf_md(batch: int) -> str:
+    return f"# Aussensicht Batch {int(batch)}"
+
+
+def _ist_unsere_ablage(pfad: Path, batch: int, art: str) -> bool:
+    """Stammt die vorhandene Datei aus DIESER Aussensicht?
+
+    Nur dann darf sie ueberschrieben werden - ein Wiederholungslauf derselben Batch-Nummer
+    (Session-Limit, zweites `/meta`) muss moeglich bleiben. Alles andere gilt als fremd.
+    """
+    if not Path(pfad).is_file():
+        return True                                     # nichts da, kein Konflikt
+    if art == "md":
+        return read_text(pfad).lstrip().startswith(_kopf_md(batch))
+    if art == "json":
+        d = read_json(pfad)
+        return (isinstance(d, dict) and int(d.get("batch") or 0) == int(batch)
+                and "rc" in d)
+    if art == "jsonl":
+        for linie in read_text(pfad).splitlines():      # erste Zeile = unser Ereignis
+            if not linie.strip():
+                continue
+            try:
+                d = json.loads(linie)
+            except ValueError:
+                return False
+            return isinstance(d, dict) and "type" in d
+        return True                                     # leere Datei: abgebrochener Lauf
+    return True                                         # err/hooks: Hilfsdateien des Harness
+
+
+def ablage_konflikt(cfg, batch: int) -> list[str]:
+    """Fremde Dateien am neuen Ablageort (`[]` = frei). Nur pruefen, nichts aendern."""
+    out: list[str] = []
+    for art in BELEGE:
+        p = pfad_neu(cfg, batch, art)
+        if p.exists() and not _ist_unsere_ablage(p, batch, art):
+            out.append(str(p))
+    return out
+
+
+def ablage_pruefen(cfg, batch: int) -> None:
+    """Vor dem (bezahlten) Lauf pruefen - `AblageKonflikt` mit klarer Meldung, sonst still."""
+    konflikt = ablage_konflikt(cfg, batch)
+    if not konflikt:
+        return
+    raise AblageKonflikt(
+        f"Ablage-Kollision: in {batch_ordner(cfg, batch)} liegt schon "
+        + ", ".join(Path(p).name for p in konflikt)
+        + ", und die Datei stammt nicht von der Aussensicht zu Batch "
+        + f"{int(batch)}. Der Lauf wurde NICHT gestartet und es wurde nichts "
+        "geschrieben. Die Datei wegschieben und die Aussensicht erneut ausloesen "
+        "(z.B. `/meta`).")
 
 
 def ledger(cfg) -> list[dict]:
@@ -457,22 +593,39 @@ def tiefenprobe_merken(cfg, wahl: dict) -> dict:
     return stand_daten
 
 
+def bericht_dateien(cfg) -> dict[int, Path]:
+    """Die Maschinenfassungen je Batch (`{batch: pfad}`) - neuer Ort vor altem Ort.
+
+    R13br: gelesen werden BEIDE Ablagen. Liegt derselbe Batch an beiden Orten (nach dem
+    Wandeln), gilt der NEUE (`runs/b<N>/meta.json`); der alte Beleg bleibt unberuehrt
+    liegen und zaehlt nicht doppelt. Die Nummer kommt aus dem Dateinamen (alt) bzw. dem
+    Ordnernamen (neu) - der Dateiinhalt (`batch`) entscheidet erst in `bericht_zustand`.
+    """
+    out: dict[int, Path] = {}
+    runs = Path(cfg.root) / "runs"
+    if not runs.is_dir():
+        return out
+    for p in runs.glob("meta-*.json"):                  # alt zuerst - neu ueberschreibt
+        m = re.fullmatch(r"meta-(\d+)\.json", p.name)
+        if m:
+            out[int(m.group(1))] = p
+    for p in runs.glob("b*/meta.json"):                 # neuer Ort hat Vorrang
+        m = re.fullmatch(r"b(\d+)", p.parent.name)
+        if m:
+            out[int(m.group(1))] = p
+    return out
+
+
 def letzte_bericht_batches(cfg) -> list[int]:
-    """Die Batches, fuer die ein Aussensicht-Bericht vorliegt (`runs/meta-<N>.json`).
+    """Die Batches, fuer die ein Aussensicht-Bericht vorliegt (BEIDE Ablagen, R13br).
 
     R13aa (Punkt 2): damit laesst sich sagen, welcher Lauf der NEUESTE war - `/fragen`
     zeigt die verworfenen Befunde nur, wenn dieser Lauf welche verworfen hat.
     """
     try:
-        dateien = list((Path(cfg.root) / "runs").glob("meta-*.json"))
+        return sorted(bericht_dateien(cfg))
     except OSError:
         return []
-    out: list[int] = []
-    for p in dateien:
-        m = re.fullmatch(r"meta-(\d+)\.json", p.name)
-        if m:
-            out.append(int(m.group(1)))
-    return sorted(out)
 
 
 def quote(cfg) -> dict:
@@ -490,10 +643,12 @@ def quote(cfg) -> dict:
 
 
 def bericht_zustand(cfg) -> dict:
-    """Die Berichte `runs/meta-*.json` auswerten (R13aq).
+    """Die Berichte `runs/b<N>/meta.json` / `runs/meta-*.json` auswerten (R13aq/R13br).
 
     Rueckgabe: `{letzte_gelungen, befunde, neuester_gescheitert, gescheitert_grund,
     anzahl_berichte}`.
+
+    Gelesen wird ueber `bericht_dateien` BEIDE Ablagen (neuer Ort vor altem).
 
     Gelaufen wird von **neu nach alt**: ein gescheiterter Bericht (`gelaufen: false` oder
     `rc != 0`) wird gemerkt, der ERSTE gelungene beendet die Suche - er hat die
@@ -510,8 +665,9 @@ def bericht_zustand(cfg) -> dict:
     if not runs.is_dir():
         return aus
     try:
-        berichte = sorted(runs.glob("meta-*.json"), key=lambda p: p.stat().st_mtime,
-                          reverse=True)
+        # R13br: beide Ablagen, je Batch hoechstens einmal (neuer Ort gewinnt).
+        berichte = sorted(bericht_dateien(cfg).values(),
+                          key=lambda p: p.stat().st_mtime, reverse=True)
     except OSError:
         return aus
     aus["anzahl_berichte"] = len(berichte)
@@ -1330,7 +1486,9 @@ def write_hook_settings(cfg, batch: int) -> str | None:
         "command": sys.executable,
         "args": [str(skript), "--limit", str(grenze), "--frist", str(FRIST_ABSTAND)],
     }]}]}}
-    ziel = Path(cfg.root) / "runs" / f"meta-{int(batch):03d}-hooks.json"
+    # R13br: Hilfsdatei DIESES Laufs - sie wird je Lauf neu geschrieben (auch bei einem
+    # Wiederholungslauf derselben Nummer) und deshalb NICHT vom Ablage-Waechter geprueft.
+    ziel = hooks_pfad(cfg, batch)
     write_text_atomic(ziel, json.dumps(daten, indent=1) + "\n")
     return str(ziel)
 
@@ -1697,12 +1855,18 @@ def run(cfg, log, state, grund: str, mock: bool = False,
     Batch steht damit im Prompt und im Bericht. Gemerkt wird die Ziehung erst, wenn der
     Lauf etwas geliefert hat (ein abgebrochener Lauf verbrennt keinen Batch).
     `zufall` dient den Tests (reproduzierbare Ziehung).
+
+    R13br: die Ablage liegt im Ordner des bewerteten Batches (`runs/b<N>/meta.*`). VOR dem
+    Lauf prueft `ablage_pruefen` den Zielort - liegt dort eine fremde Datei, wird
+    `AblageKonflikt` geworfen und KEIN bezahlter Lauf gestartet.
     """
     res = Ergebnis()
     batch = int(state.batch or 0)
+    ablage_pruefen(cfg, batch)                       # R13br: erst pruefen, dann laufen
     res.tiefe = tiefenprobe_waehlen(cfg, zufall=zufall)
     prompt = build_prompt(cfg, state, grund, tiefe=res.tiefe)
-    ziel = ensure_dir(Path(cfg.root) / "runs") / f"meta-{batch:03d}.jsonl"
+    ziel = stream_pfad(cfg, batch)
+    batch_ordner(cfg, batch, anlegen=True)           # fehlt er, legt die Aussensicht ihn an
     res.stream_path = str(ziel)
     if mock:
         roh = MOCK_ANTWORT
@@ -1718,7 +1882,7 @@ def run(cfg, log, state, grund: str, mock: bool = False,
         run = run_stream(cmd, env, cwd=str(cfg.decomp), out_path=ziel,
                          on_event=None, hard_wall_s=float(grenzen(cfg)["wall_s"]),
                          log=log, stdin_text=prompt,
-                         stderr_path=Path(cfg.root) / "runs" / f"meta-{batch:03d}.err.txt")
+                         stderr_path=err_pfad(cfg, batch))
         res.rc, res.dauer_s = run.rc, run.duration_s
         stats = streamjson.StreamStats()
         for linie in read_text(ziel).splitlines():
@@ -1728,8 +1892,7 @@ def run(cfg, log, state, grund: str, mock: bool = False,
         # R13bm (Punkt 4): ins Session-Limit gelaufen? Geprueft wird wie beim Reviewer
         # (`reviewer.run_review`) der ROHE Mitschnitt samt Fehlerdatei - im Text steht
         # die Meldung oft nur unvollstaendig.
-        roh = read_text(ziel) + "\n" + read_text(Path(cfg.root) / "runs"
-                                                 / f"meta-{batch:03d}.err.txt")
+        roh = read_text(ziel) + "\n" + read_text(err_pfad(cfg, batch))
         res.limit_reached = bool(protocol.looks_like_limit(roh)
                                  or protocol.looks_like_limit(res.text or ""))
         # R13aq: Abbruchgrund und Zugarzahl aus dem `result`-Ereignis (gemessen
@@ -1921,6 +2084,9 @@ def bericht(cfg, batch: int, grund: str, res: Ergebnis, verteilung: dict,
 
 def bericht_schreiben(cfg, batch: int, grund: str, res: Ergebnis, verteilung: dict,
                       gruende: list[str]) -> Path:
+    # R13br: zweites Netz - auch hier gilt, dass eine FREMDE Datei im Batchordner nicht
+    # ueberschrieben wird (der erste Waechter steht in `run`, vor dem bezahlten Lauf).
+    ablage_pruefen(cfg, int(batch))
     p = bericht_pfad(cfg, batch)
     write_text_atomic(p, bericht(cfg, batch, grund, res, verteilung, gruende))
     # R13aa (Punkt 2): verworfene Befunde ins Register - nicht wegwerfen (siehe
@@ -1941,3 +2107,112 @@ def bericht_schreiben(cfg, batch: int, grund: str, res: Ergebnis, verteilung: di
         "text": res.text,
     })
     return p
+
+
+# ------------------------------------------------- Ablage wandeln (R13br)
+def _rel(cfg, p: Path) -> str:
+    """Pfad relativ zur Harness-Wurzel, mit Schraegstrichen."""
+    try:
+        return p.relative_to(Path(cfg.root)).as_posix()
+    except ValueError:
+        return p.as_posix()
+
+
+def _alt_art_und_batch(name: str) -> tuple[str | None, int | None]:
+    """Einen ALTEN Dateinamen (`meta-<N>.md` …) auf `(art, batch)` abbilden."""
+    for art, (_neu, alt) in ABLAGE.items():
+        kopf, ende = alt.split("{n:03d}")
+        if not name.startswith(kopf) or not name.endswith(ende):
+            continue
+        mitte = name[len(kopf):len(name) - len(ende)] if ende else name[len(kopf):]
+        if not mitte:
+            continue
+        try:
+            return art, int(mitte)
+        except ValueError:
+            continue
+    return None, None
+
+
+def _sha256(p: Path) -> str:
+    h = hashlib.sha256()
+    with open(p, "rb") as fh:
+        for block in iter(lambda: fh.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def ablage_wandeln(cfg, ausfuehren: bool = False,
+                   batches: list[int] | None = None) -> dict:
+    """Die losen Belege `runs/meta-<N>.*` in die Batch-Ordner KOPIEREN (R13br).
+
+    Trockenlauf ist die Vorgabe (`ausfuehren=False`) - es wird nur berichtet, nichts
+    geaendert. Die Originale werden NIE geloescht oder verschoben: die Belege bleiben, wo
+    sie sind (Nutzerauftrag R13br), der Wandler ist damit umkehrbar.
+
+    Ein vorhandenes Ziel wird NICHT ueberschrieben: gleicher Inhalt (SHA-256) -> "schon da",
+    anderer Inhalt -> "Ziel belegt" (gemeldet, nichts geschrieben).
+
+    Rueckgabe: `{"zeilen": [...], "quellen": n, "kopiert": n, "gleich": n, "belegt": n,
+    "ausgefuehrt": bool}`; je Zeile `{datei, ziel, vorhanden, aktion, batch, art}`.
+    """
+    runs = Path(cfg.root) / "runs"
+    gewaehlt = {int(b) for b in batches} if batches else None
+    zeilen: list[dict] = []
+    kopiert = gleich = belegt = 0
+    quellen = 0
+    if runs.is_dir():
+        for p in sorted(runs.iterdir()):
+            if not p.is_file():
+                continue
+            art, nummer = _alt_art_und_batch(p.name)
+            if art is None or (gewaehlt is not None and nummer not in gewaehlt):
+                continue
+            quellen += 1
+            ziel = pfad_neu(cfg, nummer, art)
+            if not ziel.exists():
+                vorhanden, aktion = "nein", "kopieren"
+            elif _sha256(p) == _sha256(ziel):
+                vorhanden, aktion = "ja (gleich)", "schon da"
+            else:
+                vorhanden, aktion = "ja (verschieden)", "Ziel belegt"
+            if aktion == "kopieren" and ausfuehren:
+                ensure_dir(ziel.parent)
+                shutil.copy2(p, ziel)
+                aktion = "kopiert"
+            if aktion == "kopiert":
+                kopiert += 1
+            elif aktion == "schon da":
+                gleich += 1
+            elif aktion == "Ziel belegt":
+                belegt += 1
+            zeilen.append({"datei": f"runs/{p.name}", "ziel": _rel(cfg, ziel),
+                           "vorhanden": vorhanden, "aktion": aktion,
+                           "batch": int(nummer), "art": art})
+    reihenfolge = list(ABLAGE)
+    zeilen.sort(key=lambda z: (z["batch"], reihenfolge.index(z["art"])))
+    return {"zeilen": zeilen, "quellen": quellen, "kopiert": kopiert, "gleich": gleich,
+            "belegt": belegt, "ausgefuehrt": bool(ausfuehren)}
+
+
+def ablage_tafel(erg: dict) -> str:
+    """Die Tafel `Datei | Ziel | vorhanden | Aktion` samt Bilanzzeile."""
+    kopf = ("Datei", "Ziel", "vorhanden", "Aktion")
+    rows = [kopf] + [(z["datei"], z["ziel"], z["vorhanden"], z["aktion"])
+                     for z in erg.get("zeilen") or []]
+    breiten = [max(len(str(r[i])) for r in rows) for i in range(4)]
+    linien = ["  ".join(str(r[i]).ljust(breiten[i]) for i in range(4)).rstrip()
+              for r in rows]
+    trenner = "  ".join("-" * b for b in breiten)
+    kopfzeile = ("Aussensicht-Belege: " + ("KOPIERT" if erg.get("ausgefuehrt")
+                                           else "Trockenlauf (nichts geaendert) - "
+                                                "--ausfuehren kopiert"))
+    out = [kopfzeile, "", linien[0], trenner, *linien[1:], "",
+           (f"Quellen: {erg.get('quellen', 0)} - kopiert: {erg.get('kopiert', 0)}, "
+            f"schon da: {erg.get('gleich', 0)}, Ziel belegt: {erg.get('belegt', 0)}")]
+    if erg.get("belegt"):
+        out.append("Ziel belegt heisst: im Batch-Ordner liegt eine ANDERE Datei - sie "
+                   "wurde nicht angefasst, von Hand pruefen (der Waechter der "
+                   "Aussensicht bricht dort ebenfalls ab).")
+    out.append("Die Originale in runs/ bleiben unangetastet (der Wandler kopiert nur).")
+    return "\n".join(out)

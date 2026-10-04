@@ -265,7 +265,8 @@ class TestOrchestratorWeg(Basis):
         self.assertTrue(any(z.get("msg") == "Aussensicht zaehlt nicht als gelaufen"
                             for z in self.log_zeilen()))
         # Der Bericht bleibt als Beleg da - und ist maschinenlesbar als gescheitert markiert.
-        daten = json.loads(read_text(self.root / "runs" / "meta-217.json"))
+        # R13br: er liegt im Ordner des bewerteten Batches (`runs/b217/meta.json`).
+        daten = json.loads(read_text(aussensicht.json_pfad(self.cfg, 217)))
         self.assertFalse(daten.get("gelaufen"))
         self.assertEqual(daten.get("subtype"), "error_max_turns")
         self.assertEqual(daten.get("zuege"), 31)

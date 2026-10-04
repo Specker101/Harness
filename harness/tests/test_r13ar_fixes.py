@@ -230,7 +230,9 @@ class TestEinstellungen(unittest.TestCase):
         self.assertEqual(args[args.index("--limit") + 1], "44")
         # R13at: die Frist kommt ebenfalls aus dem Harness (EINE Quelle).
         self.assertEqual(args[args.index("--frist") + 1], str(aussensicht.FRIST_ABSTAND))
-        self.assertTrue(str(pfad).endswith("meta-217-hooks.json"))
+        # R13br: die Einstellungsdatei liegt im Ordner des bewerteten Batches.
+        self.assertTrue(str(pfad).endswith("meta-hooks.json"))
+        self.assertEqual(Path(pfad).parent.name, "b217")
 
     def test_kommando_haengt_die_einstellungen_an(self):
         pfad = aussensicht.write_hook_settings(self.cfg, 217)
@@ -303,7 +305,8 @@ class TestBerichtUndOrchestrator(unittest.TestCase):
     def test_json_traegt_die_runden(self):
         aussensicht.bericht_schreiben(self.cfg, 217, "Test", self._res(26), {},
                                       ["Test"])
-        daten = json.loads(read_text(self.root / "runs" / "meta-217.json"))
+        # R13br: die Maschinenfassung liegt im Batchordner (`runs/b217/meta.json`).
+        daten = json.loads(read_text(aussensicht.json_pfad(self.cfg, 217)))
         self.assertEqual(daten.get("zug_runden"), 26)
         self.assertEqual(daten.get("zuege"), 27)
 
