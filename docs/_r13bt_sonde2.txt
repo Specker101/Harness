@@ -2,10 +2,10 @@ root: g:\Harness\harness
 zaehler: {'zaehler': 0, 'von': 0, 'bis': 0, 'luecke_ab': 264, 'grenze_ab': None, 'station_bei': None, 'schwelle_erreicht': False, 'offen': [265]}
 reihe: []
 --- b_phase_zeile ---
-  B-Phase      : Stillstandszähler nicht belegt (kein B-Batch der letzten Batches mit `STATION: ja|nein`)
+  B-Phase      : Stillstandszähler nicht belegt (kein B-Batch der letzten Batches mit STATION: ja|nein)
                  B265 ist noch nicht bewertet (Review fehlt) - der Zaehler gilt bis dahin
                  ab B264 ohne STATION:-Vermerk - der Zaehler ist eine UNTERGRENZE (Regel: hybrid-plan.md:257-274, Pflichtzeile seit R13bt)
 --- Mischung (Fenster) ---
-  Mischung     : 0 C von 2 Batches im Fenster = 0 %   (Fenster B260..B262)
-                 gemessen an der Preflight-Reihe (13 Batches mit belegtem Strang): C-Anteil 31 %
-                 Strang B laeuft seit B255 ohne C-Batch (9 Batches mit belegtem Strang, letzter C-Batch B254) - die C-Hochrechnung ruht (kein Anteil aus der Plan-Regel)
+  Mischung     : 0 C von 3 Batches im Fenster = 0 %   (Fenster B260..B265)
+                 gemessen an der Preflight-Reihe (13 Batches mit belegtem Strang): C-Anteil 23 %
+                 Strang B laeuft seit B255 ohne C-Batch (10 Batches mit belegtem Strang, letzter C-Batch B254) - die C-Hochrechnung ruht (kein Anteil aus der Plan-Regel)

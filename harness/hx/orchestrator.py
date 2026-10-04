@@ -939,6 +939,12 @@ class Orchestrator:
             if aussensicht.hybrid_beteiligt(gruende):
                 hy_bis = aussensicht.hybrid_marke_setzen(self.cfg, self.state)
                 self.log.info("Hybrid-Lauf-Marke gesetzt", bis=hy_bis)
+            # R13bt-5 (04.10.2026, Nutzerentscheid): der Stillstand der B-Phase (Schwelle 4
+            # B-Batches in Folge ohne Station) loest eine Aussensicht aus - die Marke steht
+            # auf dem ERSTEN Batch des Laufs und springt erst nach einer Station wieder.
+            if aussensicht.station_beteiligt(gruende):
+                st_bis = aussensicht.station_marke_setzen(self.cfg, self.state)
+                self.log.info("B-Phasen-Marke gesetzt", bis=st_bis)
             # R13bn (M241-4/M242-5/M243-2): auch die Marker-Ausloeser (MEILENSTEIN /
             # ABBRUCHKRITERIUM) werden verbucht - eine Marke loest je Review-Datei genau
             # einmal aus. Vorher fehlte die Sperre und dieselbe Marke startete vier

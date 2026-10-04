@@ -2307,17 +2307,33 @@ Zusammenfassung (`harness/prompts/reviewer.md`). Fehlt sie, endet der Lauf dort,
 Zeile nennt sich selbst eine **Untergrenze**:
 
 ```text
-  B-Phase      : Stillstandszähler nicht belegt (kein B-Batch der letzten Batches mit `STATION: ja|nein`)
+  B-Phase      : Stillstandszähler nicht belegt (kein B-Batch der letzten Batches mit STATION: ja|nein)
                  B265 ist noch nicht bewertet (Review fehlt) - der Zaehler gilt bis dahin
                  ab B264 ohne STATION:-Vermerk - der Zaehler ist eine UNTERGRENZE
                  (Regel: hybrid-plan.md:257-274, Pflichtzeile seit R13bt)
 ```
 
+(Der Wortlaut der Zeile trägt **keine** Backticks — Telegram würde den Codeblock sonst
+zerreißen; `harness/tests/test_r13q_fixes.py` wacht darüber. Der erste volle Testlauf nach
+R13bt-5 war genau daran rot, s. `docs/_r13bt5_volle_reihe_fehllauf1.txt`.)
+
 Der **neueste**, noch unbewertete Batch sperrt die Zeile also nicht. Erreicht der
-Zähler die Schwelle, sagt die Zeile `SCHWELLE 4 ERREICHT - OFFENE FRAGE an den Nutzer`.
+Zähler die Schwelle, sagt die Zeile `SCHWELLE 4 ERREICHT - loest eine Aussensicht aus;
+OFFENE FRAGE an den Nutzer` — und der Harness löst die Aussensicht zusätzlich selbst aus
+(**Nutzerentscheid 2026-10-04**, wie die Markerzeilen `MEILENSTEIN ERREICHT:`):
+Melder `aussensicht.station_stillstand`, Marke `station_gemeldet_bis`. Die Marke steht auf
+dem **ersten** Batch des gezählten Laufs (`von`), nicht auf dem neuesten — der Zähler
+wächst ja weiter (4, 5, 6 …), und eine Marke auf dem neuesten Batch würde denselben
+Stillstand bei **jedem** Batch erneut melden (ein Abo-Lauf je Batch). Nach einer Station
+springt `von`, die Schwelle ist wieder scharf. **C-Batches setzen den Zähler nicht
+zurück** (Nutzerentscheid 3). Ist der Stand hinten nicht belegt (Lücke), meldet der
+Auslöser trotzdem — die gezählten Batches sind ja belegt — und nennt die Untergrenze im
+Text.
 
 Belege: `docs/_r13bt_sonde.py` (Befund 1, vorher/nachher), `docs/_r13bt_sonde2.py`
-(Echt-Daten-Lage oben), Tests `harness/tests/test_r13bt_fixes.py` (11).
+(Echt-Daten-Lage oben), `docs/_r13bt5_sonde.py` (der Auslöser: schweigt am echten Stand,
+feuert genau einmal am erreichten Schwellenstand), Tests
+`harness/tests/test_r13bt_fixes.py` (21).
 
 ### 20c. Pfade mit Umlauten: geteiltes Lesen wich aus (R13bt-3)
 

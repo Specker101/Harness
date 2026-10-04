@@ -2612,6 +2612,8 @@ def ist_b_batch(cfg, batch: int) -> bool:
 # Vorgabe und Preflight); der Harness RATET sie nicht, sondern liest sie aus der
 # Pflichtzeile `STATION: ja|nein` - genau wie `STRANG: B|C`.
 STATION_SCHWELLE = 4
+# OHNE Backticks: die Zeile steht in der BILANZ, und Telegram rendert ein Backtick als
+# ENDE des Code-Blocks (`test_r13q_fixes` wacht darueber).
 STATION_ZEILE = "STATION: ja|nein"
 STATION_QUELLE = ("Pflichtzeile STATION im Review, das den Batch bewertet (R13w)")
 _RE_STATION = re.compile(r"^\s*STATION:\s*(ja|nein)\b", re.M | re.I)
@@ -2720,15 +2722,15 @@ def b_phase_zeile(cfg, z: dict | None = None) -> list[str]:
     if z["zaehler"]:
         zeile = (f"  B-Phase      : {z['zaehler']} B-Batches in Folge ohne Station "
                  f"(B{z['von']}..B{z['bis']})"
-                 + ("; SCHWELLE {s} ERREICHT - OFFENE FRAGE an den Nutzer"
-                    .format(s=z["schwelle"]) if z["schwelle_erreicht"] else
-                    f"; Schwelle {z['schwelle']}"))
+                 + ("; SCHWELLE {s} ERREICHT - loest eine Aussensicht aus; OFFENE FRAGE "
+                    "an den Nutzer".format(s=z["schwelle"])
+                    if z["schwelle_erreicht"] else f"; Schwelle {z['schwelle']}"))
     elif z["station_bei"]:
         zeile = (f"  B-Phase      : Station in B{z['station_bei']} - Zaehler neu "
                  f"(0 B-Batches ohne Station seitdem)")
     else:
         zeile = ("  B-Phase      : Stillstandszähler nicht belegt (kein B-Batch der "
-                 "letzten Batches mit `" + STATION_ZEILE + "`)")
+                 "letzten Batches mit " + STATION_ZEILE + ")")
     zeilen = [zeile]
     if z.get("offen"):
         zeilen.append(f"                 B{z['offen'][0]} ist noch nicht bewertet "
@@ -2870,6 +2872,10 @@ def durchsatz_zeilen(cfg, n: int = STANDARD_FENSTER) -> list[str]:
     Aussensicht zu B210 als "mischt zwei Zaehler" beanstandet.
     """
     d = durchsatz(cfg, n)
+    # R13bt-5: Die B-Phase haengt NICHT an den Bilanzdateien (ihre Quelle ist das Review) -
+    # sie steht auch dann, wenn der Durchsatz-Block nicht rechenbar ist, und wird deshalb
+    # hier EINMAL gebaut und in BEIDEN Ausgaengen angehaengt.
+    b_phase = b_phase_zeile(cfg)
     # R13ba (M221-5): EINE Rate je C-Batch fuer alle Hochrechnungen - der MEDIAN der
     # Kopf-Batches, nicht das Mittel ueber alle C-Batches. Die beiden Grundmengen stehen
     # als eigene Zeile darunter (`rate_text`), damit die Zahl nachpruefbar bleibt.
@@ -2879,7 +2885,8 @@ def durchsatz_zeilen(cfg, n: int = STANDARD_FENSTER) -> list[str]:
     d["rate_c_quelle"] = raten["quelle"]
     ver = d.get("c_verifiziert") or {}
     if not d["fenster"]:
-        return ["  Durchsatz    : nicht ermittelbar (keine Bilanzdatei gefunden)"]
+        return (["  Durchsatz    : nicht ermittelbar (keine Bilanzdatei gefunden)"]
+                + b_phase)
     letzter = d["letzter"]
     pe = d.get("paket_e") or {}
     reihe = ", ".join(f"{e['batch']}: {e['koepfe']:+d}" for e in d["fenster"])
@@ -2963,7 +2970,7 @@ def durchsatz_zeilen(cfg, n: int = STANDARD_FENSTER) -> list[str]:
                       f"+{d.get('mittel_c_koepfe_r207', 0.0):.1f} Koepfe je C-Batch "
                       f"(R207-Zaehler, {len(c_batches)} von {d['n']}: {namen})")
     zeilen += _mischung_zeile(cfg, d)
-    zeilen += b_phase_zeile(cfg)
+    zeilen += b_phase
     if raten.get("text"):
         zeilen.append(f"                 C-Rate je C-Batch: {raten['text']}")
     messung = d.get("paket_e_messung") or {}

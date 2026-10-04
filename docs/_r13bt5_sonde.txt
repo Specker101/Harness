@@ -1,0 +1,14 @@
+TEIL A - ECHTER Stand (root g:\Harness\harness):
+  Zaehler=0 von Schwelle 4, Luecke ab B264, offen=[265] - die echten Reviews tragen die Pflichtzeile noch nicht (Regel seit R13bt)
+  station_stillstand() -> ''   (nichts behauptet, kein Ausloeser)
+
+TEIL B - WEGWERF-REPO, echte Reviews B262..B264 (+B266 synthetisch), Pflichtzeile `STATION: nein` ergaenzt:
+  Zaehler=4 von 4 (B262..B266), schwelle_erreicht=True
+  station_stillstand():
+    Stillstand der B-Phase: 4 B-Batches in Folge ohne Station (B262..B266, Schwelle 4) - in der B-Phase ist die Station das Fortschrittsmass (analysis/hybrid-plan.md:257-274)
+  station_neuester_b() -> 262 (Markenschluessel = ERSTER Batch des Laufs)
+
+  faellig(B266) -> ["Stillstand der B-Phase: 4 B-Batches in Folge ohne Station (B262..B266, Schwelle 4) - in der B-Phase ist die Station das Fortschrittsmass (analysis/hybrid-plan.md:257-274)"]
+  Marke gesetzt auf B262; naechster Batch B267 (Zaehler steht auf 5) -> faellig(B267) -> []
+  ^ derselbe Stillstand meldet NICHT erneut (sonst ein Abo-Lauf je Batch);
+    nach einer Station springt `von` und die Schwelle ist wieder scharf.
