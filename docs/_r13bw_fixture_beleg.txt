@@ -1,0 +1,71 @@
+R13bw-4 Fixture-Probe 2026-10-05 02:17:42
+Fixture: G:\Harness\harness\tests\fixtures\stand_b268
+Zeilen: lebend 28, Fixture 28
+
+==============================================================================
+LEBEND (g:\Silent Scope Decomp)
+==============================================================================
+  Durchsatz    : C Koepfe (Preflight-Messung, analysis/_preflight_<N>.txt Zeile "C Koepfe")
+                 letzter gemessener Batch B268: 151 Koepfe (+0 seit B255)
+                 Trend B255 151 -> B268 151 = +0 Koepfe (13 Batches, Luecken: B256, 13 Dateien)
+                 Mittel: +0.0 Koepfe je Batch (B und C zusammen, ueber 13 Schritte)
+                 Quelle dieser Zeilen: analysis/_preflight_255.txt bis analysis/_preflight_268.txt (Zeile "C Koepfe", 13 Dateien)
+                 Trend C verifiziert (Bahnabdeckung, gleiche Dateien) B255 116 -> B268 116 = +0 Koepfe (13 Batches, Luecken: B256)
+                 Zaehler R207 (gebaut, ALLE Straenge - nicht mit den C Koepfen mischen) letzter Batch 268: 704 -> 704 (+0)
+                 Mittel der letzten 5 nach R207 (B+C gemischt): +0.0 Koepfe je Batch   (Fenster: 268: +0, 267: +0, 266: +0, 265: +0, 262: +0   - LUECKENHAFT: die kanonischen Bilanzdateien fehlen fuer B264)
+                 Insn: je Batch nicht durchgaengig belegt (die Bilanzdatei fuehrt nur Koepfe)
+  Mischung     : 0 C von 5 Batches im Fenster = 0 %   (Fenster B262..B268)
+                 gemessen an der Preflight-Reihe (13 Batches mit belegtem Strang): C-Anteil 0 %
+                 Strang B laeuft seit B1 ohne C-Batch (13 Batches mit belegtem Strang, letzter C-Batch B0) - die C-Hochrechnung ruht (kein Anteil aus der Plan-Regel)
+  B-Phase      : Station in B268 - Zaehler neu (0 B-Batches ohne Station seitdem)
+                 C-Rate je C-Batch: Median Zuwachs (Kopf-Batches): nicht gemessen | Mittel ueber alle C-Batches: nicht gemessen
+                 offen (Paket E, C-Arbeitsvorrat): 4 Koepfe / 59 Insn   [gemessen B242, 2026-10-02 10:19: _m242/_c_paket_e.txt]
+                 HYPOTHESIS: keine Hochrechnung moeglich
+                 HYPOTHESIS (C gesamt, GEMESSEN): offen 1403 Koepfe / 53535 Insn (Inventar minus gebaut, s. Klassen unten)
+  Port-Relevanz: ausgefuehrt 1086 | davon gebaut 416 | davon verifiziert 56 von 1086  (Fenster: Rumpf (Eintritt bis erstes blr, max 0x400 B); Messung 2026-09-28 02:58 durch tools/r13t_cov_relevanz.py)
+                 Paket-E-Wurzeln 66/86 ausgefuehrt, offene Blaetter 12/17
+  C-Arbeitsvorrat: 1403 Koepfe nicht gebaut (von 2072 im Inventar)
+                 (1) ausgefuehrt, noch nicht gebaut  :  677 Koepfe /  28976 Insn
+                 (2) nicht ausgefuehrt, Paket E   :    1 Koepfe /     38 Insn
+                 (3) nicht ausgefuehrt, sonstiger Rest:  725 Koepfe /  24521 Insn
+                 "nicht ausgefuehrt" = in den VORHANDENEN Aufnahmen nicht ausgefuehrt - NICHT "unnoetig" (die Aufnahmen decken nur Boot + einen Teil von Level 1 ab)
+                 (Paket-E-Huelle eigene Nachrechnung: 265 Koepfe, davon offen 28; Projektzahl `c_kopf.py paket_e`: 4 / 59 (gemessen B242))
+  Aufnahmen    : ppc_coverage.bin = Gameplay-Replay, ppc_cov_boot.bin = Boot+Attract (neueste Aufnahme 2026-09-17; deckt NICHT das ganze Spiel ab - Menuepfade/Service fehlen, s. analysis/bucket-d-2026-09-16.md:312)
+                 Quelle: analysis/f5-descr-batch42-2026-09-17.md:87-88; gemessen 2026-09-28 02:58
+                 Quelle: analysis/_m268/_bilanz.txt (Zeile "R207 rueckwaerts") + analysis/_m242/_c_paket_e.txt ("Paket E offen GESAMT", gemessen B242, 2026-10-02 10:19) + analysis/_preflight_268.txt ("C Koepfe", Preflight)
+
+==============================================================================
+FIXTURE
+==============================================================================
+  Durchsatz    : C Koepfe (Preflight-Messung, analysis/_preflight_<N>.txt Zeile "C Koepfe")
+                 letzter gemessener Batch B268: 151 Koepfe (+0 seit B255)
+                 Trend B255 151 -> B268 151 = +0 Koepfe (13 Batches, Luecken: B256, 13 Dateien)
+                 Mittel: +0.0 Koepfe je Batch (B und C zusammen, ueber 13 Schritte)
+                 Quelle dieser Zeilen: analysis/_preflight_255.txt bis analysis/_preflight_268.txt (Zeile "C Koepfe", 13 Dateien)
+                 Trend C verifiziert (Bahnabdeckung, gleiche Dateien) B255 116 -> B268 116 = +0 Koepfe (13 Batches, Luecken: B256)
+                 Zaehler R207 (gebaut, ALLE Straenge - nicht mit den C Koepfen mischen) letzter Batch 268: 704 -> 704 (+0)
+                 Mittel der letzten 5 nach R207 (B+C gemischt): +0.0 Koepfe je Batch   (Fenster: 268: +0, 267: +0, 266: +0, 265: +0, 262: +0   - LUECKENHAFT: die kanonischen Bilanzdateien fehlen fuer B264)
+                 Insn: je Batch nicht durchgaengig belegt (die Bilanzdatei fuehrt nur Koepfe)
+  Mischung     : 0 C von 5 Batches im Fenster = 0 %   (Fenster B262..B268)
+                 gemessen an der Preflight-Reihe (13 Batches mit belegtem Strang): C-Anteil 0 %
+                 Strang B laeuft seit B1 ohne C-Batch (13 Batches mit belegtem Strang, letzter C-Batch B0) - die C-Hochrechnung ruht (kein Anteil aus der Plan-Regel)
+  B-Phase      : Station in B268 - Zaehler neu (0 B-Batches ohne Station seitdem)
+                 C-Rate je C-Batch: Median Zuwachs (Kopf-Batches): nicht gemessen | Mittel ueber alle C-Batches: nicht gemessen
+                 offen (Paket E, C-Arbeitsvorrat): 4 Koepfe / 59 Insn   [gemessen B242, 2026-10-02 10:19: _m242/_c_paket_e.txt]
+                 HYPOTHESIS: keine Hochrechnung moeglich
+                 HYPOTHESIS (C gesamt, GEMESSEN): offen 1403 Koepfe / 53535 Insn (Inventar minus gebaut, s. Klassen unten)
+  Port-Relevanz: ausgefuehrt 1086 | davon gebaut 416 | davon verifiziert 56 von 1086  (Fenster: Rumpf (Eintritt bis erstes blr, max 0x400 B); Messung 2026-09-28 02:58 durch tools/r13t_cov_relevanz.py)
+                 Paket-E-Wurzeln 66/86 ausgefuehrt, offene Blaetter 12/17
+  C-Arbeitsvorrat: 1403 Koepfe nicht gebaut (von 2072 im Inventar)
+                 (1) ausgefuehrt, noch nicht gebaut  :  677 Koepfe /  28976 Insn
+                 (2) nicht ausgefuehrt, Paket E   :    1 Koepfe /     38 Insn
+                 (3) nicht ausgefuehrt, sonstiger Rest:  725 Koepfe /  24521 Insn
+                 "nicht ausgefuehrt" = in den VORHANDENEN Aufnahmen nicht ausgefuehrt - NICHT "unnoetig" (die Aufnahmen decken nur Boot + einen Teil von Level 1 ab)
+                 (Paket-E-Huelle eigene Nachrechnung: 265 Koepfe, davon offen 28; Projektzahl `c_kopf.py paket_e`: 4 / 59 (gemessen B242))
+  Aufnahmen    : ppc_coverage.bin = Gameplay-Replay, ppc_cov_boot.bin = Boot+Attract (neueste Aufnahme 2026-09-17; deckt NICHT das ganze Spiel ab - Menuepfade/Service fehlen, s. analysis/bucket-d-2026-09-16.md:312)
+                 Quelle: analysis/f5-descr-batch42-2026-09-17.md:87-88; gemessen 2026-09-28 02:58
+                 Quelle: analysis/_m268/_bilanz.txt (Zeile "R207 rueckwaerts") + analysis/_m242/_c_paket_e.txt ("Paket E offen GESAMT", gemessen B242, 2026-10-02 10:19) + analysis/_preflight_268.txt ("C Koepfe", Preflight)
+
+##############################################################################
+nur lebend (0):
+nur Fixture (0):

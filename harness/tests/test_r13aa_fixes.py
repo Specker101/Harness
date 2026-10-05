@@ -23,6 +23,15 @@ hat die Datei um 23:04 um eine neue Mischverhaeltnis-Zeile ergaenzt, und der Tes
 `anteil=None` (`TypeError`). Die Fixture `tests/fixtures/hybrid-plan_vor_b216.md` ist der
 Stand VOR diesem Nachtrag (Decomp-Revision `bd92910`), wortgleich und ohne Vorspann -
 die Zeilennummern stimmen mit der Originaldatei ueberein.
+
+**R13bw-4 (2026-10-05): auch die Bilanz-Reihe ist eingefroren.** Der Test
+`test_bilanz_weist_die_hochrechnung_getrennt_aus` rechnete auf `stand.durchsatz_zeilen(
+ECHTER_CFG)` - also auf dem **lebenden** Decomp-Repo. Damit wurde er rot, ohne dass sich am
+Harness etwas geaendert hatte: die lebende Preflight-Reihe wuchs auf 13 Dateien und kam in
+den Zustand „Strang C ruht", dessen Wortlaut R13bt-1 (`0a6c07b`) umgestellt hatte. Jetzt
+liegt die Reihe als `tests/fixtures/stand_b268/` vor (gebaut mit
+`docs/_r13bw_fixture_b268.py`, belegt mit `docs/_r13bw_fixture_beleg.txt`) - dieselbe Lehre
+wie R13an: Erwartungen gehoeren zu eingefrorenen Dateien.
 """
 
 from __future__ import annotations
@@ -47,6 +56,10 @@ ECHTER_ROOT = Path(ECHTER_CFG.root)
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 # Eingefrorener Plan (R13an): NICHT die lebende Datei - der laufende Batch schreibt sie.
 PLAN_FIXTURE = FIXTURES / "hybrid-plan_vor_b216.md"
+# R13bw-4: eingefrorene Bilanz-Reihe (Preflight-Zeilen, kanonische Bilanzdateien, Reviews).
+# Vorher rechnete der Bilanz-Test auf dem LEBENDEN Decomp-Repo; die Reihe waechst mit jedem
+# Batch, und die Erwartungen daran veralten still (Anlass: 05.10.2026, Aussensicht M268-3).
+STAND_FIXTURE = FIXTURES / "stand_b268"
 
 # Der Befund, an dem die Beleg-Regel gescheitert ist (Wortlaut aus `runs/meta-209.md`).
 M209_4 = ("Laufzeiten aus den Kosten und Laufzeiten je Batch: B201 18,1 min, B202 25,2 "
@@ -63,6 +76,10 @@ def _echte_fehlen() -> list[str]:
     # Batches umgeschrieben und ist als Testgrundlage untauglich).
     if not PLAN_FIXTURE.is_file():
         fehlend.append("tests/fixtures/hybrid-plan_vor_b216.md")
+    # R13bw-4: die Bilanz-Reihe kommt aus der Fixture (die lebende Reihe waechst mit jedem
+    # Batch - Erwartungen daran veralten still).
+    if not (STAND_FIXTURE / "decomp" / "analysis" / "_preflight_268.txt").is_file():
+        fehlend.append("tests/fixtures/stand_b268/decomp/analysis/_preflight_268.txt")
     return fehlend
 
 
@@ -185,21 +202,41 @@ class TestEchteBelege(unittest.TestCase):
         self.assertTrue(aussensicht.beleg_gueltig(M209_4))
 
     def test_bilanz_weist_die_hochrechnung_getrennt_aus(self):
+        """R13bw-4: rechnet auf der EINGEFRORENEN Reihe `stand_b268`, nicht mehr auf dem
+        lebenden Decomp-Repo - der Zustand der Fixture ist festgeschrieben."""
+        text = "\n".join(stand.durchsatz_zeilen(self.stand_cfg()))
         # Der Fehler war: "ca. 369 Batches" ohne Mischverhaeltnis (Befund M209-3).
-        text = "\n".join(stand.durchsatz_zeilen(ECHTER_CFG))
         self.assertIn("je C-Batch", text)
         self.assertIn("Mischung", text)
         self.assertNotIn("Batches fuer die", text)
-        # R13bt (M264-5): die Kalender-Zahl kommt NUR mit einem belegten C-Anteil.
-        # Ruht Strang C (reine B-Reihe), steht dort der Grund - kein Plan-Anteil als
-        # Rechengroesse. R13bt-1 hat den Wortlaut dieses Zustands von
-        # "Kalender-Batches: nicht rechenbar" auf "die C-Hochrechnung ruht (kein Anteil
-        # aus der Plan-Regel)" umgestellt; beide Formen sind zulaessig, Schweigen nicht
-        # (gemessen 2026-10-05: die alte Fassung dieses Tests wurde rot, sobald die
-        # lebende Preflight-Reihe 13 Dateien umfasste und damit in diesen Zustand kam).
-        if "KALENDER-Batches" not in text:
-            self.assertTrue("nicht rechenbar" in text or "C-Hochrechnung ruht" in text, text)
-            self.assertIn("Strang B laeuft seit", text)
+        # Der eingefrorene Stand (nach B268) - dieselben Zeilen wie im lebenden Repo am
+        # 05.10.2026 (`docs/_r13bw_fixture_beleg.txt`: 28 Zeilen, 0 Unterschiede).
+        self.assertIn("letzter gemessener Batch B268: 151 Koepfe", text)
+        self.assertIn("13 Dateien", text)
+        self.assertIn("Luecken: B256", text)
+        # R13bt (M264-5): die Kalender-Zahl kommt NUR mit einem belegten C-Anteil. Hier
+        # ruht Strang C (reine B-Reihe) - also nennt der Block den GRUND statt einer Zahl,
+        # und kein Plan-Anteil wird zur Rechengroesse (R13bt-1-Wortlaut).
+        self.assertNotIn("KALENDER-Batches", text)
+        self.assertIn("Strang B laeuft seit B1 ohne C-Batch", text)
+        self.assertIn("die C-Hochrechnung ruht (kein Anteil aus der Plan-Regel)", text)
+
+    def stand_cfg(self):
+        """`cfg` auf eine Wegwerf-Kopie der eingefrorenen Reihe (R13bw-4).
+
+        Kopiert wird, damit der Test nichts in `tests/fixtures/` schreiben kann - die
+        Fixture selbst bleibt unveraendert (Regel der Stand-Fixtures).
+        """
+        dec = ensure_dir(self.tmp / "stand") / "decomp"
+        root = ensure_dir(self.tmp / "stand") / "harness"
+        for ziel, name in ((dec, "decomp"), (root, "root")):
+            if not ziel.exists():
+                shutil.copytree(STAND_FIXTURE / name, ziel)
+        cfg = load_config()
+        cfg.data["paths"]["root"] = str(root)
+        cfg.data["paths"]["decomp"] = str(dec)
+        cfg.data["paths"]["prompts"] = str(ROOT / "prompts")
+        return cfg
 
 
 # --------------------------------------------------------- 1) Klassifikation (Attrappen)

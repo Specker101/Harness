@@ -1,0 +1,58 @@
+﻿[m149_bilanz] Vorflug UEBERNOMMEN: analysis/_preflight_250.txt (HEAD 30ea676fa86f, juenger als scripts\m250_a4_werkzeug.py)
+## PFLICHT-BILANZ ALLER GETRACKTEN AESTE (Pflicht ab Batch 129; Stand: **Batch 250**, alles heute gemessen)
+
+**Regel (R360):** Am Batch-Ende `python scripts/m149_bilanz.py` ausfuehren und die Ausgabe UNVERAENDERT in die Chat-Antwort und in den Anker uebernehmen. Handgeschriebene Tabellen sind unzulaessig.
+
+| Ast / Kern | Vorbatch (B249) | **heute (mit 250)** | Quelle |
+|---|---|---|---|
+| **2a-Kern** (Closure `80029F50`) | **0 offen** | **0 offen** | `m112_ast.py group` |
+| **Waehler-Gruppe** (97 Ziele der Liste) | **97 gebaut / 0 offen** (offen **0 B = 0 Insn**) | **97 gebaut / 0 offen** (offen **0 B = 0 Insn**) | `m112_ast.py group` |
+| **Waehler-Ast, Huelle bis zum gebauten Rand (A)** | **97 / 0** (**97** Knoten, offen **0 B = 0 Insn**, nur Unterbau 0) | **97 / 0** (**97** Knoten, offen **0 B = 0 Insn**, nur Unterbau 0) | `m112_ast.py ast` |
+| **Waehler-Ast, VOLLE Huelle (B)** | **328 / 5** (**333** Knoten), offen **344 B = 86 Insn**, nur Unterbau 5 | **328 / 5** (**333** Knoten), offen **344 B = 86 Insn**, nur Unterbau 5 | `m112_ast.py ast` |
+| davon **nur Unterbau** (offen, B) | **5 / 86** (344 B) | **5 / 86** (344 B) | `m112_ast.py ast` |
+| davon **nur Unterbau** (offen, A) | **0** (0 B) | **0** (0 B) | `m112_ast.py ast` |
+| **Strang A / Strang B** | je **1** Knoten / offen **0 / 0** | je **1** Knoten / offen **0 / 0** | `m129_hull.py hull` |
+| **Platte `B129_PLATE`** | **0/6** gebaut (heute gezaehlt, R360) | **0/6** gebaut (heute gezaehlt, R360) | `m104_built.B129_PLATE` x Bau-Liste |
+| **Sprungtabellen-Gruppen A-H** | ohne Bilanz (R305) | ohne Bilanz (R307) - die per-Gruppe-Aussagen A-H bleiben ohne Bilanz | R305/R307 |
+| **327er-Pool** | **105/327 = 32,1 %** (offen 222) | **105/327 = 32,1 %** (offen 222) | `m53_pool.py` |
+| **Programm-Inventar** (B60/B130+) | **S1-DOKU 1709 (82,5 %) von 2072** | **S1-DOKU 1709 (82,5 %) von 2072** | `m60_inventar.py` |
+| **R207 rueckwaerts** | **704** (a 31 / b 0 / c 0), `check` **704** gebaut / **11176** benannt / **0** NICHT; `sanity` **704 / 0**; `nachzuegler` **70/32 (12/5)** | **704** (a 31 / b 0 / c 0), `check` **704** gebaut / **11176** benannt / **0** NICHT; `sanity` **704 / 0**; `nachzuegler` **70/32 (12/5)** | `preflight.py` + `m104_built.py` |
+| **Modi** | **85** | **85** | `port_selftest.cpp` |
+| **Audio 68K-Treiber** (Planliste, B174) | **Insn 4627 gebaut / 1808 offen / 7959 gesamt** (protokolliert 1381, nicht-portiert-Hall 143); **Koepfe 58 gebaut / 97 gesamt** (25 offen) - Baupruefung **OK**: jede Zeile `gebaut` traegt die Marke `68K 0x<ADR>` in `port/src/audio68k_*.cpp` | **Insn 4627 gebaut / 1808 offen / 7959 gesamt** (protokolliert 1381, nicht-portiert-Hall 143); **Koepfe 58 gebaut / 97 gesamt** (25 offen) - Baupruefung **OK**: jede Zeile `gebaut` traegt die Marke `68K 0x<ADR>` in `port/src/audio68k_*.cpp` | `m174_audio_plan.py` (Planliste `m174_audio_plan.csv`) |
+| **Bahnabdeckung** (Koepfe 100 % / Koepfe | Bloecke erreicht / gesamt | verifiziert | teilgeprueft) | **108/140 | Bloecke 819/995 | verifiziert 109 | teilgeprueft 31 | Pruefstand kann nicht erzeugen 38 | Material fehlt 0 | ohne Begruendung 126 OK** | **108/140 | Bloecke 819/995 | verifiziert 109 | teilgeprueft 31 | Pruefstand kann nicht erzeugen 38 | Material fehlt 0 | ohne Begruendung 126 OK** | `m210_bahnabdeckung.py` |
+| **R391 Commit-Reihenfolge** (Vorhersage vor `port/`, `m210_r391.py` | **OK** | **OK** | `m210_r391.py` |
+| **C Koepfe** (Koepfe / Faelle / Abweichungen, referenzgleich gegen den Wortinterpreter, `c_kopf_check.py`) | **139 / 7748 / 0** | **139 / 7748 / 0** | `c_kopf_check.py` (`c_kopf.py vergl alle`) |
+| **C verifiziert** (Bahnabdeckung fuehrt sie als verifiziert, `m212_zeilen.py`) | **109** | **109** | `m212_zeilen.py` |
+| **Ausgefuehrte Menge** (M241-2b, Nutzerrahmen 01.10.: Funktionen/Insn/referenzgleich aus den Coverage-Karten, `m242_ausgefuehrt.py`) | **1081/2076 | 50636 Insn | Spannen-Insn 69355 | davon nicht referenzgleich 65052 | referenzgleich 97 | nicht referenzgleich 984 | Rumpf offen 0 | referenzgleich aber teilgeprueft 24 | Quelle capture/ppc_coverage.bin+capture/ppc_cov_boot.bin (2026-08-31) Meldung** | **1081/2076 | 50636 Insn | Spannen-Insn 69355 | davon nicht referenzgleich 65052 | referenzgleich 97 | nicht referenzgleich 984 | Rumpf offen 0 | referenzgleich aber teilgeprueft 24 | Quelle capture/ppc_coverage.bin+capture/ppc_cov_boot.bin (2026-08-31) Meldung** | `m242_ausgefuehrt.py` |
+| **Formen der C-Koepfe orakelgeprueft** (x / y, `m212_zeilen.py`) | **46 / 74** | **46 / 74** | `m212_zeilen.py` |
+| **C Fallrueckgang** (Kopf-Fallzahl < 50 % der B209-Referenz, `m212_zeilen.py`) | **keiner** | **keiner** | `m212_zeilen.py` |
+| **Hybrid-Lauf** (FRONT: Schritte | Halt-PC | Halt-Art | Wegmass x/y ueber die GANZE Karte, ohne Adressfilter | Hauptschleife ja/nein, `m212_zeilen.py`, --schritte 200000000) | **200000000 | 8000EC3C | Schranke | 3120/42599 | nein** | **200000000 | 8000EC3C | Schranke | 3120/42599 | nein** | `m212_zeilen.py` |
+| **Hybrid-Lauf 20M** (Nebenzeile, Vorgabe `--schritte 20000000`, `m212_zeilen.py`) | **20000000 | 8000EC40 | Schranke | 1474/42599 | nein** | **20000000 | 8000EC40 | Schranke | 1474/42599 | nein** | `m212_zeilen.py` |
+| **Hybrid-SPU** (Zugriffe auf `0x40000000-0x4000000F`, PPC403GA-SPU nach `ppccom.cpp:3146-3226`, LINE_STATUS 0x06, `m212_zeilen.py`) | **2 Lesezugriffe, 9 Schreibzugriffe, erste PC L 80013DFC / S 80013FB4, 7 distinkte Offsets OK** | **2 Lesezugriffe, 9 Schreibzugriffe, erste PC L 80013DFC / S 80013FB4, 7 distinkte Offsets OK** | `m212_zeilen.py` |
+| **Hybrid-Attrappe4** (Lesezugriffe `0x780C0000-0x780C0003`, Antwort 0 gegen MAME 0x00800000, `m212_zeilen.py`) | **399 Lesezugriffe, erste PC 8000C898, Werte 00000000(60),00200000(68),00030000(1),11030080(2),11030001(2),11030082(2),11030003(2),11030084(2),11030005(2),11030086(2),11030007(2),11030088(2) OK** | **399 Lesezugriffe, erste PC 8000C898, Werte 00000000(60),00200000(68),00030000(1),11030080(2),11030001(2),11030082(2),11030003(2),11030084(2),11030005(2),11030086(2),11030007(2),11030088(2) OK** | `m212_zeilen.py` |
+| **Hybrid-Anteil nativ** (R583/B228 TEIL 0a/B229 TEIL 2b: nativ gebuchte Schritte / alle Schritte; **`davon Schatten-Zustand`** = der Teil davon, dessen FOLGEZUSTAND aus dem Interpreter stammt (im alten ERSATZLAUF alle, im NATIVEN WEITERLAUF 0); NEBENZAHL - entscheidet kein Urteil, `m212_zeilen.py`) | **57819/200000000 | Aufrufe alle Registry-Koepfe 5441 gleich 3565 ungleich 0 | nicht vergleichbar: 1876 | davon Schatten-Zustand: 0 | Schritte im Schatten bei nativen Rufen: 57819 | Zeitbasis aus Schattenschrittzahl: 3565 | --ohne-tb (tb aus Schatten): 0 | Summe gleich: ja Meldung** | **57819/200000000 | Aufrufe alle Registry-Koepfe 5441 gleich 3565 ungleich 0 | nicht vergleichbar: 1876 | davon Schatten-Zustand: 0 | Schritte im Schatten bei nativen Rufen: 57819 | Zeitbasis aus Schattenschrittzahl: 3565 | --ohne-tb (tb aus Schatten): 0 | Summe gleich: ja Meldung** | `m212_zeilen.py` |
+| **Hybrid-Funktionen nativ** (B229 TEIL 2d, Nutzervorgabe 30.09.: **B/A ist das HAUPTMASS von Strang B**; B = ausgeführte Funktionen, deren Registry-Kopf im NATIVEN WEITERLAUF betreten, gegen den Interpreter mit DEMSELBEN Eingangszustand verglichen und gleich war (`Hybrid-Anteil nativ ... Aufrufe <ziel> n gleich n ungleich 0`); `verglichen gleich <v>` = Köpfe mit allen Aufrufen gleich, `Host nötig <h>` = Köpfe MIT Host-Rufen (sie werden NICHT ersetzt); A = alle ausgeführten; Gesamt = portiert+referenzgleich von ALLEN Funktionen der Ghidra-Liste; **Urteil aus DIESER Zeile**: B>=1 -> OK, B=0 -> Meldung, ungleich -> FEHLER; `Hybrid-Anteil nativ` traegt seither nur noch ein festes Info-Urteil) | **7/98 | verglichen gleich: 7 | Host nötig: 4 | Gesamt 140/2087 OK** | **7/98 | verglichen gleich: 7 | Host nötig: 4 | Gesamt 140/2087 OK** | `m212_zeilen.py` |
+| **Hybrid-A4** (M239-1, B240: Schritte bis zum ersten Eintritt in den echten Halt | davon nativ = Kalibriersumme B231 (kein Messwert) | Rufe ohne Kalibrierwert, `m212_zeilen.py`) | **Schritte bis erster Eintritt echter Halt 696571792 | davon nativ 1511 (Kalibriersumme B231, kein Messwert) | Rufe ohne Kalibrierwert 195348 | Halt-PC 8001684C | Selbstsprung-PC 8001684C | Halt-Art Selbstsprung OK** | **Schritte bis erster Eintritt echter Halt 696571792 | Anteil nativ NICHT GEMESSEN (Kalibriersumme B231: 1511) | Rufe ohne Kalibrierwert 195348 | Halt-PC 8001684C | Selbstsprung-PC 8001684C | Halt-Art Selbstsprung OK** | `m212_zeilen.py` |
+| **Archiv vor Batch** (geaenderte/geloeschte getrackte Dateien unter `analysis/_m<k>/` mit k < Batch, gegen den Batch-Beginn; `m214_archiv.py`) | **0** | **0** | `m214_archiv.py` |
+| **Profile reproduzierbar** (B227 TEIL 0b/B228 TEIL 0c: `scripts/m227_profile_live.py` faehrt `c_kopf.py prof` mit dem AKTUELLEN Werkzeug ueber die LEBENDE Kopf-Menge (`c_kopf.PROFILES`) und vergleicht jedes Profil bytegleich gegen `analysis/_m197`; Beleg `_profile_reproduzierbar.txt` in DIESEM Lauf; Urteil OK nur bei gleich==koepfe, sonst Meldung; fehlt/veraltet -> FEHLER) | **koepfe 140, gleich 140, abweichend 0, HEAD 8a8ab09, 10690/10A20/856B4 10690=gleich 10A20=gleich 856B4=gleich [OK] OK** | **koepfe 140, gleich 140, abweichend 0, HEAD 30ea676, 10690/10A20/856B4 10690=gleich 10A20=gleich 856B4=gleich [OK] OK** | `scripts/m222_prof_wirkung.py` (Ergebnis von TEIL 3a) |
+| **Bauliste ⊆ Registry** (Bau-Listen-Eintraege ohne Registry-Eintrag unter `port/`, `m220_built_registry.py`) | **734 Eintraege, 0 fehlend** | **734 Eintraege, 0 fehlend** | `scripts/m220_built_registry.py` |
+
+**Aeste (Nutzerwunsch B174 - welcher Ast laeuft, wie weit, was fehlt):**
+
+| **Audio 68K-Treiber** | Zustand **aktiv (B250)** | **4627 / 7959 Insn (58 / 97 Koepfe)** | Rest **1808 Insn offen** | `m174_audio_plan.py stats` |
+| **PPC-Port (R207-Koepfe)** | Zustand **ruht seit B165** | **704 Koepfe gebaut** | Rest **ohne Zahl (der Zaehler fuehrt keine offene Menge)** | `preflight.py` (R207 check gebaut) |
+| **Waehler-Ast** | Zustand **ruht (mind. B149)** | **328 / 333 Knoten** | Rest **5 Knoten = 86 Insn offen** | `m112_ast.py ast` (VOLLE Huelle B) |
+| **327er-Pool** | Zustand **ruht (mind. B149)** | **105 / 327 = 32,1 %** | Rest **222 offen** | `m53_pool.py` |
+| **Programm-Inventar** | Zustand **ruht seit B165** | **S1-DOKU 1709 / 2072 (82,5 %)** | Rest **363 Funktionen** | `m60_inventar.py` |
+| **GL-Anker** | Zustand **aktiv (laeuft je Batch mit)** | **9 / 9 Anker OK** | Rest **0 GL-TIMEOUT + 0 GL-UMGEBUNG** | `preflight.py` (REG GL-Anker) |
+| **Uebergang `FUN_8005471C`** | Zustand **wartet auf Nutzer** | **836 / 836 Insn** | Rest **0 Insn offen** | B166-Messung (836 Insn, `readme.md`) |
+
+**Zusatz (R216 einzeln, heute):** A (`abi`) **263**, B (`impl`) **81**, C (`doc`) **78**, D (`doc4`) **689/112**; Regression **32 Faelle + 271 Anker, 0 Fehler** (GL-Anteil **9/9 OK, 0 GL-TIMEOUT, 0 GL-UMGEBUNG**, Referenz **9/9 gleich**); R207-Befunde **0**; Erwartungstafel **180** Faelle (alt 180), Abweichungen `kVl2Want` **0** / `kVl2Init` **0** / `kVl2Seam` **0**.
+python : [m149_bilanz] Schnappschuss B250 -> G:\Silent Scope Decomp\analysis\_bilanz_snapshot.json
+In Zeile:1 Zeichen:302
++ ... tch {} } }; python -u scripts/m149_bilanz.py --batch 250 --from-prefl ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([m149_bilanz] S...z_snapshot.json:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+[m149_bilanz] Anker aktualisiert: G:\Silent Scope Decomp\analysis\r1b-workstream.md
