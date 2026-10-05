@@ -1222,16 +1222,17 @@ def durchsatz(cfg, n: int = STANDARD_FENSTER) -> dict:
     # B-Batches, letzter C-Batch B254). R13bn behandelt nur den Fall "Reihe endet mit
     # C-Batches"; hier stand deshalb weiter der Plan-Anteil (50 %), obwohl seit zehn
     # Batches kein C-Batch mehr lief.
-    lauf_b, letzter_c = 0, 0
-    for b, a in reversed(arten):
-        if a == "B":
-            lauf_b += 1
-            continue
-        if a == "C":
-            letzter_c = b
-        break
-    erg["lauf_b"] = lauf_b
-    erg["letzter_c_batch"] = letzter_c
+    #
+    # R13bw-9 (06.10.2026, Nutzerauftrag Punkt 2): die Zahlen kommen NICHT mehr aus der
+    # Zeilenreihe oben (`arten`, nur TREND_FENSTER+1 lang), sondern aus der lueckenlosen
+    # Strangreihe ueber die Batch-Ordner (`strang_lauf`). Mit der Zeilenreihe stand hier
+    # "die letzten 13 Batches sind B (ab B1; letzter C-Batch B0)" - beide Zahlen falsch.
+    sl = strang_lauf(cfg)
+    erg["strang_lauf"] = sl
+    erg["lauf_b"] = int(sl.get("lauf_b") or 0)
+    # `None` heisst: die Reihe reisst VOR dem C-Batch - die Zahl ist dann NICHT belegt
+    # (nicht 0; "B0" waere eine erfundene Batch-Nummer, R13bw-9).
+    erg["letzter_c_batch"] = sl.get("letzter_c")
     erg["anteil_c"] = plan.get("anteil")
     # R13bb (M224-5): die Zeile nennt Quelle (Datei:Zeile) UND Stand der Regel (z. B.
     # "ab B222, Nutzerentscheidung R221-1, 2026-09-30") - vorher stand nur der Wortlaut da,
@@ -1254,15 +1255,26 @@ def durchsatz(cfg, n: int = STANDARD_FENSTER) -> dict:
         erg["anteil_quelle"] = (
             f"gemessen: die letzten {lauf_c} Batches sind C "
             f"(B{lauf_von}..B{arten[-1][0]}; Strang B ruht)" + regel_kurz)
-    elif lauf_b >= C_LAUF_MINDESTENS and not c_fenster:
+    elif erg["lauf_b"] >= C_LAUF_MINDESTENS and not c_fenster:
         # R13bt (M264-5): Strang B laeuft, C ruht - dann gibt es nichts hochzurechnen.
         # Vorher stand hier der Plan-Anteil (50 %) als "Anteil fuer die Rechnung",
         # obwohl seit zehn Batches kein C-Batch mehr lief; die Kalender-Zahl war damit
         # eine Aussage ueber einen Strang, der gar nicht laeuft.
+        # R13bw-9: die Zahlen dieses Satzes kommen aus derselben lueckenlosen Strangreihe
+        # (`strang_lauf`) wie die Mischungs-Zeile - vorher aus der zu kurzen Zeilenreihe.
+        _lc = erg.get("letzter_c_batch")
+        _unter = ""
+        _ga = (erg.get("strang_lauf") or {}).get("grenze_ab")
+        if _ga:
+            _unter = (f" [UNTERGRENZE: ab B{int(_ga)} ist der Strang nicht belegt"
+                      + ("; der letzte C-Batch ist damit NICHT belegt]" if _lc is None
+                         else "]"))
+        _ab = f"ab B{int(_lc) + 1}" if isinstance(_lc, int) else "in dieser Reihe"
+        _lc_txt = f"B{int(_lc)}" if isinstance(_lc, int) else "nicht belegt"
         erg["anteil_c"] = None
         erg["anteil_quelle"] = (
-            f"keine C-Hochrechnung: die letzten {lauf_b} Batches sind B "
-            f"(ab B{letzter_c + 1}; letzter C-Batch B{letzter_c}) - Strang C ruht")
+            f"keine C-Hochrechnung: die letzten {int(erg['lauf_b'])} Batches sind B "
+            f"({_ab}; letzter C-Batch {_lc_txt}) - Strang C ruht" + _unter)
     elif not erg["anteil_c"]:
         if erg["anteil_gemessen"] is not None:
             erg["anteil_c"] = erg["anteil_gemessen"]
@@ -2714,6 +2726,63 @@ def stillstand_zaehler(cfg, bis_batch: int | None = None, anzahl: int = 30) -> d
             "schwelle_erreicht": zaehler >= STATION_SCHWELLE, "reihe": reihe}
 
 
+def strang_lauf(cfg, anzahl: int = 30) -> dict:
+    """Der B-Lauf am Ende der Strangreihe und der letzte C-Batch davor (R13bw-9).
+
+    Gemessen wird **rueckwaerts ueber die Batch-Ordner**, nicht ueber die Zeilenreihe der
+    Preflight-Dateien: die ist nur `TREND_FENSTER`+1 lang und reicht bei einem langen
+    B-Lauf nicht bis zum letzten C-Batch. Genau daran stand die Mischungs-Zeile am
+    06.10.2026 auf "die letzten 13 Batches sind B (ab B1; letzter C-Batch B0)", waehrend
+    der letzte C-Batch **B254** war (24 B-Batches davor).
+
+    Gelaufen wird ab dem neuesten Batch-Ordner rueckwaerts, bis ein **C-Batch** kommt
+    (`letzter_c`) oder die Reihe **reisst**. Gerissen ist sie an einem Batch ohne belegten
+    Strang (`grenze_ab`) oder an einem fehlenden Review **tiefer** in der Reihe
+    (`luecke_ab`); der Wert ist dann eine **Untergrenze** - es wird nichts geraten.
+    Ordner ohne `auftrag.md` sind keine Batches (nur der Review-Ordner des Vorgaengers)
+    und werden uebersprungen, genau wie im Stillstandszähler.
+
+    Rueckgabe: `{letzter_c, lauf_b, von, bis, grenze_ab, luecke_ab, reihe}` mit
+    `reihe = [(batch, "B"|"C"|"?")]` (neueste zuerst, bis zum Abbruch).
+
+    **`letzter_c` ist `None`, wenn die Reihe VOR dem C-Batch reisst.** Dann ist der letzte
+    C-Batch **nicht belegt** (`lauf_b` ist Untergrenze) - die alte Zeile schrieb an dieser
+    Stelle `B0`, und das las sich wie ein Batch.
+    """
+    letzter_c: int | None = None
+    lauf_b = 0
+    von = bis = 0
+    grenze_ab: int | None = None
+    luecke_ab: int | None = None
+    reihe: list[tuple[int, str]] = []
+    for nummer in _batch_nummern(cfg, None, anzahl):
+        if not (Path(cfg.root) / "runs" / f"b{nummer:03d}" / "auftrag.md").is_file():
+            continue                     # kein Batch - nur der Review-Ordner des Vorgaengers
+        d = strang_von_batch(cfg, nummer)
+        art = d.get("strang") or "?"
+        # Der Strang kann aus dem AUFTRAG (Strang-Zeile) oder aus dem REVIEW kommen. Fehlt
+        # das Review, ist die Klasse nur einfach belegt - das wird als Luecke gemeldet
+        # (Information, kein Abbruch; geraten wird nichts).
+        if not (Path(cfg.root) / "runs" / f"b{nummer + 1:03d}" / "review.md").is_file():
+            luecke_ab = nummer
+        if art == "B":
+            if not lauf_b:
+                bis = nummer             # neuester B-Batch des Laufs
+            lauf_b += 1
+            von = nummer                 # laeuft rueckwaerts weiter nach unten
+            reihe.append((nummer, "B"))
+            continue
+        if art == "C":
+            letzter_c = nummer           # auch der neueste Batch kann schon C sein
+            reihe.append((nummer, "C"))
+            break
+        grenze_ab = nummer               # nicht klassifizierbar -> Lauf endet hier
+        reihe.append((nummer, "?"))
+        break
+    return {"letzter_c": letzter_c, "lauf_b": lauf_b, "von": von, "bis": bis,
+            "grenze_ab": grenze_ab, "luecke_ab": luecke_ab, "reihe": reihe}
+
+
 def b_phase_zeile(cfg, z: dict | None = None) -> list[str]:
     """Die B-Phasen-Zeile: wie viele B-Batches stehen in Folge ohne Station (R13bt).
 
@@ -2848,10 +2917,25 @@ def _mischung_zeile(cfg, d: dict) -> list[str]:
     elif regel:
         teile[0] += f"; Anteil fuer die Rechnung: {regel * 100:.0f} % ({quelle})"
     elif d.get("lauf_b"):
-        teile.append(f"                 Strang B laeuft seit B{int(d.get('letzter_c_batch') or 0) + 1}"
-                     f" ohne C-Batch ({int(d['lauf_b'])} Batches mit belegtem Strang, "
-                     f"letzter C-Batch B{int(d.get('letzter_c_batch') or 0)}) - die "
-                     "C-Hochrechnung ruht (kein Anteil aus der Plan-Regel)")
+        # R13bw-9: die Zahlen kommen aus der lueckenlosen Strangreihe (`strang_lauf`); der
+        # Bereich steht mit in der Zeile, damit sichtbar ist, WIE WEIT die Reihe reicht
+        # (Ordner ohne `auftrag.md` sind keine Batches und zaehlen nicht mit).
+        _sl = d.get("strang_lauf") or {}
+        _lc = d.get("letzter_c_batch")
+        _bereich = (f"B{int(_sl['von'])}..B{int(_sl['bis'])}, "
+                    if _sl.get("von") and _sl.get("bis") else "")
+        _lc_txt = f"B{int(_lc)}" if isinstance(_lc, int) else "nicht belegt"
+        _ab = f"seit B{int(_lc) + 1}" if isinstance(_lc, int) else "in dieser Reihe"
+        teile.append(f"                 Strang B laeuft {_ab}"
+                     f" ohne C-Batch ({_bereich}"
+                     f"{int(d['lauf_b'])} Batches mit belegtem Strang, "
+                     f"letzter C-Batch {_lc_txt}) - die "
+                     "C-Hochrechnung ruht (kein Anteil aus der Plan-Regel)"
+                     # R13bw-9: reisst die Strangreihe, ist die Zahl eine Untergrenze -
+                     # das muss dastehen (der Wert ist dann NICHT der letzte C-Batch).
+                     + (f" [UNTERGRENZE: ab B{int((d.get('strang_lauf') or {}).get('grenze_ab') or 0)}"
+                        " ist der Strang nicht belegt]"
+                        if (d.get("strang_lauf") or {}).get("grenze_ab") else ""))
     return teile
 
 def durchsatz_alt(cfg, n: int = STANDARD_FENSTER) -> dict:

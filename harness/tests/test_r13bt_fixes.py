@@ -14,6 +14,9 @@ Der zweite Teil ist der **Stillstandszähler** der B-Phase. Regel wortgetreu
 C-Batches zählen **nicht mit** und setzen den Zähler **nicht** zurück. Datenlage der
 Vorgabe: B258 ohne Station, **B259 Station**, B260 ohne, **B261 Station**, B262–B264 ohne
 (Beginn des Zählers jeweils neu) -> nach B264 steht der Zähler auf **3 von 4**.
+**R13bw-9 (2026-10-06):** dieselbe Rechnung zusätzlich auf der fortgeschriebenen
+Datenlage **B258 bis B277** (`Basis.lage_258_bis_277`, Station B259/B261/B269) sowie der
+**letzte C-Batch** aus der lückenlosen Strangreihe (`stand.strang_lauf`).
 
 Der Harness **rät** die Station nicht: er liest die Pflichtzeile `STATION: ja|nein` aus
 dem Review, das den Batch bewertet hat (`runs/b<N+1>/review.md`, R13w). Fehlt sie, ist
@@ -77,6 +80,17 @@ class Basis(unittest.TestCase):
         """Die Vorgabedaten: Station B259 und B261, sonst keine (B258, B260, B262..B264)."""
         for n in range(258, 265):
             self.batch(n, station=n in (259, 261))
+
+    def lage_258_bis_277(self) -> None:
+        """Die DATENLAGE ab B258, bis zum laufenden Batch B277 fortgeschrieben (R13bw-9).
+
+        Station nur bei B259, B261 und **B269**; danach B270..B277 ohne Station. Der
+        Aufbau spiegelt den Ankerkopf (`analysis/r1b-workstream.md:5-6`): dort steht
+        `Stillstand (Station) 7` bei letzter Station B269 (B270..B276) - mit den zwei
+        zusaetzlichen Batches bis B277 sind es hier **8**.
+        """
+        for n in range(258, 278):
+            self.batch(n, station=n in (259, 261, 269))
 
 
 # ------------------------------------------------- 1) Stillstandszähler (Vorgabedaten)
@@ -143,6 +157,86 @@ class TestStillstand(Basis):
         self.assertIn("(B262..B264)", text)
         self.assertIn("Schwelle 4", text)
 
+    def test_datenlage_bis_b277(self):
+        """R13bw-9: dieselbe Rechnung auf der fortgeschriebenen Datenlage (B258..B277)."""
+        self.lage_258_bis_277()
+        z = stand.stillstand_zaehler(self.cfg)
+        self.assertEqual(z["zaehler"], 8, "B270..B277 ohne Station")
+        self.assertEqual((z["von"], z["bis"]), (270, 277))
+        self.assertEqual(z["station_bei"], 269)
+        self.assertIsNone(z["luecke_ab"], "alle Batches sind belegt")
+
+
+# ------------------- 1b) Die lueckenlose Strangreihe: letzter C-Batch (R13bw-9 Punkt 2)
+class TestStrangLauf(Basis):
+    """Die Mischungs-Zeile nennt "letzter C-Batch B0" - gemessen war B254.
+
+    Ursache (06.10.2026): der B-Lauf und der letzte C-Batch wurden aus der ZEILENREIHE der
+    Preflight-Dateien gezaehlt (`c_trend`, nur `TREND_FENSTER`+1 = 14 Zeilen). Der B-Lauf
+    war laenger als das Fenster, die Reihe lief aus - beide Zahlen fielen auf 0. Gemessen
+    wird jetzt rueckwaerts ueber die **Batch-Ordner** (`stand.strang_lauf`).
+    """
+
+    def _b_reihe(self, c_batch: int = 254, von: int = 255, bis: int = 277) -> None:
+        self.batch(c_batch, strang="C", station=None)
+        for n in range(von, bis + 1):
+            self.batch(n, station=None)
+
+    def test_letzter_c_batch_kommt_aus_der_reihe(self):
+        self._b_reihe()
+        sl = stand.strang_lauf(self.cfg)
+        self.assertEqual(sl["letzter_c"], 254, "nicht 0 und nicht der Fensterrand")
+        self.assertEqual((sl["von"], sl["bis"]), (255, 277))
+        self.assertEqual(sl["lauf_b"], 23)
+        self.assertIsNone(sl["grenze_ab"])
+
+    def test_durchsatz_und_mischungszeile_ziehen_mit(self):
+        """Die Zahl der BILANZ-Zeile ist die der Reihe - kein zweiter Weg, kein B0."""
+        self._b_reihe()
+        d = stand.durchsatz(self.cfg)
+        # Im Wegwerf-Verzeichnis gibt es keine Preflight-Reihe: Fenster von Hand setzen,
+        # damit die Zeile ihre zwei Zahlen druckt (die Strang-Zahlen stehen schon drin).
+        d["n"], d["fenster"] = 2, [{"batch": 276}, {"batch": 277}]
+        self.assertEqual(d["letzter_c_batch"], 254)
+        self.assertEqual(d["lauf_b"], 23)
+        text = "\n".join(stand._mischung_zeile(self.cfg, d))
+        self.assertIn("Strang B laeuft seit B255 ohne C-Batch", text)
+        self.assertIn("letzter C-Batch B254", text)
+        self.assertIn("B255..B277", text)
+        self.assertNotIn("letzter C-Batch B0", text)
+
+    def test_reisst_die_reihe_ist_der_wert_eine_untergrenze(self):
+        """Ein Batch ohne belegten Strang beendet den Lauf - und wird als Grenze gemeldet.
+
+        Geraten wird nichts: der zuletzt gefundene C-Batch bleibt stehen (Untergrenze),
+        und die Zeile sagt, wo die Reihe reisst.
+        """
+        self._b_reihe()
+        # B260: kein Strang im Auftrag und kein Review (der Rueckfall haette sonst
+        # gegriffen) -> die Reihe reisst dort, der C-Batch B254 wird nicht mehr erreicht.
+        write_text_atomic(self.root / "runs" / "b260" / "auftrag.md", "Batch 260\n")
+        sl = stand.strang_lauf(self.cfg)
+        self.assertEqual(sl["grenze_ab"], 260)
+        self.assertIsNone(sl["letzter_c"], "die Reihe reisst VOR dem C-Batch - nicht belegt")
+        self.assertEqual(sl["lauf_b"], 17, "B261..B277 (Untergrenze)")
+        self.assertEqual((sl["von"], sl["bis"]), (261, 277))
+        d = stand.durchsatz(self.cfg)
+        d["n"], d["fenster"] = 2, [{"batch": 276}, {"batch": 277}]
+        self.assertIsNone(d["letzter_c_batch"])
+        text = "\n".join(stand._mischung_zeile(self.cfg, d))
+        self.assertIn("UNTERGRENZE", text)
+        self.assertIn("letzter C-Batch nicht belegt", text)
+        self.assertNotIn("B0", text, "kein erfundener Batch: 0 wurde frueher als B0 gedruckt")
+
+    def test_neuester_batch_ist_c_dann_ist_er_selbst_der_letzte(self):
+        self.batch(254, strang="C", station=None)
+        self.batch(255, strang="C", station=None)
+        sl = stand.strang_lauf(self.cfg)
+        self.assertEqual(sl["letzter_c"], 255)
+        self.assertEqual(sl["lauf_b"], 0, "kein B-Lauf - die C-Zeile gilt")
+        d = stand.durchsatz(self.cfg)
+        self.assertNotIn("Strang B laeuft", "\n".join(stand._mischung_zeile(self.cfg, d)))
+
 
 # --------------------------------------- 2) Die Mischungs-Zeile (Befund M264-5)
 class TestMischung(Basis):
@@ -151,7 +245,10 @@ class TestMischung(Basis):
              "anteil_c": 0.5, "anteil_quelle": 'Regel hybrid-plan.md:510 "1 B : 1 C"',
              "anteil_gemessen": 4 / 13,
              "anteil_gemessen_basis": "13 Batches mit belegtem Strang",
-             "lauf_b": 9, "letzter_c_batch": 254}
+             "lauf_b": 9, "letzter_c_batch": 254,
+             # R13bw-9: die Bereichsangabe der Zeile kommt aus der lueckenlosen Reihe
+             "strang_lauf": {"letzter_c": 254, "lauf_b": 9, "von": 255, "bis": 263,
+                             "grenze_ab": None, "luecke_ab": None, "reihe": []}}
         d.update(kw)
         return d
 

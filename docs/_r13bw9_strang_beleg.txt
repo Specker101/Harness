@@ -1,0 +1,30 @@
+R13bw-9 Strang-Beleg 2026-10-06 01:37:08
+
+Klassifikation je Batch (strang_von_batch):
+  B245  strang=B  quelle=Pflichtzeile B-SCHRITT im Review (Rueckfall)
+  B246  strang=C  quelle=Auftrag des Batches (Strang-Zeile/Marker) (runs/b246/auftrag.md)
+  B247  strang=C  quelle=Pflichtzeile B-SCHRITT im Review (Rueckfall)
+  B248  strang=B  quelle=Auftrag des Batches (Strang-Zeile/Marker) (runs/b248/auftrag.md)
+  B249  strang=B  quelle=Auftrag des Batches (Strang-Zeile/Marker) (runs/b249/auftrag.md)
+  B250  strang=B  quelle=Auftrag des Batches (Strang-Zeile/Marker) (runs/b250/auftrag.md)
+  B251  strang=C  quelle=Auftrag des Batches (Strang-Zeile/Marker) (runs/b251/auftrag.md)
+  B252  strang=C  quelle=Auftrag des Batches (Strang-Zeile/Marker) (runs/b252/auftrag.md)
+  B253  strang=C  quelle=Auftrag des Batches (Strang-Zeile/Marker) (runs/b253/auftrag.md)
+  B254  strang=C  quelle=Auftrag des Batches (Strang-Zeile/Marker) (runs/b254/auftrag.md)
+  B255  strang=B  quelle=Auftrag des Batches (Strang-Zeile/Marker) (runs/b255/auftrag.md)
+  B256  strang=B  quelle=Pflichtzeile STRANG/SOLL-KOEPFE im Auftrag (runs/b256/auftrag.md)
+  B257  strang=B  quelle=Pflichtzeile STRANG/SOLL-KOEPFE im Auftrag (runs/b257/auftrag.md)
+  B258  strang=B  quelle=Pflichtzeile STRANG/SOLL-KOEPFE im Auftrag (runs/b258/auftrag.md)
+  B259  strang=B  quelle=Pflichtzeile STRANG/SOLL-KOEPFE im Auftrag (runs/b259/auftrag.md)
+  B260  strang=B  quelle=Pflichtzeile STRANG/SOLL-KOEPFE im Auftrag (runs/b260/auftrag.md)
+
+durchsatz()['letzter_c_batch'] (neue Quelle: strang_lauf) = 254
+durchsatz()['lauf_b']                                  = 23
+durchsatz()['anteil_quelle']                           = keine C-Hochrechnung: die letzten 23 Batches sind B (ab B255; letzter C-Batch B254) - Strang C ruht
+
+ALTER Weg auf denselben Daten (Zeilenreihe, 13 Zeilen): letzter C-Batch = B0, B-Lauf = 13
+  -> genau die zwei Zahlen, die als 'ab B1; letzter C-Batch B0' in der Bilanz standen (Nutzerbefund Punkt 2)
+
+Gegenprobe (rueckwaerts ueber alle Ordner):
+  letzter C-Batch = B254, B-Lauf am Ende = 24, Grenze/Stop bei BNone (unbekannt)
+  erste 30 gesehen: B278:B, B277:B, B276:B, B275:B, B274:B, B273:B, B272:B, B271:B, B270:B, B269:B, B268:B, B267:B, B266:B, B265:B, B264:B, B263:B, B262:B, B261:B, B260:B, B259:B, B258:B, B257:B, B256:B, B255:B, B254:C

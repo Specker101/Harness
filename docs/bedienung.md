@@ -1883,7 +1883,7 @@ Der Block steht in `GESAMT` und rechnet **nur aus Belegdateien**, nichts wird ge
 | `Koepfe (R207 gebaut)` | `analysis/_m<N>/_bilanz*.txt`, Zeile **`R207 rueckwaerts`** (maschinengeschrieben von `scripts/m149_bilanz.py`) | Spalte „heute" minus Spalte „Vorbatch" = was **dieser** Batch verifiziert hat |
 | `Mittel der letzten N (B+C gemischt)` | dieselbe Reihe (bis zu 5 belegte Batches) | arithmetisches Mittel der Differenzen; die Batches stehen in Klammern dahinter. **Gemischt** heißt: B-Batches zählen mit — sie bauen keine Köpfe. Für die Hochrechnung wird diese Zahl **nicht** mehr benutzt |
 | `nur C-Batches` | dieselbe Reihe, B-Batches ausgelassen | Mittel **je C-Batch** — das ist der Durchsatz, mit dem gerechnet wird |
-| `Mischung` | `stand.strang_von_batch` (Klassifikation) + Zeile `Mischverhaeltnis …` aus `analysis/hybrid-plan.md` | zwei Zahlen getrennt: der **gemessene** C-Anteil im Fenster und die **Regel** (z. B. „2 B : 1 C" → jeder 3. Batch ist ein C-Batch) |
+| `Mischung` | `stand.strang_von_batch` (Klassifikation) + `stand.strang_lauf` (lückenlose Strangreihe, R13bw-9) + Zeile `Mischverhaeltnis …` aus `analysis/hybrid-plan.md` | zwei Zahlen getrennt: der **gemessene** C-Anteil im Fenster und die **Regel** (z. B. „2 B : 1 C" → jeder 3. Batch ist ein C-Batch). Der **letzte C-Batch** und der **B-Lauf** kommen aus der **Batch-Ordner-Reihe**, nicht aus dem Preflight-Fenster (§20c) |
 | `Insn (nur wo belegt)` | Zeile **`Paket E offen`**, **Ist-Spalte** der Soll/Ist-Tafel des Batch-Dokuments (`analysis/port-batch<N>-*.md`) | Insn offen (letzter belegter Wert) minus Insn offen (heute) |
 | `offen (Paket E, C-Arbeitsvorrat)` | dieselbe Tabellenzeile, **Ist-Spalte** | Köpfe/Insn, die in Paket E noch offen sind |
 | `HYPOTHESIS (Paket E, Arbeitsvorrat)` | offene Köpfe ÷ Durchsatz **je C-Batch** | **Schätzung** — und zwar in **zwei** Schritten: `-> x C-Batches` und daraus `-> ca. y KALENDER-Batches` (x ÷ C-Anteil). Vorher stand dort eine einzige Zahl aus dem gemischten Mittel („ca. 369 Batches"), die den C-Stillstand nicht enthielt (M209-3, R13aa) |
@@ -2404,4 +2404,46 @@ Dateien (Zustand, `.ctl`, Logs).
 Belege: `docs/_r13bt3_pfade.py`/`.txt` (vier Fälle; die Rohspalte ruft die
 Windows-Funktion direkt auf und zeigt den Defekt damit **unabhängig** vom Ausweichen),
 Tests `TestNichtAsciiPfade` in `harness/tests/test_r13bt_fixes.py`.
+
+### 20d. R13bw-9 (06.10.2026): „letzter C-Batch" aus der **lückenlosen Strangreihe**
+
+Die Zeile aus §20a nannte am 06.10.2026 im lebenden Repo:
+
+```text
+                 Strang B laeuft seit B1 ohne C-Batch (13 Batches mit belegtem Strang,
+                 letzter C-Batch B0) - die C-Hochrechnung ruht (kein Anteil aus der Plan-Regel)
+```
+
+Beide Zahlen waren **falsch**: der letzte C-Batch war **B254**, der B-Lauf lief seit
+**B255** (24 B-Batches). Ursache: `lauf_b` und `letzter_c` wurden aus der **Zeilenreihe**
+der Preflight-Dateien gezählt (`c_trend` = `TREND_FENSTER`+1 = 14 Zeilen). Der B-Lauf war
+**länger als dieses Fenster**; die Zählschleife lief am Reihenanfang aus, `letzter_c`
+blieb auf seinem Startwert `0` stehen — und `0` wurde als „B0" gedruckt, also wie eine
+Batch-Nummer.
+
+Gemessen wird jetzt rückwärts über die **Batch-Ordner** (`stand.strang_lauf`, dieselbe
+Reihen-Definition wie `stillstand_zaehler`: ein Ordner ohne `auftrag.md` ist kein Batch,
+sondern der Review-Ordner des Vorgängers):
+
+```text
+  Mischung     : 0 C von 4 Batches im Fenster = 0 %   (Fenster B271..B276)
+                 gemessen an der Preflight-Reihe (13 Batches mit belegtem Strang): C-Anteil 0 %
+                 Strang B laeuft seit B255 ohne C-Batch (B255..B277, 23 Batches mit belegtem
+                 Strang, letzter C-Batch B254) - die C-Hochrechnung ruht (kein Anteil aus der Plan-Regel)
+```
+
+Drei Fälle, die die Zeile **nicht** verliert:
+
+* **Bereich mitgenannt** (`B255..B277`): sichtbar, wie weit die Reihe reicht — die Zahl
+  vor „Batches" ist die der Reihe, nicht die des Fensters.
+* **Reißt die Reihe** (ein Batch ohne belegten Strang), steht `letzter C-Batch nicht
+  belegt` und `[UNTERGRENZE: ab B<k> ist der Strang nicht belegt]`. `stand.strang_lauf`
+  liefert dafür `letzter_c = None` (nicht `0`) — die alte Zeile hätte hier wieder „B0"
+  geschrieben.
+* **Ist der neueste Batch selbst ein C-Batch**, ist er der „letzte C-Batch", der B-Lauf
+  ist **0** — dann gilt der C-Zweig aus §20a, nicht dieser Satz.
+
+Belege: `docs/_r13bw9_strang_beleg.txt` (lebendes Repo, 06.10.2026: vorher `B0`/`B1`,
+nachher **B254**/**B255**), Tests `TestStrangLauf` in `harness/tests/test_r13bt_fixes.py`
+(Datenlage: C-Batch B254, danach B255..B277).
 

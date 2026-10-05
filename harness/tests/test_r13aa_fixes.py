@@ -218,7 +218,14 @@ class TestEchteBelege(unittest.TestCase):
         # ruht Strang C (reine B-Reihe) - also nennt der Block den GRUND statt einer Zahl,
         # und kein Plan-Anteil wird zur Rechengroesse (R13bt-1-Wortlaut).
         self.assertNotIn("KALENDER-Batches", text)
-        self.assertIn("Strang B laeuft seit B1 ohne C-Batch", text)
+        # R13bw-9 (06.10.2026): hier stand "Strang B laeuft seit B1 ohne C-Batch" - die
+        # Zahl kam aus der zu kurzen Zeilenreihe der Preflight-Dateien (14 Zeilen) und fiel
+        # auf 0. Der eingefrorene Stand (nach B268) hat seinen letzten C-Batch bei B254;
+        # die Reihe laeuft seit B255. Die alte Erwartung schrieb den Fehler fest.
+        self.assertIn("Strang B laeuft seit B255 ohne C-Batch", text)
+        self.assertIn("letzter C-Batch B254", text)
+        self.assertIn("B255..B268", text)
+        self.assertNotIn("letzter C-Batch B0", text)
         self.assertIn("die C-Hochrechnung ruht (kein Anteil aus der Plan-Regel)", text)
 
     def stand_cfg(self):
