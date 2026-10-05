@@ -21,7 +21,9 @@ Quellen (alle nur LESEND, kein Ghidra, kein Netz, kein Mitschnitt):
     Abbruchgrund des Batches.
   * `runs/b<N>/auftrag.md` - die Instruktion, die der Worker bekam (fuer die
     PLAN-Spalte: die dort genannten Kopf-Adressen).
-  * das letzte Review (`runs/b<N>/review.md`) - die Marker-Zeilen des Reviewers
+  * das letzte Review (`runs/b<N>/review.md`) - die Marker-Zeilen des Reviewers.
+  R13bw-7: diese Datei bewertet Batch **N-1** (`orchestrator.do_review` schreibt den Review
+  in den Ordner des danach freigegebenen Batches, s. `aussensicht.bewerteter_batch`).
     (`ENTSCHEIDUNG NOETIG:`, `OFFENE FRAGE:`, `WARTET AUF LIVE-AUFNAHME:`,
     `ENTSCHIEDEN:`) ueber `protocol.parse_offene_punkte`.
 

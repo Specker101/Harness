@@ -832,13 +832,34 @@ def reviews(cfg, n: int) -> list[tuple[int, str]]:
     return gefunden[-max(1, int(n)):]
 
 
-def summaries(cfg, n: int) -> list[tuple[int, str]]:
-    """Die letzten `n` `<TELEGRAM_SUMMARY>`-Texte als `[(reviewordner, summary)]`."""
-    out: list[tuple[int, str]] = []
-    for batch, text in reviews(cfg, int(n) + 4):
+def bewerteter_batch(ordner: int) -> int:
+    """Welchen Batch bewertet `runs/b<ordner>/review.md`? -> `ordner - 1` (nie < 0).
+
+    R13bw-7 (05.10.2026, Nutzerauftrag Punkt 2). Die Zuordnung kommt aus
+    `orchestrator.do_review`: `evidence = state.batch` (der bewertete Lauf),
+    `target = expected_batch()` (die Freigabe) und `rdir = runs/b<target>` - der Review
+    des Batches **N** liegt also in `runs/b<N+1>/review.md`. Wer die Datei als "Review zu
+    B<N>" liest, nennt den Batch um eins zu hoch.
+
+    Grenze: wird die Nummer von Hand gesetzt (`/number`), kann `target` von `N+1`
+    abweichen; die Datei selbst traegt die Zuordnung nicht. Dann nennt die Beschriftung
+    den nach dieser Konvention erwarteten, also den zuletzt bewerteten Batch.
+    """
+    return max(0, int(ordner) - 1)
+
+
+def summaries(cfg, n: int) -> list[tuple[int, int, str]]:
+    """Die letzten `n` Zusammenfassungen als `[(bewerteter_batch, reviewordner, summary)]`.
+
+    R13bw-7: bis 05.10.2026 trug das Tupel nur den REVIEWORDNER - Melder und Beschriftung
+    lasen daraus einen um eins zu hoch gezaehlten Batch (der Review in
+    `runs/b241/review.md` bewertet B240).
+    """
+    out: list[tuple[int, int, str]] = []
+    for ordner, text in reviews(cfg, int(n) + 4):
         s = protocol.parse_review(text).summary.strip()
         if s:
-            out.append((batch, s))
+            out.append((bewerteter_batch(ordner), ordner, s))
     return out[-max(1, int(n)):]
 
 
@@ -929,9 +950,12 @@ def hybrid_gemeldet_bis(meta: dict) -> int:
 
 
 def marker_gemeldet_bis(meta: dict, name: str) -> int:
-    """Bis zu welcher Review-Datei diese Markerart schon gemeldet ist (R13bn).
+    """Bis zu welchem **bewerteten** Batch diese Markerart schon gemeldet ist (R13bn).
 
     Fehlt die Tafel im Zustand, gilt 0 = nichts gemeldet (keine Migration, s. o.).
+    R13bw-7: die Tafel fuehrte bis 05.10.2026 den REVIEWORDNER (also einen um eins
+    hoeheren Wert). Eine vorhandene Marke unterdrueckt den naechsten Treffer damit
+    hoechstens EINMAL - es feuert nie doppelt.
     """
     tafel = (meta or {}).get(MARKE_MARKER_SCHLUESSEL) or {}
     try:
@@ -941,16 +965,17 @@ def marker_gemeldet_bis(meta: dict, name: str) -> int:
 
 
 def marker_beteiligt(gruende) -> dict:
-    """Welche Markerart war an diesen Ausloeser-Gruenden beteiligt - mit ihrer Datei?
+    """Welche Markerart war an diesen Ausloeser-Gruenden beteiligt - mit ihrem Batch?
 
-    Rückgabe `{name: batch}`; leer heisst: kein Marker-Ausloeser dabei. Der Batch wird aus
-    dem GRUND gelesen (dieselbe Form, die `faellig` schreibt), damit der Aufrufer nicht
-    noch einmal in die Reviews sehen muss.
+    Rückgabe `{name: batch}`; leer heisst: kein Marker-Ausloeser dabei. Der **bewertete**
+    Batch wird aus dem GRUND gelesen (dieselbe Form, die `faellig` schreibt, R13bw-7),
+    damit der Aufrufer nicht noch einmal in die Reviews sehen muss.
     """
     out: dict = {}
     for g in (gruende or []):
         for name, _muster in MARKER_MUSTER:
-            m = re.match(rf"^{re.escape(name)} - laut Review in runs/b(\d+)", str(g))
+            # R13bw-7: der Grund nennt den BEWERTETEN Batch (nicht mehr den Reviewordner).
+            m = re.match(rf"^{re.escape(name)} - laut Review zu B(\d+)", str(g))
             if m:
                 out[name] = max(int(m.group(1)), int(out.get(name) or 0))
     return out
@@ -1063,14 +1088,14 @@ def station_beteiligt(gruende) -> bool:
     return any(str(g).startswith(STATION_GRUND) for g in (gruende or []))
 
 
-def _marker(cfg, muster: str) -> list[tuple[int, str]]:
-    """Zeilen mit `muster` in den letzten Review-Zusammenfassungen (neueste zuerst)."""
-    treffer: list[tuple[int, str]] = []
+def _marker(cfg, muster: str) -> list[tuple[int, int, str]]:
+    """`(bewerteter_batch, reviewordner, zeile)` mit `muster`, neueste zuerst (R13bw-7)."""
+    treffer: list[tuple[int, int, str]] = []
     reg = re.compile(muster, re.IGNORECASE)
-    for batch, summary in reversed(summaries(cfg, 3)):
+    for batch, ordner, summary in reversed(summaries(cfg, 3)):
         for zeile in summary.splitlines():
             if reg.search(zeile):
-                treffer.append((batch, zeile.strip()[:200]))
+                treffer.append((batch, ordner, zeile.strip()[:200]))
     return treffer
 
 
@@ -1321,9 +1346,13 @@ def eingaben(cfg, state, tiefe: dict | None = None) -> str:
     summ = summaries(cfg, int(g["summaries"]))
     if summ:
         zeilen = []
-        for b, s in summ:
-            zeilen.append(f"--- Zusammenfassung aus runs/b{b:03d}/review.md ---\n{s}")
+        for b, ordner, s in summ:
+            # R13bw-7: die Zeile nennt BEIDES - den bewerteten Batch und die Datei, in der
+            # die Zusammenfassung steht (`runs/b<N>/review.md` bewertet B<N-1>).
+            zeilen.append(f"--- Review zu B{b} (Datei runs/b{ordner:03d}/review.md) ---\n{s}")
         bloecke.append("=== LETZTE REVIEW-ZUSAMMENFASSUNGEN (TELEGRAM_SUMMARY) ===\n"
+                       "Jede Zusammenfassung bewertet den GENANNTEN Batch; die Datei liegt im "
+                       "Ordner des danach freigegebenen Batches (R13bw-7).\n"
                        + "\n\n".join(zeilen))
     else:
         bloecke.append("=== LETZTE REVIEW-ZUSAMMENFASSUNGEN ===\n(keine lesbar)")
@@ -2084,13 +2113,15 @@ def faellig(cfg, state, log=None) -> list[str]:
     if abb and int(abb.get("batch") or 0) > letzte:
         gruende.append(f"Worker-Abbruch in Batch {abb.get('batch')} ({abb.get('grund')})")
     for name, muster in MARKER_MUSTER:
-        for b, zeile in _marker(cfg, muster)[:1]:
+        for b, ordner, zeile in _marker(cfg, muster)[:1]:
             if b <= marker_gemeldet_bis(meta, name):
                 # R13bn: diese Marke ist aus DIESER Review-Datei schon gemeldet (die Sperre
                 # gilt je Markenart). Ohne die Zeile stand derselbe Grund bei jeder Pruefung
                 # neu in der Liste, solange die Datei in den letzten drei Reviews lag.
+                # R13bw-7: verglichen wird der BEWERTETE Batch (nicht der Ordnername).
                 continue
-            gruende.append(f"{name} - laut Review in runs/b{b}: {zeile[:120]}")
+            gruende.append(f"{name} - laut Review zu B{b} "
+                           f"(Datei runs/b{ordner:03d}): {zeile[:120]}")
     still = hybrid_stillstand(cfg)
     if still and hybrid_neuester_b(cfg) > hybrid_gemeldet_bis(meta):
         gruende.append(still)

@@ -155,21 +155,27 @@ class TestAbbruchMarkeEinmal(Basis):
         gruende = aussensicht.faellig(self.cfg, s, self.log)
         self.assertTrue([g for g in gruende if "Meilenstein" in g], gruende)
         bet = aussensicht.marker_marke_setzen(self.cfg, s, gruende)
-        self.assertEqual(bet, {"Meilenstein erreicht": 245, "Abbruchkriterium erreicht": 245})
+        # R13bw-7: gebucht wird der BEWERTETE Batch (der Review liegt in runs/b245).
+        self.assertEqual(bet, {"Meilenstein erreicht": 244, "Abbruchkriterium erreicht": 244})
         # Jetzt sind BEIDE Marken dieser Review gesperrt.
         s.data["batch"] = 245
         gruende2 = aussensicht.faellig(self.cfg, s, self.log)
         self.assertFalse([g for g in gruende2 if "erreicht - laut Review" in g], gruende2)
 
-    def test_beteiligt_liest_die_review_datei_aus_dem_grund(self):
+    def test_beteiligt_liest_den_bewerteten_batch_aus_dem_grund(self):
+        """R13bw-7: der Grund nennt den BEWERTETEN Batch (nicht den Reviewordner)."""
         self.assertEqual(aussensicht.marker_beteiligt(
-            ["Abbruchkriterium erreicht - laut Review in runs/b241: irgendwas"]),
-            {"Abbruchkriterium erreicht": 241})
+            ["Abbruchkriterium erreicht - laut Review zu B240 (Datei runs/b241): irgendwas"]),
+            {"Abbruchkriterium erreicht": 240})
         self.assertEqual(aussensicht.marker_beteiligt(
-            ["Meilenstein erreicht - laut Review in runs/b242: x",
-             "Abbruchkriterium erreicht - laut Review in runs/b241: y"]),
-            {"Meilenstein erreicht": 242, "Abbruchkriterium erreicht": 241})
+            ["Meilenstein erreicht - laut Review zu B241 (Datei runs/b242): x",
+             "Abbruchkriterium erreicht - laut Review zu B240 (Datei runs/b241): y"]),
+            {"Meilenstein erreicht": 241, "Abbruchkriterium erreicht": 240})
         self.assertEqual(aussensicht.marker_beteiligt(["Worker-Abbruch in Batch 240 (wall)"]), {})
+        # Der alte Wortlaut ("in runs/b<N>") gehoert nicht mehr dazu - er wuerde den
+        # Reviewordner als Batch lesen (genau der Fehler, den R13bw-7 behebt).
+        self.assertEqual(aussensicht.marker_beteiligt(
+            ["Abbruchkriterium erreicht - laut Review in runs/b241: irgendwas"]), {})
 
     def test_gemeldet_bis_ohne_tafel_ist_null(self):
         """Ohne Tafel gilt 0 = nichts gemeldet (keine Migration, s. `aussensicht.py`)."""

@@ -1656,6 +1656,7 @@ nur nach 14 Tagen gepackt (13c).
 | `runs/b<N>/auftrag.md` | Der vollständige Prompt des Workers (Vorspann + Auftrag + Queue) |
 | `runs/b<N>/result.json` | Kennzahlen des Laufs: Exit-Code, Dauer, Anfragen, Token, Kosten, Abbruchgrund — **die** Quelle für Laufzeit und Kosten des Batches. Seit R13ao dazu `preflight_laeufe` und `preflight_frueh` (Preflight-Aufrufe des Laufs, s. §12p) |
 | `runs/b<N>/preflight-aufrufe.jsonl` | Eine Zeile je erkanntem Preflight-**Start** (`ts`, `min`, `frueh`, `werkzeug`) — der Hook schreibt sie, `result.json` zählt sie (R13ao, §12p) |
+| `runs/b<N>/review.md` | Der Review, der Batch **N−1** bewertet (R13bw-7). Der Harness schreibt ihn in den Ordner des Batches, der danach **freigegeben** wird (`orchestrator.do_review`: `evidence = state.batch`, `rdir = runs/b<target>`); die Aussensicht-Eingabezeile nennt deshalb beides: `--- Review zu B<N-1> (Datei runs/b<N>/review.md) ---`. Wer die Datei als „Review zu B<N>“ liest, nennt den Batch um eins zu hoch. |
 | `runs/b<N>/harness-facts.md` | Der Messdatenblock, den der Review bekam — gehört zu Batch **N−1** (der Review von N−1 liegt in `runs/b<N>/`) |
 | `runs/b<N>/antwort.md` | Abschlussbericht des Workers (wortgleich im Review) |
 | `runs/b<N>/review.md`, `review-prompt-*.md` | Bewertung und der Prompt, mit dem sie entstand |

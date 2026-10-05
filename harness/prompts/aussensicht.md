@@ -91,6 +91,13 @@ Jede Aussage der Form „**fehlt**", „**Blockade**", „**Quelle nicht vorhand
      Batch N. Der Harness legt sie in den Ordner des **nächsten** Batches
      (`runs/b<N+1>/harness-facts.md`; die Kopfzeile sagt „Review: bewertet wird Batch N").
      Die Laufzeit/Kosten eines Batches stehen in `runs/b<N>/result.json`.
+     **Dasselbe gilt für den Review (R13bw-7):** `runs/b<N>/review.md` **bewertet Batch
+     N-1**. Der Harness schreibt den Review in den Ordner des Batches, der danach
+     freigegeben wird (`orchestrator.do_review`: `evidence = state.batch`,
+     `target = expected_batch()`, `rdir = runs/b<target>`) — die Datei liegt also **eins
+     höher** als der bewertete Batch. Die Eingabezeile nennt deshalb beides:
+     `--- Review zu B<N-1> (Datei runs/b<N>/review.md) ---`. Wer die Datei als „Review zu
+     B<N>" liest, nennt den Batch um eins zu hoch.
   2. Für **mindestens einen Batch** liest du die **Denkblöcke des Workers**
      (`snapshots/b<N>/reasoning.jsonl`, mit `Read`/`Grep`) und sagst, was dort steht, was
      in den aufbereiteten Zahlen nicht steht. Genau dort findet man Denkfehler, die in
