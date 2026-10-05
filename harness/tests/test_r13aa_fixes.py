@@ -192,9 +192,13 @@ class TestEchteBelege(unittest.TestCase):
         self.assertNotIn("Batches fuer die", text)
         # R13bt (M264-5): die Kalender-Zahl kommt NUR mit einem belegten C-Anteil.
         # Ruht Strang C (reine B-Reihe), steht dort der Grund - kein Plan-Anteil als
-        # Rechengroesse. Beide Zustaende sind zulaessig, der jeweils andere Text nicht.
+        # Rechengroesse. R13bt-1 hat den Wortlaut dieses Zustands von
+        # "Kalender-Batches: nicht rechenbar" auf "die C-Hochrechnung ruht (kein Anteil
+        # aus der Plan-Regel)" umgestellt; beide Formen sind zulaessig, Schweigen nicht
+        # (gemessen 2026-10-05: die alte Fassung dieses Tests wurde rot, sobald die
+        # lebende Preflight-Reihe 13 Dateien umfasste und damit in diesen Zustand kam).
         if "KALENDER-Batches" not in text:
-            self.assertIn("nicht rechenbar", text)
+            self.assertTrue("nicht rechenbar" in text or "C-Hochrechnung ruht" in text, text)
             self.assertIn("Strang B laeuft seit", text)
 
 
