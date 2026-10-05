@@ -116,7 +116,7 @@ Im Notfall ist `stop.ps1 -Force` sofort.
 
 `/status` · `/budget` · `/bilanz [N]` · `/thinking [N] [voll]` · `/pause` · `/resume [ok]` ·
 `/stop` · `/approve [Text|jetzt]` ·
-`/number <N>` · `/autonom [on|off]` · `/ds <Text>` · `/claude <Text>` · `/ask <Frage>` ·
+`/number <N>` · `/autonom [on|off|yolo]` · `/ds <Text>` · `/claude <Text>` · `/ask <Frage>` ·
 `/ask-neu <Frage>` · `/meta` ·
 `/review` · `/last [ds|claude] [n]` · `/queue` · `/why` · `/help`
 
@@ -134,6 +134,19 @@ Neustart fassen das Feld an — nur `/autonom` selbst (und die Attrappe `hx.cli 
 in einen eigenen Zustand schreibt) ändert es. Eine fehlende Zustandsdatei bedeutet **AUS**
 (so war es auch hier: `state/run.json` steht auf `false`). Beleg:
 `docs\_r13v3_beleg_zustand.txt`, Tests `tests/test_r13v3_fixes.TestAutonomHaelt`.
+
+**`/autonom yolo` (R13bw-5, 2026-10-05): Dauerbetrieb, der den Peak nicht abwartet.** Der
+Zusatz setzt zwei Felder: `autonomous` **und** `autonom_trotz_peak` (neu in den Vorgaben von
+`hx/state.py`). Wirksam ist er nur MIT dem Dauerbetrieb — `autonom_yolo()` verlangt beides,
+damit ein vergessener Schalter nicht still jeden Start in den doppelten Tarif schickt.
+Wirkung: beide Peak-Prüfungen (vor dem Review und unmittelbar vor dem Start) werden
+übergangen, es wird also **nicht** gewartet. Das Gate selbst bleibt bestehen
+(`[peak] block_new_batches`) — yolo wartet es nur nicht ab, und der Start bleibt erkennbar:
+im Log steht `Peak ignoriert (Dauerbetrieb yolo)` bzw. `trotz Peak gestartet (Dauerbetrieb
+yolo)`, im Zustand und in `result.json` der Vermerk `trotz Peak gestartet (Dauerbetrieb
+yolo)` (`peak_hinweis`, `worker.py`). `/autonom on` schaltet yolo **ab**, `/autonom off`
+schaltet beides ab; ein unbekannter Zusatz ändert nichts und nennt den Zustand. Tests:
+`tests/test_r13bw5_fixes.py`.
 
 **Frage-Chat (`/ask`, R13o):** Die erste Frage öffnet einen Chat, weitere Fragen laufen
 darin weiter — Rückfragen („und warum?“) kennen also die vorige Antwort. Ein neuer Chat
@@ -1233,6 +1246,7 @@ der Git-Pause. Jetzt gilt:
 | **Zweite Prüfung** | unmittelbar vor `git_preflight()` und damit vor dem Start. Der Auftrag **bleibt stehen** (wie bei der Git-Pause — es wird nichts verworfen), Meldung `PEAK: Auftrag B<N> wartet bis <Ortszeit Berlin>`, danach alle 20 s neu geprüft (`PEAK_POLL_S`) und **von selbst** gestartet, sobald Off-Peak. Dabei wird `/approve` **nicht** verbraucht: der Nutzer muss nichts wiederholen. |
 | **Vorlauf** | `[peak] peak_vorlauf_min = 10` — kein Start, wenn das nächste Peak-Fenster innerhalb dieser Minuten beginnt (an **beiden** Prüfstellen). **Nutzerentscheid 2026-09-29: 90 → 10** — Durchsatz vor den paar Cent Peak-Aufschlag; ein Batch, der kurz vor dem Peak startet und hineinläuft, ist akzeptiert. |
 | **Bewusster Ausweg** | `/approve jetzt` (auch `sofort` / `trotz peak`) startet trotz Peak/Vorlauf. Im Log steht `trotz Peak gestartet (Nutzer)`, in `runs/b<N>/result.json` das Feld `peak_hinweis` — teure Läufe bleiben erkennbar. Ein Text hinter `/approve` geht weiter als `/ds`-Nachricht an den Worker. |
+| **Dauerbetrieb ohne Peak-Warten (R13bw-5)** | `/autonom yolo` hält den Peak **nicht** ab: beide Prüfstellen werden übergangen, Review und Start laufen sofort. Wirksam nur im Dauerbetrieb (sonst wäre ein vergessener Schalter ein stiller Kostentreiber), und erkennbar an `trotz Peak gestartet (Dauerbetrieb yolo)` (Log, `peak_hinweis`, `result.json`). `/autonom on` schaltet es wieder ab. |
 | **Feiertage** | `[peak] extra_offpeak_dates` — 2026-10-01, -02, -05, -06, -07 (chinesischer Nationalfeiertag, Werktage). Quelle: State Council; ob DeepSeek Feiertage wirklich ausnimmt, ist auf der Preisseite **nicht eindeutig belegt** — die Liste ist die billigere Annahme. |
 | **Laufender Batch** | wird **nie** unterbrochen; im laufenden Batch gibt es keine Peak-Prüfung. |
 

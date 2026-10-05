@@ -24,6 +24,9 @@ DEFAULTS = {
     "state": IDLE,
     "batch": 0,
     "autonomous": False,
+    # R13bw-5: `/autonom yolo` - Dauerbetrieb, der den Peak NICHT abwartet. Nur im
+    # Dauerbetrieb wirksam; der Vermerk `peak_hinweis` und `result.json` halten es fest.
+    "autonom_trotz_peak": False,
     "paused": False,
     "stopped": False,
     "worker": None,

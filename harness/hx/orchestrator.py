@@ -538,25 +538,31 @@ class Orchestrator:
                 # startet derselbe Batch als Fortsetzung").
                 or (gate.get("tools") or {}).get("source") == "infra")
 
-    def warte_auf_offpeak(self, s, batch_no: int, trotz_peak: bool = False) -> bool:
+    def warte_auf_offpeak(self, s, batch_no: int, trotz_peak: bool = False,
+                          quelle: str = "Nutzer") -> bool:
         """Vor dem Start warten, bis Peak und Vorlauf vorbei sind (R13al).
 
         Rueckgabe: True = starten, False = der Auftrag ist inzwischen weg (`/review`)
         oder der Harness soll anhalten. Der Auftrag bleibt waehrend des Wartens
         **stehen** - wie bei der Git-Pause; er wird nicht verworfen und braucht keinen
         neuen Review. Geprueft wird alle `PEAK_POLL_S` Sekunden von selbst.
+
+        `trotz_peak` mit `quelle`: der bewusste Ausweg (kein Warten). Die Quelle steht im
+        Vermerk `peak_hinweis` und im Log - `Nutzer` fuer `/approve jetzt` (R13al),
+        `Dauerbetrieb yolo` fuer `/autonom yolo` (R13bw-5). Teure Laeufe bleiben damit
+        unterscheidbar.
         """
         if self.peak_gate()[0]:
             return True                       # nichts zu ueberbruecken
         # Ein Vermerk aus einem abgebrochenen Lauf gilt nicht fuer diesen Start.
         s.data.pop("peak_hinweis", None)
         if trotz_peak:
-            s.data["peak_hinweis"] = "trotz Peak gestartet (Nutzer)"
+            s.data["peak_hinweis"] = f"trotz Peak gestartet ({quelle})"
             s.save()
-            self.log.info("trotz Peak gestartet (Nutzer)", batch=batch_no,
+            self.log.info(f"trotz Peak gestartet ({quelle})", batch=batch_no,
                           tarif=pricing.tariff(None, list(self.cfg.get("peak",
                                                                      "extra_offpeak_dates", []) or [])))
-            self.say(f"Starte Batch {batch_no} TROTZ PEAK (auf deinen Wunsch).")
+            self.say(f"Starte Batch {batch_no} TROTZ PEAK ({quelle}).")
             return True
         gemeldet = False
         while True:
@@ -1196,15 +1202,28 @@ class Orchestrator:
         elif cmd == "approve":
             self._do_approve(rest)
         elif cmd == "autonom":
-            val = rest.lower()
+            val = rest.strip().lower()
             new = not bool(self.state.data.get("autonomous"))
+            yolo = bool(self.state.data.get("autonom_trotz_peak"))
             if val in ("on", "an", "1", "true"):
-                new = True
+                # R13bw-5: die ausdrueckliche Fassung schaltet yolo AB - der Zusatz ist
+                # eine eigene Entscheidung, kein Nebeneffekt des Einschaltens.
+                new, yolo = True, False
             elif val in ("off", "aus", "0", "false"):
-                new = False
+                new, yolo = False, False
+            elif val in ("yolo", "trotz peak", "trotzpeak", "trotz-peak"):
+                new, yolo = True, True
+            elif val:
+                self.say(f"Unbekannter Zusatz '{rest.strip()}' - erlaubt: /autonom "
+                         f"[on|off|yolo]. Zustand bleibt: {self.dauerbetrieb_text()}")
+                return True
             self.state.data["autonomous"] = new
+            self.state.data["autonom_trotz_peak"] = yolo
             self.state.save()
-            self.say("Dauerbetrieb: " + ("AN" if new else "AUS"))
+            self.say("Dauerbetrieb: " + ("AN" if new else "AUS")
+                     + (" - PEAK WIRD IGNORIERT (yolo): Review und Start laufen sofort, "
+                        "auch im Peak-Tarif. Im Log und in `result.json` steht dann \"trotz "
+                        "Peak gestartet (Dauerbetrieb yolo)\"." if (new and yolo) else ""))
         elif cmd == "review":
             self.review_now = True
             self.state.data["paused"] = False
@@ -1336,7 +1355,7 @@ class Orchestrator:
             f"Zustand: {s.state}",
             f"Batch: {self.expected_batch() or '?'} faellig | zuletzt gelaufen: "
             f"{s.data.get('last_batch_number') or 'keiner'} | {self.batch_number_line()}",
-            f"Dauerbetrieb: {'AN' if s.data.get('autonomous') else 'AUS'}",
+            f"Dauerbetrieb: {self.dauerbetrieb_text()}",
             f"Worker: {'PID ' + str(s.live_worker_pid()) if s.live_worker_pid() else 'laeuft nicht'}",
             self.live_batch_zeile(),
             f"Reviewer-Session: {rev.get('session_id')} ({rev.get('reviews')}/{self.cfg.get('reviewer','rotation_after',10)} Reviews)"
@@ -1756,6 +1775,24 @@ class Orchestrator:
         self.log.info("Limit-Wartezustand abgelaufen - Fortsetzung")
         self.say("Das Reviewer-Limit ist abgelaufen - ich setze von selbst fort.")
         return True
+
+    def autonom_yolo(self) -> bool:
+        """R13bw-5: `/autonom yolo` - Dauerbetrieb, der den Peak **nicht abwartet**.
+
+        Wirksam nur MIT dem Dauerbetrieb (`state.autonomous`): sonst waere ein vergessener
+        Schalter ein stiller Kostentreiber, weil jeder Start im Peak den doppelten Tarif
+        kostet. Der Gate selbst bleibt unveraendert (`[peak] block_new_batches`) - yolo
+        wartet ihn nur nicht ab, und Log, `peak_hinweis` und `result.json` halten den
+        Start als "trotz Peak" fest.
+        """
+        return (bool(self.state.data.get("autonomous"))
+                and bool(self.state.data.get("autonom_trotz_peak")))
+
+    def dauerbetrieb_text(self) -> str:
+        """`AN`/`AUS` plus YOLO-Vermerk - EINE Quelle fuer Status und Review-Fakten."""
+        if not self.state.data.get("autonomous"):
+            return "AUS"
+        return "AN (yolo: Peak wird ignoriert)" if self.autonom_yolo() else "AN"
 
     def peak_vorlauf_min(self) -> float:
         """Der Vorlauf aus `[peak] peak_vorlauf_min` (Vorgabe 10 min, R13al).
@@ -3078,7 +3115,7 @@ class Orchestrator:
         head = [f"Harness-Lage am {now_iso()}",
                 f"- Zustand: {self.state.state}, Batch {self.state.batch} "
                 f"(naechster {self.state.batch + 1})",
-                f"- Dauerbetrieb: {'AN' if self.state.data.get('autonomous') else 'AUS'}",
+                f"- Dauerbetrieb: {self.dauerbetrieb_text()}",
                 f"- Kosten heute: ${self.state.spent_today(today):.4f}",
                 f"- {pricing.status_line(self.cfg)}",
                 f"- Queue: ds {len(ds)}, claude {len(cl)}",
@@ -3222,6 +3259,14 @@ class Orchestrator:
             gate = s.gate
             if gate is None:
                 ok, why = self.peak_gate()
+                if not ok and self.autonom_yolo():
+                    # R13bw-5 (`/autonom yolo`): der Dauerbetrieb wartet den Peak nicht ab -
+                    # Review und Start laufen sofort. Abgeschaltet ist der Peak damit NICHT
+                    # (der Tarif steigt); Log und `peak_hinweis` halten den Start fest.
+                    self.log.info("Peak ignoriert (Dauerbetrieb yolo)", lage=why[:200])
+                    self.notify_once("peak_yolo",
+                                     "PEAK ignoriert (Dauerbetrieb yolo): " + why, 1800)
+                    ok = True
                 if not ok:
                     self.notify_once("peak", "PEAK: " + why, 1800)
                     time.sleep(20)
@@ -3365,8 +3410,11 @@ class Orchestrator:
             # Nutzerpause kann der Start beliebig spaet liegen. Hier wird NICHTS
             # verworfen - der Auftrag bleibt stehen und startet von selbst, sobald
             # Off-Peak (wie bei der Git-Pause, s. u.).
-            if not self.warte_auf_offpeak(s, batch_no,
-                                          trotz_peak=(self.approved_peak == gate.get("id"))):
+            yolo = self.autonom_yolo()
+            if not self.warte_auf_offpeak(
+                    s, batch_no,
+                    trotz_peak=(self.approved_peak == gate.get("id")) or yolo,
+                    quelle=("Dauerbetrieb yolo" if yolo else "Nutzer")):
                 continue
 
             ok, why = self.git_preflight()
@@ -3404,9 +3452,19 @@ class Orchestrator:
             s.data["last_batch_number"] = batch_no
             s.data["batch"] = batch_no
             s.save()
+            # R13al/R13bw-5: der Start bleibt als "trotz Peak" erkennbar. Der Nutzerfall
+            # behaelt seinen Wortlaut (`/approve jetzt`), ein anderer Ausweg nennt sich
+            # selbst - `/autonom yolo` steht dann als "Dauerbetrieb yolo" da.
+            peak_vermerk = str(s.data.get("peak_hinweis") or "")
+            if peak_vermerk.endswith("(Nutzer)"):
+                peak_zusatz = "  [TROTZ PEAK, Nutzerwunsch]"
+            elif peak_vermerk:
+                quelle = peak_vermerk.split("(", 1)[-1].rstrip(")")
+                peak_zusatz = f"  [TROTZ PEAK, {quelle or peak_vermerk}]"
+            else:
+                peak_zusatz = ""
             self.say(f"Starte Batch {batch_no}: Profil {profile}, Programm {program or '-'}"
-                     + ("  [TROTZ PEAK, Nutzerwunsch]"
-                        if s.data.get("peak_hinweis") else ""))
+                     + peak_zusatz)
             self._wip_done = False
             try:
                 res_w = self.run_worker(instruction, profile, program, note_block)

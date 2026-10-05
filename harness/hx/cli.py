@@ -424,6 +424,19 @@ def cmd_demo(args) -> int:
                 "/autonom off", "/review", "/help"):
         ok = orch.handle_command(cmd)
         check(f"Befehl {cmd}", ok)
+    # R13bw-5: `/autonom yolo` - Dauerbetrieb, der den Peak nicht abwartet.
+    check("Befehl /autonom yolo", orch.handle_command("/autonom yolo"))
+    check("yolo setzt beide Schalter",
+          (orch.state.data.get("autonomous") is True
+           and orch.state.data.get("autonom_trotz_peak") is True))
+    check("yolo meldet sich als Dauerbetrieb", orch.autonom_yolo())
+    check("Status nennt yolo", "yolo" in orch.status_text())
+    check("Befehl /autonom off loescht yolo", orch.handle_command("/autonom off")
+          and orch.state.data.get("autonom_trotz_peak") is False
+          and orch.autonom_yolo() is False)
+    check("Unbekannter Zusatz aendert nichts",
+          orch.handle_command("/autonom quatsch")
+          and orch.state.data.get("autonomous") is False)
     check("Freitext ist kein Befehl", orch.handle_command("mach weiter") is False)
     check("Tagesbudget-Abfrage", orch.daily_budget_left() > 0,
           f"${orch.daily_budget_left():.2f} frei")
