@@ -1320,6 +1320,19 @@ PREFLIGHT-HINWEIS: Preflight vor der Umschaltschwelle (34.0 von 75 min). Er ist 
 | **Zähler** | `runs/b<N>/preflight-aufrufe.jsonl` — eine Zeile je erkanntem Start; daraus `result.json: preflight_laeufe` (Aufrufe) und `preflight_frueh` (davon vor der Schwelle mit offener Nachrückliste) |
 | **Ab wann** | der Hook bekommt `--run` mit dieser Fassung; ein **schon laufender** Batch (B216) hat seine Einstellungsdatei ohne `--run` und bleibt unberührt — kein Hinweis, keine Zählung |
 
+**Sperre seit R13be-2, Dauer der Sperre seit R13bw-6 (05.10.2026).** Derselbe Hook läuft
+auch als **PreToolUse** (`--pre`) und **blockiert** den Aufruf (`deny` +
+`permissionDecisionReason` = `PREFLIGHT-HINWEIS: …` + Zusatz), wenn die drei Bedingungen
+gelten. R13be-2 stoppte nur den **ersten** Versuch je Batch — die Datei
+`runs/b<N>/preflight-blockiert.jsonl` wirkte dabei als Einmal-Schalter, jeder weitere Aufruf
+lief durch; gemessen (B271, B273) startete der zweite Versuch **28 s bzw. 9 s** nach dem
+Stopp und lief ~10 min (die Uhr stand bei 74 von 124 min bzw. 78 von 135 min). Seit
+**R13bw-6** gilt die Sperre **bis zur Umschaltschwelle, unabhängig von Wiederholungen**:
+jeder Versuch wird erneut gestoppt und bekommt eine Zeile
+(`{"ts","min","umschalt","versuch","werkzeug"}`, `versuch` zählt die Stopps im selben
+Batch). Hinter der Schranke läuft der Preflight normal durch — die Datei ist dann nur noch
+Beleg.
+
 Wortlaut, Messung und die Definition der Zähler: `docs/_r13ao_belege.md`.
 
 **Nachtrag R13bb (Befund M224-4): der Zähler wird gegen das Archiv abgeglichen.** Der Hook

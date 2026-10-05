@@ -295,21 +295,44 @@ class TestPreToolUseHinweis(unittest.TestCase):
         self.assertEqual(d["hookEventName"], "PreToolUse")
         self.assertEqual(d["permissionDecision"], "deny")
         self.assertIn("PREFLIGHT-HINWEIS", d["permissionDecisionReason"])
-        self.assertIn("Falls alle Posten erledigt sind oder ein Posten belegt blockiert ist",
+        # R13bw-6: der Zusatz laedt NICHT mehr zum sofortigen Wiederholen ein - er nennt
+        # die Schranke als Ende der Sperre.
+        self.assertIn("auch ein zweiter Versuch wird gestoppt",
                       d["permissionDecisionReason"])
-        self.assertIn("den Preflight erneut starten", d["permissionDecisionReason"])
+        self.assertIn("bis die Batch-Uhr die Umschaltschwelle erreicht hat",
+                      d["permissionDecisionReason"])
 
-    def test_zweiter_aufruf_laeuft_durch(self):
-        """**Der Kern:** nur EINMAL stoppen - der Worker hat den Hinweis gelesen."""
-        lauf, aus1, _ = self.hook()
+    def test_zweiter_versuch_innerhalb_10_min_wird_wieder_gestoppt(self):
+        """**Der Kern (R13bw-6, Auftrag 05.10.2026):** die Sperre gilt bis zur
+        Umschaltschwelle - die Marke ist kein Einmal-Schalter.
+
+        Gemessen (B271/B273): der zweite Start kam 28 s bzw. 9 s nach dem Stopp und lief
+        ~10 min durch. Beide Aufrufe hier liegen im selben Takt (Sekunden auseinander).
+        """
+        lauf, aus1, _ = self.hook(minuten=42.0)
         self.assertIn("deny", aus1)
-        _lauf2, aus2, rc2 = self.hook()
+        _lauf2, aus2, rc2 = self.hook(minuten=42.0)
         self.assertEqual(rc2, 0)
-        self.assertEqual(aus2, "", "zweiter Aufruf darf nicht wieder blockiert werden")
+        self.assertIn("deny", aus2, "der zweite Versuch muss WIEDER gestoppt werden")
+        self.assertIn("PREFLIGHT-HINWEIS", self.urteil(aus2)["hookSpecificOutput"]
+                      ["permissionDecisionReason"])
         marke = [z for z in (lauf / "preflight-blockiert.jsonl")
                  .read_text(encoding="utf-8").splitlines() if z.strip()]
-        self.assertEqual(len(marke), 1)
-        self.assertEqual(json.loads(marke[0])["min"], 42.0)
+        self.assertEqual(len(marke), 2, "jeder Stopp bekommt eine Zeile")
+        self.assertEqual([json.loads(z)["versuch"] for z in marke], [1, 2])
+        self.assertEqual([json.loads(z)["min"] for z in marke], [42.0, 42.0])
+
+    def test_dritter_versuch_wird_ebenfalls_gestoppt(self):
+        """Unabhaengig von Wiederholungen: auch der dritte Versuch vor der Schranke."""
+        lauf, aus1, _ = self.hook(minuten=30.0)
+        _l, aus2, _ = self.hook(minuten=35.0)
+        _l, aus3, _ = self.hook(minuten=40.0)
+        for aus in (aus1, aus2, aus3):
+            self.assertIn("deny", aus)
+        zeilen = [json.loads(z) for z in (lauf / "preflight-blockiert.jsonl")
+                  .read_text(encoding="utf-8").splitlines() if z.strip()]
+        self.assertEqual([z["versuch"] for z in zeilen], [1, 2, 3])
+        self.assertEqual([z["min"] for z in zeilen], [30.0, 35.0, 40.0])
 
     def test_nach_der_schwelle_kein_stopp(self):
         _lauf, aus, _rc = self.hook(minuten=90.0)
@@ -340,17 +363,31 @@ class TestPreToolUseHinweis(unittest.TestCase):
         self.assertIn("deny", aus_a)
         self.assertIn("deny", aus_b)
 
-    def test_rotprobe_ohne_marke_wieder_stopp(self):
-        """**Rotprobe:** ohne die Marke wuerde JEDER Aufruf gestoppt.
+    def test_rotprobe_ohne_marke_aendert_nichts(self):
+        """**Rotprobe (R13bw-6):** die Marke ist kein Schalter mehr.
 
-        Die Marke ist das einzige, was den zweiten Aufruf durchlaesst - wird sie
-        geloescht (wie es ein Fehler in der Reihenfolge taete), blockt der Hook erneut.
+        R13be-2 liess den zweiten Aufruf nur wegen der geloeschten Marke erneut
+        blockieren - jetzt blockt der Hook auch MIT vorhandener Marke (der Test darueber),
+        und das Loeschen der Datei aendert nichts: der naechste Versuch wird gestoppt und
+        schreibt wieder eine Zeile.
         """
         lauf, aus1, _ = self.hook()
         self.assertIn("deny", aus1)
         (lauf / "preflight-blockiert.jsonl").unlink()
         _lauf, aus2, _ = self.hook()
-        self.assertIn("deny", aus2, "ohne Marke blockt der Hook erneut - die Marke wirkt")
+        self.assertIn("deny", aus2, "das Loeschen der Marke ist kein Freibrief")
+        zeilen = [json.loads(z) for z in (lauf / "preflight-blockiert.jsonl")
+                  .read_text(encoding="utf-8").splitlines() if z.strip()]
+        self.assertEqual([z["versuch"] for z in zeilen], [1],
+                         "ohne Datei beginnt die Zaehlung neu")
+
+    def test_mit_marke_nach_der_schwelle_frei(self):
+        """Umgekehrt: die Marke sperrt nichts - ab der Umschaltschwelle laeuft der
+        Preflight durch (`preflight_zu_frueh` ist dann falsch)."""
+        lauf, aus1, _ = self.hook()
+        self.assertIn("deny", aus1)
+        _lauf, aus2, _ = self.hook(minuten=90.0)
+        self.assertEqual(aus2, "", "hinter der Schwelle laeuft der Preflight")
 
     def test_einstellungsdatei_haengt_beide_ereignisse(self):
         """Ohne den PreToolUse-Eintrag gaebe es den Hinweis vor dem Aufruf nicht."""

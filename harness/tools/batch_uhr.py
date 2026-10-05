@@ -24,6 +24,15 @@ selbst. Je erkanntem Preflight-Aufruf wird eine Zeile an
 `preflight_frueh`). Ohne `--run` (Einstellungsdatei eines schon laufenden Batches aus
 aelterer Fassung) wird **nichts** geschrieben und **nichts** behauptet.
 
+**R13bw-6 (05.10.2026, Nutzerauftrag) - die Sperre haelt bis zur Umschaltschwelle.**
+R13be-2 stoppte nur den ERSTEN zu fruehen Preflight-Aufruf und liess jeden weiteren durch
+(die Marke `preflight-blockiert.jsonl` wirkte als Einmal-Schalter). Gemessen (B271, B273):
+der zweite Start kam **28 s bzw. 9 s** nach dem Stopp und lief ~10 min durch - mitten in der
+Arbeit. Jetzt wird **jeder** Preflight-Start vor der Umschaltschwelle gestoppt, solange die
+Nachrueckliste offen ist (die drei Bedingungen oben bleiben). Jeder Stopp schreibt eine
+Zeile - jetzt mit `versuch` (wievielter Stopp im selben Batch), damit Wiederholungen
+messbar sind, statt als "einmaliger Stopp" zu gelten.
+
 **Kein Fehler darf den Batch stoeren**: bei jedem Problem wird nichts ausgegeben (bzw.
 nur die Uhr-Zeile) und mit 0 beendet (der Hook ist dann wirkungslos, der Lauf geht
 weiter).
@@ -52,13 +61,19 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 ZAHL_DATEI = "preflight-aufrufe.jsonl"
-# R13be-2: der einmalige Stopp je Batch. Die Datei ist die Marke - sie entsteht beim
-# ersten Block UND ist der Beleg (Zeile je Stopp mit Zeit und Minute).
+# R13bw-6: der Stopp je Batch - die Datei ist der BELEG (eine Zeile je Stopp mit Zeit,
+# Minute und Versuchsnummer). Sie ist KEIN Einmal-Schalter mehr: die Sperre gilt, bis die
+# Umschaltschwelle erreicht ist. Frueher liess ihr blosses Vorhandensein jeden weiteren
+# Aufruf durch (gemessen in B271/B273: 28 s bzw. 9 s nach dem Stopp lief ein voller
+# Preflight durch).
 BLOCK_DATEI = "preflight-blockiert.jsonl"
-# Wortlaut aus dem Nutzerauftrag (01.10.2026): der Worker soll den Stopp nicht als
-# Verbot lesen, sondern als Nachfrage, die er begruendet beantworten kann.
-BLOCK_ZUSATZ = ("Falls alle Posten erledigt sind oder ein Posten belegt blockiert ist: "
-                "das im Batch-Dokument festhalten und den Preflight erneut starten.")
+# Wortlaut aus dem Nutzerauftrag (01.10.2026), nachgezogen mit R13bw-6: der Worker soll den
+# Stopp nicht als Verbot lesen, aber auch nicht sofort wiederholen - der Preflight gehoert
+# an das Batch-Ende, hinter die Umschaltschwelle.
+BLOCK_ZUSATZ = ("Die Sperre gilt, bis die Batch-Uhr die Umschaltschwelle erreicht hat - "
+                "auch ein zweiter Versuch wird gestoppt. Bis dahin an der Nachrueckliste "
+                "weiterarbeiten; ist sie erledigt, das im Batch-Dokument festhalten und die "
+                "Schranke abwarten (der Preflight gehoert an das Batch-Ende).")
 
 # --------------------------------------------------- R391-Sperre (R13bl)
 # Wortlaut des Auftrags: Edit/Write/MultiEdit auf Pfade unter `port/` und `scripts/`.
@@ -201,7 +216,7 @@ def _nachrueckliste_offen(lauf: Path | None) -> bool:
 
 
 def pre_tooluse(eingabe: dict, lauf: "Path | None", state_datei, umschalt) -> int:
-    """PreToolUse: den Preflight-Aufruf EINMAL stoppen, wenn er zu frueh kaeme (R13be-2).
+    """PreToolUse: den Preflight-Aufruf stoppen, solange er zu frueh kaeme (R13be-2, R13bw-6).
 
     **Was PreToolUse darf** (Beleg: das Hooks-Handbuch im CLI-Binary,
     `docs/_r13be_belege.md`): Ereignis-Tabelle „PreToolUse - Run before tool, **can
@@ -215,10 +230,11 @@ def pre_tooluse(eingabe: dict, lauf: "Path | None", state_datei, umschalt) -> in
       * die Batch-Uhr steht **vor** der Umschaltschwelle (`uhr.preflight_zu_frueh`),
       * `auftrag.md` traegt eine offene `NACHRUECKLISTE` (`_nachrueckliste_offen`).
 
-    **Je Batch nur einmal:** nach dem ersten Stopp entsteht `preflight-blockiert.jsonl`;
-    jeder weitere Aufruf im selben Batch laeuft durch (der Worker hat den Hinweis dann
-    gelesen und entschieden). Ohne Laufverzeichnis oder ohne Startzeit im Zustand
-    passiert nichts - der Lauf bleibt unberuehrt.
+    **Die Sperre haelt bis zur Umschaltschwelle (R13bw-6, Auftrag 05.10.2026).** Jeder
+    weitere Preflight-Start vor der Schranke wird ERNEUT gestoppt - die Datei ist nur der
+    Beleg, kein Einmal-Schalter. Grund (gemessen B271/B273): nach dem ersten Stopp kam der
+    zweite Start 28 s bzw. 9 s spaeter und lief ~10 min durch. Ohne Laufverzeichnis oder
+    ohne Startzeit im Zustand passiert nichts - der Lauf bleibt unberuehrt.
     """
     from hx import streamjson, uhr
     if not streamjson.ist_preflight_aufruf(eingabe.get("tool_name"),
@@ -236,12 +252,16 @@ def pre_tooluse(eingabe: dict, lauf: "Path | None", state_datei, umschalt) -> in
     if not _nachrueckliste_offen(lauf):
         return 0
     marke = (Path(lauf) / BLOCK_DATEI) if lauf is not None else None
-    if marke is not None and marke.is_file():
-        return 0                       # schon einmal gestoppt - jetzt durchlaufen lassen
     if marke is not None:
-        from hx.util import append_jsonl
+        # R13bw-6: JEDE Wiederholung wird gestoppt und belegt (`versuch` = wievielter
+        # Stopp im selben Batch). Vorher liess die blosse Existenz der Datei durch.
+        from hx.util import append_jsonl, read_text
+        versuch = 1
+        if marke.is_file():
+            versuch = 1 + sum(1 for z in (read_text(marke) or "").splitlines() if z.strip())
         append_jsonl(marke, {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                              "min": round(minuten, 1), "umschalt": float(umschalt),
+                             "versuch": versuch,
                              "werkzeug": str(eingabe.get("tool_name") or "")})
     # Derselbe Wortlaut wie beim Hinweis NACH dem Aufruf ("PREFLIGHT-HINWEIS: …") plus
     # der Zusatz aus dem Auftrag, damit der Worker den Stopp begruendet beantworten kann.

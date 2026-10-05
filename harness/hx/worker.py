@@ -304,9 +304,11 @@ def write_worker_hooks(cfg, rd: Path, state_datei, log=None) -> str | None:
     # R13be-2 (Nutzerauftrag 01.10.2026): derselbe Hinweis auch VOR dem Aufruf.
     # PreToolUse darf blockieren (`hookSpecificOutput.permissionDecision` =
     # "allow"|"deny"|"ask" + `permissionDecisionReason`; Beleg: Hooks-Handbuch im
-    # CLI-Binary, docs/_r13be_belege.md). Das Skript stoppt den Preflight genau EINMAL
-    # je Batch und nur, wenn die Uhr vor der Umschaltschwelle steht UND die
-    # NACHRUECKLISTE offen ist - dieselbe Bedingung wie der Hinweis danach.
+    # CLI-Binary, docs/_r13be_belege.md). Das Skript stoppt JEDEN Preflight-Start, der
+    # vor der Umschaltschwelle liegt, solange die NACHRUECKLISTE offen ist - dieselbe
+    # Bedingung wie der Hinweis danach. R13bw-6 (05.10.2026): frueher liess es nach dem
+    # ersten Stopp jeden weiteren Aufruf durch; gemessen (B271/B273) startete der zweite
+    # 28 s bzw. 9 s spaeter und lief ~10 min durch.
     daten = {"hooks": {
         "PostToolUse": [{"hooks": [{
             "type": "command", "timeout": 10,
