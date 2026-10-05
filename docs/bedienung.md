@@ -998,9 +998,20 @@ während der Hybrid-Lauf in B214 von `28/407` auf `448/42599` lief. Der Stillsta
 jetzt aus der **Preflight-Zeile `Hybrid-Lauf`** gelesen (Feld 2 = Halt-PC, Feld 4 = Wegmaß
 `Zähler/Gesamt`; `hx/stand.py::hybrid_verlauf`, `hx/aussensicht.py::hybrid_stillstand`):
 
+**Seit R13bo-5 (03.10.2026) ist die Quelle die Zeile `Hybrid-A4`** — der ECHTE Halt-PC
+(`stand.hybrid_a4_verlauf`). Das Feld 2 der Zeile `Hybrid-Lauf` ist die **200M-Schranke**
+und bleibt stehen, während der Lauf weiterzieht (B250 löste damit einen Lauf aus, obwohl
+B248/B249 Fortschritt hatten).
+
 * Stillstand = in **3 B-Batches in Folge** (`[meta] bschritt_stillstand_batches`) ist der
   **Halt-PC gleich** und das **Wegmaß steigt nicht**. C-Batches und Batches ohne
   `Hybrid-Lauf`-Zeile (vor B212) zählen nicht mit — es wird nichts geraten.
+* **Probe-Artefakt (Schranke), R13bw-8 (05.10.2026):** endet die A4-Probe an ihrer
+  Schrittgrenze (`Halt-Art Schranke`, `Schritte … 900000000`), ist ihr „Halt“ nur der
+  Abbruch der Probe. Solche Läufe fallen aus der Vergleichsreihe, und die Meldung nennt sie
+  als `Probe-Artefakt Schranke`. Gemessen (05.10.2026): B260–B267 und B269–B273 tragen
+  `Halt-Art Schranke`, nur B268 hatte einen echten Halt (`Halt-Art Form`, 422421553
+  Schritte) — der Melder feuerte trotzdem mit B271–B273 (`docs/_r13bw8_hybrid_beleg.txt`).
 * Der Preflight liegt **vor** dem Review vor; der Auslöser kommt damit früher.
 * Entprellung wie bisher: Marke `hybrid_gemeldet_bis` in `state.data["meta"]` (Start 0),
   gesetzt nur nach `rc = 0` mit beteiligtem Grund; gefeuert nur, wenn ein **neuer** B-Batch

@@ -1,0 +1,15 @@
+R13bw-8 Hybrid-A4-Beleg 2026-10-05 13:47:22
+
+A4-Reihe (neueste Preflight-Dateien):
+  B266  art=Schranke   weg=   900000000 halt_pc=80008BB0   cache=False datei=_preflight_266.txt
+  B267  art=Schranke   weg=   900000000 halt_pc=80008450   cache=False datei=_preflight_267.txt
+  B268  art=Form       weg=   422421553 halt_pc=8005D534   cache=False datei=_preflight_268.txt
+  B269  art=Schranke   weg=   900000000 halt_pc=80008AB0   cache=False datei=_preflight_269.txt
+  B271  art=Schranke   weg=   900000000 halt_pc=80008AB0   cache=False datei=_preflight_271.txt
+  B272  art=Schranke   weg=   900000000 halt_pc=80008AB0   cache=False datei=_preflight_272.txt
+  B273  art=Schranke   weg=   900000000 halt_pc=80008AB0   cache=False datei=_preflight_273.txt
+
+davon B-Batches: B266, B267, B268, B269, B271, B272, B273
+
+ALARM hybrid_stillstand: (kein Alarm)
+Anzahl A4-Eintraege mit Halt-Art Schranke (von 7): 6

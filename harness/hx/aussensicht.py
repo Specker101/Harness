@@ -872,6 +872,21 @@ def summaries(cfg, n: int) -> list[tuple[int, int, str]]:
 # batch`) nutzt die Zeile weiterhin als einen Beleg - sie bleibt deshalb im Prompt.
 
 
+def ist_schranken_halt(eintrag: dict) -> bool:
+    """Endet die A4-Probe an der **Schranke**? (R13bw-8) -> der "Halt" ist kein Halt.
+
+    Gelesen wird `Halt-Art` der Zeile `Hybrid-A4` (`stand.hybrid_a4_verlauf`). `Schranke`
+    heisst: die Probe lief in ihre SCHRITTGRENZE; `Halt-PC` ist dann nur die Stelle, an der
+    sie abgebrochen wurde, und `Schritte` steht auf der Grenze.
+
+    Gemessen 2026-10-05: B260-B267 und B269-B273 tragen `Schritte ... 900000000` und
+    `Halt-Art Schranke` - nur B268 hatte einen echten Halt (`Halt-Art Form`, 422421553
+    Schritte). Zwei solcher Eintraege mit gleichem Abbruch-PC sind deshalb KEIN Stillstand,
+    sondern ein Artefakt der Schranke; genau darauf feuerte der Melder in B271-B273.
+    """
+    return str((eintrag or {}).get("art") or "").strip().lower() == "schranke"
+
+
 def hybrid_stillstand(cfg) -> str:
     """Steht der Hybrid-Lauf ueber die letzten B-Batches still? ('' = nein)
 
@@ -888,6 +903,11 @@ def hybrid_stillstand(cfg) -> str:
     C-Batches waren (Strang B ruht); waehrend einer B-Phase gilt er normal. C-Batches
     zaehlen nicht mit, und Batches ohne A4-Zeile (vor B240) fehlen in der Reihe - beides
     wird NICHT geraten.
+
+    R13bw-8 (Auftrag 05.10.2026): Laeufe, die an der **Schranke** enden
+    (`Halt-Art Schranke`, `ist_schranken_halt`), fallen aus der Vergleichsreihe - ihr
+    "Halt" ist der Abbruch der Probe, kein Halt des Spiels. Die Meldung nennt sie als
+    `Probe-Artefakt Schranke`.
     """
     if not any(ist_b_batch(cfg, int(b))
                for b, _p in stand.preflight_dateien(cfg, HYBRID_RUHE_C_BATCHES)):
@@ -905,9 +925,13 @@ def hybrid_stillstand(cfg) -> str:
     # stehen - es wird nichts behauptet.
     ohne_cache = [e for e in reihe if e.get("cache") is not True]
     ausgelassen = [e for e in reihe if e.get("cache") is True]
-    if len(ohne_cache) < n:
+    # R13bw-8: Laeufe, die an der SCHRANKE enden, sind kein Halt - sie fallen wie die
+    # Zwischenspeicher-Treffer aus der Reihe (ein gleicher Abbruch-PC ist kein Stillstand).
+    schranken = [e for e in ohne_cache if ist_schranken_halt(e)]
+    ohne_schranke = [e for e in ohne_cache if not ist_schranken_halt(e)]
+    if len(ohne_schranke) < n:
         return ""
-    letzte = ohne_cache[-n:]
+    letzte = ohne_schranke[-n:]
     pcs = {e["halt_pc"] for e in letzte}
     if len(pcs) != 1:
         return ""
@@ -916,9 +940,13 @@ def hybrid_stillstand(cfg) -> str:
         return ""                      # die Schrittzahl STEIGT - also Fortschritt
     b_erst, b_letzt = letzte[0]["batch"], letzte[-1]["batch"]
     b_reihe = ", ".join(f"B{e['batch']}" for e in letzte)
-    zusatz = ("" if not ausgelassen else
-              "; ausgelassen (Zwischenspeicher-Treffer, keine eigene Messung): "
-              + ", ".join(f"B{e['batch']}" for e in ausgelassen))
+    zusatz = ""
+    if ausgelassen:
+        zusatz += ("; ausgelassen (Zwischenspeicher-Treffer, keine eigene Messung): "
+                   + ", ".join(f"B{e['batch']}" for e in ausgelassen))
+    if schranken:
+        zusatz += ("; ausgelassen (Probe-Artefakt Schranke, kein echter Halt): "
+                   + ", ".join(f"B{e['batch']}" for e in schranken))
     return (f"{HYBRID_GRUND} haengt: Halt-PC {letzte[-1]['halt_pc']} unveraendert und "
             f"Schritte {wege[0]} -> {wege[-1]} steigt nicht "
             f"({b_reihe}, Quelle analysis/{letzte[-1]['datei']}, Zeile \"Hybrid-A4\") "
