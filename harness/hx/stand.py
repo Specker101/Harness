@@ -2648,6 +2648,91 @@ def station_von_batch(cfg, batch: int) -> dict:
     return {"station": None, "quelle": ""}
 
 
+# ----------------------------- Bewegung / Fortschritt der B-Phase (R13bw-10, R277-1)
+# NUTZERENTSCHEID R277-1 (`analysis/hybrid-plan.md:303-317`, wortgleich im Anker
+# `analysis/r1b-workstream.md:4`): "Strang B laeuft unbefristet weiter. Die Regel 'zwei
+# B-Batches in Folge ohne Station und ohne Bewegung -> Frage B oder C an den Nutzer'
+# entfaellt, ebenso der Stillstandszaehler 4 als Ausloeser fuer Rueckfrage und
+# Aussensicht. Der Zaehler bleibt als reine Information im Ankerkopf. Nur wenn 6
+# B-Batches in Folge weder Station noch Bewegung zeigen, kommt ein Hinweis an mich (keine
+# Frage, kein Strangwechsel, B laeuft weiter bis ich anders entscheide)."
+#
+# R13bw-10 (06.10.2026, Rueckfrage des Harness - Entscheid des Nutzers, wortgleich):
+# "Bewegung wie die Station aus einer Pflichtzeile im Review lesen: neue Zeile
+# 'BEWEGUNG: ja|nein' in prompts/reviewer.md (neben STATION, mit der Definition aus
+# R277-2: nur geaendertes Laufverhalten durch Kern- oder Modellaenderung, nicht neue
+# Messung desselben Verhaltens). Der Harness zaehlt 'B-Batches in Folge weder Station noch
+# Bewegung', Schwelle 6, nur Telegram-Hinweis, keine Frage, keine Zusatz-Aussensicht.
+# Fehlt die Zeile, wird der Zaehler als Untergrenze ausgewiesen (wie beim Stationszaehler).
+# Alte Batches ohne BEWEGUNG-Zeile aus dem Ankerkopf (Bewegung: JA/NEIN) nachlesen, falls
+# dort vorhanden, sonst als unbekannt fuehren."
+BEWEGUNG_ZEILE = "BEWEGUNG: ja|nein"
+BEWEGUNG_QUELLE = "Pflichtzeile BEWEGUNG im Review, das den Batch bewertet (R13w)"
+BEWEGUNG_ANKER_QUELLE = "Ankerkopf analysis/r1b-workstream.md (Stand-Block des Batches)"
+_RE_BEWEGUNG = re.compile(r"^\s*BEWEGUNG:\s*(ja|nein)\b", re.M | re.I)
+# Die Schwelle des HINWEISES (R277-1). Der Stationszaehler hat **keine** mehr: R277-1
+# nimmt "den Stillstandszaehler 4 als Ausloeser fuer Rueckfrage und Aussensicht" zurueck.
+FORTSCHRITT_SCHWELLE = 6
+_RE_ANKER_STAND = re.compile(r"^\*\*Stand[^*]*\*\*", re.M)
+# Im Stand-Block des Ankers steht der Batch zweimal: in der Stand-Zeile ("BATCH 276") und
+# im Station-Vermerk ("Station (B276):"). Gesucht wird der Batch, der VOR dem
+# Bewegungs-Vermerk genannt ist (im B277-Block steht naemlich der Vermerk zu B276).
+_RE_ANKER_BATCH = re.compile(r"BATCH\s+(\d+)|Station\s*\(B(\d+)\)", re.I)
+_RE_ANKER_BEWEGUNG = re.compile(r"Bewegung\s*:\s*(ja|nein)\b", re.I)
+
+
+def _anker_bewegung(cfg) -> dict:
+    """`{batch: True|False}` - die `Bewegung: JA|NEIN`-Vermerke des Ankerkopfs (R13bw-10).
+
+    Der Ankerkopf fuehrt je Batch einen Stand-Block ("**Stand (Vorgaenger, B276):** BATCH
+    276"), und darin steht seit jeher "**Bewegung: JA**"/"NEIN". Diese Bloecke sind die
+    Quelle fuer **alte** Batches, deren Review noch keine Pflichtzeile `BEWEGUNG:` tragen
+    kann (die Zeile gibt es erst seit R13bw-10). Gelesen wird NUR, was dasteht: fehlt der
+    Vermerk, bleibt der Batch unbekannt (`None`) - geraten wird nichts.
+    """
+    try:
+        text = read_text(Path(cfg.anchor_file)) or ""
+    except OSError:
+        return {}
+    ergebnis: dict[int, bool] = {}
+    for block in _RE_ANKER_STAND.split(text)[1:]:        # [0] ist der Dateikopf
+        treffer = list(_RE_ANKER_BATCH.finditer(block))
+        for i, m in enumerate(treffer):
+            ende = treffer[i + 1].start() if i + 1 < len(treffer) else len(block)
+            b = int(m.group(1) or m.group(2))
+            bm = _RE_ANKER_BEWEGUNG.search(block, m.end(), ende)
+            if bm:
+                ergebnis[b] = bm.group(1).lower() == "ja"
+    return ergebnis
+
+
+def bewegung_von_batch(cfg, batch: int, anker: dict | None = None) -> dict:
+    """`{"bewegung": True|False|None, "quelle": "…"}` - zeigte dieser B-Batch Bewegung?
+
+    Reihenfolge (Nutzervorgabe R13bw-10):
+
+    1. Pflichtzeile `BEWEGUNG: ja|nein` aus dem Review, das den Batch **bewertet** hat
+       (R13w: das Review zu Batch N liegt in `runs/b<N+1>/review.md`).
+    2. Fuer **alte** Batches (vor der Zeile) der `Bewegung:`-Vermerk im Stand-Block des
+       Ankerkopfs (`_anker_bewegung`, wird von `fortschritt_zaehler` EINMAL gelesen).
+    3. Sonst **unbekannt** (`None`) - der Zaehler wird dort zur Untergrenze, statt eine
+       Zahl zu erfinden.
+
+    Die **Definition** der Bewegung steht in R277-2 und bleibt beim Reviewer: geaendertes
+    Laufverhalten durch Kern- **oder** Modellaenderung - **nicht** die neue Messung
+    desselben Verhaltens.
+    """
+    review = review_zu_batch(cfg, batch) or ""
+    m = _RE_BEWEGUNG.search(review)
+    if m:
+        return {"bewegung": m.group(1).lower() == "ja", "quelle": BEWEGUNG_QUELLE}
+    if anker is None:
+        anker = _anker_bewegung(cfg)
+    if int(batch) in (anker or {}):
+        return {"bewegung": bool(anker[int(batch)]), "quelle": BEWEGUNG_ANKER_QUELLE}
+    return {"bewegung": None, "quelle": ""}
+
+
 def _batch_nummern(cfg, bis_batch: int | None, anzahl: int) -> list[int]:
     """Batch-Nummern mit Ordner in `runs/`, absteigend, hoechstens `anzahl`."""
     try:
@@ -2726,6 +2811,99 @@ def stillstand_zaehler(cfg, bis_batch: int | None = None, anzahl: int = 30) -> d
             "schwelle_erreicht": zaehler >= STATION_SCHWELLE, "reihe": reihe}
 
 
+def fortschritt_zaehler(cfg, bis_batch: int | None = None, anzahl: int = 30) -> dict:
+    """B-Batches in Folge **weder Station noch Bewegung** (R277-1, Hinweisgrenze 6).
+
+    Wortlaut der Regel: "Nur wenn 6 B-Batches in Folge weder Station noch Bewegung zeigen,
+    kommt ein Hinweis an mich (keine Frage, kein Strangwechsel, B laeuft weiter bis ich
+    anders entscheide)."
+
+    Gezaehlt werden nur **B-Batches**; C-Batches zaehlen nicht mit und setzen nicht
+    zurueck (dieselbe Regel wie beim Stations-Zaehler). Eine **Station** ODER eine
+    **Bewegung** beendet den Lauf - dort faengt der Zaehler neu an.
+
+    Unbelegt heisst unbelegt: fehlt fuer einen Batch eine der beiden Aussagen, endet der
+    Lauf dort und wird als Luecke gemeldet (`luecke_ab`, `fehlt_zeile`, `fehlt_batch`) -
+    der Zaehler ist dann eine **Untergrenze**. Zwei Sonderfaelle wie beim Stations-Zaehler:
+    der **neueste**, noch nicht bewertete Batch wird uebersprungen (in `offen` genannt),
+    ein Loch tiefer in der Reihe stoppt den Lauf.
+
+    Rueckgabe: `{zaehler, von, bis, luecke_ab, fehlt_batch, fehlt_zeile, grenze_ab,
+    stop_bei, stop_grund, schwelle, schwelle_erreicht, offen,
+    reihe: [(batch, "weder"|"station"|"bewegung"|"?")]}`.
+    """
+    zaehler = 0
+    von = bis = 0
+    luecke_ab: int | None = None
+    fehlt_batch: int | None = None
+    fehlt_zeile = ""
+    grenze_ab: int | None = None
+    stop_bei: int | None = None
+    stop_grund = ""
+    offen: list[int] = []
+    reihe: list[tuple[int, str]] = []
+    anker = _anker_bewegung(cfg)
+    for nummer in _batch_nummern(cfg, bis_batch, anzahl):
+        if not (Path(cfg.root) / "runs" / f"b{nummer:03d}" / "auftrag.md").is_file():
+            continue                     # kein Batch - nur der Review-Ordner des Vorgaengers
+        art = strang_von_batch(cfg, nummer).get("strang")
+        if art == "C":
+            continue                     # C-Batch: zaehlt nicht, setzt nicht zurueck
+        if art != "B":
+            grenze_ab = nummer           # nicht klassifizierbar -> Lauf endet hier
+            break
+        s = station_von_batch(cfg, nummer)
+        w = bewegung_von_batch(cfg, nummer, anker)
+        if s["station"] is None or w["bewegung"] is None:
+            if not reihe and not offen:  # noch nicht bewerteter neuester Batch
+                offen.append(nummer)
+                continue
+            luecke_ab = nummer
+            fehlt_batch = nummer
+            fehlt_zeile = (STATION_ZEILE if s["station"] is None else BEWEGUNG_ZEILE)
+            break
+        if s["station"]:
+            stop_bei, stop_grund = nummer, "station"
+            reihe.append((nummer, "station"))
+            break
+        if w["bewegung"]:
+            stop_bei, stop_grund = nummer, "bewegung"
+            reihe.append((nummer, "bewegung"))
+            break
+        zaehler += 1
+        von = nummer                     # laeuft rueckwaerts weiter nach unten
+        bis = bis or nummer
+        reihe.append((nummer, "weder"))
+    return {"zaehler": zaehler, "von": von, "bis": bis, "luecke_ab": luecke_ab,
+            "fehlt_batch": fehlt_batch, "fehlt_zeile": fehlt_zeile,
+            "grenze_ab": grenze_ab, "stop_bei": stop_bei, "stop_grund": stop_grund,
+            "schwelle": FORTSCHRITT_SCHWELLE,
+            "schwelle_erreicht": zaehler >= FORTSCHRITT_SCHWELLE,
+            "offen": offen, "reihe": reihe}
+
+
+def fortschritt_hinweis_text(cfg, f: dict | None = None) -> str:
+    """Der Telegram-Hinweis zu R277-1 ('') - **keine** Frage, **kein** Strangwechsel.
+
+    Der Wortlaut bleibt beim Nutzerentscheid: "kommt ein Hinweis an mich (keine Frage,
+    kein Strangwechsel, B laeuft weiter bis ich anders entscheide)". Der Text sagt deshalb
+    ausdruecklich, dass **nichts** passiert ausser dieser Meldung.
+    """
+    f = f or fortschritt_zaehler(cfg)
+    if not f.get("schwelle_erreicht"):
+        return ""
+    zusatz = ""
+    if f.get("luecke_ab"):
+        zusatz = (f"\nUnbelegt ab B{f['luecke_ab']} ({f.get('fehlt_zeile') or 'Pflichtzeile'} "
+                  f"fehlt) - die Zahl ist eine UNTERGRENZE.")
+    elif f.get("grenze_ab"):
+        zusatz = f"\nDie Reihe endet an B{f['grenze_ab']} (Strang nicht belegbar)."
+    return (f"R277-1: {f['zaehler']} B-Batches in Folge weder Station noch Bewegung "
+            f"(B{f['von']}..B{f['bis']}, Hinweisgrenze {f['schwelle']}).\n"
+            "Keine Frage, kein Strangwechsel - Strang B laeuft weiter, bis du anders "
+            "entscheidest." + zusatz)
+
+
 def strang_lauf(cfg, anzahl: int = 30) -> dict:
     """Der B-Lauf am Ende der Strangreihe und der letzte C-Batch davor (R13bw-9).
 
@@ -2784,21 +2962,23 @@ def strang_lauf(cfg, anzahl: int = 30) -> dict:
 
 
 def b_phase_zeile(cfg, z: dict | None = None) -> list[str]:
-    """Die B-Phasen-Zeile: wie viele B-Batches stehen in Folge ohne Station (R13bt).
+    """Die B-Phasen-Zeilen: Stillstand (Station) und Fortschritt (R277-1).
 
-    Sie ist das **Fortschrittsmass der B-Phase** (`analysis/hybrid-plan.md:274`) - im
-    Gegensatz zur C-Hochrechnung, die in einer reinen B-Reihe ruht (`_mischung_zeile`).
+    **Die Stationszeile ist reine Information.** R277-1 (`analysis/hybrid-plan.md:303-317`)
+    nimmt "den Stillstandszaehler 4 als Ausloeser fuer Rueckfrage und Aussensicht" zurueck;
+    der Zaehler bleibt als Zahl stehen. **Ausloesend ist allein die zweite Zeile**:
+    B-Batches in Folge **weder Station noch Bewegung** (Hinweisgrenze **6**) - und auch dann
+    geht nur ein Telegram-Hinweis raus: keine OFFENE FRAGE, kein Strangwechsel, keine
+    zusaetzliche Aussensicht (`stand.fortschritt_hinweis_text`).
     """
     z = z or stillstand_zaehler(cfg)
     if z["zaehler"]:
         zeile = (f"  B-Phase      : {z['zaehler']} B-Batches in Folge ohne Station "
-                 f"(B{z['von']}..B{z['bis']})"
-                 + ("; SCHWELLE {s} ERREICHT - loest eine Aussensicht aus; OFFENE FRAGE "
-                    "an den Nutzer".format(s=z["schwelle"])
-                    if z["schwelle_erreicht"] else f"; Schwelle {z['schwelle']}"))
+                 f"(B{z['von']}..B{z['bis']}) - reine Information (R277-1; der "
+                 f"Stationszaehler {z['schwelle']} loest nichts mehr aus)")
     elif z["station_bei"]:
         zeile = (f"  B-Phase      : Station in B{z['station_bei']} - Zaehler neu "
-                 f"(0 B-Batches ohne Station seitdem)")
+                 f"(0 B-Batches ohne Station seitdem) - reine Information (R277-1)")
     else:
         zeile = ("  B-Phase      : Stillstandszähler nicht belegt (kein B-Batch der "
                  "letzten Batches mit " + STATION_ZEILE + ")")
@@ -2813,6 +2993,34 @@ def b_phase_zeile(cfg, z: dict | None = None) -> list[str]:
     elif z["grenze_ab"]:
         zeilen.append(f"                 Lauf endet an B{z['grenze_ab']} (Strang nicht "
                       "belegbar) - der Zaehler ist eine UNTERGRENZE")
+    # --- R277-1: der Fortschritt "weder Station noch Bewegung" (Hinweisgrenze 6).
+    f = fortschritt_zaehler(cfg)
+    if f["zaehler"]:
+        zeilen.append(f"  Fortschritt  : {f['zaehler']} B-Batches in Folge weder Station "
+                      f"noch Bewegung (B{f['von']}..B{f['bis']})"
+                      + (f" - HINWEISGRENZE {f['schwelle']} ERREICHT (Telegram-Hinweis, "
+                         "keine Frage, Strang B laeuft weiter)"
+                         if f["schwelle_erreicht"]
+                         else f"; Hinweisgrenze {f['schwelle']} (R277-1)"))
+    elif f["luecke_ab"] or f["grenze_ab"]:
+        zeilen.append(f"  Fortschritt  : nicht belegt (Hinweisgrenze {f['schwelle']}, "
+                      "R277-1)")
+    elif f.get("stop_bei"):
+        # Kein gezaehlter Batch, WEIL eine belegte Station/Bewegung den Lauf beendet hat -
+        # das gehoert sichtbar hin (sonst fehlt die Zeile ganz und der Leser raet).
+        zeilen.append(f"  Fortschritt  : 0 B-Batches in Folge weder Station noch Bewegung "
+                      f"(zuletzt B{f['stop_bei']}: "
+                      f"{'Station' if f.get('stop_grund') == 'station' else 'Bewegung'}) - "
+                      f"Hinweisgrenze {f['schwelle']} (R277-1)")
+    if f.get("offen"):
+        zeilen.append(f"                 B{f['offen'][0]} ist noch nicht bewertet "
+                      "(Review fehlt)")
+    if f["luecke_ab"]:
+        zeilen.append(f"                 ab B{f['luecke_ab']} fehlt {f.get('fehlt_zeile') or 'eine Pflichtzeile'} - "
+                      "der Fortschritts-Zaehler ist eine UNTERGRENZE (R13bw-10)")
+    elif f["grenze_ab"]:
+        zeilen.append(f"                 Reihe endet an B{f['grenze_ab']} (Strang nicht "
+                      "belegbar)")
     return zeilen
 
 

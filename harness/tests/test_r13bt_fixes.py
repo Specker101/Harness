@@ -63,18 +63,25 @@ class Basis(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     # ---------------------------------------------------------------- Vorrichtungen
-    def batch(self, n: int, strang: str = "B", station: bool | None = None) -> None:
-        """Ein Batch mit Strang-Zeile; `station` schreibt die Pflichtzeile ins Review.
+    def batch(self, n: int, strang: str = "B", station: bool | None = None,
+              bewegung: bool | None = None) -> None:
+        """Ein Batch mit Strang-Zeile; `station`/`bewegung` schreiben die Pflichtzeilen.
 
         Das Review zu Batch N liegt in `runs/b<N+1>/review.md` (R13w) - genau dort liest
-        `stand.station_von_batch` sie.
+        `stand.station_von_batch` sie. `bewegung` schreibt seit R13bw-10 zusaetzlich die
+        Pflichtzeile `BEWEGUNG: ja|nein` (fehlt sie, greift der Anker-Rueckfall).
         """
         write_text_atomic(self.root / "runs" / f"b{n:03d}" / "auftrag.md",
                           f"Batch {n}\n\nSTRANG: {strang}\n")
-        if station is not None:
+        if station is not None or bewegung is not None:
+            zeilen = []
+            if station is not None:
+                zeilen.append(f"STATION: {'ja' if station else 'nein'}")
+            if bewegung is not None:
+                zeilen.append(f"BEWEGUNG: {'ja' if bewegung else 'nein'}")
+            zeilen.append("B-SCHRITT: 4/5 Boot bis Hauptschleife")
             write_text_atomic(self.root / "runs" / f"b{n + 1:03d}" / "review.md",
-                              f"STATION: {'ja' if station else 'nein'}\n"
-                              "B-SCHRITT: 4/5 Boot bis Hauptschleife\n")
+                              "\n".join(zeilen) + "\n")
 
     def lage_258_bis_264(self) -> None:
         """Die Vorgabedaten: Station B259 und B261, sonst keine (B258, B260, B262..B264)."""
@@ -123,12 +130,18 @@ class TestStillstand(Basis):
         self.assertEqual(z["station_bei"], 261, "der C-Batch setzt NICHT zurueck")
 
     def test_schwelle_erreicht(self):
+        """R13bw-10: der Stationszaehler ist reine Information - er loest NICHTS aus."""
         self.lage_258_bis_264()
         self.batch(265, station=False)                     # vier ohne Station in Folge
         z = stand.stillstand_zaehler(self.cfg)
         self.assertEqual(z["zaehler"], 4)
-        self.assertTrue(z["schwelle_erreicht"])
-        self.assertIn("SCHWELLE 4 ERREICHT", "\n".join(stand.b_phase_zeile(self.cfg, z)))
+        self.assertTrue(z["schwelle_erreicht"])           # bleibt eine Zahl ...
+        text = "\n".join(stand.b_phase_zeile(self.cfg, z))
+        self.assertIn("4 B-Batches in Folge ohne Station", text)
+        self.assertIn("reine Information (R277-1", text)
+        self.assertNotIn("loest eine Aussensicht aus", text)     # ... aber kein Ausloeser
+        self.assertNotIn("OFFENE FRAGE", text)
+        self.assertNotIn("SCHWELLE 4 ERREICHT", text)
 
     def test_ohne_vermerk_wird_nicht_geraten(self):
         """Fehlt die Pflichtzeile, endet der Lauf dort - der Zähler ist eine Untergrenze."""
@@ -155,7 +168,7 @@ class TestStillstand(Basis):
         text = "\n".join(stand.b_phase_zeile(self.cfg))
         self.assertIn("3 B-Batches in Folge ohne Station", text)
         self.assertIn("(B262..B264)", text)
-        self.assertIn("Schwelle 4", text)
+        self.assertIn("Stationszaehler 4 loest nichts mehr aus", text)
 
     def test_datenlage_bis_b277(self):
         """R13bw-9: dieselbe Rechnung auf der fortgeschriebenen Datenlage (B258..B277)."""
@@ -326,13 +339,21 @@ class TestNichtAsciiPfade(Basis):
         self.assertIn("STATION: ja", stand.review_zu_batch(self.cfg, 263))
 
 
-# ------------------------- 6) Die Schwelle loest eine Aussensicht aus (R13bt-5, Nutzerentscheid)
-class TestAussensichtAusloeser(Basis):
-    """Nutzerentscheid 2026-10-04: `SCHWELLE 4 ERREICHT` loest zusaetzlich eine Aussensicht aus.
+# ------------------------- 6) R277-1: Hinweis statt Ausloeser (R13bw-10, Nutzerentscheid)
+class TestFortschrittsHinweis(Basis):
+    """R277-1: der Stations-Stillstand loest KEINE Aussensicht und keine Frage mehr aus.
 
-    Feuert EINMAL je gezaehltem Lauf: die Marke steht auf dem ERSTEN Batch des Laufs
-    (`von`), weil der Zaehler innerhalb des Laufs weiterwaechst und sonst bei jedem Batch
-    eine neue (bezahlte) Aussensicht starten wuerde.
+    Wortlaut (`analysis/hybrid-plan.md:303-317`): "ebenso der Stillstandszaehler 4 als
+    Ausloeser fuer Rueckfrage und Aussensicht [entfaellt]. Der Zaehler bleibt als reine
+    Information im Ankerkopf. Nur wenn 6 B-Batches in Folge weder Station noch Bewegung
+    zeigen, kommt ein Hinweis an mich (keine Frage, kein Strangwechsel, B laeuft weiter bis
+    ich anders entscheide)."
+
+    Nutzerentscheid R13bw-10 (06.10.2026): "Bewegung wie die Station aus einer Pflichtzeile
+    im Review lesen: neue Zeile `BEWEGUNG: ja|nein` ... Fehlt die Zeile, wird der Zaehler als
+    Untergrenze ausgewiesen (wie beim Stationszaehler). Alte Batches ohne BEWEGUNG-Zeile aus
+    dem Ankerkopf (Bewegung: JA/NEIN) nachlesen, falls dort vorhanden, sonst als unbekannt
+    fuehren."
     """
 
     def zustand(self, batch: int):
@@ -342,90 +363,144 @@ class TestAussensichtAusloeser(Basis):
         s.save()
         return s
 
-    def gruende(self, batch: int, s=None) -> list[str]:
-        return aussensicht.faellig(self.cfg, s or self.zustand(batch), log=self.log)
+    def gruende(self, batch: int) -> list[str]:
+        return aussensicht.faellig(self.cfg, self.zustand(batch), log=self.log)
 
-    def still_gruende(self, gruende: list[str]) -> list[str]:
-        return [g for g in gruende if g.startswith(aussensicht.STATION_GRUND)]
+    def sechs_ohne_alles(self, von: int = 270) -> None:
+        """Station+Bewegung in B<von>-1, danach sechs B-Batches ohne beides."""
+        self.batch(von - 1, station=True, bewegung=True)
+        for n in range(von, von + 6):
+            self.batch(n, station=False, bewegung=False)
 
-    def vier_ohne_station(self) -> None:
-        """Station bei B265 (Review `runs/b266/review.md`), dann B266..B269 ohne Station."""
-        self.batch(265, station=True)
-        for n in (266, 267, 268, 269):
-            self.batch(n, station=False)
+    def anker_schreiben(self, text: str) -> None:
+        """Der Ankerkopf im Wegwerf-Decomp-Verzeichnis (`cfg.anchor_file`)."""
+        write_text_atomic(self.cfg.anchor_file, text)
 
     # ------------------------------------------------------------------ Fälle
-    def test_vier_ohne_station_loesen_aus(self):
-        self.vier_ohne_station()
-        text = aussensicht.station_stillstand(self.cfg)
-        self.assertIn("Stillstand der B-Phase: 4 B-Batches in Folge ohne Station", text)
-        self.assertIn("(B266..B269, Schwelle 4)", text)
-        self.assertIn("analysis/hybrid-plan.md:257-274", text)
-        self.assertEqual(len(self.still_gruende(self.gruende(269))), 1)
-        self.assertTrue(aussensicht.station_beteiligt([text]))
-        self.assertFalse(aussensicht.station_beteiligt(["Hybrid-Lauf haengt: halt"]))
-        self.assertFalse(aussensicht.station_beteiligt([]))
+    def test_sechs_ohne_alles_ergeben_den_hinweis(self):
+        self.sechs_ohne_alles()
+        f = stand.fortschritt_zaehler(self.cfg)
+        self.assertEqual(f["zaehler"], 6)
+        self.assertEqual((f["von"], f["bis"]), (270, 275))
+        self.assertTrue(f["schwelle_erreicht"])
+        self.assertEqual(f["schwelle"], 6, "R277-1 nennt 6 - nicht die alte 4")
+        self.assertIsNone(f["luecke_ab"])
+        text = stand.fortschritt_hinweis_text(self.cfg, f)
+        self.assertIn("R277-1: 6 B-Batches in Folge weder Station noch Bewegung", text)
+        self.assertIn("(B270..B275, Hinweisgrenze 6)", text)
+        self.assertIn("Keine Frage, kein Strangwechsel", text)
 
-    def test_drei_loesen_noch_nicht_aus(self):
-        for n in (267, 268, 269):
-            self.batch(n, station=False)
-        self.assertEqual(aussensicht.station_stillstand(self.cfg), "")
-        self.assertEqual(self.still_gruende(self.gruende(269)), [])
+    def test_vier_ohne_station_ergeben_keinen_hinweis_mehr(self):
+        """Der Kern von R277-1: die alte Schwelle 4 zieht nicht mehr."""
+        self.batch(265, station=True, bewegung=True)
+        for n in (266, 267, 268, 269):
+            self.batch(n, station=False, bewegung=False)
+        f = stand.fortschritt_zaehler(self.cfg)
+        self.assertEqual(f["zaehler"], 4)
+        self.assertFalse(f["schwelle_erreicht"], "4 von 6")
+        self.assertEqual(stand.fortschritt_hinweis_text(self.cfg, f), "", "kein Hinweis")
 
-    def test_die_marke_verhindert_das_zweite_feuer(self):
-        self.vier_ohne_station()
-        s = self.zustand(269)
-        self.assertEqual(len(self.still_gruende(self.gruende(269, s))), 1)
-        self.assertEqual(aussensicht.station_marke_setzen(self.cfg, s), 266,
-                         "die Marke steht auf dem ERSTEN Batch des Laufs")
-        s.data["meta"]["geprueft_batch"] = 269        # so setzt es der echte Lauf am Ende
-        s.save()
-        self.batch(270, station=False)                # Zaehler steht jetzt auf 5
-        self.assertEqual(stand.stillstand_zaehler(self.cfg)["zaehler"], 5)
-        self.assertEqual(self.still_gruende(self.gruende(270, s)), [],
-                         "derselbe Stillstand meldet nur einmal")
+    def test_station_oder_bewegung_beginnt_neu(self):
+        self.sechs_ohne_alles()
+        self.batch(276, station=True, bewegung=False)         # Station: Zaehler neu
+        f = stand.fortschritt_zaehler(self.cfg)
+        self.assertEqual(f["zaehler"], 0)
+        self.assertEqual((f["stop_grund"], f["stop_bei"]), ("station", 276))
+        self.batch(277, station=False, bewegung=True)         # Bewegung: Zaehler neu
+        f = stand.fortschritt_zaehler(self.cfg)
+        self.assertEqual(f["zaehler"], 0)
+        self.assertEqual((f["stop_grund"], f["stop_bei"]), ("bewegung", 277))
 
-    def test_station_macht_die_schwelle_wieder_scharf(self):
-        self.vier_ohne_station()
-        s = self.zustand(269)
-        aussensicht.station_marke_setzen(self.cfg, s)
-        s.data["meta"]["geprueft_batch"] = 269
-        s.save()
-        self.batch(270, station=True)                 # Station: Zaehler neu
-        self.assertEqual(self.still_gruende(self.gruende(270, s)), [])
-        for n in (271, 272, 273, 274):
-            self.batch(n, station=False)
-        s.data["batch"] = 274
-        s.save()
-        self.assertEqual(aussensicht.station_neuester_b(self.cfg), 271)
-        self.assertEqual(len(self.still_gruende(self.gruende(274, s))), 1,
-                         "nach der Station ist die Schwelle wieder scharf")
+    def test_der_hinweis_ist_keine_aussensicht(self):
+        """Wortlaut R277-1: "keine Frage" - also kein Grund in `faellig`, kein Ausloeser."""
+        self.sechs_ohne_alles()
+        gruende = self.gruende(275)
+        self.assertEqual([g for g in gruende if "Stillstand der B-Phase" in g], [])
+        self.assertFalse(hasattr(aussensicht, "station_stillstand"),
+                         "der Ausloeser aus R13bt-5 muss entfallen (R277-1)")
+        self.assertFalse(hasattr(aussensicht, "station_beteiligt"))
 
-    def test_c_batch_verlaengert_nicht_und_setzt_nicht_zurueck(self):
+    def test_c_batch_zaehlt_nicht_und_setzt_nicht_zurueck(self):
         """Nutzerentscheid 3: C-Batches setzen den Zaehler nicht zurueck (R13bt-2)."""
-        self.vier_ohne_station()
-        self.batch(270, strang="C", station=None)     # ersetzt nur den Auftrag von B270
-        z = stand.stillstand_zaehler(self.cfg)
-        self.assertEqual(z["zaehler"], 4)
-        self.assertEqual(z["station_bei"], 265, "der C-Batch ist keine Station")
-        self.assertTrue(z["schwelle_erreicht"])
+        self.sechs_ohne_alles()
+        self.batch(271, strang="C", station=None)     # ersetzt nur den Auftrag von B271
+        f = stand.fortschritt_zaehler(self.cfg)
+        self.assertEqual(f["zaehler"], 5, "sechs gezaehlt, einer davon ist jetzt C")
+        self.assertEqual(f["von"], 270, "der C-Batch setzt NICHT zurueck")
+        self.assertEqual(f["bis"], 275)
+        self.assertEqual(stand.stillstand_zaehler(self.cfg)["zaehler"], 5)
 
-    def test_luecke_hinten_meldet_und_nennt_die_untergrenze(self):
-        self.vier_ohne_station()
-        (self.root / "runs" / "b266" / "review.md").unlink()   # Review zu B265 fehlt
-        z = stand.stillstand_zaehler(self.cfg)
-        self.assertEqual((z["zaehler"], z["luecke_ab"]), (4, 265))
-        text = aussensicht.station_stillstand(self.cfg)
-        self.assertIn("Stillstand der B-Phase: 4 B-Batches", text)
-        self.assertIn("ab B265 ist der Stand nicht belegt", text)
-        self.assertIn("Untergrenze", text)
+    def test_fehlende_bewegungszeile_ist_eine_untergrenze(self):
+        """Reviews ohne `BEWEGUNG:`-Zeile (alte Batches): die Zahl wird nicht erfunden.
 
-    def test_b_phase_zeile_nennt_den_ausloeser(self):
-        self.vier_ohne_station()
+        Wie beim Stationszaehler: der Lauf endet an dem Batch ohne Beleg - die gezaehlten
+        Batches bleiben stehen, die Zahl ist eine **Untergrenze**.
+        """
+        self.batch(268, station=True, bewegung=True)
+        for n in (269, 270, 271):
+            self.batch(n, station=False, bewegung=False)
+        # Der Review zu B269 (Datei runs/b270/review.md): STATION da, BEWEGUNG nicht
+        write_text_atomic(self.root / "runs" / "b270" / "review.md",
+                          "STATION: nein\nB-SCHRITT: 4/5 Boot bis Hauptschleife\n")
+        f = stand.fortschritt_zaehler(self.cfg)
+        self.assertEqual(f["zaehler"], 2, "B271 und B270 sind belegt")
+        self.assertEqual(f["luecke_ab"], 269)
+        self.assertEqual(f["fehlt_batch"], 269)
+        self.assertEqual(f["fehlt_zeile"], stand.BEWEGUNG_ZEILE)
         text = "\n".join(stand.b_phase_zeile(self.cfg))
-        self.assertIn("SCHWELLE 4 ERREICHT", text)
-        self.assertIn("loest eine Aussensicht aus", text)
-        self.assertIn("OFFENE FRAGE an den Nutzer", text)
+        self.assertIn("ab B269 fehlt BEWEGUNG: ja|nein", text)
+        self.assertIn("der Fortschritts-Zaehler ist eine UNTERGRENZE", text)
+
+    def test_alter_batch_wird_aus_dem_anker_gelesen(self):
+        """Alte Batches (vor R13bw-10) haben keine BEWEGUNG-Zeile - der Anker hilft aus."""
+        self.anker_schreiben(
+            "# Workstream R1B\n\n"
+            "**Stand:** BATCH 272 (**B-Batch**).\n"
+            "**Station (B271):** Regel (a) Halt-PC - **NEIN**. **Bewegung: JA** (Zeiger).\n\n"
+            "**Stand (Vorgaenger, B271):** BATCH 271.\n"
+            "**Station (B270):** Regel (a) - **NEIN**. **Bewegung: NEIN**.\n")
+        self.assertEqual(stand._anker_bewegung(self.cfg), {271: True, 270: False})
+        self.assertIs(stand.bewegung_von_batch(self.cfg, 271)["bewegung"], True)
+        self.assertIs(stand.bewegung_von_batch(self.cfg, 270)["bewegung"], False)
+        self.assertEqual(stand.bewegung_von_batch(self.cfg, 271)["quelle"],
+                         stand.BEWEGUNG_ANKER_QUELLE)
+        self.assertIsNone(stand.bewegung_von_batch(self.cfg, 269)["bewegung"],
+                          "ohne Vermerk: unbekannt, nicht geraten")
+        # Und der Zaehler zieht den Anker-Vermerk wie eine Pflichtzeile: B271 zeigt dort
+        # Bewegung -> der Lauf endet an B271 (nichts gezaehlt).
+        for n in (270, 271):
+            self.batch(n, station=False, bewegung=None)       # nur STATION: nein
+        f = stand.fortschritt_zaehler(self.cfg)
+        self.assertEqual((f["zaehler"], f["stop_grund"], f["stop_bei"]),
+                         (0, "bewegung", 271))
+        # Sagt der Anker fuer BEIDE "NEIN", werden beide gezaehlt:
+        self.anker_schreiben(
+            "# Workstream R1B\n\n"
+            "**Stand:** BATCH 272 (**B-Batch**).\n"
+            "**Station (B271):** Regel (a) - **NEIN**. **Bewegung: NEIN**.\n\n"
+            "**Stand (Vorgaenger, B271):** BATCH 271.\n"
+            "**Station (B270):** Regel (a) - **NEIN**. **Bewegung: NEIN**.\n")
+        f = stand.fortschritt_zaehler(self.cfg)
+        self.assertEqual(f["zaehler"], 2, "Bewegung kommt aus dem Anker, STATION aus dem Review")
+        self.assertEqual((f["von"], f["bis"]), (270, 271))
+
+    def test_zeile_nennt_reine_information_und_hinweisgrenze(self):
+        self.sechs_ohne_alles()
+        text = "\n".join(stand.b_phase_zeile(self.cfg))
+        self.assertIn("6 B-Batches in Folge ohne Station", text)
+        self.assertIn("reine Information (R277-1", text)
+        self.assertIn("Fortschritt  : 6 B-Batches in Folge weder Station noch Bewegung", text)
+        self.assertIn("HINWEISGRENZE 6 ERREICHT (Telegram-Hinweis, keine Frage", text)
+        self.assertNotIn("OFFENE FRAGE", text)
+
+    def test_nach_station_oder_bewegung_steht_die_null_mit_grund(self):
+        """Beendet eine belegte Station/Bewegung den Lauf, steht die 0 samt Grund da."""
+        self.sechs_ohne_alles()
+        self.batch(276, station=False, bewegung=True)         # Bewegung in B276
+        text = "\n".join(stand.b_phase_zeile(self.cfg))
+        self.assertIn("Fortschritt  : 0 B-Batches in Folge weder Station noch Bewegung "
+                      "(zuletzt B276: Bewegung)", text)
+        self.assertNotIn("HINWEISGRENZE", text)
 
 
 if __name__ == "__main__":

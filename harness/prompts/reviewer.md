@@ -433,6 +433,7 @@ Kosten/Laufzeit: die Harness-Messwerte (Kosten, Dauer, Anfragen).
 Nächster Batch: ein Satz.
 B-SCHRITT: <n>/5 <Name>, B-Batch <k> (Zählung, keine Grenze – Nutzerentscheid 30.09.)
 STATION: ja|nein                (PFLICHT, s. u. - ob DIESER Batch eine Station war)
+BEWEGUNG: ja|nein               (PFLICHT, s. u. - ob DIESER Batch Bewegung zeigte, R13bw-10)
 MEILENSTEIN ERREICHT: …        (nur wenn zutreffend, s. u.)
 ABBRUCHKRITERIUM ERREICHT: …   (nur wenn zutreffend, s. u.)
 M<batch>-<n>: übernommen … / abgelehnt, Grund …  (je offener Aussensicht-Nachricht, s. u.)
@@ -483,12 +484,23 @@ WARTET AUF LIVE-AUFNAHME: … (nur Material, das fehlt - bremst nicht)
   (a) ein Halt mit Halt-Art ≠ Schranke, (b) ein belegter neuer Zustand der
   Betriebsmodus-Kette oder (c) ein gewachsener Präfix gegen eine **Kaltstart**-Referenz —
   jeweils durch eine Kern- oder Modelländerung, mit Vorgabe EIN und im gültigen
-  Preflight. Der **Stillstandszähler** zählt daraus die **B-Batches in Folge ohne
-  Station**, Schwelle **4**, Zähler **ab jeder Station neu** (C-Batches zählen nicht mit
-  und setzen ihn nicht zurück). In einer reinen B-Reihe ist er das **Fortschrittsmaß**
-  (der C-Anteil ruht dann; die Mischungs-Zeile sagt das). Der Harness liest die Zeile als
-  **einzige** Quelle der Station — er rät sie nicht: fehlt sie, nennt `/bilanz` den
-  Zähler eine **Untergrenze** und den Batch eine Lücke.
+  Preflight. Der Harness liest die Zeile als **einzige** Quelle der Station — er rät sie
+  nicht: fehlt sie, nennt `/bilanz` den Zähler eine **Untergrenze** und den Batch eine
+  Lücke. Der Zähler steht als **reine Information** im Ankerkopf und in der Bilanz
+  („B-Phase"); seit **R277-1** löst er **nichts** mehr aus (keine Rückfrage, keine
+  Aussensicht).
+- **Pflichtzeile `BEWEGUNG: ja|nein` in deiner Zusammenfassung (R13bw-10, 2026-10-06).**
+  Sie sagt, ob der **bewertete** Batch **Bewegung** zeigte — Definition **R277-2**:
+  **geändertes Laufverhalten durch Kern- oder Modelländerung**, **nicht** die neue Messung
+  desselben Verhaltens (dieselbe Zahl noch einmal erheben ist keine Bewegung). Beispiele
+  dafür: der Halt-PC/`Halt-Art` wandert, `opmode`/`c` ändern sich, ein neuer Wartepunkt
+  der Hauptschleife ist belegt, der Präfix gegen die Kaltstart-Referenz wächst, ein
+  Zeichenbeleg am PPC-Ausgang (Tile-SRAM, szenengroße Pakete, Blockzellen) kommt hinzu.
+  Der Harness zählt daraus zusammen mit `STATION:` die **B-Batches in Folge weder Station
+  noch Bewegung**; erst bei **6** geht **ein Telegram-Hinweis** an den Nutzer (wortgleich
+  R277-1: „keine Frage, kein Strangwechsel, B läuft weiter"). Er rät auch diese Zeile
+  nicht: fehlt sie (und steht auch im Ankerkopf nichts), ist der Zähler eine
+  **Untergrenze** und der Batch eine Lücke.
 - **Nur wenn es wirklich zutrifft**, zusätzlich eine dieser Zeilen — sie lösen sofort eine
   **Aussensicht** (Meta-Review) aus:
   - `MEILENSTEIN ERREICHT: <welcher, mit Beleg>`

@@ -945,12 +945,11 @@ class Orchestrator:
             if aussensicht.hybrid_beteiligt(gruende):
                 hy_bis = aussensicht.hybrid_marke_setzen(self.cfg, self.state)
                 self.log.info("Hybrid-Lauf-Marke gesetzt", bis=hy_bis)
-            # R13bt-5 (04.10.2026, Nutzerentscheid): der Stillstand der B-Phase (Schwelle 4
-            # B-Batches in Folge ohne Station) loest eine Aussensicht aus - die Marke steht
-            # auf dem ERSTEN Batch des Laufs und springt erst nach einer Station wieder.
-            if aussensicht.station_beteiligt(gruende):
-                st_bis = aussensicht.station_marke_setzen(self.cfg, self.state)
-                self.log.info("B-Phasen-Marke gesetzt", bis=st_bis)
+            # R13bw-10 (06.10.2026): die B-Phasen-Marke ist entfallen. R13bt-5 hatte den
+            # Stillstand der B-Phase (Schwelle 4 ohne Station) zum Ausloeser gemacht;
+            # Nutzerentscheid R277-1 nimmt "den Stillstandszaehler 4 als Ausloeser fuer
+            # Rueckfrage und Aussensicht" zurueck. Sein Hinweis (Schwelle 6, "weder Station
+            # noch Bewegung") laeuft OHNE Aussensicht ueber `fortschritt_hinweis_pruefen`.
             # R13bn (M241-4/M242-5/M243-2): auch die Marker-Ausloeser (MEILENSTEIN /
             # ABBRUCHKRITERIUM) werden verbucht - eine Marke loest je Review-Datei genau
             # einmal aus. Vorher fehlte die Sperre und dieselbe Marke startete vier
@@ -973,6 +972,34 @@ class Orchestrator:
             self.state.data["meta"] = meta
             self.state.save()
             self.phase(None)
+
+    def fortschritt_hinweis_pruefen(self) -> None:
+        """R277-1: Telegram-Hinweis, wenn 6 B-Batches in Folge weder Station noch Bewegung.
+
+        Wortlaut der Regel (`analysis/hybrid-plan.md:303-317`): "Nur wenn 6 B-Batches in
+        Folge weder Station noch Bewegung zeigen, kommt ein Hinweis an mich (keine Frage,
+        kein Strangwechsel, B laeuft weiter bis ich anders entscheide)." Deshalb: **kein**
+        Eintrag in einen Ausloeser, **keine** Aussensicht, **keine** OFFENE FRAGE - nur
+        `notify_once`. Der Schluessel enthaelt den ERSTEN Batch des gezaehlten Laufs:
+        derselbe Lauf meldet genau einmal, auch wenn der Zaehler weiterwaechst (7, 8, ...)
+        und die Schleife die Pruefung in jedem Durchgang erneut sieht.
+
+        Fehlt die Pflichtzeile `BEWEGUNG:` (Batches vor R13bw-10) und steht auch im
+        Ankerkopf nichts, ist der Zaehler eine **Untergrenze** - der Text sagt das, statt
+        eine Zahl zu erfinden (`stand.fortschritt_zaehler`).
+        """
+        try:
+            f = standmod.fortschritt_zaehler(self.cfg)
+        except Exception as exc:                                   # noqa: BLE001
+            self.log.warn("B-Phasen-Fortschritt nicht pruefbar", fehler=str(exc)[:150])
+            return
+        if not f.get("schwelle_erreicht"):
+            return
+        text = standmod.fortschritt_hinweis_text(self.cfg, f)
+        self.notify_once(f"r277_1_fortschritt_b{int(f['von'])}", text, 24 * 3600)
+        self.log.warn("R277-1-Fortschritts-Hinweis", batches=int(f["zaehler"]),
+                      von=int(f["von"]), bis=int(f["bis"]),
+                      schwelle=int(f["schwelle"]))
 
     def _aussensicht_gescheitert(self, batch: int, warum: str,
                                  bericht: str = "") -> None:
@@ -3253,6 +3280,10 @@ class Orchestrator:
             except Exception as exc:                                    # noqa: BLE001
                 gruende = []
                 self.log.warn("Aussensicht-Ausloeser nicht pruefbar", fehler=str(exc)[:150])
+            # R13bw-10 (R277-1): der B-Phasen-Fortschritt meldet sich per Telegram - und
+            # NUR dort. Er kommt nicht in `gruende`: das waere eine (bezahlte) Aussensicht,
+            # und die Regel sagt "Hinweis, keine Frage".
+            self.fortschritt_hinweis_pruefen()
             if gruende:
                 self._do_aussensicht("; ".join(gruende)[:200], gruende=gruende)
 

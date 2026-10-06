@@ -1,0 +1,23 @@
+R13bw-10 Fortschritts-Beleg 2026-10-06 01:58:43
+
+Ankerkopf-Vermerke (stand._anker_bewegung): B275=JA, B276=JA
+
+Je Batch: STATION / BEWEGUNG mit Quelle (neueste zuerst):
+  B276  STATION=False (Pflichtzeile STATION im Review, das den Batch bewert)
+        BEWEGUNG=True  (Ankerkopf analysis/r1b-workstream.md (Stand-Block de)
+  B275  STATION=False (Pflichtzeile STATION im Review, das den Batch bewert)
+        BEWEGUNG=True  (Ankerkopf analysis/r1b-workstream.md (Stand-Block de)
+  B277  STATION=False (Pflichtzeile STATION im Review, das den Batch bewert)
+        BEWEGUNG=None  (-)
+  B278  STATION=None  (-)
+        BEWEGUNG=None  (-)
+
+Stationszaehler (reine Information): zaehler=8 B270..B277 schwelle=4 erreicht=True luecke_ab=None
+Fortschrittszaehler (Hinweis):       zaehler=0 B0..B0 schwelle=6 erreicht=False luecke_ab=None fehlt_zeile=-
+
+BILANZ-Zeilen (stand.b_phase_zeile):
+  B-Phase      : 8 B-Batches in Folge ohne Station (B270..B277) - reine Information (R277-1; der Stationszaehler 4 loest nichts mehr aus)
+  Fortschritt  : 0 B-Batches in Folge weder Station noch Bewegung (zuletzt B276: Bewegung) - Hinweisgrenze 6 (R277-1)
+                 B277 ist noch nicht bewertet (Review fehlt)
+
+Telegram-Hinweis: (keiner - Schwelle nicht erreicht)

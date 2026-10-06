@@ -2339,7 +2339,10 @@ In einer reinen B-Reihe ist der Zähler das **Fortschrittsmaß** (§20a).
 `/bilanz` hat dafür eine eigene Zeile:
 
 ```text
-  B-Phase      : 3 B-Batches in Folge ohne Station (B262..B264); Schwelle 4
+  B-Phase      : 3 B-Batches in Folge ohne Station (B262..B264) - reine Information
+                 (R277-1; der Stationszaehler 4 loest nichts mehr aus)
+  Fortschritt  : 6 B-Batches in Folge weder Station noch Bewegung (B270..B275);
+                 Hinweisgrenze 6 (R277-1)
 ```
 
 **C-Batches zählen nicht mit und setzen nicht zurück.** Der Harness **rät** die Station
@@ -2359,23 +2362,14 @@ Zeile nennt sich selbst eine **Untergrenze**:
 zerreißen; `harness/tests/test_r13q_fixes.py` wacht darüber. Der erste volle Testlauf nach
 R13bt-5 war genau daran rot, s. `docs/_r13bt5_volle_reihe_fehllauf1.txt`.)
 
-Der **neueste**, noch unbewertete Batch sperrt die Zeile also nicht. Erreicht der
-Zähler die Schwelle, sagt die Zeile `SCHWELLE 4 ERREICHT - loest eine Aussensicht aus;
-OFFENE FRAGE an den Nutzer` — und der Harness löst die Aussensicht zusätzlich selbst aus
-(**Nutzerentscheid 2026-10-04**, wie die Markerzeilen `MEILENSTEIN ERREICHT:`):
-Melder `aussensicht.station_stillstand`, Marke `station_gemeldet_bis`. Die Marke steht auf
-dem **ersten** Batch des gezählten Laufs (`von`), nicht auf dem neuesten — der Zähler
-wächst ja weiter (4, 5, 6 …), und eine Marke auf dem neuesten Batch würde denselben
-Stillstand bei **jedem** Batch erneut melden (ein Abo-Lauf je Batch). Nach einer Station
-springt `von`, die Schwelle ist wieder scharf. **C-Batches setzen den Zähler nicht
-zurück** (Nutzerentscheid 3). Ist der Stand hinten nicht belegt (Lücke), meldet der
-Auslöser trotzdem — die gezählten Batches sind ja belegt — und nennt die Untergrenze im
-Text.
+Der **neueste**, noch unbewertete Batch sperrt die Zeile also nicht. **Was die Zeile NICHT
+mehr tut: etwas auslösen.** Nutzerentscheid **R277-1** (06.10.2026,
+`analysis/hybrid-plan.md:303-317`) nimmt „den Stillstandszaehler 4 als Ausloeser fuer
+Rueckfrage und Aussensicht" zurück — der Zähler bleibt als Zahl stehen (§20e).
 
 Belege: `docs/_r13bt_sonde.py` (Befund 1, vorher/nachher), `docs/_r13bt_sonde2.py`
-(Echt-Daten-Lage oben), `docs/_r13bt5_sonde.py` (der Auslöser: schweigt am echten Stand,
-feuert genau einmal am erreichten Schwellenstand), Tests
-`harness/tests/test_r13bt_fixes.py` (21).
+(Echt-Daten-Lage oben), `docs/_r13bt5_sonde.py` (der damalige Auslöser; mit R13bw-10 ist
+er entfallen), Tests `harness/tests/test_r13bt_fixes.py`.
 
 ### 20c. Pfade mit Umlauten: geteiltes Lesen wich aus (R13bt-3)
 
@@ -2446,4 +2440,67 @@ Drei Fälle, die die Zeile **nicht** verliert:
 Belege: `docs/_r13bw9_strang_beleg.txt` (lebendes Repo, 06.10.2026: vorher `B0`/`B1`,
 nachher **B254**/**B255**), Tests `TestStrangLauf` in `harness/tests/test_r13bt_fixes.py`
 (Datenlage: C-Batch B254, danach B255..B277).
+
+### 20e. R13bw-10 (06.10.2026): Hinweis statt Auslöser — R277-1
+
+**Was der Harness bis dahin tat (Befund „Aussensicht B277, Befund 5"):** er setzte die
+Regel R277-1 **nicht** um — der Stillstandszähler der B-Phase löste bei **4** B-Batches
+ohne Station weiter eine (bezahlte) Außensicht aus, samt `OFFENE FRAGE an den Nutzer`.
+
+**Wortlaut der Regel** (`analysis/hybrid-plan.md:303-317`, im Anker
+`analysis/r1b-workstream.md:4`):
+
+> Strang B laeuft unbefristet weiter. Die Regel „zwei B-Batches in Folge ohne Station und
+> ohne Bewegung → Frage B oder C an den Nutzer" entfaellt, ebenso der Stillstandszaehler 4
+> als Ausloeser fuer Rueckfrage und Aussensicht. Der Zaehler bleibt als reine Information
+> im Ankerkopf. **Nur wenn 6 B-Batches in Folge weder Station noch Bewegung zeigen, kommt
+> ein Hinweis an mich (keine Frage, kein Strangwechsel, B laeuft weiter bis ich anders
+> entscheide).** C bleibt ruhend, bis ich es freigebe.
+
+**Rückfrage des Harness (06.10.2026) — „Bewegung" war nicht maschinenlesbar.** Der
+Stationszähler liest die Pflichtzeile `STATION: ja|nein`; eine Zeile für die **Bewegung**
+gab es nicht (`grep` über `hx/` fand das Wort nur in anderer Bedeutung). Eine reine
+Stationszählung mit Schwelle 6 hätte **sofort** gefeuert — der Ankerkopf stand auf
+`Stillstand (Station) 7`, aber `„ohne Station und ohne Bewegung" 0`. Der Nutzer hat
+entschieden:
+
+> Bewegung wie die Station aus einer Pflichtzeile im Review lesen: neue Zeile
+> `BEWEGUNG: ja|nein` in `prompts/reviewer.md` (neben STATION, mit der Definition aus
+> **R277-2**: nur geaendertes Laufverhalten durch Kern- oder Modellaenderung, **nicht** neue
+> Messung desselben Verhaltens). Der Harness zaehlt „B-Batches in Folge weder Station noch
+> Bewegung", Schwelle 6, nur Telegram-Hinweis, keine Frage, keine Zusatz-Aussensicht. Fehlt
+> die Zeile, wird der Zaehler als Untergrenze ausgewiesen (wie beim Stationszaehler). Alte
+> Batches ohne BEWEGUNG-Zeile aus dem Ankerkopf (Bewegung: JA/NEIN) nachlesen, falls dort
+> vorhanden, sonst als unbekannt fuehren.
+
+**Was jetzt gilt:**
+
+* **Kein Auslöser mehr.** `aussensicht.station_stillstand`, `station_beteiligt`,
+  `station_neuester_b`, `station_gemeldet_bis`, `station_marke_setzen`, `STATION_GRUND` und
+  `MARKE_STATION_SCHLUESSEL` sind **entfallen**; der Auslöser in `faellig()` und die
+  B-Phasen-Marke im Orchestrator ebenfalls. Der Stationszähler bleibt als Zahl in der
+  Bilanz (`B-Phase`-Zeile, „reine Information (R277-1…)").
+* **Neue zweite Zeile** `Fortschritt : n B-Batches in Folge weder Station noch Bewegung`
+  (`stand.fortschritt_zaehler`, Quelle `stand.bewegung_von_batch` → Pflichtzeile, sonst
+  Ankerkopf). Bei **6** steht dort `HINWEISGRENZE 6 ERREICHT (Telegram-Hinweis, keine
+  Frage, Strang B laeuft weiter)`; die Aussensicht-Taktung („alle N Batches") bleibt
+  unverändert.
+* **Der Hinweis** kommt aus der Schleife: `orchestrator.fortschritt_hinweis_pruefen` →
+  `notify_once` (Schlüssel = **erster** Batch des Laufs, 24 h), Text
+  `stand.fortschritt_hinweis_text`. Er geht **nicht** in `gruende` — das wäre eine
+  Außensicht — und stellt **keine** Frage.
+* **Unbelegt bleibt unbelegt.** Fehlt für einen Batch eine der beiden Zeilen (und steht im
+  Anker nichts), endet der Lauf dort: `luecke_ab`/`fehlt_zeile` und die Zeile
+  „der Fortschritts-Zaehler ist eine UNTERGRENZE". Der neueste, noch unbewertete Batch wird
+  übersprungen, C-Batches zählen nicht mit und setzen nicht zurück.
+* **Reviewer-Prompt geändert** (`prompts/reviewer.md`): die Zeile steht in der
+  `<TELEGRAM_SUMMARY>`-Vorlage und als eigener Absatz mit der R277-2-Definition. Folge laut
+  R13ab: der Reviewer-Prompt wird bei `--resume` **nicht** neu gelesen — der Wechsel der
+  Reviewer-Sitzung ist mit dem Nutzer abgestimmt (06.10.2026). Der Hinweiszähler greift
+  deshalb erst ab dem ersten Batch, dessen Review die Zeile trägt; für ältere Batches liest
+  der Harness den `Bewegung:`-Vermerk im Ankerkopf nach.
+
+Belege: Tests `TestFortschrittsHinweis` und `TestStillstand` in
+`harness/tests/test_r13bt_fixes.py` (27 Tests; die Sonde der Rückfrage steht in
+`docs/_r13bw10_*.py`).
 

@@ -23,8 +23,13 @@ Ausloeser (`faellig`): Vormerkung durch `/meta`, alle `[meta] aussensicht_takt` 
 (R13bo 4, vorher `every_batches` 3), ein
 Worker-Abbruch, `MEILENSTEIN ERREICHT:` / `ABBRUCHKRITERIUM ERREICHT:` in der neuesten
 Review-Zusammenfassung, ein stehengebliebener B-Schritt (Weg B) bzw. eine C-Kernzahl ohne
-Bewegung ueber die letzten **C-Batches**, und seit R13bt-5 der **Stillstand der B-Phase**
-(Schwelle 4 B-Batches in Folge ohne Station, `analysis/hybrid-plan.md:257-274`). Je Batch
+Bewegung ueber die letzten **C-Batches**. **Nicht mehr** dabei ist seit R13bw-10 der
+Stillstand der B-Phase: R277-1 (`analysis/hybrid-plan.md:303-317`) nimmt "den
+Stillstandszaehler 4 als Ausloeser fuer Rueckfrage und Aussensicht" zurueck. Der Zaehler
+steht nur noch als Information in der Bilanz (`stand.b_phase_zeile`); erst **6 B-Batches
+in Folge weder Station noch Bewegung** ergeben einen **Telegram-Hinweis**
+(`stand.fortschritt_hinweis_text`, gesendet vom Orchestrator) - keine Frage, kein
+Strangwechsel, keine zusaetzliche Aussensicht. Je Batch
 wird hoechstens einmal entschieden
 (`geprueft_batch`).
 
@@ -36,10 +41,11 @@ unveraendert** (Ist-Delta 0) bei `SOLL-KOEPFE > 0`; `C Faelle` steht nur als Inf
 im Anlass-Text. Auch der eigene Grund `c_soll_null_serie` (drei C-Batches in Folge mit
 `SOLL-KOEPFE: 0`) ist entprellt (`c_soll_null_gemeldet_bis`): er feuert erst wieder, wenn
 ein NEUER C-Batch die Serie verlaengert oder eine neue Serie entsteht. Dieselbe Sperre
-tragen der Hybrid-Lauf-Stillstand (`hybrid_gemeldet_bis`), die beiden Review-Marker
-(`marker_gemeldet_bis`, R13bn) und seit R13bt-5 der B-Phasen-Stillstand
-(`station_gemeldet_bis` - dort ist der Schluessel der ERSTE Batch des Laufs, weil der
-Zaehler innerhalb des Laufs weiterwaechst).
+tragen der Hybrid-Lauf-Stillstand (`hybrid_gemeldet_bis`) und die beiden Review-Marker
+(`marker_gemeldet_bis`, R13bn). Die B-Phasen-Marke (`station_gemeldet_bis`) ist mit
+R13bw-10 **entfallen**: der B-Phasen-Stillstand ist kein Ausloeser mehr, sein Hinweis ist
+per `notify_once` entprellt (Schluessel = ERSTER Batch des Laufs, damit derselbe Lauf nur
+einmal meldet).
 
 R13z (2026-09-28): die **Quote** des Registers steht in `/bilanz` und `/status`
 (`zeile`/`quote`): "Aussensicht: n Befunde, davon u uebernommen, a abgelehnt, o offen".
@@ -142,17 +148,12 @@ HYBRID_STILLSTAND_BATCHES = 3
 # B-Strang - der Melder schweigt dann (B250: Opus-Lauf der Aussensicht ohne B-Fortschritt).
 HYBRID_RUHE_C_BATCHES = 3
 
-# R13bt-5 (04.10.2026, Nutzerentscheid): der STILLSTAND DER B-PHASE wird ein eigener
-# Ausloeser - wie `MEILENSTEIN ERREICHT:` im Review. Regel `analysis/hybrid-plan.md:257-274`:
-# Schwelle 4 B-Batches in Folge ohne Station, Zaehler ab jeder Station neu
-# (`stand.stillstand_zaehler`). Die Marke haelt den ERSTEN Batch des gezaehlten Laufs
-# (`von` = letzte Station + 1), NICHT den neuesten: der Zaehler WAEchst mit jedem weiteren
-# Batch (4, 5, 6 ...), eine Marke auf dem neuesten Batch wuerde denselben Stillstand bei
-# jeder Pruefung erneut melden (ein Abo-Lauf je Batch). `von` bleibt innerhalb eines Laufs
-# konstant und springt erst nach einer Station - genau dann ist die Schwelle wieder scharf.
-MARKE_STATION_SCHLUESSEL = "station_gemeldet_bis"
-# Der Wortlaut des Grundes (Kennung fuer `station_beteiligt`).
-STATION_GRUND = "Stillstand der B-Phase"
+# R13bt-5 (04.10.2026) hatte den STILLSTAND DER B-PHASE zum eigenen Ausloeser gemacht
+# (`station_stillstand`/`station_beteiligt`, Marke `station_gemeldet_bis`). **R13bw-10
+# (06.10.2026) nimmt das zurueck** - Nutzerentscheid R277-1: "ebenso der Stillstandszaehler
+# 4 als Ausloeser fuer Rueckfrage und Aussensicht". Der Zaehler steht als Information in
+# `stand.b_phase_zeile`; der Hinweis (Schwelle 6, "weder Station noch Bewegung") geht
+# direkt aus der Schleife raus (`orchestrator.fortschritt_hinweis_pruefen`, `notify_once`).
 
 # R13bn (Aussensicht M241-4/M242-5/M243-2): die beiden MARKER-Ausloeser bekommen dieselbe
 # `gemeldet_bis`-Sperre wie Kernzahl, c_soll_null und Hybrid-Lauf. Vorher nahm
@@ -1044,76 +1045,6 @@ def hybrid_marke_setzen(cfg, state) -> int:
 def hybrid_beteiligt(gruende) -> bool:
     """War der Hybrid-Lauf-Stillstand an diesen Ausloeser-Gruenden beteiligt?"""
     return any(str(g).startswith(HYBRID_GRUND) for g in (gruende or []))
-
-
-def station_stillstand(cfg) -> str:
-    """Text, wenn der Stillstandszähler der B-Phase seine Schwelle erreicht hat (R13bt-5).
-
-    Regel (`analysis/hybrid-plan.md:257-274`, Nutzerklarstellung 2026-10-03): Schwelle **4
-    B-Batches in Folge ohne Station**, Zaehler **ab jeder Station neu**; C-Batches zaehlen
-    nicht mit und setzen nicht zurueck. In einer reinen B-Reihe ist der Zaehler das
-    Fortschrittsmass (die C-Hochrechnung ruht dann, `stand._mischung_zeile`).
-
-    Die QUELLE der Station ist allein die Pflichtzeile `STATION: ja|nein` im Review
-    (`runs/b<N+1>/review.md`) - der Harness raet nicht. Ist ein Batch nicht belegt, ist der
-    Zaehler eine **Untergrenze**; erreicht er die Schwelle trotzdem, meldet der Ausloeser
-    (die gezaehlten Batches sind ja belegt) und nennt die Luecke im Text.
-    """
-    z = stand.stillstand_zaehler(cfg)
-    if not z.get("schwelle_erreicht"):
-        return ""
-    zusatz = ""
-    if z.get("luecke_ab"):
-        zusatz = (f"; ab B{z['luecke_ab']} ist der Stand nicht belegt - die Zahl ist eine "
-                  "Untergrenze")
-    elif z.get("grenze_ab"):
-        zusatz = f"; ab B{z['grenze_ab']} ist der Strang nicht belegt"
-    return (f"{STATION_GRUND}: {z['zaehler']} B-Batches in Folge ohne Station "
-            f"(B{z['von']}..B{z['bis']}, Schwelle {z['schwelle']}) - in der B-Phase ist die "
-            f"Station das Fortschrittsmass (analysis/hybrid-plan.md:257-274){zusatz}")
-
-
-def station_neuester_b(cfg) -> int:
-    """Der Markenschluessel des B-Phasen-Stillstands: der ERSTE Batch des gezaehlten Laufs.
-
-    Das ist die letzte Station + 1 (`stand.stillstand_zaehler` -> `von`). Er bleibt
-    innerhalb eines Laufs konstant; ohne Station wuerde der Zaehler sonst bei jedem Batch
-    erneut melden (s. Kommentar bei `MARKE_STATION_SCHLUESSEL`).
-
-    0 = kein gezaehlter B-Batch (dann gibt es nichts zu melden).
-    """
-    z = stand.stillstand_zaehler(cfg)
-    return int(z["von"]) if int(z.get("zaehler") or 0) else 0
-
-
-def station_gemeldet_bis(meta: dict) -> int:
-    """Die B-Phasen-Marke; fehlt sie, gilt 0 = nichts gemeldet (keine Migration)."""
-    wert = (meta or {}).get(MARKE_STATION_SCHLUESSEL)
-    try:
-        return int(wert) if wert is not None else 0
-    except (TypeError, ValueError):
-        return 0
-
-
-def station_marke_setzen(cfg, state) -> int:
-    """Die Marke auf den ersten Batch des gemeldeten Laufs setzen (R13bt-5).
-
-    Wird - wie `kernzahl_marke_setzen` und `hybrid_marke_setzen` - erst NACH einem
-    erfolgreichen Lauf (rc=0) gerufen. Ein gescheiterter Lauf laesst die Marke unveraendert
-    (der Stillstand meldet beim naechsten Batch-Ende erneut - der bezahlte Lauf ist nicht
-    verloren).
-    """
-    neu = station_neuester_b(cfg)
-    if neu > 0:
-        meta = dict(state.data.get("meta") or {})
-        meta[MARKE_STATION_SCHLUESSEL] = int(neu)
-        state.data["meta"] = meta
-    return int(neu)
-
-
-def station_beteiligt(gruende) -> bool:
-    """War der B-Phasen-Stillstand an diesen Ausloeser-Gruenden beteiligt?"""
-    return any(str(g).startswith(STATION_GRUND) for g in (gruende or []))
 
 
 def _marker(cfg, muster: str) -> list[tuple[int, int, str]]:
@@ -2153,11 +2084,10 @@ def faellig(cfg, state, log=None) -> list[str]:
     still = hybrid_stillstand(cfg)
     if still and hybrid_neuester_b(cfg) > hybrid_gemeldet_bis(meta):
         gruende.append(still)
-    # R13bt-5: Stillstand der B-Phase (Schwelle 4 B-Batches ohne Station). Dasselbe
-    # Muster wie oben - Melder UND Marke (der Zaehler waechst weiter, s. `station_neuester_b`).
-    still_b = station_stillstand(cfg)
-    if still_b and station_neuester_b(cfg) > station_gemeldet_bis(meta):
-        gruende.append(still_b)
+    # R13bw-10: der Stillstand der B-Phase ist KEIN Ausloeser mehr (R277-1). Der Zaehler
+    # "weder Station noch Bewegung" steht als Information in der Bilanz
+    # (`stand.b_phase_zeile`); seinen Telegram-Hinweis schickt die Schleife
+    # (`orchestrator.fortschritt_hinweis_pruefen`) - ohne Aussensicht, ohne Frage.
     kern = kernzahl_stillstand(cfg, log=log)
     if kern and kernzahl_neuester_c(cfg) > kernzahl_gemeldet_bis(meta):
         gruende.append(KERNZAHL_GRUND + ": " + "; ".join(kern[:3])
