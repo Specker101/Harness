@@ -1,0 +1,19 @@
+R13bw-11 Beleg 2026-10-07 13:57:57
+
+Aufruf aus runs\b289\stream.jsonl:56505
+  tool_name  : PowerShell
+  command    : cd "G:\Silent Scope Decomp"; python scripts/port_suche.py 80008828 2>&1 | Select-Object -First 25
+  description: port_suche FUN_80008828
+  -> streamjson.port_suche_kuerzung = True
+
+Hook-Antwort auf DIESEN Aufruf (PreToolUse):
+  {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "PORT_SUCHE-HINWEIS: port_suche ungekuerzt mit --schreiben ausfuehren und die Datei lesen (R13az, Aussensicht B289 Befund 4)"}}
+  stderr: (leer)
+
+Gegenproben mit demselben Skript:
+  erlaubt (keine Hook-Antwort) python scripts/port_suche.py 80008828
+  erlaubt (keine Hook-Antwort) python scripts/port_suche.py 80008828 --schreiben
+  ABGELEHNT                    python scripts/port_suche.py 80008828 | Select-Object -First 25
+
+Belegdatei port_suche-blockiert.jsonl: {"ts": "2026-10-07T11:57:57+00:00", "grund": "pipe-gekuerzt", "werkzeug": "PowerShell"}
+{"ts": "2026-10-07T11:57:58+00:00", "grund": "pipe-gekuerzt", "werkzeug": "PowerShell"}

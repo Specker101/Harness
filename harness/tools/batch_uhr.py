@@ -37,6 +37,16 @@ messbar sind, statt als "einmaliger Stopp" zu gelten.
 nur die Uhr-Zeile) und mit 0 beendet (der Hook ist dann wirkungslos, der Lauf geht
 weiter).
 
+**R13bw-11 (07.10.2026, Nutzerauftrag) - port_suche nicht mehr gekuerzt.** Der Worker rief
+`python scripts/port_suche.py 80008828 2>&1 | Select-Object -First 25` auf
+(`runs/b289/stream.jsonl:56505`, Aussensicht B289 Befund 4); die Ausgabe brach genau an der
+Ueberschrift der **Port-Treffer** ab (`port/src/vbi_handler.cpp`), weil die
+Port-Fundstellen am **Ende** stehen (`AGENTS.md` R13az). Die Textregel allein hat das nicht
+verhindert. Der `--pre`-Zweig lehnt deshalb jetzt **jeden** `port_suche`-Aufruf ab, der per
+Pipe gekuerzt wird (`Select-Object -First|-Last`, `Select -First|-Last`, `head`, `| more`);
+**ohne Pipe** und **mit `--schreiben`** bleibt der Aufruf erlaubt. Die Sperre haengt
+**nicht** an der Batch-Uhr - sie gilt in jedem Batch. Beleg: `port_suche-blockiert.jsonl`.
+
 **R13bl (02.10.2026, Nutzerauftrag) - R391-Sperre VOR dem Eingriff.** R391 verlangt den
 Vorhersage-Commit `B<N>: Vorhersage …` VOR dem ersten Schreibzugriff unter `port/` oder
 `scripts/`; der Reihenfolge-Waechter (`hx/reihenfolge.py`, R13as) misst das erst NACH dem
@@ -81,6 +91,14 @@ SPERR_VERBEN = ("Edit", "Write", "MultiEdit")
 SPERR_BAEUME = ("port", "scripts")
 # Belegdatei: eine Zeile je geblocktem Aufruf (das Review sieht damit, was passiert ist).
 VORHERSAGE_BLOCK_DATEI = "vorhersage-blockiert.jsonl"
+
+# --------------------------------------------- port_suche-Sperre (R13bw-11)
+# Belegdatei: eine Zeile je geblocktem Aufruf (wie bei den beiden anderen Sperren).
+PORT_SUCHE_BLOCK_DATEI = "port_suche-blockiert.jsonl"
+# Wortlaut aus dem Nutzerauftrag (07.10.2026) - wortgleich, damit der Worker die Regel
+# wiedererkennt; die Kennung nennt er selbst (`R13az, Aussensicht B289 Befund 4`).
+PORT_SUCHE_GRUND = ("PORT_SUCHE-HINWEIS: port_suche ungekuerzt mit --schreiben ausfuehren "
+                    "und die Datei lesen (R13az, Aussensicht B289 Befund 4)")
 
 
 def _betreffs(decomp) -> list[str]:
@@ -225,7 +243,13 @@ def pre_tooluse(eingabe: dict, lauf: "Path | None", state_datei, umschalt) -> in
     **ohne** Blockieren ginge ueber `additionalContext`; hier wird bewusst `deny`
     benutzt, damit der Worker vor dem Aufruf anhaelt statt danach.
 
-    Geblockt wird nur, wenn ALLE Bedingungen gelten:
+    Geblockt wird in ZWEI Faellen (die port_suche-Sperre braucht weder Uhr noch Zustand):
+
+    1. **port_suche gekuerzt** (R13bw-11, 07.10.2026): `streamjson.port_suche_kuerzung` -
+       ein `port_suche`-Aufruf, der per Pipe gekuerzt wird (`Select-Object -First|-Last`,
+       `Select -First|-Last`, `head`, `| more`). Die Port-Fundstellen stehen am ENDE der
+       Ausgabe (`AGENTS.md` R13az); gekuerzt sah der Worker sie nie (B289 Befund 4).
+    2. **Preflight zu frueh** (R13be-2/R13bw-6), nur wenn ALLE Bedingungen gelten:
       * es ist ein Preflight-**Start** (`streamjson.ist_preflight_aufruf`),
       * die Batch-Uhr steht **vor** der Umschaltschwelle (`uhr.preflight_zu_frueh`),
       * `auftrag.md` traegt eine offene `NACHRUECKLISTE` (`_nachrueckliste_offen`).
@@ -237,6 +261,17 @@ def pre_tooluse(eingabe: dict, lauf: "Path | None", state_datei, umschalt) -> in
     ohne Startzeit im Zustand passiert nichts - der Lauf bleibt unberuehrt.
     """
     from hx import streamjson, uhr
+    # R13bw-11: diese Sperre zuerst - sie braucht weder Uhr noch Zustand.
+    if streamjson.port_suche_kuerzung(eingabe.get("tool_name"),
+                                      eingabe.get("tool_input")):
+        if lauf is not None:
+            from hx.util import append_jsonl
+            append_jsonl(Path(lauf) / PORT_SUCHE_BLOCK_DATEI,
+                         {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                          "grund": "pipe-gekuerzt",
+                          "werkzeug": str(eingabe.get("tool_name") or "")})
+        _blockieren(PORT_SUCHE_GRUND)
+        return 0
     if not streamjson.ist_preflight_aufruf(eingabe.get("tool_name"),
                                            eingabe.get("tool_input")):
         return 0

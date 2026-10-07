@@ -163,7 +163,9 @@ def run_dir(cfg, batch: int) -> Path:
 # Sie werden nach `lauf<k>/` VERSCHOBEN (frueher: Umbenennung in `<name>-v1.<endung>`).
 LAUF_BELEGE = ("auftrag.md", "stream.jsonl", "stream.err.txt", "result.json",
                "antwort.md", "mcp.json", "worker-hooks.json",
-               "preflight-aufrufe.jsonl", "preflight-blockiert.jsonl")
+               "preflight-aufrufe.jsonl", "preflight-blockiert.jsonl",
+               # R13bw-11: die Belegdatei der port_suche-Sperre.
+               "port_suche-blockiert.jsonl")
 # Fortsetzungsdateien (R13ad) und weitere Antwortfassungen (R13aw) kommen als Muster.
 LAUF_MUSTER = ("antwort-forts*.md", "stream-forts*.jsonl")
 # NICHT verschoben werden die Belege des REVIEWS: `review.md`, `reviewer.jsonl`,

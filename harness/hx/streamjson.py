@@ -498,6 +498,60 @@ def nennt_preflight_nur(name, eingabe=None) -> bool:
     return PREFLIGHT_WORT in str(eingabe.get("command") or "")
 
 
+# ------------------- port_suche UNGEKUERZT (R13bw-11, Aussensicht B289 Befund 4)
+# Der Worker rief `python scripts/port_suche.py 80008828 2>&1 | Select-Object -First 25`
+# (`runs/b289/stream.jsonl:56505`) - die Ausgabe brach genau an der Ueberschrift der
+# Port-Treffer ab (`port/src/vbi_handler.cpp`), weil die Port-Fundstellen am ENDE stehen
+# (Textregel `AGENTS.md` R13az). Die Textregel allein hat das nicht verhindert; hier steht
+# die maschinelle Seite derselben Regel.
+PORT_SUCHE_WORT = "port_suche"
+# Ein AUFRUF ist ein Interpreter (`python`, `python.exe`, `py`, `pwsh`) mit
+# `port_suche.py`, ODER der Skriptname am ANFANG eines Befehlsteils (`& .\scripts\...`,
+# `.\scripts\...`, `scripts/port_suche.py ...`). Die blosse ERWAEHNUNG in einem
+# Suchbefehl (`Select-String -Path scripts/port_suche.py`) ist **kein** Aufruf - dieselbe
+# Unterscheidung wie bei `_RE_PREFLIGHT_START` (dort gemessen: von 23 Texttreffern waren
+# nur 8 echte Starts).
+_RE_PORT_SUCHE_START = re.compile(
+    r"\b(?:python[0-9.]*(?:\.exe)?|py|pwsh|powershell)\b[^|;&\n]{0,80}?port_suche(?:\.py)?\b"
+    r"|^\s*(?:&\s*)?(?:\.\\|\./)?(?:\S*[\\/])?port_suche(?:\.py)?\b", re.IGNORECASE)
+# Ein KUERZEN ist ein Kopf-/Endfilter HINTER der Pipe. Gesucht wird nur im REST der
+# Pipe-Kette (nach dem port_suche-Teil), damit ein `head`/`more` anderswo nicht zaehlt.
+_RE_KUERZUNG = re.compile(r"\bhead\b|\bmore\b|\bSelect(?:-Object)?\s+-(?:First|Last)\b",
+                          re.IGNORECASE)
+
+
+def port_suche_kuerzung(name, eingabe=None) -> bool:
+    """Wird ein `port_suche`-Aufruf in DIESEM Befehl per Pipe gekuerzt? (R13bw-11)
+
+    Geprueft wird je Pipe-Kette (getrennt an `;`, Zeilenumbruch und `&&`):
+
+      * **startet** ein Teil `port_suche` (Pfad egal, s. `_RE_PORT_SUCHE_START`) und
+        traegt **nicht** `--schreiben`,
+      * und kuerzt ein **spaeterer** Teil derselben Kette die Ausgabe?
+        Als Kuerzen zaehlen `Select-Object -First|-Last`, `Select -First|-Last`,
+        `head` und `more` (Nutzerauftrag 07.10.2026).
+
+    `--schreiben` ist die **Ausnahme**: dieses Aufrufs Ausgabe ist nur die
+    Zusammenfassung, die Datei daneben wird ohnehin geschrieben - und gelesen wird sie
+    mit einem eigenen Befehl (`AGENTS.md` R13az). Ohne Pipe gibt es nichts zu kuerzen.
+    Beleg der Regel: `runs/b289/stream.jsonl:56505` (der Aufruf, der die Port-Ueberschrift
+    abgeschnitten hat).
+    """
+    if str(name or "") not in SHELL_WERKZEUGE or not isinstance(eingabe, dict):
+        return False
+    for befehl in re.split(r"[;\n]|&&", str(eingabe.get("command") or "")):
+        kette = befehl.split("|")
+        if len(kette) < 2:
+            continue                     # keine Pipe -> nichts kann gekuerzt werden
+        for i, teil in enumerate(kette[:-1]):
+            if (not _RE_PORT_SUCHE_START.search(teil.strip())
+                    or "--schreiben" in teil.lower()):
+                continue
+            if _RE_KUERZUNG.search("|".join(kette[i + 1:])):
+                return True
+    return False
+
+
 class SecretWatch:
     """Sucht Schluessel-ZUGRIFFE in Werkzeugaufrufen und Schluessel-WERTE im Mitschnitt.
 

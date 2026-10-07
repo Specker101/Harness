@@ -2259,6 +2259,46 @@ Kontext des Modells:
   fehlende Pflichtzeile wird in Log und Review-Fakten gemeldet statt still verschluckt —
   Details in §12i, Messwerte in `docs/_r13ae_retro.txt`.
 
+### 18d. `port_suche` wird nicht mehr gekuerzt (R13bw-11, 07.10.2026)
+
+**Befund (Aussensicht B289, Befund 4, `runs/b289/stream.jsonl:56505-56509`).** Der Worker
+rief
+
+```text
+cd "G:\Silent Scope Decomp"; python scripts/port_suche.py 80008828 2>&1 | Select-Object -First 25
+```
+
+auf. Die Ausgabe brach genau an der Überschrift der **Port-Treffer** ab
+(`port/src/vbi_handler.cpp`) — die Port-Fundstellen stehen am **Ende** der Ausgabe
+(`AGENTS.md` R13az). Die Textregel allein hat das nicht verhindert, weil ein gekürztes
+Ergebnis wie ein vollständiges aussieht.
+
+**Jetzt lehnt der PreToolUse-Hook den Aufruf ab** (`deny`), mit dem Wortlaut:
+
+```text
+PORT_SUCHE-HINWEIS: port_suche ungekuerzt mit --schreiben ausfuehren und die Datei lesen
+(R13az, Aussensicht B289 Befund 4)
+```
+
+* Erkennung: `hx/streamjson.py::port_suche_kuerzung` — je Pipe-Kette (`;`, `|`, `&&`,
+  Zeilenumbruch) muss ein Teil `port_suche` **starten** (Interpreter davor oder Skriptname
+  am Anfang des Teils) und ein **späterer** Teil kürzen: `Select-Object -First|-Last`,
+  `Select -First|-Last`, `head`, `more`.
+* **Erlaubt bleiben:** Aufrufe **ohne Pipe** und Aufrufe **mit `--schreiben`** (deren
+  Ausgabe ist nur die Zusammenfassung, die Datei daneben wird geschrieben und mit einem
+  eigenen Befehl gelesen). Auch eine blosse **Erwähnung** des Skripts
+  (`Select-String -Path scripts/port_suche.py …`) ist kein Aufruf.
+* Die Sperre hängt **nicht an der Batch-Uhr** — sie gilt in jedem Batch, auch nach der
+  Umschaltschwelle (anders als die Preflight-Sperre aus §17b). Jeder Stopp schreibt eine
+  Zeile `runs/b<N>/port_suche-blockiert.jsonl`
+  (`{"ts", "grund": "pipe-gekuerzt", "werkzeug"}`); die Datei zählt zu den Laufbelegen
+  (`hx/worker.py::LAUF_BELEGE`) und wird bei einem Wiederholungslauf mit verschoben.
+
+Belege: `docs/_r13bw11_probe.py` (liest den Original-Aufruf aus dem Mitschnitt und ruft
+den Hook genau so auf, `docs/_r13bw11_beleg.txt`), Tests
+`harness/tests/test_r13bw11_fixes.py` (16; erlaubt/abgelehnt je Muster, der Original-Aufruf
+aus dem Stream, drei Stopps in Folge = drei Belegzeilen).
+
 ## 19. Testfenster „Reviewer Sonnet" (R13bo, vorgemerkt 2026-10-02)
 
 Mit dem Commit R13bo-1 und dem **Neustart am Gate** beginnt ein **Testfenster**: der
