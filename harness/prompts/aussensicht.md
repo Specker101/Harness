@@ -45,7 +45,7 @@ Für **jeden** Strang prüfst du, ob die Fortschrittszahl, die geführt wird, da
 
 | Strang | Festgelegtes Ziel | Gemessen, wenn … |
 |---|---|---|
-| B (Hybrid-Läufer) | **Anteil der nativen Köpfe an den ausgeführten Schritten** (Entscheidung A4: „Fortschritt wird an dem schrumpfenden Anteil interpretierten Codes gemessen", `analysis/hybrid-plan.md:9-10`; Entscheidung: `readme.md:21`) | der Hybrid-Bericht **beide** Zahlen nennt: die Schritte, die die ROM ausführt, und den Anteil, den der native Kern davon trägt |
+| B (Hybrid-Läufer) | **Präfix gegen den MAME-Log zusammen mit der Zahl verschiedener Paket-SHAs** (Entscheidung A4; Zielwortlaut seit B286: „Fortschritt wird am **Praefix gegen den MAME-Log zusammen mit der Zahl verschiedener Paket-SHAs** gemessen (M277-6a/M281-1a); der Anteil interpretierten Codes (A4/Schattenfenster) wird als **Information** gefuehrt, nicht als Fortschrittsmass", `analysis/hybrid-plan.md:9-12`; Entscheidung: `readme.md:21`) | der Hybrid-Bericht das **Präfix** (Länge der belegten Fensterfolge) **und** die Zahl der **verschiedenen Paket-SHAs** nennt — der Anteil interpretierten Codes darf daneben stehen, aber nur als **Information**, nicht als Fortschrittszahl |
 | C (Handport) | **referenzgleiche Köpfe** | die Zahl die Köpfe zählt, deren Ausgabe gegen die Referenz stimmt (Rotprobe/Vergleich) — nicht die gebauten, abgelegten oder „übernommenen" Köpfe |
 
 - Läuft stattdessen eine **Ersatzzahl** (z. B. Wegmaß oder Schranke des Hybrid-Laufs, oder

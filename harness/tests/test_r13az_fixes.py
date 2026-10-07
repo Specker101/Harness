@@ -77,9 +77,10 @@ class TestAussensichtPrompt(unittest.TestCase):
         self.assertIn("`Arbeit vorhanden: …`", self.t)
 
     def test_strang_b_ziel_und_quelle(self):
-        self.assertIn("Anteil der nativen Köpfe an den ausgeführten Schritten", self.t)
+        self.assertIn("Praefix gegen den MAME-Log zusammen mit der Zahl verschiedener "
+                      "Paket-SHAs", self.t)
         self.assertIn("Entscheidung A4", self.t)
-        self.assertIn("analysis/hybrid-plan.md:9-10", self.t)
+        self.assertIn("analysis/hybrid-plan.md:9-12", self.t)
         self.assertIn("readme.md:21", self.t)
 
     def test_strang_c_ziel(self):
@@ -133,8 +134,8 @@ class TestReviewerPrompt(unittest.TestCase):
 
     def test_dieselben_ziele_wie_in_der_aussensicht(self):
         a = prompt(AUSSEN)
-        for satz in ("Anteil der nativen Köpfe an den ausgeführten Schritten",
-                     "analysis/hybrid-plan.md:9-10", "readme.md:21",
+        for satz in ("Praefix gegen den MAME-Log zusammen mit der Zahl verschiedener Paket-SHAs",
+                     "analysis/hybrid-plan.md:9-12", "readme.md:21",
                      "**referenzgleiche Köpfe**", "seit **mehreren Batches bei 0**"):
             roh = satz.replace("**", "")
             self.assertIn(roh, a.replace("**", ""), satz)
@@ -251,9 +252,15 @@ class TestAnlassImRepo(unittest.TestCase):
         p = DEC / "analysis" / "hybrid-plan.md"
         if not p.is_file():
             self.skipTest(f"{p} fehlt")
-        text = "\n".join(p.read_text(encoding="utf-8").splitlines()[8:10])
-        self.assertIn("schrumpfenden Anteil", text)
-        self.assertIn("interpretierten Codes", text)
+        # R13bw-11a-1 (07.10.2026): der Zielsatz wurde in B286 auf den A4-Wortlaut
+        # umgeschrieben (`233f672`, 2026-10-07) - Mass ist jetzt der PRAEFIX gegen den
+        # MAME-Log plus die Zahl verschiedener Paket-SHAs, der Anteil interpretierten
+        # Codes ist nur noch INFORMATION. Dieser Test hat die Aenderung gemeldet (Gate
+        # 2026-10-07 rot); er pinnt jetzt den neuen Satz an denselben Zeilen.
+        text = "\n".join(p.read_text(encoding="utf-8").splitlines()[8:12])
+        self.assertIn("Praefix gegen den", text)
+        self.assertIn("verschiedener Paket-SHAs", text)
+        self.assertIn("als **Information** gefuehrt", text)
 
     def test_bericht_b221_zaehlt_null_prozent(self):
         p = DEC / "analysis" / "bericht-b221-berichtspunkt-hybrid.md"
