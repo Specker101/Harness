@@ -1866,6 +1866,12 @@ class Ergebnis:
         self.gescheitert: str = ""
         # R13ar: Werkzeugrunden - die Zahl, gegen die die CLI ihr Zuglimit prueft.
         self.zug_runden: int = 0
+        # R13bw-15: Nutzerlimit (Abo) vor und nach dem Lauf - Staende aus
+        # `logs/rate-limit.json` (`streamjson.lies_rate_limit`). Vor dem Lauf steht dort
+        # der letzte bekannte Wert (Review, /ask, vorige Aussensicht), nach dem Lauf der
+        # dieses Laufs (`schreibe_rate_limit`).
+        self.rate_limit_vor: dict = {}
+        self.rate_limit_nach: dict = {}
 
     def describe(self) -> str:
         return (f"rc={self.rc} dauer={self.dauer_s:.0f}s modell={self.modell or '-'} "
@@ -1941,6 +1947,10 @@ def run(cfg, log, state, grund: str, mock: bool = False,
     batch = int(state.batch or 0)
     ablage_pruefen(cfg, batch)                       # R13br: erst pruefen, dann laufen
     res.tiefe = tiefenprobe_waehlen(cfg, zufall=zufall)
+    # R13bw-15: Nutzerlimit VOR dem Lauf - der letzte bekannte Stand aus
+    # `logs/rate-limit.json`. Bei der ersten Messung ist er leer (die Kopfzeile sagt
+    # dann `?` statt einer Zahl).
+    res.rate_limit_vor = streamjson.lies_rate_limit(cfg)
     prompt = build_prompt(cfg, state, grund, tiefe=res.tiefe)
     ziel = stream_pfad(cfg, batch)
     batch_ordner(cfg, batch, anlegen=True)           # fehlt er, legt die Aussensicht ihn an
@@ -1984,6 +1994,11 @@ def run(cfg, log, state, grund: str, mock: bool = False,
         if log:
             log.info("Aussensicht fertig", batch=batch, rc=res.rc,
                      dauer_s=round(time.time() - t0, 1), modell=res.modell)
+    # R13bw-15: Nutzerlimit NACH dem Lauf. Im echten Lauf hat `schreibe_rate_limit` die
+    # Werte dieses Laufs gerade abgelegt; bei der Attrappe (und wenn der Mitschnitt keine
+    # Limit-Zeile trug) bleibt der Stand von vor dem Lauf stehen - die Zeile zeigt dann
+    # zweimal denselben Wert, statt einen Verbrauch zu behaupten.
+    res.rate_limit_nach = streamjson.lies_rate_limit(cfg)
     g = grenzen(cfg)
     res.summary, res.befunde, res.verworfen, res.pruefungen = parse(res.text,
                                                                     int(g["max_befunde"]))
@@ -2109,6 +2124,10 @@ def bericht(cfg, batch: int, grund: str, res: Ergebnis, verteilung: dict,
         f"- Ausloeser-Gruende: {'; '.join(gruende[:6]) or '-'}",
         f"- Lauf: {res.describe()}",
     ]
+    # R13bw-15: Nutzerlimit (Abo) vor/nach dem Lauf - Quelle ist `logs/rate-limit.json`,
+    # gelesen VOR und NACH dem Lauf (nicht aus der Antwort des Modells geraten).
+    zeilen.append("- " + streamjson.rate_limit_delta_zeile(res.rate_limit_vor,
+                                                          res.rate_limit_nach))
     # R13ar: Zugarzahl und -verbrauch (die CLI prueft gegen die Werkzeugrunden) sowie
     # die Fruehwarnung, wenn ein Lauf ueber 80 % des Limits gebraucht hat.
     if res.zug_runden:
@@ -2187,6 +2206,10 @@ def bericht_schreiben(cfg, batch: int, grund: str, res: Ergebnis, verteilung: di
         "gelaufen": bool(ok), "gescheitert_grund": warum,
         "subtype": res.subtype, "zuege": res.zuege,
         "zug_runden": res.zug_runden,
+        # R13bw-15: das Nutzerlimit maschinenlesbar (Rohwerte beider Seiten + Kopfzeile).
+        "nutzerlimit": {"vor": res.rate_limit_vor, "nach": res.rate_limit_nach,
+                        "zeile": streamjson.rate_limit_delta_zeile(res.rate_limit_vor,
+                                                                  res.rate_limit_nach)},
         "text": res.text,
     })
     return p

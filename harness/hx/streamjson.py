@@ -820,6 +820,42 @@ def rate_limit_zeile(info: dict) -> str:
     return " | ".join(teile) if teile else "keine Angaben"
 
 
+def rate_limit_info(stand: dict) -> dict:
+    """Das `info`-Objekt aus einem Stand (`lies_rate_limit`) - oder den Wert selbst.
+
+    `lies_rate_limit` liefert die ganze Datei (`ts`/`quelle`/`info`/`zeile`),
+    `StreamStats.rate_limit` dagegen das `info`-Objekt direkt. Beide Formen duerfen
+    hier ankommen (R13bw-15).
+    """
+    if isinstance(stand, dict) and isinstance(stand.get("info"), dict):
+        return stand["info"]
+    return stand if isinstance(stand, dict) else {}
+
+
+def rate_limit_delta_zeile(vor: dict, nach: dict,
+                           beschriftung: str = "Nutzerlimit") -> str:
+    """`Nutzerlimit: Sitzung 25 % -> 46 %, Woche 27 % -> 30 %` (R13bw-15).
+
+    `vor`/`nach` sind Staende aus `lies_rate_limit` oder `info`-Objekte (s.
+    `rate_limit_info`). Eine Seite ohne Wert steht als `?`; fehlt ein Fenster auf beiden
+    Seiten, faellt es weg; ist gar nichts gemessen, sagt die Zeile `nicht gemessen` -
+    es wird nichts erfunden.
+    """
+    links = {w["schluessel"]: w for w in rate_limit_werte(rate_limit_info(vor))}
+    rechts = {w["schluessel"]: w for w in rate_limit_werte(rate_limit_info(nach))}
+    teile: list[str] = []
+    for schluessel, name in RATE_FENSTER:
+        a, b = links.get(schluessel), rechts.get(schluessel)
+        if a is None and b is None:
+            continue
+        kurz = name.split(" (")[0]                  # "Sitzung (5 h)" -> "Sitzung"
+        teile.append(f"{kurz} "
+                     + (f"{a['anteil'] * 100:.0f} %" if a else "?")
+                     + " -> "
+                     + (f"{b['anteil'] * 100:.0f} %" if b else "?"))
+    return f"{beschriftung}: " + (", ".join(teile) if teile else "nicht gemessen")
+
+
 def rate_limit_hoch(info: dict, schwelle: float = RATE_SCHWELLE) -> list[dict]:
     return [w for w in rate_limit_werte(info) if w["anteil"] >= schwelle]
 

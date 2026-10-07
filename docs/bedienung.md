@@ -1982,6 +1982,32 @@ Auftrag (nicht die Queue: die Nachricht ist zu diesem Zeitpunkt schon nach
 Beleg mit echtem Prompt-Ausschnitt: `docs/_r13t_beleg_4_prompt.txt`
 (`python tools/r13t_prompt_probe.py`).
 
+### 14f. Nutzerlimit vor/nach dem Lauf (R13bw-15, 07.10.2026)
+
+Jede **echte** Aussensicht liest `logs/rate-limit.json` **vor** dem Lauf (letzter bekannter
+Stand aus Review, `/ask` oder der vorigen Aussensicht) und **nach** dem Lauf erneut —
+`schreibe_rate_limit` hat dann die Werte dieses Laufs gerade abgelegt. Beide Stände stehen
+als eine Zeile im Kopf von `runs/b<N>/meta.md`, direkt hinter `- Lauf:`:
+
+    - Nutzerlimit: Sitzung 25 % -> 46 %, Woche 27 % -> 30 %
+
+Gebaut von `streamjson.rate_limit_delta_zeile(vor, nach)` (nimmt Staende aus
+`lies_rate_limit` **oder** `info`-Objekte). Regeln: eine Seite ohne Wert steht als `?`,
+ein Fenster, das auf beiden Seiten fehlt, fällt weg, und ohne jede Messung steht
+`Nutzerlimit: nicht gemessen` — die Zeile erfindet nichts. Eine **Attrappe** und ein
+Mitschnitt ohne `rate_limit_event` zeigen zweimal denselben Wert (kein behaupteter
+Verbrauch). Zusaetzlich stehen die Rohwerte in `runs/b<N>/meta.json` unter
+`nutzerlimit` (`vor`, `nach`, `zeile`).
+
+**Der Reviewer bekommt die Zeile NICHT** (Auftrag: „nur, wenn das ohne Eingriff in die
+Antwortdatei geht, sonst weglassen"). Grund, gemessen: `runs/b<N>/review.md` ist die
+Antwortdatei selbst — `hx/orchestrator.py` schreibt dort `(res.text or "") + "\n"`
+unveraendert hinein, die Kopie `logs/review-<stempel>.md` in `hx/reviewer.py` ebenso
+(`runs/b289/review.md` beginnt mit dem ersten Satz des Modells). Eine Kopfzeile waere ein
+Eingriff. `harness-facts.md` waere der richtige Ort (harness-geschrieben), ist aber
+**Eingabe** des Reviews: es entsteht **vor** dem Lauf und kann den Nachher-Wert nicht
+kennen.
+
 
 ---
 
