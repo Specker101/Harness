@@ -45,6 +45,41 @@ DEFAULTS = {
 }
 
 
+# R13bw-18 (08.10.2026, Lehre aus dem Fehlstart in R13bw-17): Die volle Testreihe gehoert
+# ANS GATE. Wer sie faehrt, waehrend ein Worker oder ein Review laeuft, laedt die Maschine
+# des laufenden Batches mit - die Regel steht in `docs/bedienung.md` (Einleitung, §12u,
+# §12z). Diese Abfrage ist die EINE Quelle fuer "laeuft gerade etwas?"; der Gate-Lauf
+# (`docs/_r13av_lauf.py`) bricht damit VOR dem Start ab (`--trotzdem` uebersteuert bewusst).
+LAUFENDE_ZUSTAENDE = (DS_WORKING, CLAUDE_REVIEWING)
+
+
+def laufender_lauf(pfad: str | Path | None = None) -> str:
+    """Laeuft ein Worker oder ein Review? -> Begruendung, sonst "" (R13bw-18).
+
+    Geprueft werden ZWEI Dinge:
+
+      * ein gesetzter `worker`-Vermerk - er laeuft auch in anderen Zustandsworten weiter
+        (z. B. waehrend `REVIEW_DUE`), und
+      * die Zustandsworte `DS_WORKING` und `CLAUDE_REVIEWING`.
+
+    Ohne Pfad, ohne Datei oder bei unlesbarem Inhalt kommt "" zurueck - dann wird nichts
+    behauptet (der Aufrufer entscheidet, ob er das als "frei" liest).
+    """
+    if pfad is None:
+        return ""
+    d = read_json(Path(pfad), None)
+    if not isinstance(d, dict):
+        return ""
+    teile: list[str] = []
+    w = d.get("worker") or {}
+    if w:
+        teile.append("Worker laeuft seit " + str(w.get("started_at") or "?"))
+    zustand = str(d.get("state") or "")
+    if zustand in LAUFENDE_ZUSTAENDE:
+        teile.append(f"Zustand {zustand} (Batch {int(d.get('batch') or 0)})")
+    return "; ".join(teile)
+
+
 class State:
     def __init__(self, path: str | Path):
         self.path = Path(path)

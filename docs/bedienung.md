@@ -10,7 +10,8 @@ Zustand und Logs liegen in `state\`, `logs\`, `runs\`, `inbox\` — **kein** Zus
 im Chat oder im Terminal.
 
 **Während ein Batch läuft, nur die betroffenen Testdateien fahren** (volle Reihe nur am
-Gate oder bei gestopptem Harness) — Begründung und Messwerte in §12u.
+Gate oder bei gestopptem Harness) — Begründung und Messwerte in §12u, der Wächter im
+Gate-Lauf (`docs/_r13av_lauf.py`, bricht selbst ab) in §12z.
 
 ---
 
@@ -1651,6 +1652,33 @@ Kopf, nicht irgendwo in der Datei. Fehlt es ganz, gilt die **Dateizeit** und die
 Datums-Feld, deshalb blieb die B219-Zahl (26 statt 25) stehen und der Vergleich kippte zu
 `(B222 -> B219: -1 Koepfe / -103 Insn gebaut)` — jetzt `(B219 -> B222: 1 Koepfe / 103 Insn
 gebaut)`.
+
+### 12z. Volle Reihe fahren: der Wächter im Gate-Lauf (R13bw-18, 2026-10-08)
+
+Die Regel steht seit R13au in der Einleitung („während ein Batch läuft, nur die betroffenen
+Testdateien“) — bis jetzt war sie eine **Bitte**. `docs/_r13av_lauf.py` prüft sie jetzt
+**vor** dem Start: `hx.state.laufender_lauf` liest `state/run.json` und meldet, wenn ein
+**Worker** läuft (`worker`-Vermerk) oder ein **Review** (`DS_WORKING`/`CLAUDE_REVIEWING`).
+Dann bricht der Lauf mit `rc=2` ab, ohne einen einzigen Test zu starten:
+
+    ABGELEHNT: es laeuft ein Batch - Worker laeuft seit 2026-10-07T20:32:18+00:00;
+    Zustand DS_WORKING (Batch 292).
+    Die volle Reihe gehoert ANS GATE (state=GATE_APPROVAL, worker leer) oder an einen
+    gestoppten Harness; sonst nur die betroffenen Testdateien fahren.
+    Bewusst uebersteuern: --trotzdem
+
+`--trotzdem` übersteuert bewusst; die Warnung steht dann im Bericht
+(`WARNUNG: es laeuft ein Batch (…) - mit --trotzdem gefahren.`).
+
+Der Beleg-Kopf nennt **beide** Zustände: `Harness-Zustand beim Start:` und
+`Harness-Zustand am Ende:`. Vorher stand dort nur der Endstand — ein Lauf, der am Gate
+begann und in einen laufenden Batch hinein endete, sah damit selbst wie ein Regelverstoß
+aus (genau der Fall R13bw-17).
+
+Anlass: In R13bw-17 wurde die volle Reihe um 00:42 gestartet, während Batch 292 seit 22:32
+lief — 2 h 10 min nach dem Batch-Start, 13 min Last auf der Maschine des Workers. Die
+Einzeltests der betroffenen Dateien waren richtig, die volle Reihe war falsch; deshalb
+erzwingt das Werkzeug jetzt, was die Regel ohnehin sagt.
 
 ### 12b. Was der Nutzer selbst entscheiden muss
 

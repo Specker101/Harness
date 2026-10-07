@@ -12,6 +12,13 @@ R13bd (2026-09-30): Der Bericht nennt jetzt JEDEN uebersprungenen Test mit Grund
 `verbosity=1` schreibt nur "OK (skipped=1)" - der Name fehlte, und in R13bc musste der
 eine Skip mit einem eigenen Werkzeug (`docs/_r13bc_skipfind.py`) gesucht werden. Wer die
 volle Reihe faehrt, hat damit in derselben Datei Anzahl UND Namen.
+
+R13bw-18 (2026-10-08): Die Reihe gehoert ANS GATE. Deshalb prueft `wache()` VOR dem Start
+`state/run.json` (`hx.state.laufender_lauf`): laeuft ein Worker oder ein Review
+(`worker` gesetzt bzw. `DS_WORKING`/`CLAUDE_REVIEWING`), bricht der Lauf mit rc=2 und
+klarer Meldung ab - die Maschine des laufenden Batches soll die Last nicht mittragen.
+`--trotzdem` uebersteuert das bewusst (die Warnung steht dann im Bericht). Im Kopf stehen
+jetzt BEIDE Zustaende: beim Start und am Ende.
 """
 
 from __future__ import annotations
@@ -51,8 +58,58 @@ class Skippergebnis(unittest.TextTestResult):
         super().addSkip(test, reason)
 
 
-def kopf() -> list[str]:
-    """Was zu diesem Lauf gehoert: Zeitpunkt, HEAD, Harness-Zustand (R13au-Regel)."""
+def zustand_text() -> str:
+    """`state=… batch=… worker=…` aus `state/run.json` (R13au-Regel)."""
+    try:
+        from hx.config import load_config
+        from hx.util import read_json
+        cfg = load_config()
+        d = read_json(Path(cfg.root) / "state" / "run.json", {}) or {}
+        return (f"state={d.get('state')} batch={d.get('batch')} "
+                f"worker={bool(d.get('worker'))}")
+    except Exception as exc:                                           # noqa: BLE001
+        return f"nicht lesbar ({str(exc)[:80]})"
+
+
+def laufender_lauf_text() -> str:
+    """Begruendung, wenn gerade ein Worker oder Review laeuft, sonst "" (R13bw-18)."""
+    try:
+        from hx.config import load_config
+        from hx.state import laufender_lauf
+        cfg = load_config()
+        return laufender_lauf(Path(cfg.root) / "state" / "run.json")
+    except Exception:                                                  # noqa: BLE001
+        return ""
+
+
+def wache() -> tuple[int, str]:
+    """VOR dem Lauf: laeuft ein Batch? -> `(rc, Meldung)`; 0 = weiter, 2 = abgelehnt.
+
+    Anlass (R13bw-17): die Reihe wurde gestartet, waehrend Batch 292 seit 2 h 10 min lief -
+    die Maschine des Workers trug die Last mit. Die Regel steht in `docs/bedienung.md`
+    (Einleitung, §12u, §12z); hier wird sie erzwungen. `--trotzdem` uebersteuert sie
+    bewusst - dann steht die Warnung im Bericht.
+    """
+    grund = laufender_lauf_text()
+    if not grund:
+        return 0, ""
+    if "--trotzdem" in sys.argv[1:]:
+        return 0, f"WARNUNG: es laeuft ein Batch ({grund}) - mit --trotzdem gefahren."
+    return 2, ("ABGELEHNT: es laeuft ein Batch - " + grund + ".\n"
+               "Die volle Reihe gehoert ANS GATE (state=GATE_APPROVAL, worker leer) oder an "
+               "einen gestoppten Harness; sonst nur die betroffenen Testdateien fahren "
+               "(docs/bedienung.md Einleitung, §12u).\n"
+               "Bewusst uebersteuern: --trotzdem")
+
+
+def kopf(zustand_start: str = "") -> list[str]:
+    """Zeitpunkt, HEAD und der Harness-Zustand BEIM START und AM ENDE (R13au, R13bw-18).
+
+    `kopf()` laeuft am ENDE (nach `os.chdir`), deshalb kommt der Startzustand von `main`
+    herein. Anlass: in R13bw-17 stand nur der Endstand im Beleg ("state=DS_WORKING"),
+    obwohl der Lauf am Gate begonnen hatte - der Bericht sah damit selbst wie ein
+    Regelverstoss aus.
+    """
     zeilen = [f"Volle Testreihe {time.strftime('%Y-%m-%d %H:%M:%S')}",
               f"Verzeichnis: {HARNESS}"]
     try:
@@ -61,19 +118,12 @@ def kopf() -> list[str]:
         zeilen.append("HEAD: " + (r.stdout or "").strip())
     except Exception:                                                  # noqa: BLE001
         zeilen.append("HEAD: nicht lesbar")
-    try:
-        from hx.config import load_config
-        from hx.util import read_json
-        cfg = load_config()
-        d = read_json(Path(cfg.root) / "state" / "run.json", {}) or {}
-        zeilen.append(f"Harness-Zustand: state={d.get('state')} batch={d.get('batch')} "
-                      f"worker={bool(d.get('worker'))}")
-    except Exception as exc:                                           # noqa: BLE001
-        zeilen.append(f"Harness-Zustand: nicht lesbar ({str(exc)[:80]})")
+    zeilen.append(f"Harness-Zustand beim Start: {zustand_start or 'nicht gelesen'}")
+    zeilen.append(f"Harness-Zustand am Ende:  {zustand_text()}")
     return zeilen
 
 
-def lauf() -> tuple[str, int]:
+def lauf(zustand_start: str = "") -> tuple[str, int]:
     puffer = io.StringIO()
     # GENAU wie auf der Kommandozeile: `cd harness` + `unittest discover -s tests
     # -p "test_*.py"`. Ohne das gibt `discover` auf, weil `tests/` kein Paket ist
@@ -86,7 +136,7 @@ def lauf() -> tuple[str, int]:
     t0 = time.time()
     ergebnis = runner.run(suite)
     dauer = time.time() - t0
-    kopfzeilen = kopf()
+    kopfzeilen = kopf(zustand_start)
     bilanz = [
         "",
         f"Dauer: {dauer:.1f} s",
@@ -105,7 +155,12 @@ def lauf() -> tuple[str, int]:
 
 
 def main() -> int:
-    text, rc = lauf()
+    rc_wache, meldung = wache()
+    if meldung:
+        print(meldung)
+    if rc_wache:
+        return rc_wache                       # R13bw-18: kein Lauf waehrend eines Batches
+    text, rc = lauf(zustand_text())
     ziel = ZIEL
     for a in sys.argv[1:]:
         if a.startswith("--ziel="):
@@ -120,7 +175,7 @@ def main() -> int:
         print(text)
     # Kurzfassung (unabhaengig davon, ob geschrieben wurde)
     for z in text.splitlines():
-        if z.startswith(("Tests:", "Dauer:", "ERGEBNIS:", "Harness-Zustand:", "HEAD:",
+        if z.startswith(("Tests:", "Dauer:", "ERGEBNIS:", "Harness-Zustand", "HEAD:",
                          "Übersprungen")) or z.startswith("  - "):
             print(z)
     return rc
