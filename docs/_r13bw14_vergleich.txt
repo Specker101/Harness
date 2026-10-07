@@ -1,0 +1,92 @@
+=== B285: claude-opus-5-5 (echt) gegen claude-sonnet-5-5 (Schatten)
+  echt     dauer=379s runden=37 zuege=50 befunde=6 verworfen=0
+           Zuege laut Kopf: 37 von 70 - num_turns laut CLI: 50
+  schatten dauer=191s runden=18 zuege=37 befunde=3 verworfen=0
+           Zuege laut Kopf: 18 von 70
+           nutzerlimit (abo) vor dem lauf: Sitzung (5 h): 25 % (Reset 07.10.2026 16:20 (UTC+02:00)) | Woche (7 Tage): 27 % (Reset 13.10.2026 07:00 (UTC+02:00))
+           nutzerlimit (abo) nach dem lauf: Sitzung (5 h): 46 % (Reset 07.10.2026 16:20 (UTC+02:00)) | Woche (7 Tage): 30 % (Reset 13.10.2026 07:00 (UTC+02:00))
+  Befunde: 6 echt / 3 Schatten -> gefunden 0, verpasst 6, zusaetzlich 3
+    Gewicht hoch     echt 2 | gefunden 0 | verpasst 2 | zusaetzlich 2
+    Gewicht mittel   echt 3 | gefunden 0 | verpasst 3 | zusaetzlich 1
+    Gewicht niedrig  echt 1 | gefunden 0 | verpasst 1 | zusaetzlich 0
+  VERPASST (nur echt):
+    verpasst    n=1 hoch    Nutzer   runs/b282/review.md:61
+                Ihre Hinweisregel (6 B-Batches ohne Station und ohne Bewegung) kann praktisch nicht ausl
+    verpasst    n=2 hoch    Nutzer   _preflight_273.txt:32
+                Solange C ruht, kommt kein nativer Kopf hinzu. Der A4-Anteil kann deshalb nicht steigen 
+    verpasst    n=3 mittel  Reviewer _m285/_paket160_quelle.txt:31
+                Die Grenze, die als „Nächster Schritt (2)“ im Anker steht (write_bytes an den nativ-Hake
+    verpasst    n=4 mittel  Reviewer runs/b285/auftrag.md:206
+                In B285 wurde das Modell vor der Messung zur Vorgabe gemacht, eine Inertprobe als Rotpro
+    verpasst    n=5 mittel  Reviewer port-batch283-b-irq1-2026-10-06.md:146
+                Das Fortschrittsmaß, das in readme und AGENTS steht, wird weder im Preflight noch in der
+    verpasst    n=6 niedrig Reviewer runs/b275/result.json:9
+                4 von 11 Batches überschreiten die Alarmgrenze. Ursache sind jedes Mal lange Hybrid-Läuf
+  ZUSAETZLICH (nur Schatten):
+    zusaetzlich n=1 hoch    Reviewer hybrid-plan.md:325
+                Das für Strang B festgelegte Fortschrittsmaß (Präfix und SHA-Zahl) wird in keiner maschi
+    zusaetzlich n=2 hoch    Nutzer   _m277/_pakete_inhalt.txt:53
+                Die einzige Bremse für Strang B (Hinweisgrenze 6) misst „Bewegung", nicht das Präfix. De
+    zusaetzlich n=3 mittel  Reviewer r1b-workstream.md:7
+                Die Hebel, die den Paketinhalt bewegen könnten (Paket 160, Quelle von Paket 125/159), wu
+  Verdikte: 6 gleich, 10 anders
+    ANDERS  M242-3       echt=offen      Schatten=erledigt
+    ANDERS  M242-4       echt=erledigt   Schatten=-
+    ANDERS  M254-1       echt=offen      Schatten=-
+    ANDERS  M281-1a      echt=offen      Schatten=-
+    ANDERS  M285-5a      echt=-          Schatten=offen
+    ANDERS  M289-1       echt=-          Schatten=offen
+    ANDERS  M289-2       echt=-          Schatten=offen
+    ANDERS  M289-3       echt=-          Schatten=offen
+    ANDERS  M289-4       echt=-          Schatten=erledigt
+    ANDERS  M289-5       echt=-          Schatten=offen
+    gleich : M254-2(offen), M254-3(offen), M254-4(offen), M260-5(offen), M272-4(offen), M274-4(offen)
+
+=== B289: claude-opus-5-5 (echt) gegen claude-sonnet-5-5 (Schatten)
+  echt     dauer=393s runden=51 zuege=65 befunde=5 verworfen=0
+           Zuege laut Kopf: 51 von 70 - num_turns laut CLI: 65
+  schatten dauer=411s runden=31 zuege=56 befunde=7 verworfen=0
+           Zuege laut Kopf: 31 von 70
+           nutzerlimit (abo) vor dem lauf: Sitzung (5 h): 25 % (Reset 07.10.2026 16:20 (UTC+02:00)) | Woche (7 Tage): 27 % (Reset 13.10.2026 07:00 (UTC+02:00))
+           nutzerlimit (abo) nach dem lauf: Sitzung (5 h): 60 % (Reset 07.10.2026 16:20 (UTC+02:00)) | Woche (7 Tage): 31 % (Reset 13.10.2026 07:00 (UTC+02:00))
+  Befunde: 5 echt / 7 Schatten -> gefunden 0, verpasst 5, zusaetzlich 7
+    Gewicht hoch     echt 3 | gefunden 0 | verpasst 3 | zusaetzlich 1
+    Gewicht mittel   echt 2 | gefunden 0 | verpasst 2 | zusaetzlich 4
+    Gewicht niedrig  echt 0 | gefunden 0 | verpasst 0 | zusaetzlich 2
+  VERPASST (nur echt):
+    verpasst    n=1 hoch    Reviewer port-batch287-b-kaltboot-2026-10-07.md:83
+                Fünf Zeitmodell-Änderungen (B282 Takt, B283 IRQ1-Periode, B285 Pegel, B287 Kaltstart, B2
+    verpasst    n=2 hoch    Reviewer _m289/_irq1_schalter.txt:18
+                Die „Zahl verschiedener Paket-SHAs“ zählt, wie viele Pakete ins Schrittfenster passen, n
+    verpasst    n=3 hoch    Reviewer _m282/_vorwaerm_a4s.txt:14698
+                `FUN_80029A50` zählt in den 151 „referenzgleichen“ C-Köpfen (0 Abweichungen, Zeile „OK“)
+    verpasst    n=4 mittel  Reviewer port/src/vbi_handler.cpp:215
+                Der Teiler war im Port seit B124 dokumentiert und nachgebaut. B288 hat ihn neu hergeleit
+    verpasst    n=5 mittel  Reviewer port-batch289-b-irq1-mame-2026-10-07.md:155
+                Die Preflight-Sperre bis 135 min erzeugt in fertigen Batches 38–47 min Wartezeit. Diese 
+  ZUSAETZLICH (nur Schatten):
+    zusaetzlich n=1 hoch    Reviewer _preflight_289.txt:32
+                Das festgelegte Ziel von Strang B (Präfix plus Zahl verschiedener Paket-SHAs) ist nicht 
+    zusaetzlich n=2 mittel  Reviewer _m282/_inhalt.txt:3
+                Das B282-Etikett „Praefix-Charakter" für 805 von 2169 Fenstern bei 2.7G überzieht den Um
+    zusaetzlich n=3 mittel  Reviewer _m286/_paket160_rom.txt:43
+                Die erste Abweichung liegt bei MAME 125, und der Schreiber von Zelle 0x8018CFC8 ist seit
+    zusaetzlich n=4 mittel  Reviewer _m289/_irq1_schalter.txt:13
+                Die Zahl „~149 Einsprünge je Hauptbild" ist falsch. 67096/1089 ergibt 61,6; 149 ist die 
+    zusaetzlich n=5 mittel  Reviewer port-batch282-b-bildtakt-2026-10-06.md:84
+                Das FERTIG-WENN von B282 misst Lieferung, nicht Wirkung. Der Takt 551264 wurde um 12:39 
+    zusaetzlich n=6 niedrig Reviewer readme.md:775
+                `readme.md:775-796` führt einen veralteten B215-Block, dessen Zielsatz zwar angeglichen 
+    zusaetzlich n=7 niedrig Reviewer ohne-referenz: analysis/r1b-workstream.md (Ankerkopf, Strang C „ruht); Eingabe Bilanz-Trend der
+                Strang C steht seit 12 Batches bei 151 referenzgleichen Köpfen. Die Messgröße ist richti
+  Verdikte: 7 gleich, 8 anders
+    ANDERS  M242-3       echt=offen      Schatten=erledigt
+    ANDERS  M254-1       echt=erledigt   Schatten=-
+    ANDERS  M281-1a      echt=erledigt   Schatten=-
+    ANDERS  M289-1       echt=-          Schatten=offen
+    ANDERS  M289-2       echt=-          Schatten=offen
+    ANDERS  M289-3       echt=-          Schatten=offen
+    ANDERS  M289-4       echt=-          Schatten=erledigt
+    ANDERS  M289-5       echt=-          Schatten=offen
+    gleich : M254-2(offen), M254-3(offen), M254-4(offen), M260-5(offen), M272-4(offen), M274-4(offen), M285-5a(offen)
+

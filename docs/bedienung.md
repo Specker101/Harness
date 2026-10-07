@@ -2337,6 +2337,57 @@ hochgewichtige Befunde mit Empfänger „Reviewer"**, geht der Reviewer **zurüc
 Opus** (`reviewer_modell = claude-opus-5-5`; `reviewer_modell_b` bleibt). Das
 **Auswertungsergebnis kommt als Telegram-Meldung**.
 
+### 19a. Schatten-Außensicht und Schatten-Vergleich (R13bw-14, 07.10.2026)
+
+Frage aus §19 („reicht Sonnet auch für die Außensicht?") ohne Eingriff in den Betrieb:
+**derselbe** Außensicht-Auftrag wird ein zweites Mal gefahren, mit einem anderen
+Modell und **außerhalb** der Harness-Buchhaltung. Zwei Werkzeuge in
+`harness/tools/`, beide **nicht** in `hx/` eingehängt — sie laufen nur von Hand:
+
+```
+cd g:\Harness\harness
+python -u tools\schatten_aussensicht.py --batch 285 --batch 289 --trocken   # nur zeigen
+python -u tools\schatten_aussensicht.py --batch 285 --batch 289 --ja        # fahren (Abo!)
+python -u tools\schatten_vergleich.py  --batch 285 --batch 289              # vergleichen
+```
+
+| Punkt | Verhalten |
+|---|---|
+| **Tiefenprobe** | aus dem **echten** `runs/b<N>/meta.md` gelesen und **angepinnt** (Fenster und gezogene Batches); es wird **nichts gezogen und nichts gemerkt** |
+| **Prompt** | `aussensicht.build_prompt(cfg, state, grund, tiefe=…)` — derselbe Bau wie im Betrieb; `state` kommt aus `state/run.json`, wird aber **nicht** gespeichert |
+| **Umgebung** | `envs.reviewer_env` — identische Denkstufe wie der echte Lauf (`reviewer_effort`) |
+| **Nicht aufgerufen** | `ablage_pruefen`, `tiefenprobe_merken`, `schreibe_rate_limit`, `verteile` — die Schattenläufe schreiben **keine** Zustandsdatei und **kein** echtes `meta.*` |
+| **Grenze der Nachstellung** | Angepinnt wird **nur die Tiefenprobe**. Die übrigen Eingaben baut `build_prompt` aus dem **Stand von heute** — letzte Review-Zusammenfassungen, Bilanz, Ankerkopf und die **offenen Befunde** sind also die des **Auswertungstags**, nicht die des nachgestellten Batches. Ein Verdikt-Vergleich über Kennungen ist deshalb **nur für die Kennungen aussagekräftig, die es damals schon gab**; alles danach nur im Schatten ist kein Widerspruch, sondern die neuere Lage |
+| **Ausgabe** | `docs/_sonnet_vergleich_b<N>.md` — Kopf im Stil der echten `meta.md` (Modell, Dauer, Züge, Werkzeugrunden, Nutzerlimit **vor/nach** dem Lauf) **plus** die rohe Antwort; Mitschnitt und stderr liegen in `%TEMP%` |
+| **Vergleich** | `schatten_vergleich.py` liest nur: Befunde (gefunden / verpasst / zusätzlich, nach Kennung und Gewicht), `PRUEFUNG`-Verdikte (gleich / anders) und die Nutzerlimit-Differenz |
+| **Kennung eines Befunds** | die Außensicht vergibt **keine** Befund-Nummer für die Maschine; der Schlüssel ist der **erste `Beleg:`-Verweis** (`Datei:Zeile`), normalisiert. Zwei Befunde zum selben Ort zählen damit als **einer** — das ist bekannt und steht in der Ausgabe |
+
+Gewertet wird nur, was **reproduzierbar** ist: gleiche Nummer, gleiches Fenster,
+gleicher Prompt, gleiche Denkstufe — Unterschiede kommen damit aus dem **Modell**, nicht
+aus dem Auftrag. Die Schattenläufe zählen **nicht** in `/bilanz` und **nicht** in den
+Verbrauch (sie laufen an der Buchhaltung vorbei; Kosten sieht nur das Abo).
+
+**Erster Lauf (07.10.2026, B285 und B289).** Beleg: `docs/_r13bw14_vergleich.txt`
+(Tafel aus dem Werkzeug, unverändert), Rohantworten `docs/_sonnet_vergleich_b285.md`
+und `_b289.md`.
+
+| Batch | Modell | Dauer | Werkzeugrunden | Befunde | Nutzerlimit 5 h vorher → nachher |
+|---|---|---|---|---|---|
+| B285 | Opus 5.5 (echt) | 379 s | 37 | 6 | nicht im Kopf geführt |
+| B285 | **Sonnet 5.5** (Schatten) | **191 s** | **18** | **3** | 25 % → 46 % |
+| B289 | Opus 5.5 (echt) | 393 s | 51 | 5 | nicht im Kopf geführt |
+| B289 | **Sonnet 5.5** (Schatten) | 411 s | **31** | **7** | 25 % → 60 % |
+
+Beide Schattenläufe pinnten **dieselbe** Tiefenprobe wie der echte Lauf (B277 bzw. B282)
+und liefen mit `rc=0`/`subtype=success` durch. **Wichtig zur Lesart:** „gefunden 0" in der
+Tafel ist ein **Artefakt des Schlüssels** (erster `Beleg:`) — Sonnet nennt dieselbe Sache
+mit einem anderen Beleg. Inhaltlich decken sich im B285-Lauf zwei der sechs „verpasst"
+(Punkte 1 und 5) mit Sonnets „zusaetzlich" 2 und 1; in B289 deckt Sonnets „zusaetzlich" 1
+den „verpasst"-Punkt 2 ab. Umgekehrt fand der Schattenlauf in B289 **vier** Stellen, die
+der echte Lauf nicht hatte (u. a. die falsche Zahl „~149 Einsprünge je Hauptbild" —
+67096/1089 = 61,6 — in `_irq1_schalter.txt:13` gegen `:24`). Die Verdikt-Spalte ist nur
+für die Kennungen von damals lesbar (siehe „Grenze der Nachstellung").
+
 ## 20. R13bt (04.10.2026): Mischung getrennt, Stillstandszähler der B-Phase
 
 Zwei Befunde der Außensicht zu B264 (M264-5) und die daraus folgende Regel.
