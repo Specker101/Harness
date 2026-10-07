@@ -92,10 +92,15 @@ BLOCK_DATEI = "preflight-blockiert.jsonl"
 # Wortlaut aus dem Nutzerauftrag (01.10.2026), nachgezogen mit R13bw-6: der Worker soll den
 # Stopp nicht als Verbot lesen, aber auch nicht sofort wiederholen - der Preflight gehoert
 # an das Batch-Ende, hinter die Umschaltschwelle.
+# R13bw-17 (08.10.2026, Befund aus Batch 292): Der Zusatz nennt jetzt den WEG, die Liste zu
+# beenden. Der alte Satz "ist sie erledigt, das im Batch-Dokument festhalten und die
+# Schranke abwarten" ist gestrichen - er hat den Worker in B292 zum Warten geschickt,
+# obwohl die Sperre mit dem Marker sofort faellt (S1, `worker.nachrueckliste_marker`).
 BLOCK_ZUSATZ = ("Die Sperre gilt, bis die Batch-Uhr die Umschaltschwelle erreicht hat - "
-                "auch ein zweiter Versuch wird gestoppt. Bis dahin an der Nachrueckliste "
-                "weiterarbeiten; ist sie erledigt, das im Batch-Dokument festhalten und die "
-                "Schranke abwarten (der Preflight gehoert an das Batch-Ende).")
+                "auch ein zweiter Versuch wird gestoppt. Ist die Nachrueckliste erledigt, "
+                "schreibe als ANTWORTTEXT eine eigene Zeile `NACHRUECKLISTE ERLEDIGT` "
+                "(nicht in ein Dokument, nicht in einen Werkzeugaufruf) - danach ist der "
+                "Preflight sofort erlaubt.")
 
 # --------------------------------------------------- R391-Sperre (R13bl)
 # Wortlaut des Auftrags: Edit/Write/MultiEdit auf Pfade unter `port/` und `scripts/`.

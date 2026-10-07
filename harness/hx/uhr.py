@@ -152,11 +152,21 @@ def kontext_kurz(tokens) -> str:
 # Der Wortlaut ist der des Auftrags vom 2026-09-29. Die Schreibweise "Umschwellschwelle"
 # des Auftrags wurde am 2026-09-30 auf Nutzerwunsch zu "Umschaltschwelle" korrigiert
 # (R13ap) - so heisst das Ding auch in der uebrigen Ausgabe.
+#
+# R13bw-17 (08.10.2026, Befund aus Batch 292): Der Text sagt jetzt, WIE die Liste
+# "erledigt" gemeldet wird. Gemessen (Watch-Log 00:30, Batch-Uhr 118 min): der Worker
+# hatte alle Posten fertig, hielt es "im Batch-Dokument" fest und wartete die Schranke ab -
+# der Marker `NACHRUECKLISTE ERLEDIGT` stand nie als Antwortzeile, also griff die Sperre
+# (S1, `worker.nachrueckliste_marker`) nicht. Der Marker zaehlt nur als eigener TEXT des
+# Workers (Antwort oder `text`-Block des Mitschnitts), nicht in einem Dokument und nicht
+# in einem Werkzeugaufruf.
 PREFLIGHT_HINWEIS = (
     "Preflight vor der Umschaltschwelle ({minuten:.1f} von {umschalt:.0f} min). "
-    "Er ist nur zulässig, wenn alle Posten der NACHRUECKLISTE erledigt sind. Sonst erst "
-    "die Nachrückliste abarbeiten; ein früher Preflight muss später wiederholt werden und "
-    "kostet ~10 min."
+    "Er ist nur zulässig, wenn alle Posten der NACHRUECKLISTE erledigt sind. Ist sie "
+    "erledigt, schreibe als ANTWORTTEXT eine eigene Zeile `NACHRUECKLISTE ERLEDIGT` "
+    "(nicht in ein Dokument, nicht in einen Werkzeugaufruf) - danach ist der Preflight "
+    "sofort erlaubt. Sonst erst die Nachrückliste abarbeiten; ein früher Preflight muss "
+    "später wiederholt werden und kostet ~10 min."
 )
 
 

@@ -216,6 +216,25 @@ class TestHook(unittest.TestCase):
         hoe = self.hook(self.PREFLIGHT, minuten=40.0, marker=True)
         self.assertEqual(hoe, {}, "kein deny mehr")
 
+    # ------------------------------------------- R13bw-17: der Weg steht im Sperrtext
+    def test_sperrtext_nennt_den_marker_als_antwortzeile(self):
+        """B292: der Worker hielt die Erledigung im Dokument fest und wartete ab.
+
+        Gemessen (Watch-Log 00:30, Batch-Uhr 118 min): alle Posten fertig, Marker nie in
+        einem Antworttext - die Sperre blieb, obwohl S1 mit dem Marker sofort faellt.
+        """
+        hoe = self.hook(self.PREFLIGHT, minuten=40.0)
+        grund = hoe.get("permissionDecisionReason") or ""
+        self.assertEqual(hoe.get("permissionDecision"), "deny")
+        self.assertIn("`NACHRUECKLISTE ERLEDIGT`", grund)
+        self.assertIn("ANTWORTTEXT", grund)
+        self.assertIn("eigene Zeile", grund)
+        self.assertIn("nicht in ein Dokument", grund)
+        self.assertIn("nicht in einen Werkzeugaufruf", grund)
+        self.assertIn("sofort erlaubt", grund)
+        self.assertNotIn("im Batch-Dokument festhalten", grund)
+        self.assertNotIn("Schranke abwarten", grund)
+
     def test_ohne_nachrueckliste_bleibt_alles_wie_es_war(self):
         hoe = self.hook(self.PREFLIGHT, minuten=40.0, auftrag="# Auftrag\n\nKein Abschnitt\n")
         self.assertEqual(hoe, {})

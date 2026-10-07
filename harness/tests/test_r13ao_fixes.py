@@ -34,10 +34,15 @@ from hx.util import Log, ensure_dir, write_text_atomic          # noqa: E402
 # dieser Test an, wenn jemand den Text aendert. X = Minuten seit Batch-Start,
 # Y = Umschaltschwelle. (R13ap, 2026-09-30: "Umschwellschwelle" aus dem Auftrag wurde
 # zu "Umschaltschwelle" korrigiert - so heisst das Ding auch sonst.)
+# R13bw-17 (08.10.2026, Befund aus Batch 292): der Text nennt jetzt den Weg - der Marker
+# `NACHRUECKLISTE ERLEDIGT` gehoert als ANTWORTTEXT in einer eigenen Zeile, nicht in ein
+# Dokument; danach ist der Preflight sofort erlaubt.
 HINWEIS = ("Preflight vor der Umschaltschwelle (42.0 von 80 min). Er ist nur zulässig, "
-           "wenn alle Posten der NACHRUECKLISTE erledigt sind. Sonst erst die "
-           "Nachrückliste abarbeiten; ein früher Preflight muss später wiederholt werden "
-           "und kostet ~10 min.")
+           "wenn alle Posten der NACHRUECKLISTE erledigt sind. Ist sie erledigt, schreibe "
+           "als ANTWORTTEXT eine eigene Zeile `NACHRUECKLISTE ERLEDIGT` (nicht in ein "
+           "Dokument, nicht in einen Werkzeugaufruf) - danach ist der Preflight sofort "
+           "erlaubt. Sonst erst die Nachrückliste abarbeiten; ein früher Preflight muss "
+           "später wiederholt werden und kostet ~10 min.")
 
 AUFTRAG_MIT_LISTE = """# Batch 999 - Test
 
@@ -185,6 +190,23 @@ class TestErkennung(unittest.TestCase):
 class TestWortlaut(unittest.TestCase):
     def test_wortlaut_ist_der_des_auftrags(self):
         self.assertEqual(uhr.preflight_hinweis(42.0, 80.0), HINWEIS)
+
+    def test_wortlaut_nennt_den_marker_als_antwortzeile(self):
+        """R13bw-17 (B292): der Text sagt, WIE die Liste erledigt gemeldet wird.
+
+        Ohne diesen Satz hielt der Worker die Erledigung im Batch-Dokument fest und
+        wartete die Schranke ab - der Marker stand nie in einem Antworttext, also griff
+        die Sperre (S1) nicht.
+        """
+        text = uhr.preflight_hinweis(42.0, 80.0)
+        self.assertIn("`NACHRUECKLISTE ERLEDIGT`", text)
+        self.assertIn("ANTWORTTEXT", text)
+        self.assertIn("eigene Zeile", text)
+        self.assertIn("nicht in ein Dokument", text)
+        self.assertIn("nicht in einen Werkzeugaufruf", text)
+        self.assertIn("sofort erlaubt", text)
+        self.assertNotIn("im Batch-Dokument festhalten", text)
+        self.assertNotIn("Schranke abwarten", text)
 
     def test_zu_frueh_ist_nur_vor_der_schwelle(self):
         self.assertTrue(uhr.preflight_zu_frueh(42.0, 80.0))

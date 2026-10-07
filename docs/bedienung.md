@@ -1321,7 +1321,7 @@ die Batch-Uhr steht **vor** der Umschaltschwelle und `auftrag.md` trägt eine
 `NACHRUECKLISTE`.
 
 ```
-PREFLIGHT-HINWEIS: Preflight vor der Umschaltschwelle (34.0 von 75 min). Er ist nur zulässig, wenn alle Posten der NACHRUECKLISTE erledigt sind. Sonst erst die Nachrückliste abarbeiten; ein früher Preflight muss später wiederholt werden und kostet ~10 min.
+PREFLIGHT-HINWEIS: Preflight vor der Umschaltschwelle (34.0 von 75 min). Er ist nur zulässig, wenn alle Posten der NACHRUECKLISTE erledigt sind. Ist sie erledigt, schreibe als ANTWORTTEXT eine eigene Zeile `NACHRUECKLISTE ERLEDIGT` (nicht in ein Dokument, nicht in einen Werkzeugaufruf) - danach ist der Preflight sofort erlaubt. Sonst erst die Nachrückliste abarbeiten; ein früher Preflight muss später wiederholt werden und kostet ~10 min.
 ```
 
 | Punkt | Verhalten |
@@ -1343,6 +1343,18 @@ jeder Versuch wird erneut gestoppt und bekommt eine Zeile
 (`{"ts","min","umschalt","versuch","werkzeug"}`, `versuch` zählt die Stopps im selben
 Batch). Hinter der Schranke läuft der Preflight normal durch — die Datei ist dann nur noch
 Beleg.
+
+**Nachtrag R13bw-17 (08.10.2026, Befund aus Batch 292): Der Text nennt den Weg, wenn die
+Liste fertig ist.** Gemessen (Watch-Log 00:30, Batch-Uhr 118 min): der Worker hatte alle
+Posten der Nachrückliste erledigt, der Hook stoppte den Preflight trotzdem — der Marker
+`NACHRUECKLISTE ERLEDIGT` stand nie in einem **Antworttext**, sondern nur im Batch-Dokument,
+und S1 (`worker.nachrueckliste_marker`, §12p/R13bw-13) sieht genau dort nicht hin. Beide
+Texte nennen das jetzt ausdrücklich: `hx/uhr.py::PREFLIGHT_HINWEIS` (Hinweis nach dem
+Aufruf) und `tools/batch_uhr.py::BLOCK_ZUSATZ` (Grund der Sperre). Der alte Satz „ist sie
+erledigt, das im Batch-Dokument festhalten und die Schranke abwarten“ ist **gestrichen** —
+er hat den Worker zum Warten geschickt, obwohl die Sperre mit dem Marker sofort fällt
+(`worker.nachrueckliste_marker` liest `antwort.md`, `antwort-forts*.md` und die
+`text`-Blöcke des laufenden Mitschnitts — keine Dokumente, keine Werkzeugaufrufe).
 
 Wortlaut, Messung und die Definition der Zähler: `docs/_r13ao_belege.md`.
 
