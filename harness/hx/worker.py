@@ -165,7 +165,9 @@ LAUF_BELEGE = ("auftrag.md", "stream.jsonl", "stream.err.txt", "result.json",
                "antwort.md", "mcp.json", "worker-hooks.json",
                "preflight-aufrufe.jsonl", "preflight-blockiert.jsonl",
                # R13bw-11: die Belegdatei der port_suche-Sperre.
-               "port_suche-blockiert.jsonl")
+               "port_suche-blockiert.jsonl",
+               # R13bw-13: die Belegdatei der Langlauf-Sperre.
+               "langlauf-blockiert.jsonl")
 # Fortsetzungsdateien (R13ad) und weitere Antwortfassungen (R13aw) kommen als Muster.
 LAUF_MUSTER = ("antwort-forts*.md", "stream-forts*.jsonl")
 # NICHT verschoben werden die Belege des REVIEWS: `review.md`, `reviewer.jsonl`,
@@ -745,6 +747,64 @@ def fortsetzungs_text(minuten: float, kontext: int, alarm_min: float, umschalt_m
 def nachrueckliste_erledigt(text: str) -> bool:
     """Hat der Worker mit `NACHRUECKLISTE ERLEDIGT` geantwortet?"""
     return bool(_RE_ERLEDIGT.search(text or ""))
+
+
+# Rohtreffer fuer den Vorfilter: der unveraenderliche Teil des Markers (Gross-/Klein-
+# schreibung des Anfangs ist egal, „erledigt" hat immer "rledigt").
+_ERLEDIGT_BYTES = (b"RLEDIGT", b"rledigt")
+
+
+def nachrueckliste_marker(lauf) -> str:
+    """Wo steht der Marker `NACHRUECKLISTE ERLEDIGT`? ('' = nirgends; R13bw-13)
+
+    Quelle sind **Aeusserungen des Workers** - nie die Anweisung an ihn:
+
+      * die abgelegten Antworten `antwort.md` und `antwort-forts*.md`,
+      * im LAUFENDEN Mitschnitt `stream.jsonl` die `assistant`-Bloecke vom Typ `text`
+        (das ist die sichtbare Antwort des Workers).
+
+    **Nicht** gezaehlt werden `thinking`-Bloecke (Erwaegung ueber die Anweisung) und
+    `user`-Zeilen (dort steht die ANWEISUNG selbst - `ERLEDIGT_TEXT` enthaelt den Wortlaut).
+    GEMESSEN am 07.10.2026: `runs/b282/stream.jsonl:55860` ist ein `thinking`-Block,
+    `runs/b289/stream.jsonl:93228` ebenso, `runs/b218/stream.jsonl:104073` ein `text`-Block -
+    die drei Sorten sind also sauber zu trennen und nur `text`/Antwortdateien zaehlen.
+
+    Der Mitschnitt wird **live** gelesen (`hx.proc.run_stream` schreibt und flusht je
+    Block); weil er zweistellige MB gross ist, laeuft zuerst eine Bytesuche und erst
+    deren Trefferzeilen werden als JSON gelesen.
+    """
+    if lauf is None:
+        return ""
+    basis = Path(lauf)
+    for p in sorted(basis.glob("antwort*.md")):
+        try:
+            if nachrueckliste_erledigt(p.read_text(encoding="utf-8", errors="replace")):
+                return p.name
+        except OSError:
+            continue
+    for p in (basis / "stream.jsonl", *sorted(basis.glob("stream-forts*.jsonl"))):
+        if not p.is_file():
+            continue
+        try:
+            roh = p.read_bytes()
+        except OSError:
+            continue
+        if not any(m in roh for m in _ERLEDIGT_BYTES):
+            continue
+        for zeile in roh.decode("utf-8", "replace").splitlines():
+            if not any(m.decode() in zeile for m in _ERLEDIGT_BYTES):
+                continue
+            try:
+                d = json.loads(zeile)
+            except ValueError:
+                continue
+            if d.get("type") != "assistant":
+                continue
+            for c in (d.get("message") or {}).get("content") or []:
+                if (isinstance(c, dict) and c.get("type") == "text"
+                        and nachrueckliste_erledigt(str(c.get("text") or ""))):
+                    return f"{p.name} (text)"
+    return ""
 
 
 def run_batch(cfg, log, state, instruction: str, profile_name: str, program: str | None,

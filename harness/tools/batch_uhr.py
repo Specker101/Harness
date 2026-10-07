@@ -37,8 +37,20 @@ messbar sind, statt als "einmaliger Stopp" zu gelten.
 nur die Uhr-Zeile) und mit 0 beendet (der Hook ist dann wirkungslos, der Lauf geht
 weiter).
 
-**R13bw-11 (07.10.2026, Nutzerauftrag) - port_suche nicht mehr gekuerzt.** Der Worker rief
-`python scripts/port_suche.py 80008828 2>&1 | Select-Object -First 25` auf
+**R13bw-13 (07.10.2026, Nutzerauftrag S1+S2).** Zwei Aenderungen an derselben Stelle:
+
+  * **S1 - die Sperre prueft jetzt OFFEN, nicht nur VORHANDEN.** `_nachrueckliste_offen`
+    fragt zusaetzlich `worker.nachrueckliste_marker`: liegt der Marker
+    `NACHRUECKLISTE ERLEDIGT` in einer Antwort (`antwort.md`/`antwort-forts*.md`) oder in
+    einem `text`-Block des laufenden Mitschnitts, ist die Liste erledigt und der Preflight
+    **sofort** erlaubt. Anlass: B282 (`runs/b282/stream.jsonl:55860/55861`) - "all done"
+    um 63 min, gesperrt bis 135 min, 72 min Leerlauf, gefuellt mit einem 0->2,7G-Lauf.
+  * **S2 - keine neuen Hybrid-Langlaeufe** (`hybrid_lauf`, `port_regression`,
+    `m2*_lang*.py`) ab dem Marker ODER ab Schwelle minus `LANGLAUF_VORLAUF_MIN` (30 min);
+    kurze Formen mit `--schritte` unter `LANGLAUF_FREI_SCHRITTE` (200M ~ 2 min gemessen)
+    bleiben frei. Beleg: `langlauf-blockiert.jsonl`.
+
+**R13bw-11 (07.10.2026, Nutzerauftrag) - port_suche nicht mehr gekuerzt.** Der Worker rief`python scripts/port_suche.py 80008828 2>&1 | Select-Object -First 25` auf
 (`runs/b289/stream.jsonl:56505`, Aussensicht B289 Befund 4); die Ausgabe brach genau an der
 Ueberschrift der **Port-Treffer** ab (`port/src/vbi_handler.cpp`), weil die
 Port-Fundstellen am **Ende** stehen (`AGENTS.md` R13az). Die Textregel allein hat das nicht
@@ -99,6 +111,17 @@ PORT_SUCHE_BLOCK_DATEI = "port_suche-blockiert.jsonl"
 # wiedererkennt; die Kennung nennt er selbst (`R13az, Aussensicht B289 Befund 4`).
 PORT_SUCHE_GRUND = ("PORT_SUCHE-HINWEIS: port_suche ungekuerzt mit --schreiben ausfuehren "
                     "und die Datei lesen (R13az, Aussensicht B289 Befund 4)")
+
+# --------------------------------- Langlaeufe und erledigte Nachrueckliste (R13bw-13)
+# Nutzerauftrag 07.10.2026 (S1+S2, Beleg `runs/b282/stream.jsonl:55860/55861`):
+#   S1 - die Preflight-Sperre prueft nicht mehr, OB der Auftrag eine NACHRUECKLISTE hat,
+#        sondern ob sie noch OFFEN ist (`worker.nachrueckliste_marker`); ist sie erledigt,
+#        ist der Preflight sofort erlaubt.
+#   S2 - nach dem Marker (oder ab Schwelle minus 30 min) starten keine neuen
+#        Hybrid-Langlaeufe mehr; kurze Formen (`--schritte` unter 200M, ~2 min gemessen)
+#        bleiben frei.
+LANGLAUF_BLOCK_DATEI = "langlauf-blockiert.jsonl"
+LANGLAUF_VORLAUF_MIN = 30.0
 
 
 def _betreffs(decomp) -> list[str]:
@@ -216,12 +239,21 @@ def _stdin_json() -> dict:
 
 
 def _nachrueckliste_offen(lauf: Path | None) -> bool:
-    """Traegt `auftrag.md` dieses Laufs eine NACHRUECKLISTE? (R13ao)
+    """Steht noch ein OFFENER Posten der NACHRUECKLISTE aus? (R13ao, R13bw-13)
 
-    Der Import von `hx.worker`/`hx.util` steht ABSICHTLICH hier drin: er kostet ~0,1 s
-    und wird nur gebraucht, wenn wirklich ein Preflight-Aufruf vorliegt - die Uhr-Zeile
-    selbst darf billig bleiben. Die Regel ist dieselbe wie im Harness
-    (`hat_nachrueckliste`), sie wird nicht nachgebaut.
+    Frueher wurde nur geprueft, OB der Auftrag einen Abschnitt `NACHRUECKLISTE` hat - den
+    traegt aber jeder solche Auftrag, also sperrte der Hook den **ganzen Batch**, obwohl
+    `hx/uhr.PREFLIGHT_HINWEIS` dem Worker sagt "Er ist nur zulaessig, wenn alle Posten der
+    NACHRUECKLISTE erledigt sind". GEMESSEN (`runs/b282/stream.jsonl:55860`): "The hook
+    says the preflight is only allowed after the threshold OR if all nachrueckliste items
+    are done - but the block persists until 135 min regardless ... I'm at 63 min -> 72 min
+    to wait" und `:55861` "The Nachrueckliste work items are all done. Let me use the wait
+    for a genuinely useful, long measurement" -> der Leerlauf wurde mit einem 0->2,7G-Lauf
+    gefuellt. Jetzt entscheidet der **Marker** (`worker.nachrueckliste_marker`): liegt er
+    vor, ist die Liste erledigt und die Sperre faellt.
+
+    Der Import von `hx.worker`/`hx.util` steht ABSICHTLICH hier drin: er kostet ~0,1 s und
+    wird nur gebraucht, wenn wirklich eine dieser Sperren zu pruefen ist.
     """
     if lauf is None:
         return False
@@ -229,8 +261,10 @@ def _nachrueckliste_offen(lauf: Path | None) -> bool:
     if not p.is_file():
         return False
     from hx.util import read_text
-    from hx.worker import hat_nachrueckliste
-    return bool(hat_nachrueckliste(read_text(p)))
+    from hx.worker import hat_nachrueckliste, nachrueckliste_marker
+    if not hat_nachrueckliste(read_text(p)):
+        return False
+    return not nachrueckliste_marker(lauf)
 
 
 def pre_tooluse(eingabe: dict, lauf: "Path | None", state_datei, umschalt) -> int:
@@ -272,6 +306,12 @@ def pre_tooluse(eingabe: dict, lauf: "Path | None", state_datei, umschalt) -> in
                           "werkzeug": str(eingabe.get("tool_name") or "")})
         _blockieren(PORT_SUCHE_GRUND)
         return 0
+    # R13bw-13 (S2): neue Hybrid-Langlaeufe nach dem Erledigt-Marker bzw. im Fenster
+    # Schwelle minus `LANGLAUF_VORLAUF_MIN` - kurze Formen bleiben frei.
+    skript = streamjson.langlauf_aufruf(eingabe.get("tool_name"),
+                                       eingabe.get("tool_input"))
+    if skript:
+        _langlauf_pruefen(skript, lauf, state_datei, umschalt)
     if not streamjson.ist_preflight_aufruf(eingabe.get("tool_name"),
                                            eingabe.get("tool_input")):
         return 0
@@ -304,6 +344,63 @@ def pre_tooluse(eingabe: dict, lauf: "Path | None", state_datei, umschalt) -> in
              + " " + BLOCK_ZUSATZ)
     _blockieren(grund)
     return 0
+
+
+def _uhr_minuten(state_datei, umschalt):
+    """Die Batch-Uhr in Minuten und die wirksame Umschaltschwelle (``None, None`` = nichts)."""
+    if umschalt is None:
+        return None, None
+    from hx import uhr
+    state = uhr.lies_state(state_datei)
+    d = uhr.start_zeit(state)
+    if d["zeit"] is None:
+        return None, None
+    return max(0.0, (d["alter_s"] or 0) / 60.0), float(umschalt)
+
+
+def _langlauf_pruefen(skript: str, lauf, state_datei, umschalt) -> int:
+    """Einen Langlauf-Start stoppen, wenn der Marker steht oder das Fenster erreicht ist (R13bw-13).
+
+    Bedingungen (eine genuegt):
+      * **Marker** - `worker.nachrueckliste_marker` nennt eine Quelle (die Nachrueckliste
+        ist erledigt; dann gibt es keinen Grund mehr, die Wartezeit zu fuellen), ODER
+      * **Fenster** - die Batch-Uhr steht weniger als `LANGLAUF_VORLAUF_MIN` Minuten vor
+        der Umschaltschwelle (dann passt der Lauf nicht mehr vor den Preflight; gemessen
+        B284: 600M ab Minute 121,8 und 700M ab 129,8 bei Schwelle 135).
+
+    Ohne Uhr und ohne Marker passiert nichts - der Lauf bleibt unberuehrt.
+    """
+    from hx.worker import nachrueckliste_marker
+    marker = nachrueckliste_marker(lauf)
+    minuten, schwelle = _uhr_minuten(state_datei, umschalt)
+    im_fenster = (minuten is not None and schwelle is not None
+                  and minuten >= schwelle - LANGLAUF_VORLAUF_MIN)
+    if not marker and not im_fenster:
+        return 0
+    warum = (f"die Nachrueckliste ist erledigt (Marker in {marker})" if marker
+             else f"die Batch-Uhr steht auf {minuten:.0f} min, weniger als "
+                  f"{LANGLAUF_VORLAUF_MIN:.0f} min vor der Umschaltschwelle "
+                  f"{schwelle:.0f} min")
+    if lauf is not None:
+        from hx.util import append_jsonl
+        append_jsonl(Path(lauf) / LANGLAUF_BLOCK_DATEI,
+                     {"ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                      "skript": skript, "marker": marker or "",
+                      "min": None if minuten is None else round(minuten, 1),
+                      "umschalt": schwelle,
+                      "werkzeug": "PowerShell"})
+    _blockieren("LANGLAUF-HINWEIS: neue Hybrid-Langlaeufe (" + skript + ") sind jetzt nicht "
+                "mehr erlaubt - " + warum + ". Kurze Formen mit --schritte unter "
+                + f"{streamjson_frei()} Schritten bleiben frei; der Preflight ist erlaubt, "
+                "sobald die Nachrueckliste erledigt ist. Belege den Stand im Batch-Dokument.")
+    return 0
+
+
+def streamjson_frei() -> str:
+    """Die freie Schrittzahl als Text (fuer den Sperr-Hinweis)."""
+    from hx import streamjson
+    n = streamjson.LANGLAUF_FREI_SCHRITTE
+    return f"{n // 1_000_000}M"
 
 
 def main(argv: list[str]) -> int:

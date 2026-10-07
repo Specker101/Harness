@@ -2289,7 +2289,7 @@ PORT_SUCHE-HINWEIS: port_suche ungekuerzt mit --schreiben ausfuehren und die Dat
   eigenen Befehl gelesen). Auch eine blosse **Erwähnung** des Skripts
   (`Select-String -Path scripts/port_suche.py …`) ist kein Aufruf.
 * Die Sperre hängt **nicht an der Batch-Uhr** — sie gilt in jedem Batch, auch nach der
-  Umschaltschwelle (anders als die Preflight-Sperre aus §17b). Jeder Stopp schreibt eine
+  Umschaltschwelle (anders als die Preflight-Sperre aus §12p). Jeder Stopp schreibt eine
   Zeile `runs/b<N>/port_suche-blockiert.jsonl`
   (`{"ts", "grund": "pipe-gekuerzt", "werkzeug"}`); die Datei zählt zu den Laufbelegen
   (`hx/worker.py::LAUF_BELEGE`) und wird bei einem Wiederholungslauf mit verschoben.

@@ -552,6 +552,90 @@ def port_suche_kuerzung(name, eingabe=None) -> bool:
     return False
 
 
+# ---------------- Hybrid-LANGLAEUFE erkennen (R13bw-13, Nutzerauftrag 07.10.2026)
+# Anlass (Aussensicht B285 Befund 6, B289 Befund 5): nach erledigter Nachrueckliste
+# fuellte der Worker den Leerlauf bis zur Umschaltschwelle mit ungeplanten Hybrid-Langlaeufen
+# (B282: 0->2,7G ab Minute 63, `runs/b282/stream.jsonl:55861`). Diese Aufrufe sollen im
+# Fenster vor der Schwelle und nach dem Erledigt-Marker nicht mehr starten.
+LANGLAUF_NAMEN = ("hybrid_lauf", "port_regression")
+# Was ein START ist - drei Formen (gemessen an B282/B284/B289):
+#   1. Interpreter davor, und der Name ist sein ARGUMENT: `python -u scripts/m282_lang.py …`.
+#      Nicht `python -c "import m282_lang"` und nicht `… Name='python.exe' OR
+#      Name='hybrid_lauf.exe'` - beides sind keine Starts.
+#   2. `&`-Aufruf: `& $exe …`, `& .\port\build\hybrid_lauf.exe …`,
+#      `& "G:\Silent Scope Decomp\port\build\hybrid_lauf.exe" …` - hier darf der Pfad
+#      LEERZEICHEN enthalten (gemessen: `G:\Silent Scope Decomp\…`; ein `\S*[\\/]` scheitert
+#      daran, s. Test `test_zweistufiger_aufruf_aus_b284`).
+#   3. Name am Anfang eines Befehlsteils: `port_regression.exe …`, `\scripts\m289_lang.py …`.
+# Eine blosse ERWAEHNUNG ist kein Start: der Name muss auf `.exe`/`.py` ENDEN
+# (`(?![.\w])`, sonst faengt `hybrid_lauf.cpp` den Treffer ab) UND der Befehlsteil darf
+# keine Abfrage/Lesung sein (`Get-CimInstance`, `Get-Item`, `git add`, `Name=` …) - sonst
+# galten in B282 `Get-CimInstance … Name='hybrid_lauf.exe'` und `git add …m282_lang.py`
+# als Langlauf-Start (gemessen 07.10.2026, `docs/_r13bw13_beleg.txt`).
+_LANGLAUF_NAME = (r"(hybrid_lauf(?:\.exe)?|port_regression(?:\.exe|\.py)?"
+                  r"|m2\w*_lang\w*\.py)(?![.\w])")
+_RE_LANGLAUF_START = re.compile(
+    r"(?:\b(?:python[0-9.]*(?:\.exe)?|py)\b(?:\s+-{1,2}\S+)*\s+(?:\S*[\\/])?"
+    r"|^\s*&\s*(?:.*[\\/])?"
+    r"|^\s*(?:\.\\|\./)?(?:\S*[\\/])?)" + _LANGLAUF_NAME,
+    re.IGNORECASE)
+# Abfrage- und Lese-Befehle: sie NENNEN den Langlauf nur (Prozess-CPU, Dateigroesse, git).
+_RE_LANGLAUF_QUERY = re.compile(
+    r"Get-CimInstance|Get-Process|Get-Item|Get-ChildItem|Get-Content|Select-String"
+    r"|Test-Path|Measure-Object|\bgit\s+(?:add|log|diff|status|show)\b|\bName\s*=", re.I)
+# GEMESSEN in B284/B289: der Aufruf steht oft in zwei Schritten -
+# `$exe="G:\…\port\build\hybrid_lauf.exe"; & $exe --schritte 900000000 …`. Darum werden
+# Zuweisungen eingesammelt und `& $exe` auf den Skriptnamen aufgeloest.
+_RE_ALIAS = re.compile(r'\$(\w+)\s*=\s*"([^"]*)"')
+_RE_ALIAS_RUF = re.compile(r"^\s*&\s*\$(\w+)\b")
+# Der WERT einer Zuweisung ist ein reiner Pfad - dort darf `(?:.*[\\/])?` auch
+# Leerzeichen ueberbruecken (`G:\Silent Scope Decomp\port\build\hybrid_lauf.exe`).
+# Nur HIER, nicht im Befehlsteil: sonst faenge `Get-Content …\hybrid_lauf.cpp` mit.
+_RE_LANGLAUF_PFAD = re.compile(r"(?:.*[\\/])?" + _LANGLAUF_NAME, re.IGNORECASE)
+_RE_SCHRITTE = re.compile(r"--schritte\s+(\d+)", re.IGNORECASE)
+# Nur ein billiger Vorfilter - die genaue Entscheidung trifft `_RE_LANGLAUF_START`.
+# Er muss auch die ZWEISCHRITT-Form durchlassen (Name nur in der Zuweisung).
+_RE_LANGLAUF_WORT = re.compile(r"hybrid_lauf|port_regression|m2\w*_lang\w*\.py", re.IGNORECASE)
+# Kurze Formen bleiben frei. GEMESSEN (B284/B289): 900M ~ 533..543 s, 200M ~ 120 s,
+# 100M ~ 60 s; 200M ist damit ~2 min und liegt weit unter dem Vorlauf von 30 min.
+LANGLAUF_FREI_SCHRITTE = 200_000_000
+
+
+def langlauf_aufruf(name, eingabe=None, frei_schritte: int = LANGLAUF_FREI_SCHRITTE) -> str:
+    """Startet dieser Aufruf einen Hybrid-**Langlauf**? Rueckgabe: Skriptname ('' = nein).
+
+    Erkannt werden `hybrid_lauf`, `port_regression` und `m2*_lang*.py` (Nutzerauftrag
+    07.10.2026). **Kurze Formen bleiben frei**: nennt der Befehl `--schritte` und liegt
+    JEDER Wert darunter unter `frei_schritte` (Vorgabe 200M ~ 2 min gemessen), ist das
+    kein Langlauf. Ohne `--schritte` gilt der Aufruf als lang (`port_regression` hat
+    keines).
+
+    Eine blosse ERWAEHNUNG des Skripts (Lesen, Prozessabfrage, `git add`) ist kein Start -
+    dieselbe Trennung wie bei `_RE_PREFLIGHT_START` und `port_suche_kuerzung`.
+    """
+    if str(name or "") not in SHELL_WERKZEUGE or not isinstance(eingabe, dict):
+        return ""
+    befehl = str(eingabe.get("command") or "")
+    if not _RE_LANGLAUF_WORT.search(befehl):
+        return ""
+    werte = [int(m.group(1)) for m in _RE_SCHRITTE.finditer(befehl)]
+    if werte and max(werte) < int(frei_schritte):
+        return ""                        # durchweg kurze Form -> kein Langlauf
+    alias = {m.group(1): m.group(2) for m in _RE_ALIAS.finditer(befehl)}
+    for teil in _befehls_teile(befehl):
+        if _RE_LANGLAUF_QUERY.search(teil):
+            continue                     # Abfrage/Lesung - nennt den Lauf nur
+        m = _RE_LANGLAUF_START.search(teil.strip())
+        if m:
+            return m.group(1)
+        a = _RE_ALIAS_RUF.match(teil)
+        if a and a.group(1) in alias:
+            m2 = _RE_LANGLAUF_PFAD.search(alias[a.group(1)])
+            if m2:
+                return m2.group(1)
+    return ""
+
+
 class SecretWatch:
     """Sucht Schluessel-ZUGRIFFE in Werkzeugaufrufen und Schluessel-WERTE im Mitschnitt.
 

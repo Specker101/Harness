@@ -1,0 +1,74 @@
+R13bw-13 Beleg 2026-10-07 14:38:07
+
+1) Die Belegstelle (Nutzerauftrag): runs/b282/stream.jsonl:55860/55861
+  Zeile 55860  typ=thinking The preflight is blocked before the switch threshold (135 min). I'm at 63 min. I must continue the nachrueckliste or wait until 135 min. The hook says the preflight is only allowed after the threshold OR if all nachrueckliste items are done — but the block persists until 135 min regardless ("Die Spe
+  Zeile 55861  typ=text     Preflight is gated until the 135-min threshold (I'm at 63 min). The Nachrückliste work items are all done. Let me use the wait for a genuinely useful, long measurement: a 0→2.7G packet run under the corrected period (assesses the desync/prefix at scale).
+  -> worker.nachrueckliste_marker(runs/b282) = (keiner)
+     (in B282 stand der Marker nur im DENKEN - Denkbloecke zaehlen nicht;
+      haette der Worker ihn als sichtbaren Text oder als Antwort geschrieben,
+      waere die Preflight-Sperre nach dem neuen S1 sofort gefallen.)
+
+2) Erkannte Langlauf-STARTS je Batch (Schwelle 135.0 min, Fenster ab 105.0 min, frei unter 200M Schritte)
+  B282 (149 min, 4 Starts):
+     +  63.4 min  Z 55865  m282_lang.py           vor dem Fenster (erlaubt)
+                  python -u scripts/m282_lang.py
+     +  88.0 min  Z 56092  m282_lang_abw.py       vor dem Fenster (erlaubt)
+                  python -u scripts/m282_lang_abw.py
+     +  88.5 min  Z 57572  m282_lang_abw.py       vor dem Fenster (erlaubt)
+                  python -u scripts/m282_lang_abw.py
+     +  96.1 min  Z 58761  m282_lang2.py          vor dem Fenster (erlaubt)
+                  python -u scripts/m282_lang2.py
+     (gezeigt ist das passende BEFEHLSTEIL - die Aufrufe stehen oft in
+      einem mehrzeiligen Block, dessen erste Zeile etwas anderes tut.)
+  B284 (149 min, 8 Starts):
+     +  39.5 min  Z 29588  hybrid_lauf.exe        vor dem Fenster (erlaubt)
+                  $kal="G:\Silent Scope Decomp\analysis\_m231\_tb_kalibrierung.txt"
+$exe="G:\Silent Scope Decomp\port\build\hybrid_lauf.ex
+     +  44.5 min  Z 42113  hybrid_lauf.exe        vor dem Fenster (erlaubt)
+                  $kal="G:\Silent Scope Decomp\analysis\_m231\_tb_kalibrierung.txt"
+$exe="G:\Silent Scope Decomp\port\build\hybrid_lauf.ex
+     +  67.6 min  Z 52953  hybrid_lauf.exe        vor dem Fenster (erlaubt)
+                  $kal="G:\Silent Scope Decomp\analysis\_m231\_tb_kalibrierung.txt"
+$exe="G:\Silent Scope Decomp\port\build\hybrid_lauf.ex
+     +  75.1 min  Z 54997  hybrid_lauf.exe        vor dem Fenster (erlaubt)
+                  $kal="G:\Silent Scope Decomp\analysis\_m231\_tb_kalibrierung.txt"
+$exe="G:\Silent Scope Decomp\port\build\hybrid_lauf.ex
+     +  97.6 min  Z 56447  hybrid_lauf.exe        vor dem Fenster (erlaubt)
+                  $kal="G:\Silent Scope Decomp\analysis\_m231\_tb_kalibrierung.txt"
+$exe="G:\Silent Scope Decomp\port\build\hybrid_lauf.ex
+     + 121.8 min  Z 57955  hybrid_lauf.exe        IM FENSTER -> gesperrt
+                  $kal="G:\Silent Scope Decomp\analysis\_m231\_tb_kalibrierung.txt"
+$exe="G:\Silent Scope Decomp\port\build\hybrid_lauf.ex
+     + 126.4 min  Z 58294  hybrid_lauf.exe        IM FENSTER -> gesperrt
+                  python -c "import sys; sys.path.insert(0,'scripts'); import m278_paket as P; a=P.lese_abbild(r'analysis\_m284\_det600_pk
+     + 129.8 min  Z 58497  hybrid_lauf.exe        IM FENSTER -> gesperrt
+                  $kal="G:\Silent Scope Decomp\analysis\_m231\_tb_kalibrierung.txt"
+$exe="G:\Silent Scope Decomp\port\build\hybrid_lauf.ex
+     (gezeigt ist das passende BEFEHLSTEIL - die Aufrufe stehen oft in
+      einem mehrzeiligen Block, dessen erste Zeile etwas anderes tut.)
+  B289 (157 min, 7 Starts):
+     +   6.4 min  Z 29410  hybrid_lauf.exe        vor dem Fenster (erlaubt)
+                  & .\port\build\hybrid_lauf.exe --schritte 200000000 --nativ-weiter --sharc-antwort --kalibrierung analysis\_m231\_tb_kal
+     +   9.6 min  Z 30103  hybrid_lauf.exe        vor dem Fenster (erlaubt)
+                  & .\port\build\hybrid_lauf.exe --schritte 300000000 --nativ-weiter --sharc-antwort --kalibrierung analysis\_m231\_tb_kal
+     +  50.4 min  Z 78150  hybrid_lauf.exe        vor dem Fenster (erlaubt)
+                  & .\port\build\hybrid_lauf.exe --schritte 420000000 --nativ-weiter --sharc-antwort --kalibrierung analysis\_m231\_tb_kal
+     +  60.1 min  Z 82303  hybrid_lauf.exe        vor dem Fenster (erlaubt)
+                  & .\port\build\hybrid_lauf.exe --schritte 600000000 --nativ-weiter --sharc-antwort --kalibrierung analysis\_m231\_tb_kal
+     +  97.3 min  Z 93230  hybrid_lauf.exe        vor dem Fenster (erlaubt)
+                  & .\port\build\hybrid_lauf.exe --schritte 550000000 --nativ-weiter --sharc-antwort --kalibrierung analysis\_m231\_tb_kal
+     + 128.1 min  Z102351  hybrid_lauf.exe        IM FENSTER -> gesperrt
+                  & .\port\build\hybrid_lauf.exe --schritte 600000000 --nativ-weiter --sharc-antwort --kalibrierung analysis\_m231\_tb_kal
+     + 133.8 min  Z104515  hybrid_lauf.exe        IM FENSTER -> gesperrt
+                  & .\port\build\hybrid_lauf.exe --schritte 200000000 --nativ-weiter --ohne-schatten --sharc-antwort --stopp-bei-halt --pc
+     (gezeigt ist das passende BEFEHLSTEIL - die Aufrufe stehen oft in
+      einem mehrzeiligen Block, dessen erste Zeile etwas anderes tut.)
+
+3) Der Hook, echt aufgerufen (Wegwerf-Lauf, Schwelle 135 min):
+  Preflight 40 min, Liste OFFEN    -> PREFLIGHT-HINWEIS: Preflight vor der Umschaltschwelle (40.0 von 135 min). Er ist nur zulässig, wenn alle Posten der NACHRUECKLISTE erledigt sind. Sons
+  Preflight 40 min, Marker da      -> erlaubt (keine Antwort)
+  2,7G-Lauf 40 min, Marker da      -> LANGLAUF-HINWEIS: neue Hybrid-Langlaeufe (hybrid_lauf.exe) sind jetzt nicht mehr erlaubt - die Nachrueckliste ist erledigt (Marker in antwort.md). Kur
+  2,7G-Lauf 40 min, kein Marker    -> erlaubt (keine Antwort)
+  2,7G-Lauf 110 min, kein Marker   -> LANGLAUF-HINWEIS: neue Hybrid-Langlaeufe (hybrid_lauf.exe) sind jetzt nicht mehr erlaubt - die Batch-Uhr steht auf 110 min, weniger als 30 min vor der
+  100M-Lauf 110 min, kein Marker   -> erlaubt (keine Antwort)
+  Beleg langlauf-blockiert.jsonl: {"ts": "2026-10-07T12:38:11+00:00", "skript": "hybrid_lauf.exe", "marker": "antwort.md", "min": 40.0, "umschalt": 135.0, "werkzeug": "PowerShell"} | {"ts": "2026-10-07T12:38:11+00:00", "skript": "hybrid_lauf.exe", "marker": "", "min": 110.0, "umschalt": 135.0, "werkzeug": "PowerShell"}
