@@ -1774,6 +1774,16 @@ ROM-ADRESSEN SUCHEN (R13az, nachgezogen 2026-10-04)
   **Funktionseintrag** bestimmen und den suchen: im Port liegen die Belege unter dem
   Eintrag, nicht unter der Instruktion (`800237B4` -> `FUN_8002379C`).
 
+ROHZEILENPROBE (B291, 2026-10-07)
+- **Jedes neue oder benutzte Vergleichs-/Messwerkzeug** (`scripts/`, Sonden in
+  `port/hybrid/hybrid_lauf.cpp`) bekommt bei Erstellung und **jeder Definitionsaenderung**
+  eine Rohzeilenprobe: drei **zufaellige Ausgabeeintraege** von Hand gegen die Rohzeilen
+  legen (MAME-Log **mit Zeilennummer**, Hybrid-Protokoll **mit Schritt und pc**).
+- Die **Zufallssaat** nennen; die drei Paare mit `Datei:Zeile` ins **Batch-Dokument**.
+- Vereinfachungen (z. B. Board/Bank weglassen) in den **Dateikopf**: `WEGGELASSEN:` (was es
+  nicht rechnet), `NICHT ZULAESSIG:` (Aussagen, fuer die es nicht benutzt werden darf).
+- Eine Zahl ohne Rohzeilenprobe ist eine Werkzeugdefinition, kein Messergebnis.
+
 ABLAUF
 1. Auftrag lesen, dann Anker/Regeln lesen, dann arbeiten.
 2. Den Auftrag vollständig abarbeiten — mehrere Teile in einem Zug, kein Mini-Schritt.
