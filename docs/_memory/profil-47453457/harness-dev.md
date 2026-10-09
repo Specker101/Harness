@@ -1639,3 +1639,14 @@
   nur `764c8a21` war ueber `m151_memory_sync.py` gespiegelt - `harness-dev.md` (132 KB,
   DIESE Datei) existierte genau EINMAL. FALLSTRICK: VS Code benutzt **32** Hexzeichen als
   Workspace-Hash, nicht 64 - mit der falschen Laenge kollidierten alle Ordnernamen.
+- R13bx-3 (2026-10-10, committet `c684b14`, Gate 1745 Tests OK in 544,7 s): `/autonom` OHNE
+  Zusatz raeumt `autonom_trotz_peak` mit ab. NUTZERBEFUND: nach `/autonom yolo` ->
+  `/autonom` (aus) -> `/autonom` (an) meldete Telegram wieder "PEAK WIRD IGNORIERT" - das
+  war KEIN Anzeigefehler: der Merker wurde bei der blanken Umschaltung unveraendert
+  uebernommen und zurueckgeschrieben, und `autonom_yolo()` (= `autonomous` AND Flag) hat das
+  Peak-Warten in `orchestrator.py` wirklich uebersprungen. Der blanke Fall war in KEINEM Test
+  und in keiner Docstring-Zeile erfasst; `on`/`off` raeumten den Merker dagegen beide ab.
+  Jetzt: yolo nur noch ausdruecklich per `/autonom yolo`; die AUS-Meldung nennt das
+  abgeraeumte yolo. Tests `test_r13bw5_fixes.py` (17 -> 20), Hilfezeile in `hx/telegram.py`.
+  LEHRE: einen Merker, der nur MIT einem anderen Schalter wirkt, beim Ausschalten des
+  anderen mit abraeumen - sonst kommt er beim Wiedereinschalten als Nebeneffekt zurueck.
