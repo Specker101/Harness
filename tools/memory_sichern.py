@@ -157,7 +157,9 @@ def spiegeln(profile: list[Path], trocken: bool) -> int:
         unter = SPIEGEL / f"profil-{hashname(p)}"
         if not trocken:
             unter.mkdir(parents=True, exist_ok=True)
-        vorhanden = {f.name for f in unter.glob("*.md")} if unter.is_dir() else set()
+        # ALLE Dateitypen, nicht nur `*.md`: mit `*.md` galt `harness-dev.md.vorher`
+        # dauerhaft als "NEU", obwohl sie laengst im Spiegel lag (falsche Meldung).
+        vorhanden = {f.name for f in unter.iterdir() if f.is_file()} if unter.is_dir() else set()
         jetzt = {f.name for f in p.iterdir() if f.is_file()}
         for name in sorted(jetzt - vorhanden):
             gemeldet.append(f"NEU   profil-{hashname(p)}/{name}")
