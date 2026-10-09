@@ -1,0 +1,346 @@
+# Harness (g:\Harness) — Entwickler-Notizen
+
+- Code liegt unter `g:\Harness\harness` (Paket `hx`), Start: `start.ps1 [-Paused] [-Mock]`.
+  Läuft im EIGENEN PowerShell-Fenster außerhalb VS Code; Stop: `stop.ps1 [-Force]`
+  (Force = taskkill auf alle `python.exe` mit `hx.cli`), Marker `state/STOP`.
+- Steuerkanal lokal = Dateien in `state/ctl/{pause,resume,stop,approve}.ctl` + `instruction.json`.
+  Immer über `hx.cli` schreiben (nie per Hand), sonst führt der nächste Start sie aus.
+  Wirkung: nächster Schleifendurchlauf, im Pausenzustand bis ~30 s (Telegram-Langpoll 25 s).
+- `hx.cli demo` läuft isoliert in `state/_demo_<scenario>` (kopiert `profiles/`); sonst
+  schreibt die Attrappe in den echten Eingang.
+- Fallstrick: Attribut `self.run` in `hx/watch.py` überschrieb die Methode `run()` →
+  neuer Name `self.run_name`. Vor jeder Demoname-Frage: prüfen, ob der Name eine
+  Methode des Objekts ist.
+- Tests: `python -m unittest discover -s tests` (220 Tests, alle gruen, ohne API-Kosten,
+  Stand R13f 2026-09-26).
+  R13-Dateien: `tests/test_r13_fixes.py` (Ghidra-Speichern, Rotation/Uebergabe),
+  `tests/test_r13b_fixes.py` (Kennung, Rotation/Reuse, gescheiterter Review, Queue, Laufzeit).
+- Review-Gueltigkeit (R13b): `orchestrator.review_ok` verlangt Modell + Bloecke + Summary +
+  Instruktion mit Batch-Nummer + Profil. Ungueltig ⇒ Rohantwort als
+  `runs/b<N>/review-verworfen-<Stempel>-v<N>.md`, EIN Wiederholungsversuch mit
+  Format-Erinnerung, danach PAUSED + Telegram + `logs/review-verworfen-<ts>.json` — NIE ein Gate.
+- Queue (R13b): `read_queue_block(target, mark=False)` + `commit_queue(...)` — zugestellt
+  wird erst nach gueltigem Review.
+- Nummern (R13b): Review-Verzeichnis = Anker-Nachfolger (`expected_batch()`), Worker-Belege
+  bleiben in `runs/b<state.batch>`; `review_context` liest `antwort.md` aus dem Belegordner.
+- Laufzeit (R13b): Wanduhr des Worker-Prozesses — Vorrang `duration_ms` aus dem Mitschnitt,
+  sonst Harness-Messung; `duration_harness_s` dient der Rueckstau-Warnung (>120 s ⇒ ALARM).
+- Fallstrick (R13b): Bei `new_session=True` MUSS der Aufrufer eine frische Kennung uebergeben —
+  die alte Kennung liess Claude Code mit "Session ID … is already in use" sofort abbrechen
+  (rc=1, leere Antwort, Modell None).
+- Ghidra-Speichern (R13): `worker.save_ghidra_after_batch` läuft in `_finish_run` (vor Push/
+  Review), `state.data["ghidra_pending"]` + `last_profile`; Haken in `cancel_check` ("Stopp")
+  und `run()`-`finally` ("Harness-Ende") über `orchestrator.save_ghidra_if_pending`.
+  Fehler ⇒ `ghidra_failed` ⇒ Push/Review werden übersprungen. Messdatenzeile
+  `Ghidra gespeichert: ja/nein/nicht noetig`.
+- Reviewer-Rotation (R13): Uebergabe der alten Session via `reviewer.run_handover`
+  (Phase "uebergabe", Fehler nicht tödlich) → `sessions/vorherige-session.md`;
+  `reviewer.force_rotate=true` in `state/run.json` erzwingt sie einmalig
+  (überlebt Neustart; /status zeigt "Wechsel beim naechsten Review erzwungen").
+- Attrappe: `ReviewResult.session_id` MUSS bei `new_session=True` eine neue Kennung
+  liefern, sonst schlägt die Rotationsprüfung nur wegen der Attrappe fehl.
+- R13c-Entscheidungs-Bremse: `protocol.parse_offene_punkte` liest `ENTSCHEIDUNG NOETIG:`
+  (bremst: `orchestrator.gate_wait_decision` verhindert die automatische Freigabe im
+  Dauerbetrieb), `OFFENE FRAGE:` und `WARTET AUF LIVE-AUFNAHME:` bremsen nicht. Gate traegt
+  `offene_punkte`; Altbestand wird aus der gespeicherten Summary abgeleitet (Zustand bleibt
+  unberuehrt). Anzeige in `/status` und `watch`.
+- R13c-watch: thinking-Bloecke mit Text abgesetzt (`  ~ `, gedimmt, ab 400 Zeichen gekuerzt),
+  leere uebersprungen, Schalter `watch --no-thinking`. Rein lesend.
+- R13c-Absturzschutz: `Orchestrator.report_crash` (Traceback in Log + `logs/crash-<ts>.txt`
+  + Telegram „HARNESS ABGESTÜRZT", Exit-Code 3 über `cmd_run`); `start.ps1` schreibt stderr
+  nach `logs/start-stderr.log` und laesst bei Exit≠0 das Fenster offen (`Read-Host`);
+  `/status` meldet „HARNESS LAEUFT NICHT" + letzten Crash-Bericht.
+- Fallstricke beim Testen:
+  * `_loop()`-Tests: `git_preflight`/`git.checkpoint`/`run_worker`/`poll`/`peak_gate` patchen
+    UND einen Poll-Zaehler als Notbremse setzen — sonst läuft die Schleife endlos weiter
+    (Git-Vorprüfung schlägt im Temp-Verzeichnis fehl → `continue` ohne quit).
+  * PowerShell 5.1 schreibt `cmd *> datei` als UTF-16: beim Auswerten BOM beachten.
+    Fuer Belege `2>&1 | Out-File -Encoding utf8 <datei>` nehmen - sonst zeigt das
+    read_file-Werkzeug die Datei als Hexdump des BOM.
+  * Demo-Helfer `ein_durchlauf` schaltet `orch.tg` ab, damit der laufende Harness seine
+    Telegram-Nachrichten behält (getUpdates-Offset ist botspezifisch).
+- Terminalausgabe beim laufenden Harness ist unzuverlässig abgeschnitten → Ergebnisse in
+  Dateien schreiben (`*> ..\docs\_x.txt`) und danach lesen.
+- R13d (2026-09-26): Harness starb ZWEIMAL an `PermissionError [WinError 5]` bei
+  `os.replace(run.json.tmp -> run.json)` (in `phase("review")` und `state.set`).
+  Ursache: zweiter Prozess (`hx.cli watch`, liest `run.json` alle 1,5 s) hielt die
+  Datei offen. GEMESSEN (C: und G:, gleiches Ergebnis): Rename-Ersetzen scheitert
+  mit WinError 5, solange IRGENDEIN Handle offen ist — auch mit FILE_SHARE_DELETE
+  (dann geht `DeleteFile`, aber kein Rename). Abhilfe: `util.replace_with_retry`
+  (Nachsicht 5 ms→50 ms, 40 Versuche ≈ 1,8 s) in `write_text_atomic`;
+  `util.open_shared_read` (share=RWD) fuer unsere Leser (hilft beim Loeschen, NICHT
+  beim Ersetzen). Tests `tests/test_r13d_fixes.py`, Beleg
+  `docs/_teilungsfehler_probe.py` -> `docs/_teilungsfehler_beweis.txt`.
+- R13e (2026-09-26, Sammelauftrag nach der ersten Nacht): sieben Punkte umgesetzt.
+  KURZFORM: (1) `review.dir` im Zustand - das Review von Batch N liegt in
+  `runs/b<N+1>`, watch las bisher den VORIGEN Review. (2) Ghidra: `save_all_programs`
+  nach JEDEM Batch mit Ghidra-Profil, Sicherung vor jedem Ghidra-Batch (12,1 MB/~2 s),
+  HTTP-Beruehrung des Zustands im Review vermerkt. (3) STILLE ABSTUERZE: Prozesse aus
+  dem VS-Code-Terminal liegen im Job von Code.exe (IsProcessInJob gemessen) - der
+  Harness NIE aus dem VS-Code-Terminal starten, nur eigenes Fenster/Verknuepfung.
+  (4) Reviewer-Limit setzt von selbst fort (Zeit aus der Meldung, sonst stuendlich).
+  (6) Telegram-Kopf "AUTOMATISCH FREIGEGEBEN" im Dauerbetrieb. (7) Pausen-Erkennung
+  rechnet Harness-Commits nicht als Handarbeit (git merge-base --is-ancestor).
+  (8/9) watch zaehlt je Batch und zeigt das Batch-Ende auch pausiert.
+  (10) `--lazy` bei der MCP-Bridge ENTFERNT: damit waren nur 97 von 215 Werkzeugen
+  sichtbar, 76 erlaubte fehlten (get_xrefs_to, search_instructions, ...). Beleg:
+  `docs/_ghidra_tools_audit.py` vergleicht /mcp/schema mit den Profillisten.
+  NEU: `harness/tests/test_r13e_fixes.py` (34 Tests), gesamt 196 gruen.
+  Werkzeugfehler im Mitschnitt zaehlen jetzt richtig (`<tool_use_error>`/`is_error`;
+  "requires approval" = gesperrt) - vorher zaehlten zitierende Dokumente mit.
+- R13f (2026-09-26): (1) Entscheidungsregel - der Reviewer entscheidet den Regelfall
+  selbst; Zeile `ENTSCHIEDEN: …` in `<TELEGRAM_SUMMARY>` (4. Schluessel in
+  `parse_offene_punkte`, bremst NICHT, Anzeige in /status + watch zuerst). `ENTSCHEIDUNG
+  NOETIG` nur noch in fuenf Faellen (Ziel/Umfang, Verbotsliste, Material nur vom Nutzer,
+  Abweichung von Nutzerentscheidung, Uebergang zur systematischen Dekompilierung);
+  Eskalationsregel "zweimal dasselbe Problem" entfaellt (Veto per /claude).
+  (2) `/ask` = freie Frage (hx/ask.py, prompts/ask.md, hx.cli ask, Telegram /ask),
+  Opus/Abo-Token, eigener Lauf, im EIGENEN THREAD (`_do_ask`) - ein blockierender
+  Unterprozess im Takt wuerde den Mitschnitt eines laufenden Batches anhalten.
+  (3) SICHERHEIT, gemessen: `--allowedTools Read` OHNE Pfadbindung erlaubt JEDEN Pfad -
+  Reviewer UND Worker lasen `g:\Harness\secrets\deepseek.key`. Wirksam ist nur
+  `Read(//g:/Pfad/**)` (+ ausdrueckliches `--disallowedTools Read(//…/secrets/**)`).
+  Der Worker bleibt offen (PowerShell) - Optionen beim Nutzer.
+  Beleg: `docs/_ask_zugriff_regeln.txt`, `docs/_ask_zugriff_beleg.txt`.
+  (4) Plan ohne Bau: `docs/selbstheilung-plan.md` (/fix + Waechter, Todesarten A/B/C).
+- Fallstrick: ein absoluter Pfad AUSSERHALB des Arbeitsverzeichnisses wird abgelehnt,
+  auch wenn eine `Read(//…/**)`-Regel ihn erlaubt - die Wurzel muss zusaetzlich per
+  `--add-dir` angemeldet sein (der Reviewer hatte das nicht).
+- Fallstrick: `harness/.gitignore` enthaelt `!tests/**`. Das hebt jede Sperre des
+  Wurzel-`.gitignore` unter `tests/` auf - `_tmp_*`-Testordner (mit eingebettetem
+  Git-Repo) tauchen dann als untracked auf. Neue Test-Ausnahmen MUESSEN in
+  `harness/.gitignore` NACH der Test-Ausnahme stehen.
+- Fallstrick: `Read` hat eine Groessengrenze von 256 KB. Ein Modell meldet das gern als
+  "VERWEIGERT" - bei Zugriffsproben deshalb eine KLEINE Kontrolldatei nehmen.
+- R13g (2026-09-26): Schluessel aus dem Harness heraus (Option 3) + Ueberwachung.
+  (1) Ablage: `%USERPROFILE%\.hx-secrets` mit ACL nur fuer den Benutzer
+  (`tools/setup_secrets.py`, idempotent, Beleg `docs/_secrets_umzug.txt`);
+  `[paths] secrets = "$USERPROFILE/.hx-secrets"`, `hx/config.py:expand_path` loest
+  `$VAR`/`%VAR%` auf. `g:\Harness\secrets` ist leer und bleibt in den Verboten.
+  (2) `hx/streamjson.py: SecretWatch` + `StreamStats(secret_watch=)`: SchluesselWERTE
+  in JEDER Zeile (Leck), Zugriffspfade NUR in Werkzeugaufrufen (bei Schreibern nur
+  das Ziel) - ein Dokument, das den Pfad zitiert, ist KEIN Zugriff. Alarm
+  "SECRET-ZUGRIFF" (Art, Werkzeug, Dateiname - nie ein Wert), Beleg
+  `logs/secret-zugriff.jsonl`, Zeile im Review-Messdatenblock
+  (`orchestrator.secret_zeile`). Beleg `docs/_secretwatch_beleg.txt`.
+  (3) Bereinigung: `tools/scan_secrets.py [--redact --kontext]`; 6 Fundstellen,
+  ALLE aus den eigenen Zugriffsproben (nicht aus Batches), entschaerft.
+- Fallstrick: `json.dumps` schreibt Windows-Pfade als `g:\\Harness\\...`. Eine
+  Pfadsuche muss erst backslash->slash und DANN mehrfache Schraegstriche
+  zusammenziehen (`streamjson._norm`), sonst bleibt der Treffer aus.
+- Fallstrick: `g:\Harness\sandbox\decomp-link` ist eine JUNCTION ins Decomp-Repo.
+  `rglob` folgt ihr und meldet 69 GB statt 30 MB. Immer `os.walk(followlinks=False)`.
+- Fallstrick: `stop.ps1` hinterlaesst den Marker `state/STOP`. Der naechste Start
+  liest ihn im `poll()` und beendet sich SOFORT wieder. Nach einem Stopp fuer den
+  Nutzer den Marker loeschen (`state/STOP`) - der Merker `stopped` in run.json ist
+  dagegen harmlos, `run()` hebt ihn beim Start auf (bis PAUSIERT).
+- R13h (2026-09-26): Laufzeit - warum manche Batches Stunden dauern (Nutzerfrage).
+  MESSUNG (`tools/analyse_laufzeit.py` -> `docs/_laufzeit_analyse.txt`): der Harness ist
+  NICHT die Ursache (harness_s weicht 2-21 s von der Selbstauskunft des claude-Prozesses
+  ab). Die Zeit steckt in Werkzeugen (bis 81 %: 68K-Emulation 400-600 s je Lauf, Port-Bau
+  ~420 s) und in reinen Wartebefehlen (`Start-Sleep`; b174: 1993 s = 42 % der Laufzeit).
+  GEBAUT: (1) `TaktGeber` - Summen/Kosten NICHT je Zeile rechnen. `cost_usd()` kostet
+  ~1 ms; bei 156.493 Zeilen waren das ~156 s im Leser-Thread. Jetzt im 2-s-Takt:
+  1,6 s statt 156 s, Ergebnis identisch (`docs/_kosten_takt_messung.txt`).
+  (2) `TaktThread` - waehrend eines langen Werkzeugaufrufs kommt KEINE Mitschnittzeile,
+  also tickte der Harness nicht: /stop und /pause wirkten bis zu 10 min nicht.
+  (3) Laufzeit-Profil (`StreamStats.laufzeit_profil`) in `harness-facts.md` und in der
+  Telegram-Batch-Meldung (`Zeit: Werkzeuge … Modell … reines Warten … langsamste …`).
+  (4) Worker-Vorspann "RECHENZEIT": parallel statt nacheinander (4 Kerne), kein
+  `Start-Sleep -Seconds 300`, Abbruchbedingung mit kurzem Schritt.
+  OFFEN (Decomp-Repo, nicht Harness): die 68K-Skripte laufen nacheinander - Faktor 2-4
+  waere drin. Belege: `docs/_laufzeit_analyse.txt`, `docs/_kosten_takt_messung.txt`.
+- Fallstrick: `& .\scripts\port_build.ps1 -Gl 2>&1 | Select-Object -Last 6` liess
+  PowerShell mit `out-lineoutput: NullReferenceException` enden (Exit 1), obwohl der Bau
+  erfolgreich war. Bei langen Ausgaben `*> datei.txt` nehmen und die Datei lesen.
+- Bau-Messung: `port_build.ps1 -Gl` dauert 6,7 s, wenn nichts zu bauen ist ("Nothing to
+  be done"), ~420 s nur bei echten Quellaenderungen (b177 aenderte port/src/audio68k_*).
+  Kein Fixkostenproblem - kein Build-Trick noetig.
+- R13i (2026-09-26): harte Tode des Harness (Nutzer: "harness ist wieder abgestuerzt").
+  BEFUND (belegt): Der Worker setzte in b178 `Get-Process python | Where-Object
+  { $_.CPU -gt 50 } | Stop-Process -Force` ab und toetete damit den HARNESS (selbst ein
+  python.exe mit ~370 s CPU). Kein Crash-Bericht, keine stderr-Zeile, kein
+  Ereignisprotokoll - Zustand bleibt auf DS_WORKING. Der zweite Tod (b177, direkt nach
+  "Batch beendet") hat dieselbe Signatur, ist nicht belegt.
+  GEBAUT: (1) `streamjson.abbau_gefahr` erkennt Muster-Abbau (CPU-Filter, -Name,
+  taskkill /IM, pauschale Liste); gezielte `-Id`/CommandLine-Filter bleiben still
+  (Beleg `tools/check_abbau.py` -> `docs/_abbau_beleg.txt`: 10/10, in allen Batches
+  genau 1 Treffer). (2) Notbremse im Worker (killed_reason=prozess_abbau). (3) Regel im
+  Vorspann. (4) `orchestrator.abbau_ursache` + `recover()` nennt den harten Tod beim
+  naechsten Start. (5) `reviewer.py` fehlte der Import von streamjson (R13g-Bug, lag in
+  try/except -> nur WARN-Zeile). (6) Repo-Wache in `gitsafe.Git`
+  (`git rev-parse --show-toplevel` == cfg.decomp, sonst rc=128).
+- FALLSTRICK (teuer, 2026-09-26): `wip_rescue` macht `git stash push` mit
+  `cwd=cfg.decomp`. Zeigt der auf ein Verzeichnis INNERHALB eines anderen Repos
+  (Test-Tempordner im Harness-Repo!), arbeitet git still am AEUSSEREN Repo - mein Test
+  `test_recover_nennt_den_harten_tod` hat so ZWEIMAL den Arbeitsbaum des Harness
+  gestasht (`harness-wip-b178`) und unversionierte Arbeit weggeraeumt. Zurueckholen:
+  `git stash list` / `git stash pop`. Lehre: (a) Tests brauchen ein eigenes `git init`
+  im Wegwerf-decomp, (b) Repo-Wache eingebaut, (c) Arbeit im Harness-Repo VOR einem
+  Harness-Start committen.
+- Fallstrick: PowerShell zerlegt mehrzeilige `git commit -m "..."` (Zeilenumbrueche,
+  `# Harness (g:\Harness) — Entwickler-Notizen
+
+- Code liegt unter `g:\Harness\harness` (Paket `hx`), Start: `start.ps1 [-Paused] [-Mock]`.
+  Läuft im EIGENEN PowerShell-Fenster außerhalb VS Code; Stop: `stop.ps1 [-Force]`
+  (Force = taskkill auf alle `python.exe` mit `hx.cli`), Marker `state/STOP`.
+- Steuerkanal lokal = Dateien in `state/ctl/{pause,resume,stop,approve}.ctl` + `instruction.json`.
+  Immer über `hx.cli` schreiben (nie per Hand), sonst führt der nächste Start sie aus.
+  Wirkung: nächster Schleifendurchlauf, im Pausenzustand bis ~30 s (Telegram-Langpoll 25 s).
+- `hx.cli demo` läuft isoliert in `state/_demo_<scenario>` (kopiert `profiles/`); sonst
+  schreibt die Attrappe in den echten Eingang.
+- Fallstrick: Attribut `self.run` in `hx/watch.py` überschrieb die Methode `run()` →
+  neuer Name `self.run_name`. Vor jeder Demoname-Frage: prüfen, ob der Name eine
+  Methode des Objekts ist.
+- Tests: `python -m unittest discover -s tests` (220 Tests, alle gruen, ohne API-Kosten,
+  Stand R13f 2026-09-26).
+  R13-Dateien: `tests/test_r13_fixes.py` (Ghidra-Speichern, Rotation/Uebergabe),
+  `tests/test_r13b_fixes.py` (Kennung, Rotation/Reuse, gescheiterter Review, Queue, Laufzeit).
+- Review-Gueltigkeit (R13b): `orchestrator.review_ok` verlangt Modell + Bloecke + Summary +
+  Instruktion mit Batch-Nummer + Profil. Ungueltig ⇒ Rohantwort als
+  `runs/b<N>/review-verworfen-<Stempel>-v<N>.md`, EIN Wiederholungsversuch mit
+  Format-Erinnerung, danach PAUSED + Telegram + `logs/review-verworfen-<ts>.json` — NIE ein Gate.
+- Queue (R13b): `read_queue_block(target, mark=False)` + `commit_queue(...)` — zugestellt
+  wird erst nach gueltigem Review.
+- Nummern (R13b): Review-Verzeichnis = Anker-Nachfolger (`expected_batch()`), Worker-Belege
+  bleiben in `runs/b<state.batch>`; `review_context` liest `antwort.md` aus dem Belegordner.
+- Laufzeit (R13b): Wanduhr des Worker-Prozesses — Vorrang `duration_ms` aus dem Mitschnitt,
+  sonst Harness-Messung; `duration_harness_s` dient der Rueckstau-Warnung (>120 s ⇒ ALARM).
+- Fallstrick (R13b): Bei `new_session=True` MUSS der Aufrufer eine frische Kennung uebergeben —
+  die alte Kennung liess Claude Code mit "Session ID … is already in use" sofort abbrechen
+  (rc=1, leere Antwort, Modell None).
+- Ghidra-Speichern (R13): `worker.save_ghidra_after_batch` läuft in `_finish_run` (vor Push/
+  Review), `state.data["ghidra_pending"]` + `last_profile`; Haken in `cancel_check` ("Stopp")
+  und `run()`-`finally` ("Harness-Ende") über `orchestrator.save_ghidra_if_pending`.
+  Fehler ⇒ `ghidra_failed` ⇒ Push/Review werden übersprungen. Messdatenzeile
+  `Ghidra gespeichert: ja/nein/nicht noetig`.
+- Reviewer-Rotation (R13): Uebergabe der alten Session via `reviewer.run_handover`
+  (Phase "uebergabe", Fehler nicht tödlich) → `sessions/vorherige-session.md`;
+  `reviewer.force_rotate=true` in `state/run.json` erzwingt sie einmalig
+  (überlebt Neustart; /status zeigt "Wechsel beim naechsten Review erzwungen").
+- Attrappe: `ReviewResult.session_id` MUSS bei `new_session=True` eine neue Kennung
+  liefern, sonst schlägt die Rotationsprüfung nur wegen der Attrappe fehl.
+- R13c-Entscheidungs-Bremse: `protocol.parse_offene_punkte` liest `ENTSCHEIDUNG NOETIG:`
+  (bremst: `orchestrator.gate_wait_decision` verhindert die automatische Freigabe im
+  Dauerbetrieb), `OFFENE FRAGE:` und `WARTET AUF LIVE-AUFNAHME:` bremsen nicht. Gate traegt
+  `offene_punkte`; Altbestand wird aus der gespeicherten Summary abgeleitet (Zustand bleibt
+  unberuehrt). Anzeige in `/status` und `watch`.
+- R13c-watch: thinking-Bloecke mit Text abgesetzt (`  ~ `, gedimmt, ab 400 Zeichen gekuerzt),
+  leere uebersprungen, Schalter `watch --no-thinking`. Rein lesend.
+- R13c-Absturzschutz: `Orchestrator.report_crash` (Traceback in Log + `logs/crash-<ts>.txt`
+  + Telegram „HARNESS ABGESTÜRZT", Exit-Code 3 über `cmd_run`); `start.ps1` schreibt stderr
+  nach `logs/start-stderr.log` und laesst bei Exit≠0 das Fenster offen (`Read-Host`);
+  `/status` meldet „HARNESS LAEUFT NICHT" + letzten Crash-Bericht.
+- Fallstricke beim Testen:
+  * `_loop()`-Tests: `git_preflight`/`git.checkpoint`/`run_worker`/`poll`/`peak_gate` patchen
+    UND einen Poll-Zaehler als Notbremse setzen — sonst läuft die Schleife endlos weiter
+    (Git-Vorprüfung schlägt im Temp-Verzeichnis fehl → `continue` ohne quit).
+  * PowerShell 5.1 schreibt `cmd *> datei` als UTF-16: beim Auswerten BOM beachten.
+    Fuer Belege `2>&1 | Out-File -Encoding utf8 <datei>` nehmen - sonst zeigt das
+    read_file-Werkzeug die Datei als Hexdump des BOM.
+  * Demo-Helfer `ein_durchlauf` schaltet `orch.tg` ab, damit der laufende Harness seine
+    Telegram-Nachrichten behält (getUpdates-Offset ist botspezifisch).
+- Terminalausgabe beim laufenden Harness ist unzuverlässig abgeschnitten → Ergebnisse in
+  Dateien schreiben (`*> ..\docs\_x.txt`) und danach lesen.
+- R13d (2026-09-26): Harness starb ZWEIMAL an `PermissionError [WinError 5]` bei
+  `os.replace(run.json.tmp -> run.json)` (in `phase("review")` und `state.set`).
+  Ursache: zweiter Prozess (`hx.cli watch`, liest `run.json` alle 1,5 s) hielt die
+  Datei offen. GEMESSEN (C: und G:, gleiches Ergebnis): Rename-Ersetzen scheitert
+  mit WinError 5, solange IRGENDEIN Handle offen ist — auch mit FILE_SHARE_DELETE
+  (dann geht `DeleteFile`, aber kein Rename). Abhilfe: `util.replace_with_retry`
+  (Nachsicht 5 ms→50 ms, 40 Versuche ≈ 1,8 s) in `write_text_atomic`;
+  `util.open_shared_read` (share=RWD) fuer unsere Leser (hilft beim Loeschen, NICHT
+  beim Ersetzen). Tests `tests/test_r13d_fixes.py`, Beleg
+  `docs/_teilungsfehler_probe.py` -> `docs/_teilungsfehler_beweis.txt`.
+- R13e (2026-09-26, Sammelauftrag nach der ersten Nacht): sieben Punkte umgesetzt.
+  KURZFORM: (1) `review.dir` im Zustand - das Review von Batch N liegt in
+  `runs/b<N+1>`, watch las bisher den VORIGEN Review. (2) Ghidra: `save_all_programs`
+  nach JEDEM Batch mit Ghidra-Profil, Sicherung vor jedem Ghidra-Batch (12,1 MB/~2 s),
+  HTTP-Beruehrung des Zustands im Review vermerkt. (3) STILLE ABSTUERZE: Prozesse aus
+  dem VS-Code-Terminal liegen im Job von Code.exe (IsProcessInJob gemessen) - der
+  Harness NIE aus dem VS-Code-Terminal starten, nur eigenes Fenster/Verknuepfung.
+  (4) Reviewer-Limit setzt von selbst fort (Zeit aus der Meldung, sonst stuendlich).
+  (6) Telegram-Kopf "AUTOMATISCH FREIGEGEBEN" im Dauerbetrieb. (7) Pausen-Erkennung
+  rechnet Harness-Commits nicht als Handarbeit (git merge-base --is-ancestor).
+  (8/9) watch zaehlt je Batch und zeigt das Batch-Ende auch pausiert.
+  (10) `--lazy` bei der MCP-Bridge ENTFERNT: damit waren nur 97 von 215 Werkzeugen
+  sichtbar, 76 erlaubte fehlten (get_xrefs_to, search_instructions, ...). Beleg:
+  `docs/_ghidra_tools_audit.py` vergleicht /mcp/schema mit den Profillisten.
+  NEU: `harness/tests/test_r13e_fixes.py` (34 Tests), gesamt 196 gruen.
+  Werkzeugfehler im Mitschnitt zaehlen jetzt richtig (`<tool_use_error>`/`is_error`;
+  "requires approval" = gesperrt) - vorher zaehlten zitierende Dokumente mit.
+- R13f (2026-09-26): (1) Entscheidungsregel - der Reviewer entscheidet den Regelfall
+  selbst; Zeile `ENTSCHIEDEN: …` in `<TELEGRAM_SUMMARY>` (4. Schluessel in
+  `parse_offene_punkte`, bremst NICHT, Anzeige in /status + watch zuerst). `ENTSCHEIDUNG
+  NOETIG` nur noch in fuenf Faellen (Ziel/Umfang, Verbotsliste, Material nur vom Nutzer,
+  Abweichung von Nutzerentscheidung, Uebergang zur systematischen Dekompilierung);
+  Eskalationsregel "zweimal dasselbe Problem" entfaellt (Veto per /claude).
+  (2) `/ask` = freie Frage (hx/ask.py, prompts/ask.md, hx.cli ask, Telegram /ask),
+  Opus/Abo-Token, eigener Lauf, im EIGENEN THREAD (`_do_ask`) - ein blockierender
+  Unterprozess im Takt wuerde den Mitschnitt eines laufenden Batches anhalten.
+  (3) SICHERHEIT, gemessen: `--allowedTools Read` OHNE Pfadbindung erlaubt JEDEN Pfad -
+  Reviewer UND Worker lasen `g:\Harness\secrets\deepseek.key`. Wirksam ist nur
+  `Read(//g:/Pfad/**)` (+ ausdrueckliches `--disallowedTools Read(//…/secrets/**)`).
+  Der Worker bleibt offen (PowerShell) - Optionen beim Nutzer.
+  Beleg: `docs/_ask_zugriff_regeln.txt`, `docs/_ask_zugriff_beleg.txt`.
+  (4) Plan ohne Bau: `docs/selbstheilung-plan.md` (/fix + Waechter, Todesarten A/B/C).
+- Fallstrick: ein absoluter Pfad AUSSERHALB des Arbeitsverzeichnisses wird abgelehnt,
+  auch wenn eine `Read(//…/**)`-Regel ihn erlaubt - die Wurzel muss zusaetzlich per
+  `--add-dir` angemeldet sein (der Reviewer hatte das nicht).
+- Fallstrick: `harness/.gitignore` enthaelt `!tests/**`. Das hebt jede Sperre des
+  Wurzel-`.gitignore` unter `tests/` auf - `_tmp_*`-Testordner (mit eingebettetem
+  Git-Repo) tauchen dann als untracked auf. Neue Test-Ausnahmen MUESSEN in
+  `harness/.gitignore` NACH der Test-Ausnahme stehen.
+- Fallstrick: `Read` hat eine Groessengrenze von 256 KB. Ein Modell meldet das gern als
+  "VERWEIGERT" - bei Zugriffsproben deshalb eine KLEINE Kontrolldatei nehmen.
+- R13g (2026-09-26): Schluessel aus dem Harness heraus (Option 3) + Ueberwachung.
+  (1) Ablage: `%USERPROFILE%\.hx-secrets` mit ACL nur fuer den Benutzer
+  (`tools/setup_secrets.py`, idempotent, Beleg `docs/_secrets_umzug.txt`);
+  `[paths] secrets = "$USERPROFILE/.hx-secrets"`, `hx/config.py:expand_path` loest
+  `$VAR`/`%VAR%` auf. `g:\Harness\secrets` ist leer und bleibt in den Verboten.
+  (2) `hx/streamjson.py: SecretWatch` + `StreamStats(secret_watch=)`: SchluesselWERTE
+  in JEDER Zeile (Leck), Zugriffspfade NUR in Werkzeugaufrufen (bei Schreibern nur
+  das Ziel) - ein Dokument, das den Pfad zitiert, ist KEIN Zugriff. Alarm
+  "SECRET-ZUGRIFF" (Art, Werkzeug, Dateiname - nie ein Wert), Beleg
+  `logs/secret-zugriff.jsonl`, Zeile im Review-Messdatenblock
+  (`orchestrator.secret_zeile`). Beleg `docs/_secretwatch_beleg.txt`.
+  (3) Bereinigung: `tools/scan_secrets.py [--redact --kontext]`; 6 Fundstellen,
+  ALLE aus den eigenen Zugriffsproben (nicht aus Batches), entschaerft.
+- Fallstrick: `json.dumps` schreibt Windows-Pfade als `g:\\Harness\\...`. Eine
+  Pfadsuche muss erst backslash->slash und DANN mehrfache Schraegstriche
+  zusammenziehen (`streamjson._norm`), sonst bleibt der Treffer aus.
+- Fallstrick: `g:\Harness\sandbox\decomp-link` ist eine JUNCTION ins Decomp-Repo.
+  `rglob` folgt ihr und meldet 69 GB statt 30 MB. Immer `os.walk(followlinks=False)`.
+- Fallstrick: `stop.ps1` hinterlaesst den Marker `state/STOP`. Der naechste Start
+  liest ihn im `poll()` und beendet sich SOFORT wieder. Nach einem Stopp fuer den
+  Nutzer den Marker loeschen (`state/STOP`) - der Merker `stopped` in run.json ist
+  dagegen harmlos, `run()` hebt ihn beim Start auf (bis PAUSIERT).
+- R13h (2026-09-26): Laufzeit - warum manche Batches Stunden dauern (Nutzerfrage).
+  MESSUNG (`tools/analyse_laufzeit.py` -> `docs/_laufzeit_analyse.txt`): der Harness ist
+  NICHT die Ursache (harness_s weicht 2-21 s von der Selbstauskunft des claude-Prozesses
+  ab). Die Zeit steckt in Werkzeugen (bis 81 %: 68K-Emulation 400-600 s je Lauf, Port-Bau
+  ~420 s) und in reinen Wartebefehlen (`Start-Sleep`; b174: 1993 s = 42 % der Laufzeit).
+  GEBAUT: (1) `TaktGeber` - Summen/Kosten NICHT je Zeile rechnen. `cost_usd()` kostet
+  ~1 ms; bei 156.493 Zeilen waren das ~156 s im Leser-Thread. Jetzt im 2-s-Takt:
+  1,6 s statt 156 s, Ergebnis identisch (`docs/_kosten_takt_messung.txt`).
+  (2) `TaktThread` - waehrend eines langen Werkzeugaufrufs kommt KEINE Mitschnittzeile,
+  also tickte der Harness nicht: /stop und /pause wirkten bis zu 10 min nicht.
+  (3) Laufzeit-Profil (`StreamStats.laufzeit_profil`) in `harness-facts.md` und in der
+  Telegram-Batch-Meldung (`Zeit: Werkzeuge … Modell … reines Warten … langsamste …`).
+  (4) Worker-Vorspann "RECHENZEIT": parallel statt nacheinander (4 Kerne), kein
+  `Start-Sleep -Seconds 300`, Abbruchbedingung mit kurzem Schritt.
+  OFFEN (Decomp-Repo, nicht Harness): die 68K-Skripte laufen nacheinander - Faktor 2-4
+  waere drin. Belege: `docs/_laufzeit_analyse.txt`, `docs/_kosten_takt_messung.txt`.
+- Fallstrick: `& .\scripts\port_build.ps1 -Gl 2>&1 | Select-Object -Last 6` liess
+  PowerShell mit `out-lineoutput: NullReferenceException` enden (Exit 1), obwohl der Bau
+  erfolgreich war. Bei langen Ausgaben `*> datei.txt` nehmen und die Datei lesen.
+- Bau-Messung: `port_build.ps1 -Gl` dauert 6,7 s, wenn nichts zu bauen ist ("Nothing to
+  be done"), ~420 s nur bei echten Quellaenderungen (b177 aenderte port/src/audio68k_*).
+  Kein Fixkostenproblem - kein Build-Trick noetig.
+, Klammern) - Commit-Nachrichten immer per Datei + `git commit -F` (z.B.
+  `.git/COMMIT_MSG_<ref>.txt`).
+- Memo: `pyflakes` ist installiert (`python -m pyflakes hx tools tests`); die
+  Testsuite prueft damit auf undefinierte Namen (test_r13i_fixes.TestModulnamen).
+- Belege: `g:\Harness\docs\_watch_b001.txt`, `_watch_envproof.txt`, `_demo_check.txt`,
+  `_test_check.txt`, `_neustart_beweis.md`, Bedienung: `g:\Harness\docs\bedienung.md`.
+  Nachtbericht B161-B174: `g:\Harness\docs\_nachtbericht_b161_174.md`.
