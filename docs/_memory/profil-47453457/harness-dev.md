@@ -1619,3 +1619,23 @@
   FALLSTRICK (Werkzeug): `beleg_probe` meldete "Datei fehlt" fuer `_m242/_c_paket_e.txt` -
   der Pfad war nur ABGESCHNITTEN (`analysis/` fehlte). Vorsatz-Kandidaten versuchen UND den
   Fund ausweisen, sonst meldet man einen Qualitaetsunterschied, den es nicht gibt.
+  NACHTRAG R13bx-2 (2026-10-10, committet `d5ac67a`, Gate 1742 Tests OK in 613,2 s):
+  DER TAKT HAENGT AM ANBIETER. `[meta] aussensicht_takt_deepseek = 2` (Abo bleibt 4) -
+  auf DeepSeek laeuft die Aussensicht alle 2 Batches, um die geringere Befundzahl
+  auszugleichen. `takt(cfg, anbieter)` / `grenzen(cfg, anbieter)` / `faellig(...,
+  anbieter=...)`: ohne Anbieter gilt der ABO-Takt, damit kein Aufrufer sich aendert.
+  Den Anbieter bestimmt `Orchestrator.aussensicht_anbieter()` EINMAL je Batch (Merker an
+  der Batchnummer) - `faellig` wird in JEDEM Schleifendurchlauf gefragt und darf
+  `logs/rate-limit.json` nicht jedes Mal lesen. Der Anlass nennt `[DeepSeek-Takt]`,
+  /bilanz und /status zeigen beide Takte, wenn sie sich unterscheiden.
+  GEMESSEN (meine Kostensorge war unbegruendet, Nutzer hatte recht): ein Befund kostet
+  ~250-300 Zeichen im Reviewer-Prompt; der Block NACHRICHTEN AUS DER QUEUE hatte in den
+  letzten 12 Review-Prompts 1.510-7.271 Zeichen bei ~40.000 gesamt und fehlte in 8 von 12
+  ganz -> die Verdopplung bringt +1,5 bis 4 % Mehrlast, kein Kostenfaktor.
+  MEMORY-SICHERUNG (Auftrag "alles absichern"): `tools/memory_sichern.py` sichert ALLE
+  repo-Profile nach `backups/memory-<stempel>/` (SHA-256-Manifest, prueft jede Kopie) und
+  mit `--spiegel` nach `docs/_memory/profil-<hash>/` (getrackt, per Push off-site).
+  Grund: es gibt DREI Workspace-Profile (26867c8c 20, 47453457 3, 764c8a21 21 Dateien);
+  nur `764c8a21` war ueber `m151_memory_sync.py` gespiegelt - `harness-dev.md` (132 KB,
+  DIESE Datei) existierte genau EINMAL. FALLSTRICK: VS Code benutzt **32** Hexzeichen als
+  Workspace-Hash, nicht 64 - mit der falschen Laenge kollidierten alle Ordnernamen.
