@@ -1260,9 +1260,16 @@ class Orchestrator:
             self._do_approve(rest)
         elif cmd == "autonom":
             val = rest.strip().lower()
-            new = not bool(self.state.data.get("autonomous"))
-            yolo = bool(self.state.data.get("autonom_trotz_peak"))
-            if val in ("on", "an", "1", "true"):
+            if not val:
+                # R13bx-3 (Auftrag 2026-10-10): der NACKTE Umschalter raeumt yolo mit ab.
+                # GEMELDETER FALL: `/autonom yolo` -> `/autonom` (aus) -> `/autonom` (an)
+                # meldete wieder "PEAK WIRD IGNORIERT" - der Merker war ueber das Ausschalten
+                # hinweg stehengeblieben und wurde beim Einschalten still wieder wirksam;
+                # die AUS-Meldung sagte davon nichts.  yolo laesst sich damit NUR noch
+                # ausdruecklich laden (`/autonom yolo`) - dieselbe Haltung wie bei `on`
+                # (R13bw-5: "kein Nebeneffekt des Einschaltens").
+                new, yolo = not bool(self.state.data.get("autonomous")), False
+            elif val in ("on", "an", "1", "true"):
                 # R13bw-5: die ausdrueckliche Fassung schaltet yolo AB - der Zusatz ist
                 # eine eigene Entscheidung, kein Nebeneffekt des Einschaltens.
                 new, yolo = True, False
@@ -1270,17 +1277,24 @@ class Orchestrator:
                 new, yolo = False, False
             elif val in ("yolo", "trotz peak", "trotzpeak", "trotz-peak"):
                 new, yolo = True, True
-            elif val:
+            else:
                 self.say(f"Unbekannter Zusatz '{rest.strip()}' - erlaubt: /autonom "
                          f"[on|off|yolo]. Zustand bleibt: {self.dauerbetrieb_text()}")
                 return True
+            vorher_yolo = bool(self.state.data.get("autonom_trotz_peak"))
             self.state.data["autonomous"] = new
             self.state.data["autonom_trotz_peak"] = yolo
             self.state.save()
-            self.say("Dauerbetrieb: " + ("AN" if new else "AUS")
-                     + (" - PEAK WIRD IGNORIERT (yolo): Review und Start laufen sofort, "
-                        "auch im Peak-Tarif. Im Log und in `result.json` steht dann \"trotz "
-                        "Peak gestartet (Dauerbetrieb yolo)\"." if (new and yolo) else ""))
+            meldung = "Dauerbetrieb: " + ("AN" if new else "AUS")
+            if new and yolo:
+                meldung += (" - PEAK WIRD IGNORIERT (yolo): Review und Start laufen sofort, "
+                            "auch im Peak-Tarif. Im Log und in `result.json` steht dann "
+                            "\"trotz Peak gestartet (Dauerbetrieb yolo)\".")
+            elif vorher_yolo and not yolo:
+                # Sonst faellt nicht auf, dass der Peak wieder abgewartet wird.
+                meldung += (" - yolo ist abgeschaltet: der Peak wird wieder abgewartet "
+                            "(nur /autonom yolo laedt es erneut).")
+            self.say(meldung)
         elif cmd == "review":
             self.review_now = True
             self.state.data["paused"] = False

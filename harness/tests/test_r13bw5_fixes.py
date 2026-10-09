@@ -17,6 +17,11 @@ bei DeepSeek Peak oder Offpeak Zeiten sind."
   `peak_hinweis` (der Worker reicht es durch, `worker.py`).
 * `/autonom on` schaltet yolo **ab**, `/autonom off` beides, ein unbekannter Zusatz aendert
   nichts und nennt den Zustand.
+* **R13bx-3 (Auftrag 2026-10-10):** der NACKTE Umschalter (`/autonom` ohne Zusatz) raeumt
+  yolo mit ab. Gemeldeter Fall: `/autonom yolo` -> `/autonom` (aus) -> `/autonom` (an)
+  meldete wieder "PEAK WIRD IGNORIERT" - der Merker war ueber das Ausschalten hinweg
+  stehengeblieben und wurde beim Einschalten still wieder wirksam. Damit laesst sich yolo
+  NUR noch ausdruecklich laden; die AUS-Meldung sagt, dass es abgeschaltet wurde.
 
 Wegwerf-Verzeichnisse unter `tests/_tmp_r13bw5`.
 """
@@ -189,6 +194,37 @@ class TestBefehl(Basis):
         self.assertFalse(self.orch.state.data["autonomous"])
         self.assertFalse(self.orch.state.data["autonom_trotz_peak"])
         self.assertIn("AUS", self.text())
+
+    # R13bx-3 (Auftrag 2026-10-10): der NACKTE Umschalter.
+    def test_nackter_umschalter_raeumt_yolo_ab(self):
+        """Gemeldeter Fall: yolo -> aus -> an meldete wieder "PEAK WIRD IGNORIERT"."""
+        self.orch.handle_command("/autonom yolo")
+        self.orch.handle_command("/autonom")
+        self.assertFalse(self.orch.state.data["autonomous"], "aus")
+        self.assertFalse(self.orch.state.data["autonom_trotz_peak"], "yolo mit abgeraeumt")
+        self.gesagt.clear()
+        self.orch.handle_command("/autonom")
+        self.assertTrue(self.orch.state.data["autonomous"], "wieder an")
+        self.assertFalse(self.orch.state.data["autonom_trotz_peak"], "und zwar OHNE yolo")
+        self.assertFalse(self.orch.autonom_yolo())
+        self.assertNotIn("PEAK WIRD IGNORIERT", self.text())
+
+    def test_aus_meldung_nennt_das_abgeraeumte_yolo(self):
+        """Sonst faellt nicht auf, dass der Peak wieder abgewartet wird."""
+        self.orch.handle_command("/autonom yolo")
+        self.gesagt.clear()
+        self.orch.handle_command("/autonom")
+        self.assertIn("AUS", self.text())
+        self.assertIn("yolo ist abgeschaltet", self.text())
+
+    def test_erster_nackter_befehl_meldet_kein_yolo(self):
+        """Ohne vorheriges yolo darf die Meldung nichts von yolo sagen (Startzustand: aus)."""
+        self.orch.state.data["autonomous"] = False
+        self.orch.state.data["autonom_trotz_peak"] = False
+        self.gesagt.clear()
+        self.orch.handle_command("/autonom")
+        self.assertIn("Dauerbetrieb: AN", self.text())
+        self.assertNotIn("yolo", self.text().lower())
 
     def test_unbekannter_zusatz_aendert_nichts(self):
         self.orch.handle_command("/autonom on")
