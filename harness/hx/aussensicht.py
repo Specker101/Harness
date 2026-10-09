@@ -226,6 +226,124 @@ def takt(cfg) -> int:
     return int(STANDARD["every_batches"])
 
 
+# ------------------------------------------- Modellwahl: Abo oder DeepSeek (R13bx)
+# Anlass: das Claude-Wochenkontingent ist knapp. Ist die Woche zu weit verbraucht,
+# faehrt die Aussensicht auf DeepSeek und schont das Abo, sonst bleibt sie auf dem
+# Abo-Modell. GEMESSEN (2026-10-09, `docs/_effort_probe.txt`): die Denkstufe kommt
+# auf dem DeepSeek-Endpunkt wirklich an (`high` wie `max`), und `result.modelUsage`
+# nennt `deepseek-flash[1m]` - es gibt also KEIN stilles Mapping auf ein anderes
+# DeepSeek-Modell (obwohl `claude-*` dort abgebildet wird, `docs/stage1-inventory.md:266`).
+FENSTER_WOCHE = "seven_day"
+DEEPSEEK_MODELL_VORGABE = "deepseek-flash[1m]"
+DEEPSEEK_EFFORT_VORGABE = "high"
+DEEPSEEK_SCHALTER = ("auto", "nie", "immer")
+
+
+def deepseek_schalter(cfg) -> str:
+    """`auto` (Vorgabe) | `nie` | `immer` - ein unbekannter Wert gilt als `auto`."""
+    wert = str(cfg.get("meta", "aussensicht_deepseek", "auto") or "auto").strip().lower()
+    return wert if wert in DEEPSEEK_SCHALTER else "auto"
+
+
+def umschalt_schwelle(cfg) -> float:
+    """Die Umschaltschwelle aus `[meta] aussensicht_deepseek_ab` (Vorgabe 0,8).
+
+    Ein unbrauchbarer Wert (Text, 0, > 1) faellt auf `streamjson.RATE_SCHWELLE`
+    zurueck - die Zahl steht sonst an zwei Stellen verschieden da.
+    """
+    try:
+        w = float(cfg.get("meta", "aussensicht_deepseek_ab", 0.8))
+    except (TypeError, ValueError):
+        return float(streamjson.RATE_SCHWELLE)
+    return w if 0.0 < w <= 1.0 else float(streamjson.RATE_SCHWELLE)
+
+
+def woche_anteil(stand: dict) -> float | None:
+    """Auslastung des 7-Tage-Fensters (0..1) - NUR die Woche, nicht die 5-h-Sitzung.
+
+    Die Sitzung erholt sich von selbst, das Wochenkontingent nicht. Deshalb ist allein
+    `seven_day` das Kriterium; ein 5-h-Wert von 95 % schaltet nichts um.
+    """
+    for w in streamjson.rate_limit_werte(streamjson.rate_limit_info(stand)):
+        if w.get("schluessel") == FENSTER_WOCHE:
+            return float(w["anteil"])
+    return None
+
+
+def modell_wahl(cfg, stand: dict | None = None) -> dict:
+    """`anbieter`/`modell`/`effort`/`grund`/`woche` fuer DIESEN Lauf.
+
+    Regeln:
+      * `aussensicht_deepseek = "nie"` -> Abo, ohne jede Rechnung;
+      * `"immer"` -> DeepSeek, auch ohne Messwert;
+      * `"auto"` -> DeepSeek, wenn das WOCHENfenster >= `[meta] aussensicht_deepseek_ab`
+        (Vorgabe 0,8) ausgelastet ist.
+
+    Fehlt jeder Messwert, bleibt es beim **Abo**: ohne Messung aendert sich nichts.  Der
+    Fall ist der Normalfall nach einem Neustart und fuellt sich mit dem naechsten
+    Abo-Lauf (Review, /ask oder Aussensicht selbst) - der DeepSeek-Lauf schreibt KEIN
+    `rate_limit_event` und erneuert die Messung deshalb nicht.
+
+    `stand` dient den Tests (fertiger Stand statt `logs/rate-limit.json`).
+    """
+    schalter = deepseek_schalter(cfg)
+    ds_effort = str(cfg.get("claude", "aussensicht_effort", DEEPSEEK_EFFORT_VORGABE))
+    abo = {"anbieter": "abo", "effort": "", "woche": None, "grund": "Claude-Abo",
+           "modell": str(cfg.get("claude", "aussensicht_modell", "claude-opus-5-5"))}
+    ds = {"anbieter": "deepseek", "effort": ds_effort, "woche": None, "grund": "",
+          # Ohne eigenen Schluessel gilt der Modellname des Workers - EINE Quelle fuer
+          # "DeepSeek V4.1 Flash", kein zweiter Name im Baum.
+          "modell": str(cfg.get("claude", "aussensicht_modell_deepseek",
+                                cfg.get("claude", "model_worker", DEEPSEEK_MODELL_VORGABE)))}
+    if schalter == "nie":
+        abo["grund"] = "DeepSeek abgeschaltet ([meta] aussensicht_deepseek = nie)"
+        return abo
+    stand = streamjson.lies_rate_limit(cfg) if stand is None else stand
+    anteil = woche_anteil(stand)
+    if schalter == "immer":
+        ds["grund"] = "DeepSeek erzwungen ([meta] aussensicht_deepseek = immer)"
+        ds["woche"] = anteil
+        return ds
+    if anteil is None:
+        abo["grund"] = ("kein Messwert im Wochenfenster - ohne Messung keine Umschaltung "
+                        "(der naechste Abo-Lauf fuellt logs/rate-limit.json)")
+        return abo
+    schwelle = umschalt_schwelle(cfg)
+    if anteil >= schwelle:
+        ds["grund"] = f"Wochenkontingent {anteil * 100:.0f} % >= {schwelle * 100:.0f} %"
+        ds["woche"] = anteil
+        return ds
+    abo["grund"] = f"Wochenkontingent {anteil * 100:.0f} % < {schwelle * 100:.0f} %"
+    abo["woche"] = anteil
+    return abo
+
+
+def modell_zeile(res) -> str:
+    """Die Belegzeile `- Modell: …` fuer den Berichtkopf.
+
+    Sie ist noetig, weil der Mitschnitt die Denkstufe NICHT traegt (gemessen: weder
+    `perTurnEffort` noch `"effort"` in `runs/b313/meta.jsonl`).  Ohne diese Zeile
+    wuesste spaeter niemand, womit ein Befund gefunden wurde.
+    """
+    anbieter = "DeepSeek" if getattr(res, "anbieter", "") == "deepseek" else "Claude-Abo"
+    zusatz = [anbieter]
+    stufe = getattr(res, "effort", "") or ""
+    if stufe:
+        zusatz.append(f"Denkstufe {stufe}")
+    woche = getattr(res, "woche_anteil", None)
+    if woche is not None:
+        zusatz.append(f"Woche {woche * 100:.0f} %")
+    zeile = f"- Modell: {getattr(res, 'modell_soll', '') or '-'} ({', '.join(zusatz)})"
+    grund = getattr(res, "umschalt_grund", "") or ""
+    if grund:
+        zeile += f" - {grund}"
+    gesehen = getattr(res, "modell", "") or ""
+    soll = getattr(res, "modell_soll", "") or ""
+    if gesehen and gesehen != soll:
+        zeile += f" | laut Sitzung: {gesehen}"
+    return zeile
+
+
 def grenzen(cfg) -> dict:
     """Die Grenzen der Aussensicht aus `[meta]` (Vorgaben als Rueckfall)."""
     g = {k: cfg.get("meta", k, v) for k, v in STANDARD.items()}
@@ -1505,20 +1623,26 @@ def build_prompt(cfg, state, grund, tiefe: dict | None = None) -> str:
 
 
 # ------------------------------------------------------------------ Kommando
-def build_command(cfg, hooks_settings: str | None = None) -> list[str]:
+def build_command(cfg, hooks_settings: str | None = None,
+                  modell: str | None = None) -> list[str]:
     """Kommandozeile fuer die Aussensicht - IMMER frische Session, nur lesend.
 
     R13bo: eigenes Modell `aussensicht_modell` (Vorgabe Opus 5.5), Abo-Token, gleiche
     Pfad- und Secret-Regeln wie der Reviewer. `hooks_settings` (R13ar) ist die
     Einstellungsdatei mit der Zuguhr (`write_hook_settings`); fehlt sie, laeuft der
     Aufruf wie vorher ohne Hook.
+
+    R13bx: `modell` waehlt das Modell dieses Aufrufs (`modell_wahl` - Abo oder
+    DeepSeek).  Fehlt es, gilt `aussensicht_modell`; so bleiben Altaufrufer und die
+    Attrappe gueltig.
     """
     exe = str(cfg.get("claude", "exe"))
     tools_value = ",".join(["Read", "Grep", "Glob", GIT_TOOL])
     cmd = [exe, "-p",
            "--output-format", "stream-json",
            "--verbose",
-           "--model", str(cfg.get("claude", "aussensicht_modell", "claude-opus-5-5")),
+           "--model", str(modell or cfg.get("claude", "aussensicht_modell",
+                                            "claude-opus-5-5")),
            "--strict-mcp-config",
            "--permission-prompts", "none",
            "--max-turns", str(int(grenzen(cfg)["max_turns"])),
@@ -1872,10 +1996,20 @@ class Ergebnis:
         # dieses Laufs (`schreibe_rate_limit`).
         self.rate_limit_vor: dict = {}
         self.rate_limit_nach: dict = {}
+        # R13bx: die Modellwahl dieses Laufs (Abo oder DeepSeek). `modell_soll` kommt aus
+        # `modell_wahl`, `modell` ist das, was die Sitzung laut `result`-Ereignis war -
+        # eine Abweichung wird im Bericht genannt, nicht verschwiegen.
+        self.anbieter: str = ""
+        self.modell_soll: str = ""
+        self.effort: str = ""
+        self.umschalt_grund: str = ""
+        self.woche_anteil: float | None = None
 
     def describe(self) -> str:
-        return (f"rc={self.rc} dauer={self.dauer_s:.0f}s modell={self.modell or '-'} "
-                f"befunde={len(self.befunde)} verworfen={len(self.verworfen)}"
+        return (f"rc={self.rc} dauer={self.dauer_s:.0f}s modell={self.modell or '-'}"
+                + (f" ({self.anbieter})" if self.anbieter else "")
+                + (f" stufe={self.effort}" if self.effort else "")
+                + f" befunde={len(self.befunde)} verworfen={len(self.verworfen)}"
                 + (f" zuege={self.zuege}" if self.zuege else "")
                 + (f" runden={self.zug_runden}" if self.zug_runden else "")
                 + (f" subtype={self.subtype}" if self.subtype else "")
@@ -1947,6 +2081,13 @@ def run(cfg, log, state, grund: str, mock: bool = False,
     batch = int(state.batch or 0)
     ablage_pruefen(cfg, batch)                       # R13br: erst pruefen, dann laufen
     res.tiefe = tiefenprobe_waehlen(cfg, zufall=zufall)
+    # R13bx: Anbieter/Modell/Denkstufe fuer DIESEN Lauf.  Die Wahl wird bei jedem Lauf
+    # neu getroffen - scheitert ein DeepSeek-Lauf, laeuft die Wiederholung am naechsten
+    # Batch-Ende wieder ueber DeepSeek (kein stiller Rueckfall auf das Abo).
+    wahl = modell_wahl(cfg)
+    res.anbieter, res.modell_soll = wahl["anbieter"], wahl["modell"]
+    res.effort, res.umschalt_grund = wahl["effort"], wahl["grund"]
+    res.woche_anteil = wahl["woche"]
     # R13bw-15: Nutzerlimit VOR dem Lauf - der letzte bekannte Stand aus
     # `logs/rate-limit.json`. Bei der ersten Messung ist er leer (die Kopfzeile sagt
     # dann `?` statt einer Zahl).
@@ -1960,11 +2101,24 @@ def run(cfg, log, state, grund: str, mock: bool = False,
         write_text_atomic(ziel, json.dumps({"type": "result", "result": roh}) + "\n")
         res.text, res.rc, res.modell = roh, 0, "(Attrappe)"
     else:
-        oauth = secrets.load(cfg.secrets_dir, secrets.CLAUDE_OAUTH)
-        env = envs.reviewer_env(cfg, os.environ, oauth)
+        # R13bx: zwei Umgebungen, EINE Entscheidung.  Der DeepSeek-Arm nimmt denselben
+        # Bau wie der Worker (`envs.aussensicht_deepseek_env`), aber mit eigenem
+        # Konfigordner und der gewaehlten Denkstufe; das Abo-Token ist darin verboten
+        # (`envs.precheck`).
+        if res.anbieter == "deepseek":
+            token = secrets.load(cfg.secrets_dir, secrets.DEEPSEEK)
+            env = envs.aussensicht_deepseek_env(cfg, os.environ, token, wahl["effort"])
+        else:
+            oauth = secrets.load(cfg.secrets_dir, secrets.CLAUDE_OAUTH)
+            env = envs.reviewer_env(cfg, os.environ, oauth)
+        schlecht = envs.precheck(env, "aussensicht" if res.anbieter == "deepseek"
+                                 else "reviewer")
+        if schlecht:
+            raise RuntimeError(f"Umgebung nicht sauber ({res.anbieter}): "
+                               + ", ".join(schlecht))
         # R13ar: die Zuguhr als PostToolUse-Hook (Zug X von Y, ab Limit-5 die Frist).
         hooks = write_hook_settings(cfg, batch)
-        cmd = build_command(cfg, hooks_settings=hooks)
+        cmd = build_command(cfg, hooks_settings=hooks, modell=res.modell_soll)
         t0 = time.time()
         run = run_stream(cmd, env, cwd=str(cfg.decomp), out_path=ziel,
                          on_event=None, hard_wall_s=float(grenzen(cfg)["wall_s"]),
@@ -2124,10 +2278,17 @@ def bericht(cfg, batch: int, grund: str, res: Ergebnis, verteilung: dict,
         f"- Ausloeser-Gruende: {'; '.join(gruende[:6]) or '-'}",
         f"- Lauf: {res.describe()}",
     ]
+    # R13bx: Anbieter, Modell und Denkstufe als EIGENE Zeile. Sie steht NACH der
+    # Nutzerlimit-Zeile, weil R13bw-15 die Nutzerlimit-Zeile ausdruecklich "direkt hinter
+    # `- Lauf:`" verlangt.
+    # Warum die Zeile noetig ist: der Mitschnitt traegt die DENKSTUFE nicht (gemessen:
+    # weder `perTurnEffort` noch `"effort"` in `runs/b313/meta.jsonl`) - ohne sie wuesste
+    # spaeter niemand, womit ein Befund gefunden wurde.
     # R13bw-15: Nutzerlimit (Abo) vor/nach dem Lauf - Quelle ist `logs/rate-limit.json`,
     # gelesen VOR und NACH dem Lauf (nicht aus der Antwort des Modells geraten).
     zeilen.append("- " + streamjson.rate_limit_delta_zeile(res.rate_limit_vor,
                                                           res.rate_limit_nach))
+    zeilen.append(modell_zeile(res))
     # R13ar: Zugarzahl und -verbrauch (die CLI prueft gegen die Werkzeugrunden) sowie
     # die Fruehwarnung, wenn ein Lauf ueber 80 % des Limits gebraucht hat.
     if res.zug_runden:
@@ -2198,6 +2359,10 @@ def bericht_schreiben(cfg, batch: int, grund: str, res: Ergebnis, verteilung: di
     write_json_atomic(json_pfad(cfg, batch), {
         "batch": int(batch), "ts": now_iso(), "grund": grund, "gruende": list(gruende),
         "summary": res.summary, "rc": res.rc, "dauer_s": res.dauer_s, "modell": res.modell,
+        # R13bx: die Modellwahl maschinenlesbar - der Mitschnitt traegt KEINE Denkstufe,
+        # ohne diese Felder ist spaeter nicht mehr feststellbar, womit gearbeitet wurde.
+        "anbieter": res.anbieter, "modell_soll": res.modell_soll, "effort": res.effort,
+        "umschalt_grund": res.umschalt_grund, "woche_anteil": res.woche_anteil,
         "befunde": res.befunde, "verworfen": res.verworfen, "pruefungen": res.pruefungen,
         "ids": verteilung.get("ids") or [], "verdikte": verteilung.get("verdikte") or [],
         "offen_alt": verteilung.get("offen_alt") or [],

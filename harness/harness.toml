@@ -38,11 +38,24 @@ model_worker        = "deepseek-flash[1m]"
 reviewer_modell     = "claude-sonnet-5-5"
 reviewer_modell_b   = "claude-opus-5-5"
 aussensicht_modell  = "claude-opus-5-5"
+# R13bx: Modell und Denkstufe der Aussensicht, WENN sie auf DeepSeek laeuft. Ein nicht
+# gesetztes `aussensicht_modell_deepseek` bedeutet `model_worker` - dieselbe
+# 4.1-Flash-Kennung, EINE Quelle, kein zweiter Name im Baum. `aussensicht_effort` ist
+# bewusst ein EIGENER Schluessel: `reviewer_effort` gilt fuer alle Abo-Laeufe und soll
+# von einem Versuch am Meta-Review nicht mitgezogen werden. GEMESSEN (3 Batches x 2
+# Arme, `docs/_beleg_probe.txt`): `max` findet nicht mehr als `high` und braucht ~47 %
+# mehr Zeit - deshalb steht hier `high`.
+aussensicht_effort  = "high"
 ask_modell          = "claude-sonnet-5-5"
 reviewer_effort     = "high"
 base_url            = "https://api.deepseek.com/anthropic"
 config_dir_worker   = "g:/Harness/harness/cc-worker"
 config_dir_reviewer = "g:/Harness/harness/cc-reviewer"
+# R13bx: eigener Konfigordner fuer die Aussensicht auf DeepSeek. Bewusst NICHT
+# `cc-worker`: der gehoert dem laufenden Worker, und `.claude.json` wird von der CLI
+# gelesen-geaendert-geschrieben - zwei Prozesse darin koennen sich den Stand zerkratzen.
+# `.gitignore` fuehrt ihn namentlich, wie die zwei Nachbarn.
+config_dir_aussensicht = "g:/Harness/harness/cc-aussensicht"
 # Nur ein grobes Sicherheitsnetz - die echten Grenzen sind [limits] (E6).
 max_turns_safety    = 800
 # R13ac: die Batch-Uhr als PostToolUse-Hook in die Worker-Sitzung haengen
@@ -178,6 +191,14 @@ max_turns     = 25
 # nur der reine "alle N Batches"-Takt steigt auf 4. Gelesen wird `aussensicht_takt`,
 # sonst das alte `every_batches`, sonst `aussensicht.STANDARD` (dort ebenfalls 4).
 aussensicht_takt = 4     # zusaetzlich automatisch alle N Batches (erste loest /meta aus)
+# R13bx: Umschaltung der Aussensicht auf DeepSeek. Geprueft wird NUR das WOCHENfenster
+# (`seven_day`), nicht die 5-h-Sitzung - die erholt sich von selbst. `auto` schaltet ab
+# der Schwelle um; OHNE Messwert bleibt es beim Abo (ohne Messung aendert sich nichts),
+# `nie`/`immer` erzwingen eine Seite. Der DeepSeek-Lauf schreibt KEIN `rate_limit_event`
+# und erneuert die Messung deshalb nicht - frisch bleibt sie durch den Review jedes
+# Batch-Ende. Gemessen am 09.10.2026: `seven_day` 0,87.
+aussensicht_deepseek_ab = 0.8
+aussensicht_deepseek    = "auto"
 wall_s           = 900   # harte Zeitgrenze je Lauf (danach bricht der Lauf ab)
 max_turns        = 70    # Werkzeugrunden; Stichproben brauchen mehr als ein Review
 # R13aq (30.09.2026): 30 -> 50. meta-217 brach mit `error_max_turns` bei 31 Zuegen ab

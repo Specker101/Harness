@@ -104,22 +104,32 @@ FORBIDDEN_WORKER = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_D
 # Reviewer darf nicht versehentlich auf DeepSeek umgelenkt werden.
 FORBIDDEN_REVIEWER = ["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY",
                       "ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_MODEL", "CLAUDE_CODE_SIMPLE"]
+# R13bx: Laeufe, die auf DeepSeek fahren (Worker, Aussensicht auf DeepSeek). Sie
+# brauchen `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` - verboten ist bei ihnen das
+# Abo-Token, denn sonst liefe der Lauf still gegen das knappe Kontingent.
+ROLLEN_DEEPSEEK = ("worker", "aussensicht")
 
 
 def base_env(environ: dict) -> dict:
     return {k: environ[k] for k in BASE_KEYS if k in environ}
 
 
-def worker_env(cfg, environ: dict, token: str) -> dict:
+def _deepseek_env(cfg, environ: dict, token: str, config_dir: str, effort: str) -> dict:
+    """EINE Quelle fuer jede DeepSeek-Umgebung (Worker, Aussensicht auf DeepSeek).
+
+    R13bx: herausgezogen, damit die zwei Aufrufer nicht auseinanderlaufen. Nur zwei
+    Angaben unterscheiden sie: der Konfigordner und die Denkstufe. Alle Abschaltungen
+    (Auto-Update, Nicht-Essenzielles, Unterskript-Saeuberung) sind gemeinsam.
+    """
     env = base_env(environ)
     env["PATH"], _hinweise = resolve_path(cfg, environ)
     env.update({
-        "CLAUDE_CONFIG_DIR": str(cfg.get("claude", "config_dir_worker")),
+        "CLAUDE_CONFIG_DIR": str(config_dir),
         "ANTHROPIC_BASE_URL": str(cfg.get("claude", "base_url")),
         "ANTHROPIC_AUTH_TOKEN": token,
+        "CLAUDE_CODE_EFFORT_LEVEL": str(effort),
         # ANTHROPIC_MODEL wird ABSICHTLICH nicht gesetzt: das Modell kommt ueber
         # `--model` (R16-Befund: die Variable waere sonst in Unterskripten sichtbar).
-        "CLAUDE_CODE_EFFORT_LEVEL": "high",
         "CLAUDE_CODE_ALWAYS_ENABLE_EFFORT": "1",
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
         "CLAUDE_CODE_USE_POWERSHELL_TOOL": "1",
@@ -145,6 +155,29 @@ def worker_env(cfg, environ: dict, token: str) -> dict:
                                                       1800)) * 1000)),
     })
     return env
+
+
+def worker_env(cfg, environ: dict, token: str) -> dict:
+    """Worker: DeepSeek, Denkstufe fest `high` (E1), Konfigordner `cc-worker`."""
+    return _deepseek_env(cfg, environ, token,
+                         str(cfg.get("claude", "config_dir_worker")), "high")
+
+
+def aussensicht_deepseek_env(cfg, environ: dict, token: str,
+                             effort: str = "high") -> dict:
+    """Aussensicht auf DeepSeek (R13bx).
+
+    Eigener Konfigordner (`cc-aussensicht`) - bewusst NICHT `cc-worker`: der gehoert
+    dem laufenden Worker, und `.claude.json` wird von der CLI gelesen-geaendert-
+    geschrieben; zwei Prozesse darin koennen sich den Stand zerkratzen.
+    Die Denkstufe ist waehlbar, weil die Frage "reicht high oder ist max besser fuer
+    den Meta-Review?" gemessen werden soll (`tools/effort_probe.py` belegt, dass die
+    Stufe ankommt: high -> `{"level": "high"}`, max -> `{"level": "max"}`).
+    """
+    vorgabe = str(Path(cfg.root) / "cc-aussensicht")
+    return _deepseek_env(cfg, environ, token,
+                         str(cfg.get("claude", "config_dir_aussensicht", vorgabe)),
+                         effort)
 
 
 def reviewer_env(cfg, environ: dict, oauth_token: str) -> dict:
@@ -173,10 +206,10 @@ def missing_critical(env: dict, required: list[str]) -> list[str]:
 
 def precheck(env: dict, role: str) -> list[str]:
     """Gibt die Namen verbotener Variablen zurueck, die gesetzt sind (soll: leer)."""
-    forbidden = FORBIDDEN_WORKER if role == "worker" else FORBIDDEN_REVIEWER
+    forbidden = FORBIDDEN_WORKER if role in ROLLEN_DEEPSEEK else FORBIDDEN_REVIEWER
     hits = [k for k in forbidden if env.get(k)]
     # Zusaetzlich: kein fremdes Modell/Token ueber Umweg
-    if role == "worker" and env.get("CLAUDE_CODE_OAUTH_TOKEN"):
+    if role in ROLLEN_DEEPSEEK and env.get("CLAUDE_CODE_OAUTH_TOKEN"):
         hits.append("CLAUDE_CODE_OAUTH_TOKEN")
     if role == "reviewer" and env.get("ANTHROPIC_AUTH_TOKEN"):
         hits.append("ANTHROPIC_AUTH_TOKEN")

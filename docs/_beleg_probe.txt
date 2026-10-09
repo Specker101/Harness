@@ -1,0 +1,43 @@
+# Belegpruefung der Schatten-Aussensichten (tools/beleg_probe.py)
+
+- Geprueft wird NUR die Aufloesbarkeit der genannten Stelle (Datei da? Zeile im Bereich?), NICHT ob die Aussage stimmt.
+- Sauberer Vergleich ist **high gegen max** (gleicher Prompt); der Vergleich gegen Opus misst ueberwiegend den Eingabe-Unterschied (Schattenlauf baut die Eingaben aus dem Stand von heute, Paragraph 19a).
+
+## Stellen gegen high/max
+
+| Vergleich | gleiche Stelle | gleiche Datei | nur links | nur rechts |
+|---|---|---|---|---|
+
+## Batch 309
+
+| Arm | Befunde | Beleg ok | Zeile fehlt | Datei fehlt | ohne Stelle | versch. Stellen | mit Opus gemeinsam | nur hier | nur Opus |
+|---|---|---|---|---|---|---|---|---|---|
+| Opus 5.5 (echt) | 7 | 7 (100 %) | 0 | 0 | 0 | 7 | 7 | 0 | 0 |
+| DeepSeek high | 4 | 4 (100 %) | 0 | 0 | 0 | 4 | 0 | 4 | 7 |
+| DeepSeek max | 4 | 4 (100 %) | 0 | 0 | 0 | 4 | 0 | 4 | 7 |
+| high gegen max | 0 | 1 | 4 | 4 |
+
+## Batch 313
+
+| Arm | Befunde | Beleg ok | Zeile fehlt | Datei fehlt | ohne Stelle | versch. Stellen | mit Opus gemeinsam | nur hier | nur Opus |
+|---|---|---|---|---|---|---|---|---|---|
+| Opus 5.5 (echt) | 5 | 5 (100 %) | 0 | 0 | 0 | 5 | 5 | 0 | 0 |
+| DeepSeek high | 4 | 4 (100 %) | 0 | 0 | 0 | 4 | 0 | 4 | 5 |
+| DeepSeek max | 3 | 3 (100 %) | 0 | 0 | 0 | 3 | 0 | 3 | 5 |
+| high gegen max | 1 | 1 | 3 | 2 |
+
+## Batch 317
+
+| Arm | Befunde | Beleg ok | Zeile fehlt | Datei fehlt | ohne Stelle | versch. Stellen | mit Opus gemeinsam | nur hier | nur Opus |
+|---|---|---|---|---|---|---|---|---|---|
+| Opus 5.5 (echt) | 6 | 5 (83 %) | 0 | 0 | 1 | 5 | 5 | 0 | 0 |
+| DeepSeek high | 3 | 3 (100 %) | 0 | 0 | 0 | 3 | 0 | 3 | 5 |
+| DeepSeek max | 4 | 4 (100 %) | 0 | 0 | 0 | 4 | 0 | 4 | 5 |
+| high gegen max | 0 | 0 | 3 | 4 |
+
+## Summe je Stufe
+
+| Arm | Befunde | Beleg ok | Zeile fehlt | Datei fehlt | ohne Stelle | versch. Stellen | mit Opus gemeinsam | nur hier | nur Opus |
+|---|---|---|---|---|---|---|---|---|---|
+| DeepSeek high (Summe) | 11 | 11 (100 %) | 0 | 0 | 0 | 10 | 0 | 0 | 0 |
+| DeepSeek max (Summe) | 11 | 11 (100 %) | 0 | 0 | 0 | 10 | 0 | 0 | 0 |

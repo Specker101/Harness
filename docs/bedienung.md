@@ -2661,3 +2661,73 @@ Belege: Tests `TestFortschrittsHinweis` und `TestStillstand` in
 `harness/tests/test_r13bt_fixes.py` (27 Tests; die Sonde der Rückfrage steht in
 `docs/_r13bw10_*.py`).
 
+---
+
+## 21. Aussensicht auf DeepSeek, wenn das Abo knapp wird (R13bx, 2026-10-10)
+
+Die Aussensicht ist der **einzige** Abo-Lauf, den das Harness noch selbst faehrt. Ist das
+Wochenkontingent weit verbraucht, laeuft sie ab jetzt auf **DeepSeek V4.1 Flash**
+(`deepseek-flash[1m]`, dieselbe Kennung wie der Worker) und schont das Abo.
+
+**Die Entscheidung** (`hx/aussensicht.py::modell_wahl`, EINE Stelle, vor jedem Lauf neu):
+
+| Einstellung `[meta] aussensicht_deepseek` | Verhalten |
+|---|---|
+| `"auto"` (Vorgabe) | DeepSeek, wenn das **Wochenfenster** `>= aussensicht_deepseek_ab` (Vorgabe `0.8`) |
+| `"nie"` | immer Abo |
+| `"immer"` | immer DeepSeek |
+
+Geprueft wird **nur `seven_day`**, nicht die 5-h-Sitzung - die erholt sich von selbst.
+**Ohne jeden Messwert bleibt es beim Abo**: `logs/rate-limit.json` wird von Review, `/ask`
+und der Aussensicht gefuellt; nach einem Neustart ist es leer, und ohne Messung aendert
+sich nichts. Der DeepSeek-Lauf schreibt **kein** `rate_limit_event` und erneuert die
+Messung deshalb nicht - frisch bleibt sie dadurch, dass der **Review** sie an jedem
+Batch-Ende schreibt. Bei so einem Lauf steht `Rate-Limit nach: keine Angaben` im Kopf; das
+ist erwartet und **kein Fehler** (die Nutzerlimit-Zeile aus Paragraph 14f zeigt dann
+zweimal denselben Wert).
+
+**Der Beleg.** Im Kopf von `runs/b<N>/meta.md` steht hinter der Nutzerlimit-Zeile (die
+laut R13bw-15 direkt hinter `- Lauf:` gehoert):
+
+    - Modell: deepseek-flash[1m] (DeepSeek, Denkstufe high, Woche 87 %) - Wochenkontingent 87 % >= 80 %
+
+Dieselben Angaben stehen maschinenlesbar in `meta.json` (`anbieter`, `modell_soll`,
+`effort`, `umschalt_grund`, `woche_anteil`), das gewaehlte Modell zusaetzlich in der
+Telegram-Meldung und im Log. **Warum die Denkstufe ausdruecklich belegt wird:** der
+Mitschnitt traegt sie nicht (gemessen: weder `perTurnEffort` noch `"effort"` in
+`runs/b313/meta.jsonl`) - ohne diese Zeile waere spaeter nicht mehr feststellbar, womit ein
+Befund gefunden wurde. Weicht das Modell der Sitzung vom Sollwert ab, steht
+`| laut Sitzung: …` dahinter.
+
+**Umgebung.** DeepSeek-Laeufe bauen sie ueber `hx/envs.py::aussensicht_deepseek_env`
+(`_deepseek_env` ist die gemeinsame Quelle mit dem Worker) und bekommen ein **eigenes**
+`CLAUDE_CONFIG_DIR` (`cc-aussensicht`, `[claude] config_dir_aussensicht`). Bewusst **nicht**
+`cc-worker`: das gehoert dem laufenden Worker, und `.claude.json` wird von der CLI
+gelesen-geaendert-geschrieben. `envs.precheck(env, "aussensicht")` verbietet das Abo-Token
+in dieser Umgebung - sonst liefe eine Messung gegen das falsche Kontingent.
+
+**Scheitert ein DeepSeek-Lauf**, gilt R13aq unveraendert: die Aussensicht wird am naechsten
+Batch-Ende **wiederholt**, und zwar wieder ueber DeepSeek. Es gibt **keinen** stillen
+Rueckfall auf Opus.
+
+**Denkstufe `high`, gemessen.** Der Versuch "`max` gegen `high`" lief mit 3 Batches x 2
+Armen auf DeepSeek (Rohantworten `docs/_ds_vergleich_b*_*.md`, Auswertung
+`docs/_beleg_probe.txt`): beide Arme 11 Befunde bei **100 % aufloesbaren Belegen**; `max`
+brauchte **~47 % mehr Zeit** (oe 402 s gegen oe 274 s) und fand nichts Zusaetzliches. Die
+Ueberlappung zweier Laeufe mit **identischem** Prompt lag bei 0-1 gemeinsamen Stellen von 4
+- die Streuung zwischen Laeufen ist groesser als der Unterschied der Stufen. Deshalb steht
+`[claude] aussensicht_effort = "high"`.
+
+**Grenze der Messung (wichtig).** Die Belegpruefung stellt nur fest, ob die genannte Stelle
+**existiert** - nicht, ob die Aussage stimmt. Und der Vergleich gegen die **echte**
+Opus-Aussensicht ist nicht sauber: der Schattenlauf pinnt nur die Tiefenprobe und baut alle
+uebrigen Eingaben aus dem Stand von **heute** (Opus B309 zitiert
+`analysis/_preflight_299.txt`, DeepSeek `analysis/_preflight_321.txt`). Sauber vergleichbar
+sind nur Arme mit demselben Prompt.
+
+**Die Werkzeuge** (nur von Hand, **nicht** in `hx/` eingehaengt): `tools/effort_probe.py`
+(belegt, dass eine Denkstufe wirklich ankommt), `tools/beleg_probe.py` (Belegquote je Arm),
+`tools/schatten_aussensicht.py --anbieter deepseek --effort …` (A/B-Laeufe ausserhalb der
+Buchhaltung). Belege: `docs/_effort_probe.txt`, `docs/_beleg_probe.txt`,
+`docs/_ds_vergleich_b*_*.md`. Tests: `harness/tests/test_r13bx1_fixes.py`.
+

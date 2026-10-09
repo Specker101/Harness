@@ -903,6 +903,11 @@ class Orchestrator:
             meldung = [f"Aussensicht Batch {batch}: {len(res.befunde)} Befunde"
                        + (f", {len(res.verworfen)} ohne Beleg verworfen"
                           if res.verworfen else "")]
+            # R13bx: mit welchem Modell lief sie - und warum (Abo oder DeepSeek)?
+            # Ohne diese Zeile waere die Umschaltung in der Meldung unsichtbar.
+            meldung.append(f"Modell: {res.modell_soll or '-'} ({res.anbieter or '?'}"
+                           + (f", Denkstufe {res.effort}" if res.effort else "")
+                           + f") - {res.umschalt_grund or '-'}")
             if an_reviewer:
                 meldung.append("an den Reviewer (Queue): " + ", ".join(an_reviewer))
             if an_nutzer:
@@ -931,7 +936,9 @@ class Orchestrator:
             self.log.info("Aussensicht beendet", batch=batch, befunde=len(res.befunde),
                           verworfen=len(res.verworfen), an_reviewer=len(an_reviewer),
                           an_nutzer=len(an_nutzer), runden=res.zug_runden,
-                          num_turns=res.zuege)
+                          num_turns=res.zuege, anbieter=res.anbieter,
+                          modell_soll=res.modell_soll, effort=res.effort,
+                          umschalt_grund=res.umschalt_grund)
             # Entprellung (Auftrag 2026-09-29): die Kernzahl-Marke erst JETZT setzen -
             # `gelaufen` ist an dieser Stelle wahr (rc=0 UND Antwortblock gelesen, R13aq).
             # Ein gescheiterter Lauf laesst alle Marken unveraendert.

@@ -10,6 +10,10 @@ outbox/
 sessions/
 cc-worker/
 cc-reviewer/
+# Eigener Konfigordner der DeepSeek-Aussensicht (angelegt von
+# tools/effort_probe.py, spaeter gebraucht vom Umschalter). Laufzeitdaten,
+# keine Belege - genau wie die zwei Nachbarn oben.
+cc-aussensicht/
 __pycache__/
 *.pyc
 *.log

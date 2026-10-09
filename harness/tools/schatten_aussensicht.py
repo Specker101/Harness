@@ -15,16 +15,23 @@ WAS ES ABSICHTLICH **NICHT** TUT (Zustand bleibt unberuehrt):
     `%TEMP%`, die Hook-Einstellungsdatei ebenfalls; geschrieben wird nur der Bericht,
     den `--ziel` nennt (Vorgabe `docs/_sonnet_vergleich_b<N>.md`).
 
-Was es uebernimmt: dieselbe Umgebung wie die Abo-Laeufe (`hx.envs.reviewer_env` - also
-dieselbe Denkstufe, `[claude] reviewer_effort`), denselben Prompt-Bau
-(`hx.aussensicht.build_prompt`) und dieselbe Werkzeug-Allowlist (`build_command`: nur
-Read/Grep/Glob und lesendes git). **Das Werkzeug kann deshalb nichts schreiben und
-startet auch keine Hybrid-Laeufe oder Preflights** - Bash ist gar nicht erlaubt.
+Was es uebernimmt: denselben Prompt-Bau (`hx.aussensicht.build_prompt`) und dieselbe
+Werkzeug-Allowlist (`build_command`: nur Read/Grep/Glob und lesendes git). **Das Werkzeug
+kann deshalb nichts schreiben und startet auch keine Hybrid-Laeufe oder Preflights** -
+Bash ist gar nicht erlaubt.
+
+Anbieter (`--anbieter`, R13bx).
+
+  * `abo` (Vorgabe, unveraendert): `hx.envs.reviewer_env` - Denkstufe `reviewer_effort`.
+  * `deepseek`: `hx.envs.aussensicht_deepseek_env` - DeepSeek-V4.1-Flash, eigenes
+    `CLAUDE_CONFIG_DIR` (`cc-aussensicht`), Denkstufe ueber `--effort`.  Das ist der
+    Arm, mit dem `high` gegen `max` gemessen wird, ohne das knappe Abo anzufassen.
 
 Aufruf:
 
     python tools/schatten_aussensicht.py --batch 285 --batch 289 --ja
     python tools/schatten_aussensicht.py --batch 285 --trocken      # nur zeigen, nicht laufen
+    python tools/schatten_aussensicht.py --batch 309 --anbieter deepseek --effort max --ja
 """
 
 from __future__ import annotations
@@ -46,6 +53,11 @@ from hx.proc import run_stream                                 # noqa: E402
 from hx.util import read_text, write_text_atomic               # noqa: E402
 
 MODELL_VORGABE = "claude-sonnet-5-5"
+# DeepSeek-Arm: derselbe Modellname wie der Worker (`[claude] model_worker`) - EINE
+# Quelle.  Gemessen 2026-10-09 (`docs/_effort_probe.txt`): der Name kommt an, es gibt
+# kein stilles Mapping auf ein anderes DeepSeek-Modell (`modelUsage` nennt ihn).
+MODELL_DEEPSEEK_VORGABE = "deepseek-flash[1m]"
+ANBIETER = ("abo", "deepseek")
 # "- Lauf: rc=0 dauer=379s modell=claude-opus-5-5 befunde=6 ... runden=37 ... tiefenprobe=B277"
 _RE_Lauf = re.compile(r"^-\s*Lauf:\s*(?P<rest>.+)$", re.M)
 _RE_Tiefe = re.compile(r"^-\s*Tiefenprobe:\s*Batch\s+(?P<batch>\d+)\s+aus dem Fenster\s+"
@@ -102,13 +114,17 @@ def hook_datei(cfg, batch: int) -> str | None:
     return str(ziel)
 
 
-def bericht_schreiben(cfg, batch: int, modell: str, kopf: dict, text: str, roh: dict) -> Path:
+def bericht_schreiben(cfg, batch: int, modell: str, kopf: dict, text: str, roh: dict,
+                      name: str | None = None) -> Path:
     """Den Schattenbericht so schreiben, dass `tools/schatten_vergleich.py` ihn lesen kann.
 
     Kopfzeilen im selben Format wie `meta.md` (`- Lauf: …`), darunter die ROHE Antwort -
     die `<BEFUND>`/`<PRUEFUNG>`-Bloecke bleiben damit unveraendert erhalten.
+
+    R13bx: `name` trennt die Arme.  Ohne ihn bleibt es beim alten Namen
+    `_sonnet_vergleich_b<N>.md` - so bleiben die Laeufe aus Bedienung.md Paragraph 19a gueltig.
     """
-    ziel = Path(cfg.root).parent / "docs" / f"_sonnet_vergleich_b{batch}.md"
+    ziel = Path(cfg.root).parent / "docs" / (name or f"_sonnet_vergleich_b{batch}.md")
     tiefe = kopf["tiefenprobe"]
     zeilen = [
         f"# Schatten-Aussensicht Batch {batch} ({modell})",
@@ -152,12 +168,14 @@ def tiefe_anhaften(batch: int, kopf: dict) -> dict:
             "grund": "Schattenlauf: dieselbe Ziehung wie die echte Aussensicht"}
 
 
-def ein_lauf(cfg, batch: int, modell: str, trocken: bool) -> int:
+def ein_lauf(cfg, batch: int, modell: str, anbieter: str, effort: str | None,
+             trocken: bool) -> int:
     kopf = kopf_lesen(cfg, batch)
     tiefe = tiefe_anhaften(batch, kopf)
     from hx import state as st_mod
     state = st_mod.State(Path(cfg.sub("state")) / "run.json")
-    grund = f"Schattenlauf {modell} (B{batch})"
+    stufe = effort or ("high" if anbieter == "deepseek" else "")
+    grund = f"Schattenlauf {modell} ({anbieter}{'/' + stufe if stufe else ''}, B{batch})"
     prompt = aussensicht.build_prompt(cfg, state, grund, tiefe=tiefe)
     # Modell NUR im Speicher tauschen - `harness.toml` bleibt unberuehrt.
     cfg.data.setdefault("claude", {})["aussensicht_modell"] = modell
@@ -165,16 +183,31 @@ def ein_lauf(cfg, batch: int, modell: str, trocken: bool) -> int:
     cmd = aussensicht.build_command(cfg, hooks_settings=hooks)
     print(f"B{batch}: echtes Modell war {kopf['modell_echt'] or '?'}, "
           f"Tiefenprobe B{tiefe['batch']} aus B{tiefe['fenster'][0]}..B{tiefe['fenster'][-1]}")
+    print(f"  Anbieter={anbieter} Modell={modell}"
+          + (f" Denkstufe={stufe}" if stufe else ""))
     print("  " + " ".join(f'"{c}"' if " " in c else c for c in cmd[:12]) + " …")
     if trocken:
         print("  --trocken: kein Lauf.")
         return 0
     rate_vor = streamjson.rate_limit_zeile((streamjson.lies_rate_limit(cfg) or {}).get("info")
                                            or {})
-    ziel = Path(tempfile.gettempdir()) / f"schatten_aussensicht_b{batch}.jsonl"
+    ziel = Path(tempfile.gettempdir()) / f"schatten_aussensicht_b{batch}_{anbieter}.jsonl"
     fehler = ziel.with_suffix(".jsonl.err")
-    oauth = secrets.load(cfg.secrets_dir, secrets.CLAUDE_OAUTH)
-    env = envs.reviewer_env(cfg, os.environ, oauth)
+    if anbieter == "deepseek":
+        token = secrets.load(cfg.secrets_dir, secrets.DEEPSEEK)
+        env = envs.aussensicht_deepseek_env(cfg, os.environ, token, stufe)
+    else:
+        oauth = secrets.load(cfg.secrets_dir, secrets.CLAUDE_OAUTH)
+        env = envs.reviewer_env(cfg, os.environ, oauth)
+        if effort:                                  # Abo-Arm auf eine andere Stufe stellen
+            env["CLAUDE_CODE_EFFORT_LEVEL"] = effort
+    # R13bx: der Schattenlauf traegt die Rolle `aussensicht` - sie verbietet das Abo-Token
+    # im DeepSeek-Arm (und umgekehrt die DeepSeek-Variablen im Abo-Arm).  Eine Messung,
+    # die gegen das falsche Kontingent laeuft, waere wertlos.
+    schlecht = envs.precheck(env, "aussensicht" if anbieter == "deepseek" else "reviewer")
+    if schlecht:
+        raise SystemExit(f"Umgebung nicht sauber ({anbieter}): {', '.join(schlecht)}")
+    print("  " + envs.describe(env))
     g = aussensicht.grenzen(cfg)
     t0 = time.time()
     run = run_stream(cmd, env, cwd=str(cfg.decomp), out_path=ziel, on_event=None,
@@ -190,7 +223,9 @@ def ein_lauf(cfg, batch: int, modell: str, trocken: bool) -> int:
            "befunde": len(befunde), "verworfen": len(verworfen), "zuege": stats.num_turns(),
            "runden": stats.runden(), "subtype": str((stats.result or {}).get("subtype") or ""),
            "rate_vor": rate_vor, "rate_nach": rate_nach, "stream": str(ziel)}
-    p = bericht_schreiben(cfg, batch, modell, kopf, text, roh)
+    p = bericht_schreiben(cfg, batch, modell, kopf, text, roh,
+                          name=(f"_ds_vergleich_b{batch}_{stufe}.md"
+                                if anbieter == "deepseek" else None))
     print(f"  fertig: rc={run.rc} dauer={run.duration_s:.0f}s modell={stats.model or '?'} "
           f"runden={stats.runden()} befunde={len(befunde)} (verworfen {len(verworfen)}) "
           f"| {time.time() - t0:.0f}s")
@@ -204,7 +239,14 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--batch", type=int, action="append", required=True,
                     help="Batchnummer der echten Aussensicht (mehrfach moeglich)")
-    ap.add_argument("--modell", default=MODELL_VORGABE, help=f"Vorgabe {MODELL_VORGABE}")
+    ap.add_argument("--anbieter", choices=list(ANBIETER), default="abo",
+                    help="abo (Vorgabe, unveraendert) oder deepseek")
+    ap.add_argument("--effort", default=None,
+                    help="Denkstufe (low, medium, high, xhigh, max); Vorgabe beim "
+                         "DeepSeek-Arm: high")
+    ap.add_argument("--modell", default=None,
+                    help=f"Vorgabe: abo {MODELL_VORGABE}, deepseek "
+                         f"{MODELL_DEEPSEEK_VORGABE}")
     ap.add_argument("--trocken", action="store_true",
                     help="nur Prompt/Kommandozeile zeigen - KEIN bezahlter Lauf")
     ap.add_argument("--ja", action="store_true",
@@ -212,13 +254,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--config", default=None)
     args = ap.parse_args(argv)
     cfg = load_config(args.config)
+    modell = args.modell or (MODELL_DEEPSEEK_VORGABE if args.anbieter == "deepseek"
+                             else MODELL_VORGABE)
     if not args.trocken and not args.ja:
-        print("Abbruch: das sind bezahlte Abo-Laeufe. Mit --ja bestaetigen "
+        print("Abbruch: das sind bezahlte Laeufe. Mit --ja bestaetigen "
               "(oder --trocken nur zeigen).")
         return 2
     rc = 0
     for batch in args.batch:
-        rc |= ein_lauf(cfg, batch, args.modell, args.trocken)
+        rc |= ein_lauf(cfg, batch, modell, args.anbieter, args.effort, args.trocken)
     return rc
 
 
