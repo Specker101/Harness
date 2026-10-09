@@ -122,6 +122,8 @@ class Orchestrator:
         self._ask_running = False
         self._ask_queue: list[tuple[str, bool]] = []
         self._ask_lock = threading.Lock()
+        # R13bx: Anbieter der Aussensicht, einmal je Batch bestimmt (`aussensicht_anbieter`).
+        self._anbieter_merker: dict = {}
         self._notified: dict[str, float] = {}
         # Attrappen-Modus des Reviewers (Tests/Demo): "ok", "parser_error",
         # "ok_zweiter_versuch", "reviewer_crash", "modell_falsch", "limit".
@@ -1075,6 +1077,27 @@ class Orchestrator:
                 self.say("FRAGE FEHLGESCHLAGEN: " + str(exc)[:300])
             if rest:
                 self.say(f"Naechste Frage laeuft ({rest} in der Warteschlange).")
+
+    # ------------------------------------------- Anbieter der Aussensicht (R13bx)
+    def aussensicht_anbieter(self) -> str:
+        """`abo` oder `deepseek` fuer die TAKT-Entscheidung - einmal je Batch bestimmt.
+
+        `aussensicht.faellig` wird in JEDEM Schleifendurchlauf gefragt; `logs/rate-limit.json`
+        darf dabei nicht jedes Mal gelesen werden (R13h-Lehre: Kosten je Durchgang).  Der
+        Merker haengt an der Batchnummer - ein Wechsel wirkt damit am naechsten Batch, nicht
+        mitten im laufenden.  Ist die Wahl nicht bestimmbar, gilt der Abo-Takt.
+        """
+        batch = int(self.state.batch or 0)
+        if self._anbieter_merker.get("batch") == batch:
+            return str(self._anbieter_merker.get("anbieter") or "abo")
+        try:
+            anbieter = str(aussensicht.modell_wahl(self.cfg)["anbieter"])
+        except Exception as exc:                                    # noqa: BLE001
+            self.log.warn("Anbieter der Aussensicht nicht bestimmbar - Abo-Takt",
+                          fehler=str(exc)[:120])
+            anbieter = "abo"
+        self._anbieter_merker = {"batch": batch, "anbieter": anbieter}
+        return anbieter
 
     # ------------------------------------------------- Nutzerlimit des Abos (R13p)
     def rate_limit_text(self) -> str:
@@ -3283,7 +3306,8 @@ class Orchestrator:
             # "Reviewer" schon in diesem Review. Je Batch wird genau EINMAL entschieden
             # (`geprueft_batch`), deshalb kostet die Pruefung nur den ersten Durchgang.
             try:
-                gruende = aussensicht.faellig(self.cfg, self.state, log=self.log)
+                gruende = aussensicht.faellig(self.cfg, self.state, log=self.log,
+                                              anbieter=self.aussensicht_anbieter())
             except Exception as exc:                                    # noqa: BLE001
                 gruende = []
                 self.log.warn("Aussensicht-Ausloeser nicht pruefbar", fehler=str(exc)[:150])

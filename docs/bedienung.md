@@ -2731,3 +2731,29 @@ sind nur Arme mit demselben Prompt.
 Buchhaltung). Belege: `docs/_effort_probe.txt`, `docs/_beleg_probe.txt`,
 `docs/_ds_vergleich_b*_*.md`. Tests: `harness/tests/test_r13bx1_fixes.py`.
 
+### 21a. Der Takt haengt am Anbieter (R13bx, Nutzerentscheid 2026-10-10)
+
+Auf dem **Abo** bleibt es bei `[meta] aussensicht_takt = 4`. Laeuft die Aussensicht auf
+**DeepSeek**, gilt `aussensicht_takt_deepseek` (Vorgabe **2**): der Lauf kostet dann kein
+Abo-Kontingent, und der dichtere Takt gleicht die geringere Befundzahl aus (gemessen 3-4
+statt 5-7 Befunde je Lauf). Waere der Takt global, laege nach dem Reset die **doppelte
+Abo-Last** genau dann an, wenn das Kontingent wieder frei ist - deshalb zwei Schluessel.
+
+Belege: der Anlass-Text in `meta.md` nennt `[DeepSeek-Takt]`, wenn der dichte Takt gegriffen
+hat; `/bilanz` und `/status` zeigen `Takt: alle 4 Batches (DeepSeek: alle 2)`, solange sich
+die zwei Werte unterscheiden.
+
+**Was die Verdopplung kostet - GEMESSEN** (die Sorge stand im Raum, also gemessen statt
+geschaetzt): die letzten 12 Review-Prompts (`logs/review-prompt-*.md`) sind 32.443 bis
+52.286 Zeichen gross (~40.000 im Mittel). Ein Befund kostet im Prompt ~250-300 Zeichen; der
+Block `NACHRICHTEN AUS DER QUEUE` hatte 1.510, 4.533, 4.712 und 7.271 Zeichen - und fehlte
+in **8 von 12** Prompts ganz. Die Verdopplung bringt grob +5 Befunde je 4 Batches, also
+**+1,5 bis 4 %** Prompt-Groesse. Kein Kostenfaktor - und schneller erkannte Probleme sind
+frueher erledigt.
+
+Der Anbieter wird **einmal je Batch** bestimmt (`Orchestrator.aussensicht_anbieter`, Merker
+an der Batchnummer): `aussensicht.faellig` wird in JEDEM Schleifendurchlauf gefragt und darf
+`logs/rate-limit.json` nicht jedes Mal lesen. `faellig(..., anbieter=...)` bekommt den Wert
+deshalb als Parameter; ohne Angabe gilt der Abo-Takt. Die Ereignis-Ausloeser (Marker,
+Worker-Abbruch, Stillstand) bleiben vom Takt unberuehrt.
+

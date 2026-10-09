@@ -199,6 +199,15 @@ aussensicht_takt = 4     # zusaetzlich automatisch alle N Batches (erste loest /
 # Batch-Ende. Gemessen am 09.10.2026: `seven_day` 0,87.
 aussensicht_deepseek_ab = 0.8
 aussensicht_deepseek    = "auto"
+# R13bx (Nutzerentscheid 10.10.2026): laeuft die Aussensicht auf DeepSeek, gilt der
+# DICHTERE Takt `aussensicht_takt_deepseek` - der Lauf kostet kein Abo-Kontingent, und
+# der Takt gleicht die geringere Befundzahl aus (gemessen 3-4 statt 5-7 je Lauf).  Auf
+# dem Abo bleibt es bei `aussensicht_takt` (4): sonst laege die doppelte Abo-Last genau
+# dann an, wenn das Kontingent wieder frei ist.  Preis dieser Verdopplung, GEMESSEN an
+# den letzten 12 Review-Prompts: ein Befund kostet ~250-300 Zeichen im Prompt, der
+# Queue-Block hatte 0-7.271 Zeichen bei ~40.000 Zeichen gesamt - die Mehrlast liegt bei
+# wenigen Prozent, nicht bei einem Viertel.
+aussensicht_takt_deepseek = 2
 wall_s           = 900   # harte Zeitgrenze je Lauf (danach bricht der Lauf ab)
 max_turns        = 70    # Werkzeugrunden; Stichproben brauchen mehr als ein Review
 # R13aq (30.09.2026): 30 -> 50. meta-217 brach mit `error_max_turns` bei 31 Zuegen ab

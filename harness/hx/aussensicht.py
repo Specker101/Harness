@@ -82,6 +82,10 @@ from .util import (ensure_dir, now_iso, read_json, read_text, write_json_atomic,
 # alte `every_batches` - s. `takt`.
 STANDARD = {"every_batches": 4, "wall_s": 900, "max_turns": 50, "max_befunde": 7,
             "summaries": 10, "bilanz_zeitfenster": 12, "bschritt_stillstand_batches": 3}
+# R13bx: Takt, wenn die Aussensicht auf DeepSeek faehrt.  Der Lauf kostet dann KEIN
+# Abo-Kontingent, und der dichtere Takt gleicht die geringere Befundzahl aus (gemessen:
+# 3-4 statt 5-7 Befunde je Lauf).  Nutzerentscheid 2026-10-10.
+TAKT_DEEPSEEK_VORGABE = 2
 # `bschritt_stillstand_batches` heisst seit R13ah: so viele **B-Batches in Folge** muessen
 # denselben Halt-PC zeigen und duerfen im Wegmass nicht steigen (Hybrid-Lauf-Zeile). Der
 # Schluesselname bleibt (eine Aenderung wuerde nur Konfiguration und Doku umbenennen).
@@ -209,21 +213,31 @@ def max_turns(cfg) -> int:
     return int(STANDARD["max_turns"])
 
 
-def takt(cfg) -> int:
+def takt(cfg, anbieter: str | None = None) -> int:
     """Batch-Takt der Aussensicht (R13bo) - `aussensicht_takt`, sonst `every_batches`.
 
     Der reine "alle N Batches"-Takt; die EREIGNIS-Ausloeser (`faellig`) bleiben davon
     unberuehrt. Die Vorgabe `STANDARD["every_batches"]` ist selbst 4.
+
+    R13bx: faehrt die Aussensicht auf **DeepSeek**, gilt `aussensicht_takt_deepseek`
+    (Vorgabe `TAKT_DEEPSEEK_VORGABE` = 2) - der Lauf kostet kein Abo-Kontingent, und der
+    dichtere Takt gleicht die geringere Befundzahl aus.  `anbieter=None` heisst "nicht
+    bekannt" und ergibt den ABO-Takt; `grenzen(cfg)` und alle Anzeigen bleiben damit
+    unveraendert, und kein Aufrufer liest nebenbei `logs/rate-limit.json`.
     """
-    for schluessel in ("aussensicht_takt", "every_batches"):
-        wert = cfg.get("meta", schluessel, None)
+    schluessel = (("aussensicht_takt_deepseek", "aussensicht_takt", "every_batches")
+                  if anbieter == "deepseek"
+                  else ("aussensicht_takt", "every_batches"))
+    for name in schluessel:
+        wert = cfg.get("meta", name, None)
         if wert is None:
             continue
         try:
             return max(1, int(wert))
         except (TypeError, ValueError):
             continue
-    return int(STANDARD["every_batches"])
+    return int(TAKT_DEEPSEEK_VORGABE if anbieter == "deepseek"
+               else STANDARD["every_batches"])
 
 
 # ------------------------------------------- Modellwahl: Abo oder DeepSeek (R13bx)
@@ -344,11 +358,16 @@ def modell_zeile(res) -> str:
     return zeile
 
 
-def grenzen(cfg) -> dict:
-    """Die Grenzen der Aussensicht aus `[meta]` (Vorgaben als Rueckfall)."""
+def grenzen(cfg, anbieter: str | None = None) -> dict:
+    """Die Grenzen der Aussensicht aus `[meta]` (Vorgaben als Rueckfall).
+
+    `anbieter` geht NUR an den Takt weiter (`takt`, R13bx); alles andere ist unabhaengig
+    davon.  Ohne Angabe gilt der Abo-Takt - Aufrufer, die nur `max_turns`/`wall_s`
+    brauchen, bleiben damit unberuehrt.
+    """
     g = {k: cfg.get("meta", k, v) for k, v in STANDARD.items()}
     g["max_turns"] = max_turns(cfg)          # R13aq: zwei moegliche Schluesselnamen
-    g["every_batches"] = takt(cfg)            # R13bo: neuer Name `aussensicht_takt`
+    g["every_batches"] = takt(cfg, anbieter)  # R13bo/R13bx: je Anbieter verschieden
     return g
 
 
@@ -857,11 +876,15 @@ def zeile(cfg) -> str:
         herkunft.append(f"zuletzt gescheitert: Batch {zustand['neuester_gescheitert']} "
                         "(wird wiederholt)")
     try:
-        takt = int(grenzen(cfg).get("every_batches") or 0)
+        takt_abo = int(grenzen(cfg).get("every_batches") or 0)
     except (TypeError, ValueError):
-        takt = 0
-    if takt:
-        herkunft.append(f"Takt: alle {takt} Batches")
+        takt_abo = 0
+    if takt_abo:
+        # R13bx: den DeepSeek-Takt mitnennen, wenn er sich unterscheidet - sonst zeigte
+        # die Bilanz "alle 4" an, waehrend die Aussensicht alle 2 laeuft.
+        takt_ds = takt(cfg, "deepseek")
+        herkunft.append(f"Takt: alle {takt_abo} Batches"
+                        + (f" (DeepSeek: alle {takt_ds})" if takt_ds != takt_abo else ""))
     return kopf + "   (" + "; ".join(herkunft) + ")"
 
 
@@ -2170,9 +2193,15 @@ def letzter_lauf(cfg, state) -> dict:
     return dict(state.data.get("meta") or {})
 
 
-def faellig(cfg, state, log=None) -> list[str]:
-    """Gruende, warum jetzt eine Aussensicht faellig ist ([] = nicht faellig)."""
-    g = grenzen(cfg)
+def faellig(cfg, state, log=None, anbieter: str | None = None) -> list[str]:
+    """Gruende, warum jetzt eine Aussensicht faellig ist ([] = nicht faellig).
+
+    R13bx: `anbieter` ("abo"/"deepseek") waehlt den TAKT.  Bewusst als Parameter statt
+    als eigene Dateilesung: `faellig` wird in JEDEM Schleifendurchlauf gefragt, und
+    `logs/rate-limit.json` soll dabei nicht jedes Mal gelesen werden.  Der Aufrufer
+    bestimmt den Anbieter einmal je Batch.
+    """
+    g = grenzen(cfg, anbieter)
     meta = dict(state.data.get("meta") or {})
     batch = int(state.batch or 0)
     letzte = int(meta.get("letzter_lauf_batch") or 0)
@@ -2236,7 +2265,8 @@ def faellig(cfg, state, log=None) -> list[str]:
     # ausloesen (207 Batches Historie). Die erste Aussensicht loest der Nutzer aus.
     if letzte > 0 and batch > 0 and batch - letzte >= int(g["every_batches"]):
         gruende.append(f"alle {int(g['every_batches'])} Batches "
-                       f"(letzte Aussensicht: Batch {letzte})")
+                       f"(letzte Aussensicht: Batch {letzte})"
+                       + (" [DeepSeek-Takt]" if anbieter == "deepseek" else ""))
     abb = state.data.get("letzter_abbruch") or {}
     if abb and int(abb.get("batch") or 0) > letzte:
         gruende.append(f"Worker-Abbruch in Batch {abb.get('batch')} ({abb.get('grund')})")

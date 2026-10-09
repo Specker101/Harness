@@ -32,6 +32,7 @@ sys.path.insert(0, str(ROOT))
 from hx import aussensicht, envs                                       # noqa: E402
 from hx.config import load_config                                      # noqa: E402
 from hx.retention import _weg                                          # noqa: E402
+from hx.state import State                                             # noqa: E402
 from hx.util import Log, ensure_dir                                    # noqa: E402
 
 
@@ -266,6 +267,105 @@ class TestBericht(unittest.TestCase):
         self.assertEqual(d["effort"], "high")
         self.assertAlmostEqual(d["woche_anteil"], 0.87)
         self.assertIn(">= 80 %", d["umschalt_grund"])
+
+
+# --------------------------------------------------------------- Takt je Anbieter
+class TestTaktNachAnbieter(unittest.TestCase):
+    """R13bx (Nutzerentscheid 2026-10-10): auf DeepSeek alle 2 Batches, auf dem Abo alle 4."""
+
+    def _cfg(self, **meta):
+        cfg = load_config()
+        cfg.data.setdefault("meta", {})
+        cfg.data["meta"]["aussensicht_takt"] = 4
+        cfg.data["meta"]["aussensicht_takt_deepseek"] = 2
+        for k, v in meta.items():
+            cfg.data["meta"][k] = v
+        return cfg
+
+    def test_abo_bleibt_bei_vier(self):
+        self.assertEqual(aussensicht.takt(self._cfg()), 4)
+        self.assertEqual(aussensicht.takt(self._cfg(), "abo"), 4)
+
+    def test_deepseek_faehrt_alle_zwei(self):
+        self.assertEqual(aussensicht.takt(self._cfg(), "deepseek"), 2)
+
+    def test_grenzen_kennt_beide_takte(self):
+        cfg = self._cfg()
+        self.assertEqual(int(aussensicht.grenzen(cfg)["every_batches"]), 4)
+        self.assertEqual(int(aussensicht.grenzen(cfg, "deepseek")["every_batches"]), 2)
+        # der Anbieter darf NUR den Takt beeinflussen
+        self.assertEqual(aussensicht.grenzen(cfg, "deepseek")["max_befunde"],
+                         aussensicht.grenzen(cfg)["max_befunde"])
+
+    def test_fehlender_deepseek_schluessel_faellt_auf_den_abo_takt(self):
+        cfg = load_config()
+        cfg.data["meta"].pop("aussensicht_takt_deepseek", None)
+        cfg.data["meta"]["aussensicht_takt"] = 4
+        self.assertEqual(aussensicht.takt(cfg, "deepseek"), 4)
+
+    def test_ohne_jeden_schluessel_gilt_die_vorgabe_zwei(self):
+        cfg = load_config()
+        for k in ("aussensicht_takt_deepseek", "aussensicht_takt", "every_batches"):
+            cfg.data["meta"].pop(k, None)
+        self.assertEqual(aussensicht.takt(cfg, "deepseek"),
+                         aussensicht.TAKT_DEEPSEEK_VORGABE)
+        self.assertEqual(aussensicht.takt(cfg), int(aussensicht.STANDARD["every_batches"]))
+
+    def test_bilanzzeile_nennt_beide_takte(self):
+        """Sonst zeigte die Bilanz "alle 4", waehrend die Aussensicht alle 2 laeuft."""
+        self.assertIn("Takt: alle 4 Batches (DeepSeek: alle 2)",
+                      aussensicht.zeile(self._cfg()))
+
+    def test_bilanzzeile_bleibt_einfach_bei_gleichem_takt(self):
+        self.assertIn("Takt: alle 4 Batches)",
+                      aussensicht.zeile(self._cfg(aussensicht_takt_deepseek=4)))
+
+
+class TestFaelligMitTakt(unittest.TestCase):
+    """Der Takt muss durch `faellig` durchschlagen - dort wird er benutzt."""
+
+    def setUp(self):
+        self.tmp = Path(__file__).resolve().parent / "_tmp_r13bx1_takt"
+        _weg(self.tmp)
+        self.root = ensure_dir(self.tmp / "harness")
+        self.decomp = ensure_dir(self.tmp / "decomp")
+        cfg = load_config()
+        cfg.data["paths"]["root"] = str(self.root)
+        cfg.data["paths"]["decomp"] = str(self.decomp)
+        cfg.data["paths"]["prompts"] = str(ROOT / "prompts")
+        cfg.data["meta"]["aussensicht_takt"] = 4
+        cfg.data["meta"]["aussensicht_takt_deepseek"] = 2
+        self.cfg = cfg
+        self.log = Log(self.tmp / "log.jsonl", echo=False)
+
+    def tearDown(self):
+        _weg(self.tmp)
+
+    def _state(self, batch: int, letzte: int):
+        s = State(self.root / "state" / "run.json")
+        s.data["batch"] = batch
+        s.data["meta"] = {"letzter_lauf_batch": letzte, "geprueft_batch": 0}
+        return s
+
+    def _takt_grund(self, batch: int, anbieter=None) -> list[str]:
+        kwargs = {} if anbieter is None else {"anbieter": anbieter}
+        gruende = aussensicht.faellig(self.cfg, self._state(batch, 300), log=self.log, **kwargs)
+        return [g for g in gruende if "Batches" in g]
+
+    def test_abo_feuert_erst_nach_vier_batches(self):
+        self.assertEqual(self._takt_grund(303, "abo"), [])
+        self.assertTrue(self._takt_grund(304, "abo"))
+
+    def test_deepseek_feuert_schon_nach_zwei_batches(self):
+        self.assertEqual(self._takt_grund(301, "deepseek"), [])
+        gruende = self._takt_grund(302, "deepseek")
+        self.assertTrue(gruende)
+        self.assertIn("alle 2 Batches", gruende[0])
+        self.assertIn("[DeepSeek-Takt]", gruende[0])
+
+    def test_ohne_anbieter_gilt_der_abo_takt(self):
+        self.assertEqual(self._takt_grund(302), [])
+        self.assertTrue(self._takt_grund(304))
 
 
 if __name__ == "__main__":
