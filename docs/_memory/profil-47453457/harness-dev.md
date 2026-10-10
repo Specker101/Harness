@@ -1650,3 +1650,22 @@
   abgeraeumte yolo. Tests `test_r13bw5_fixes.py` (17 -> 20), Hilfezeile in `hx/telegram.py`.
   LEHRE: einen Merker, der nur MIT einem anderen Schalter wirkt, beim Ausschalten des
   anderen mit abraeumen - sonst kommt er beim Wiedereinschalten als Nebeneffekt zurueck.
+- R13bx-4 (2026-10-10, committet `273a020`, Gate 1751 Tests OK in 636,3 s): die
+  Session-Limit-Pruefung laeuft nur noch auf dem ABO-Pfad. NUTZERBEFUND: der DeepSeek-Lauf
+  brach nach ~2 min ab mit "ins Session-Limit gelaufen (rc=0)", der Harness pausierte eine
+  Stunde und startete keinen Batch. GEMESSEN (`runs/b321/meta.jsonl`): rc=0, `meta.err.txt`
+  nur `[claude-code:unrecognized_model]`; ausgeloest hat das Muster `quota` aus
+  `protocol.LIMIT_PATTERNS` im ENGLISCHEN DENKTEXT (`:2984` "save weekly quota", `:11290`
+  "Weekly quota now 87%", `:14921`), die anderen sechs Muster 0 Treffer. Die Aussensicht SOLL
+  ueber das Kontingent reden (M309-3b, M313-3, M317-1b zitieren `logs/rate-limit.json`) -
+  jeder englische "quota"-Satz haette den Harness wieder eine Stunde gekostet. Jetzt
+  `aussensicht.limit_erreicht(anbieter, roh, text)`: bei `deepseek` gar keine Pruefung (die
+  Umgebung traegt kein Abo-Token, `envs.precheck` bricht sonst ab). Musterliste UNVERAENDERT
+  (Teil b bewusst nicht gemacht: es gibt kein `logs/review-limit-*.md`, also kein echtes
+  Limit-Beispiel als Beleg - die Liste kam aus einem MVP-Sammelcommit ohne Nachweis).
+  RESTGEFAHR offen und dokumentiert (`docs/bedienung.md` §21b): eine ABO-Aussensicht mit
+  englischem "quota" kann weiterhin falsch anschlagen. OFFEN: `reviewer.run_review` hat
+  dieselbe Pruefung - bei einem DeepSeek-Reviewer dort mitbauen.
+  LEHRE: einen Fehlalarm nicht an der Musterliste geradebiegen, wenn der ANBIETER die
+  Ursache ist - und `looks_like_limit` ueber den ganzen Mitschnitt laeuft auch ueber
+  DENKTEXT, den man selbst nie geschrieben hat. Beleg: Test speist die echte Rohzeile ein.
