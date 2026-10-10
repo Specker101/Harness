@@ -2757,3 +2757,34 @@ an der Batchnummer): `aussensicht.faellig` wird in JEDEM Schleifendurchlauf gefr
 deshalb als Parameter; ohne Angabe gilt der Abo-Takt. Die Ereignis-Ausloeser (Marker,
 Worker-Abbruch, Stillstand) bleiben vom Takt unberuehrt.
 
+### 21b. Ein Session-Limit kann nur das Abo treffen (R13bx-4, 2026-10-10)
+
+Die Pruefung "ins Session-Limit gelaufen?" (`aussensicht.limit_erreicht`, aus R13bm) entfaellt
+auf dem **DeepSeek**-Pfad ganz: ein solcher Lauf kann das **Claude-Abo**-Limit nicht
+erreichen, seine Umgebung traegt kein Abo-Token (`envs.precheck` bricht sonst ab).
+
+**Anlass (gemessen, `runs/b321/meta.jsonl`):** ein fehlerfreier DeepSeek-Lauf (rc=0, kein
+API-Fehler) galt als Limit-Fall, weil das Muster `quota` aus `protocol.LIMIT_PATTERNS` im
+**englischen Denktext** des Modells stand - "the reason for lowering was to save weekly
+quota", "Weekly quota now 87%" (`:2984`, `:11290`, `:14921`). Die anderen sechs Muster hatten
+**0 Treffer**. Der Harness ging daraufhin fuer eine Stunde in den Wartezustand (`paused`,
+`LIMIT_WAIT`) und startete in der Zeit **keinen Batch** - der Preis war also nicht die eine
+verlorene Aussensicht, sondern der Durchsatz.
+
+Die Aussensicht **soll** ueber das Wochenkontingent reden (ihre haeufigsten Befunde M309-3b,
+M313-3, M317-1b zitieren alle `logs/rate-limit.json`) - der Fehlalarm waere bei jedem Lauf
+wiedergekommen.
+
+**Die Musterliste selbst ist unveraendert** (Teil b wurde bewusst nicht gemacht): auf dem
+Abo-Pfad bleibt sie scharf. Damit bleibt eine Restgefahr bestehen - eine **Abo**-Aussensicht,
+die englisch ueber "quota" schreibt, kann weiterhin falsch anschlagen. Belegt ist das nicht:
+es gibt **kein** `logs/review-limit-*.md`, also kein gespeichertes echtes Limit-Beispiel,
+aus dem sich die tragenden Muster ableiten liessen.
+
+**Limitiert DeepSeek selbst**, endet der Lauf mit `rc != 0` - das ist der normale Fehlerweg
+(Wiederholung am naechsten Batch-Ende), kein Wartezustand.
+
+**Offen fuer spaeter:** `reviewer.run_review` hat dieselbe Pruefung. Solange der Reviewer auf
+dem Abo laeuft, ist das richtig; bei einem DeepSeek-Reviewer muss dieselbe Bedingung dort
+mitgebaut werden. Tests: `harness/tests/test_r13bx4_fixes.py`.
+

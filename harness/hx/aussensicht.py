@@ -2040,6 +2040,28 @@ class Ergebnis:
                    if self.tiefe.get("batch") else ""))
 
 
+def limit_erreicht(anbieter: str, roh: str, text: str) -> bool:
+    """Ins **Claude-Abo-Session-Limit** gelaufen? (R13bm; R13bx-4)
+
+    Geprueft wird der ROHE Mitschnitt samt Fehlerdatei - im Text steht die Meldung oft nur
+    unvollstaendig (`reviewer.run_review` macht es genauso).
+
+    R13bx-4 (2026-10-10): ein Lauf auf **DeepSeek** kann dieses Limit nicht erreichen -
+    seine Umgebung traegt kein Abo-Token (`envs.precheck` bricht sonst ab).  Die Pruefung
+    wird dort deshalb gar nicht erst gemacht.
+    GEMESSEN (B321, `runs/b321/meta.jsonl:2984`): in der Musterliste steht das blanke Wort
+    `quota`, und der DeepSeek-Lauf **denkt englisch** ueber genau dieses Thema ("the reason
+    for lowering was to save weekly quota").  Der fehlerfreie Lauf (rc=0, kein API-Fehler)
+    galt damit als Limit-Fall: der Harness pausierte eine Stunde und startete keinen Batch.
+
+    Limitiert DeepSeek selbst, endet der Lauf mit `rc != 0`; das ist der normale Fehlerweg
+    (Wiederholung am naechsten Batch-Ende), kein Wartezustand.
+    """
+    if anbieter == "deepseek":
+        return False
+    return bool(protocol.looks_like_limit(roh) or protocol.looks_like_limit(text or ""))
+
+
 def gelaufen(res) -> tuple[bool, str]:
     """Zaehlt dieser Lauf als gelungene Aussensicht? (R13aq) -> `(ok, grund)`.
 
@@ -2153,12 +2175,10 @@ def run(cfg, log, state, grund: str, mock: bool = False,
             stats.feed(linie)
         res.text = stats.final_text() or ""
         res.modell = stats.model or ""
-        # R13bm (Punkt 4): ins Session-Limit gelaufen? Geprueft wird wie beim Reviewer
-        # (`reviewer.run_review`) der ROHE Mitschnitt samt Fehlerdatei - im Text steht
-        # die Meldung oft nur unvollstaendig.
+        # R13bm (Punkt 4) / R13bx-4: ins Session-Limit gelaufen? Nur auf dem ABO - ein
+        # DeepSeek-Lauf kann es nicht erreichen (Begruendung und Messung: `limit_erreicht`).
         roh = read_text(ziel) + "\n" + read_text(err_pfad(cfg, batch))
-        res.limit_reached = bool(protocol.looks_like_limit(roh)
-                                 or protocol.looks_like_limit(res.text or ""))
+        res.limit_reached = limit_erreicht(res.anbieter, roh, res.text or "")
         # R13aq: Abbruchgrund und Zugarzahl aus dem `result`-Ereignis (gemessen
         # meta-217: subtype=error_max_turns, num_turns=31) - sie stehen im Bericht und
         # in der Meldung, wenn der Lauf nicht als Aussensicht zaehlt.
