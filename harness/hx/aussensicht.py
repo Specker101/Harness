@@ -2057,7 +2057,7 @@ def limit_erreicht(anbieter: str, roh: str, text: str) -> bool:
     Limitiert DeepSeek selbst, endet der Lauf mit `rc != 0`; das ist der normale Fehlerweg
     (Wiederholung am naechsten Batch-Ende), kein Wartezustand.
     """
-    if anbieter == "deepseek":
+    if not envs.abo_limit_moeglich(anbieter):
         return False
     return bool(protocol.looks_like_limit(roh) or protocol.looks_like_limit(text or ""))
 

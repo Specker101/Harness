@@ -1,4 +1,7 @@
-"""Freie Frage an Claude (Opus 5.5) - eigener, kurzer Lauf, NUR LESEND (R13f/R13o).
+"""Freie Frage an Claude - eigener, kurzer Lauf, NUR LESEND (R13f/R13o).
+
+Das Modell steht in `claude.ask_modell` (seit R13bo-4 **Sonnet 5.5**) - hier wird bewusst
+kein Modellname genannt, damit Doku und Konfiguration nicht auseinanderlaufen.
 
 Nicht zu verwechseln mit dem Reviewer:
   * eigener Prozess und **eigene Session**, eigener Systemprompt (`prompts/ask.md`),
@@ -16,7 +19,12 @@ Frage oeffnet eine Session (`--session-id <uuid>`), Folgefragen laufen darin wei
 Strikt nacheinander: `ask()` nimmt eine Datei-Sperre (`logs/ask/ask.lock`). Damit
 koennen sich Telegram-/ask, `hx.cli ask` und ein zweiter Aufruf NIE dieselbe Session
 gleichzeitig greifen. Die Sperre wartet begrenzt und altert (siehe `lock_holen`).
-
+R13bx-6 (11.10.2026, Nutzerwunsch): **/ask kann ohne Abo laufen.** `/ask_swap
+[abo|deepseek]` legt den Frage-Lauf auf den anderen Anbieter; auf DeepSeek laeuft er ohne
+Abo-Kontingent. Der Anbieter gehoert zum CHAT: die Kennung lebt im Konfigordner des
+Anbieters, ein Wechsel legt deshalb einen neuen Chat an (wie beim Reviewer, nur hier fuer
+den Frage-Chat). Auf DeepSeek steht in der Hinweiszeile der DOLLARBETRAG - dort ist die
+Preistabelle richtig, "kein Einzelpreis" waere schlicht falsch.
 Lesezugriff (R13o): `g:\\Harness` (Belege in `docs/`, Sitzungsprotokolle, Sandbox) und
 das Decomp-Repo. Gesperrt bleiben die Schluesselordner (neu und alt), `backups/` und
 jede `.credentials.json` - Beleg: `tools/check_zugriff3.py` -> `docs/_ask_zugriff_beleg.txt`.
@@ -129,11 +137,18 @@ def session_waehlen(cfg, jetzt: datetime | None = None, neu: bool = False) -> di
             "neu": neu_chat, "grund": grund}
 
 
-def session_merken(cfg, sess: dict, jetzt: datetime | None = None) -> dict:
-    """Nach der Antwort Frage und Zeitpunkt fortschreiben."""
+def session_merken(cfg, sess: dict, jetzt: datetime | None = None,
+                   anbieter: str = "") -> dict:
+    """Nach der Antwort Frage und Zeitpunkt fortschreiben.
+
+    R13bx-6: `anbieter` wird MITGESCHRIEBEN. Nur so laesst sich beim naechsten Aufruf
+    erkennen, dass die Sitzung einem anderen Anbieter gehoert - und damit im anderen
+    Konfigordner liegt.
+    """
     jetzt = jetzt or datetime.now(timezone.utc)
     neu = {"id": sess["id"], "seit": sess["seit"], "letzte": jetzt.isoformat(),
-           "fragen": int(sess.get("fragen") or 0) + 1}
+           "fragen": int(sess.get("fragen") or 0) + 1,
+           "anbieter": str(anbieter or "")}
     ziel = ensure_dir(session_pfad(cfg).parent)
     write_text_atomic(ziel / "session.json",
                       json.dumps(neu, ensure_ascii=False, indent=1) + "\n")
@@ -200,7 +215,49 @@ def _halter_pid(p: Path) -> str:
 
 
 # ---------------------------------------------------------------------- Kommando
-def build_command(cfg, session_id: str | None = None, neu: bool = True) -> list[str]:
+# ---------------------------------------------------------------------- Anbieter (R13bx-6)
+def ask_wahl(cfg, anbieter: str | None = None) -> dict:
+    """(Anbieter, Modell, Denkstufe, Grund) fuer diesen Frage-Lauf.
+
+    Umschalten mit `/ask_swap`. Ohne Umschaltung bleibt es beim Abo (`ask_modell`) - ACHTUNG:
+    das ist laut `harness.toml` seit R13bo-4 **Sonnet 5.5**, nicht Opus; das Modell kommt
+    deshalb IMMER aus der Konfiguration und wird hier nirgends hart genannt. Auf DeepSeek
+    gilt `ask_modell_deepseek` - leer heisst `model_worker`, dieselbe 4.1-Flash-Kennung,
+    EINE Quelle, kein zweiter Name im Baum.
+    Die Anbieter-Namen und ihre Schreibweisen stehen in `envs` (gemeinsam mit dem Review).
+    """
+    a = envs.anbieter_wort(anbieter or "") or envs.ANBIETER_ABO
+    if a == envs.ANBIETER_DEEPSEEK:
+        return {"anbieter": a,
+                "modell": str(cfg.get("claude", "ask_modell_deepseek", "")
+                              or cfg.get("claude", "model_worker", "deepseek-flash[1m]")),
+                "effort": str(cfg.get("claude", "ask_effort_deepseek", "high")),
+                "grund": "per /ask_swap auf DeepSeek"}
+    return {"anbieter": a,
+            "modell": str(cfg.get("claude", "ask_modell", "claude-sonnet-5-5")),
+            "effort": str(cfg.get("claude", "reviewer_effort", "high")),
+            "grund": "Abo (Vorgabe)" if not (anbieter or "").strip()
+                     else "per /ask_swap auf das Abo"}
+
+
+def anbieter_aus_zustand(cfg) -> str:
+    """Der per `/ask_swap` gewaehlte Anbieter, aus dem Harness-Zustand (R13bx-6).
+
+    Fuer Aufrufer, die KEINEN Orchestrator haben (`hx.cli ask`): ohne Zustandsdatei gilt
+    das Abo. Es wird nur gelesen - eine fehlende oder kaputte Datei darf die Frage nicht
+    kosten, also faellt alles auf das Abo zurueck.
+    """
+    try:
+        p = Path(cfg.sub("state")) / "run.json"
+        d = json.loads(read_text(p)) if p.is_file() else {}
+        return (envs.anbieter_wort(str((d or {}).get("ask_anbieter") or ""))
+                or envs.ANBIETER_ABO)
+    except Exception:                                            # noqa: BLE001
+        return envs.ANBIETER_ABO
+
+
+def build_command(cfg, session_id: str | None = None, neu: bool = True,
+                  modell: str | None = None) -> list[str]:
     r"""Kommandozeile des Frage-Laufs (Prompt kommt ueber stdin).
 
     Lesen ist NUR in zwei Wurzeln erlaubt, und die Regeln sind pfadgebunden - ein
@@ -210,13 +267,16 @@ def build_command(cfg, session_id: str | None = None, neu: bool = True) -> list[
 
     `neu=True` mit Kennung = neue Session mit DIESER Kennung; `neu=False` = fortsetzen
     (`--resume`). Ohne Kennung laeuft der Aufruf wie frueher als Einzelfrage.
+
+    R13bx-6: `modell` waehlt das Modell dieses Aufrufs (`ask_wahl`). Fehlt es, gilt
+    `ask_modell` - so bleiben Altaufrufer und Tests gueltig.
     """
     exe = str(cfg.get("claude", "exe"))
     wurzeln = (cfg.harness_home, cfg.decomp)
     cmd = [exe, "-p",
            "--output-format", "stream-json",
            "--verbose",
-           "--model", str(cfg.get("claude", "ask_modell", "claude-opus-5-5")),
+           "--model", str(modell or cfg.get("claude", "ask_modell", "claude-opus-5-5")),
            "--strict-mcp-config",
            "--permission-prompts", "none",
            "--max-turns", str(int(cfg.get("ask", "max_turns", STANDARD["max_turns"]))),
@@ -273,7 +333,8 @@ def _session_gerissen(text: str) -> bool:
     return any(m in t for m in _SESSION_FEHLER)
 
 
-def ask(cfg, log, frage: str, mock: bool = False, zusatz: str = "", neu: bool = False) -> dict:
+def ask(cfg, log, frage: str, mock: bool = False, zusatz: str = "", neu: bool = False,
+        anbieter: str | None = None) -> dict:
     """Eine Frage stellen und die Antwort zurueckgeben.
 
     Rueckgabe: {"ok", "text", "hinweis", "modell", "anfragen", "token", "kosten_usd",
@@ -287,10 +348,22 @@ def ask(cfg, log, frage: str, mock: bool = False, zusatz: str = "", neu: bool = 
     datei = ziel / f"ask-{stempel}.md"
     prompt = prompt_bauen(frage, zusatz)
 
-    sess = session_waehlen(cfg, neu=neu)
+    # R13bx-6: Anbieter, Modell und Denkstufe dieses Aufrufs. Der Anbieter gehoert zum
+    # CHAT: die Kennung lebt im Konfigordner des Anbieters, ein Wechsel kann den alten
+    # Chat nicht fortsetzen und legt deshalb einen neuen an (wie beim Reviewer, nur hier
+    # fuer den Frage-Chat).
+    wahl = ask_wahl(cfg, anbieter)
+    a, modell = wahl["anbieter"], wahl["modell"]
+    alt_a = (envs.anbieter_wort(str(session_stand(cfg).get("anbieter") or ""))
+             or envs.ANBIETER_ABO)
+    wechsel = alt_a != a
+    sess = session_waehlen(cfg, neu=bool(neu) or wechsel)
+    if wechsel and sess.get("neu"):
+        sess["grund"] = f"Anbieter gewechselt ({alt_a} -> {a})"
+
     if mock:
         text = "(Attrappe) Keine echte Frage gestellt."
-        neu_stand = session_merken(cfg, sess)
+        neu_stand = session_merken(cfg, sess, anbieter=a)
         write_text_atomic(datei, f"# Frage\n\n{frage}\n\n# Antwort (Attrappe)\n\n{text}\n")
         return {"ok": True, "text": text, "hinweis": "(Attrappe - keine Kosten)",
             "modell": "mock", "anfragen": 0, "token": "", "kosten_usd": 0.0, "limit": False,
@@ -298,10 +371,17 @@ def ask(cfg, log, frage: str, mock: bool = False, zusatz: str = "", neu: bool = 
                 "chat": {"id": sess["id"], "neu": sess["neu"], "grund": sess["grund"],
                          "fragen": neu_stand["fragen"]}}
 
-    oauth = secrets.load(cfg.secrets_dir, secrets.CLAUDE_OAUTH)
-    if not oauth:
-        return {"ok": False, "text": "", "limit": False,
-                "hinweis": "Kein Abo-Token gefunden - /ask kann nicht laufen.",
+    # R13bx-6: je Anbieter ein anderes Geheimnis. Fehlt es, sagt der Hinweis auch, wie es
+    # anders ginge - ein stummes "kann nicht laufen" waere hier besonders aergerlich.
+    if envs.abo_limit_moeglich(a):
+        token = secrets.load(cfg.secrets_dir, secrets.CLAUDE_OAUTH)
+        fehlt = ("Kein Abo-Token gefunden - /ask kann auf dem Abo nicht laufen. "
+                 "Mit `/ask_swap deepseek` laeuft die Frage ohne Abo-Kontingent.")
+    else:
+        token = secrets.load(cfg.secrets_dir, secrets.DEEPSEEK)
+        fehlt = "Kein DeepSeek-Schluessel gefunden - /ask kann auf DeepSeek nicht laufen."
+    if not token:
+        return {"ok": False, "text": "", "limit": False, "hinweis": fehlt,
                 "modell": None, "anfragen": 0, "token": "", "kosten_usd": 0.0, "dauer_s": 0.0,
                 "stream": "", "datei": "", "chat": {"id": sess["id"], "neu": sess["neu"],
                                                     "grund": sess["grund"], "fragen": 0}}
@@ -312,13 +392,29 @@ def ask(cfg, log, frage: str, mock: bool = False, zusatz: str = "", neu: bool = 
                 "stream": "", "datei": "", "chat": {"id": sess["id"], "neu": sess["neu"],
                                                     "grund": sess["grund"], "fragen": 0}}
     try:
-        env = envs.reviewer_env(cfg, os.environ, oauth)
+        # R13bx-6: Umgebung je Anbieter. Die Vorher-Pruefung stellt sicher, dass kein
+        # Abo-Token in einen DeepSeek-Lauf leckt; die Rollennamen sind verschieden
+        # (`reviewer`/`ask_ds`), damit ein falscher Name LAUT auffaellt.
+        if envs.abo_limit_moeglich(a):
+            env = envs.reviewer_env(cfg, os.environ, token)
+            schlecht = envs.precheck(env, "reviewer")
+        else:
+            env = envs.ask_deepseek_env(cfg, os.environ, token, wahl["effort"])
+            schlecht = envs.precheck(env, "ask_ds")
+        if schlecht:
+            return {"ok": False, "text": "", "limit": False,
+                    "hinweis": f"Umgebungs-Vorher-Pruefung fehlgeschlagen: {schlecht}",
+                    "modell": None, "anfragen": 0, "token": "", "kosten_usd": 0.0,
+                    "dauer_s": 0.0, "stream": "", "datei": "",
+                    "chat": {"id": sess["id"], "neu": sess["neu"],
+                             "grund": sess["grund"], "fragen": 0}}
         if log:
-            log.info("Frage gestartet", modell=str(cfg.get("claude", "ask_modell")),
+            log.info("Frage gestartet", anbieter=a, modell=modell,
                      zeichen=len(prompt), chat=sess["id"][:8],
                      chat_neu=sess["neu"], chat_grund=sess["grund"])
         t0 = time.time()
-        stats, run, versuch = _lauf(cfg, log, env, prompt, stream, ziel, stempel, sess)
+        stats, run, versuch = _lauf(cfg, log, env, prompt, stream, ziel, stempel, sess,
+                                    modell=modell)
         dauer = time.time() - t0
     finally:
         lock_freigeben(cfg)
@@ -331,15 +427,24 @@ def ask(cfg, log, frage: str, mock: bool = False, zusatz: str = "", neu: bool = 
     anfragen = len(stats.requests)
     rohtext = (stream.read_text(encoding="utf-8", errors="replace")
                if stream.is_file() else "")
-    limit = protocol.looks_like_limit(antwort) or protocol.looks_like_limit(rohtext[-2000:])
-    stand = session_merken(cfg, sess)
+    # R13bx-6: dieselbe Regel wie bei Reviewer und Aussensicht - ein DeepSeek-Lauf kann das
+    # Abo-Limit nicht erreichen, und `protocol.LIMIT_PATTERNS` traefe hier sonst das blanke
+    # Wort `quota` im englischen Denktext (`envs.abo_limit_moeglich`).
+    limit = bool(envs.abo_limit_moeglich(a)
+                 and (protocol.looks_like_limit(antwort)
+                      or protocol.looks_like_limit(rohtext[-2000:])))
+    stand = session_merken(cfg, sess, anbieter=a)
     tok = token_zeile(stats)
+    kosten = stats.cost_usd(list(cfg.get("peak", "extra_offpeak_dates", []) or []))
     # R13p: die Abo-Auslastung steht in jedem Frage-Mitschnitt - hier ablegen, damit
     # /status und der Takt sie kennen (der Worker hat kein Claude-Kontingent).
     streamjson.schreibe_rate_limit(cfg, stats.rate_limit, "/ask")
-    # R13o: KEIN Dollar - die Zahl waere mit der DeepSeek-Tabelle gerechnet.
-    hinweis = (f"(Abo - kein Einzelpreis | {stats.model or '?'} | {anfragen} Anfragen | "
-               f"{tok} | {chat_zeile(cfg, sess, stand)} | {dauer:.0f}s"
+    # R13o: auf dem Abo KEIN Dollar - die Zahl waere mit der DeepSeek-Tabelle gerechnet.
+    # R13bx-6: auf DeepSeek ist sie RICHTIG - dort steht der Dollarbetrag.
+    preis = (f"Abo - kein Einzelpreis | {tok}" if envs.abo_limit_moeglich(a)
+             else f"DeepSeek ${kosten:.4f} | {tok}")
+    hinweis = (f"({preis} | {stats.model or '?'} | {anfragen} Anfragen | "
+               f"{chat_zeile(cfg, sess, stand)} | {dauer:.0f}s"
                + (" | Versuch 2 (Kennung war nicht nutzbar)" if versuch > 1 else "")
                + (" | LIMIT ERREICHT - spaeter erneut fragen" if limit else "") + ")")
     write_text_atomic(datei, f"# Frage\n\n{frage.strip()}\n\n# Antwort\n\n{antwort}\n\n"
@@ -347,7 +452,7 @@ def ask(cfg, log, frage: str, mock: bool = False, zusatz: str = "", neu: bool = 
                              f"Frage {stand['fragen']})\n\n{hinweis}\n")
     if log:
         log.info("Frage beantwortet", rc=run.rc, anfragen=anfragen, token=tok,
-                 dauer_s=round(dauer, 1), limit=limit, chat=sess["id"][:8],
+                 anbieter=a, dauer_s=round(dauer, 1), limit=limit, chat=sess["id"][:8],
                  chat_fragen=stand["fragen"], versuch=versuch)
     # R13g: auch der Frage-Lauf wird geprueft (er ist rein lesend, aber nicht blind).
     if stats.secret_hits:
@@ -358,7 +463,7 @@ def ask(cfg, log, frage: str, mock: bool = False, zusatz: str = "", neu: bool = 
                       treffer=[f"{h['werkzeug']}:{h['art']}:{h['name']}" for h in stats.secret_hits])
     return {"ok": bool(antwort) and not limit, "text": antwort, "hinweis": hinweis,
             "modell": stats.model, "anfragen": anfragen, "token": tok,
-            "kosten_usd": stats.cost_usd(list(cfg.get("peak", "extra_offpeak_dates", []) or [])),
+            "kosten_usd": kosten,
             "limit": bool(limit), "dauer_s": dauer, "stream": str(stream), "datei": str(datei),
             "chat": {"id": sess["id"], "neu": sess["neu"], "grund": sess["grund"],
                      "fragen": stand["fragen"]},
@@ -366,7 +471,7 @@ def ask(cfg, log, frage: str, mock: bool = False, zusatz: str = "", neu: bool = 
 
 
 def _lauf(cfg, log, env, prompt: str, stream: Path, ziel: Path, stempel: str,
-          sess: dict) -> tuple:
+          sess: dict, modell: str | None = None) -> tuple:
     """Einen Frage-Lauf fahren; bei gerissener Session EIN neuer Versuch (R13o).
 
     Die Kennung kann unbrauchbar sein (Chat weg, oder parallel belegt). Dann laeuft
@@ -374,7 +479,7 @@ def _lauf(cfg, log, env, prompt: str, stream: Path, ziel: Path, stempel: str,
     eine verlorene Frage.
     """
     for versuch in (1, 2):
-        cmd = build_command(cfg, sess["id"], neu=sess["neu"])
+        cmd = build_command(cfg, sess["id"], neu=sess["neu"], modell=modell)
         quelldatei = stream if versuch == 1 else ziel / f"ask-{stempel}-v2.jsonl"
         run = run_stream(cmd, env, cwd=str(cfg.root), out_path=quelldatei, log=log,
                          stdin_text=prompt,

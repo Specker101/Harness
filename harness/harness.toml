@@ -54,6 +54,9 @@ aussensicht_effort  = "high"
 # `reviewer_effort` gilt fuer alle ABO-Laeufe (Reviewer, Aussensicht und /ask teilen die
 # Umgebung) und soll von einem DeepSeek-Versuch nicht mitgezogen werden.
 reviewer_effort_deepseek = "high"
+# R13bx-6: Denkstufe des FRAGE-Laufs (/ask) auf DeepSeek - eigener Schluessel aus
+# demselben Grund wie oben: `reviewer_effort` gilt fuer alle Abo-Laeufe.
+ask_effort_deepseek = "high"
 ask_modell          = "claude-sonnet-5-5"
 reviewer_effort     = "high"
 base_url            = "https://api.deepseek.com/anthropic"
@@ -65,6 +68,10 @@ config_dir_reviewer = "g:/Harness/harness/cc-reviewer"
 # Stand zerkratzen. Ein Anbieterwechsel legt ohnehin eine frische Sitzung an
 # (`orchestrator.do_review`: der Anbieter gehoert zur Sitzung).
 config_dir_reviewer_ds = "g:/Harness/harness/cc-reviewer-ds"
+# R13bx-6: dito fuer /ask (`/ask_swap`). /ask merkt sich seine Sitzung selbst
+# (`logs/ask/session.json`), aber die CLI legt ihren Gespraechsstand im Konfigordner ab -
+# ohne eigenen Ordner wuerden sich Abo-Chat und DeepSeek-Chat zerkratzen.
+config_dir_ask_ds   = "g:/Harness/harness/cc-ask-ds"
 # R13bx: eigener Konfigordner fuer die Aussensicht auf DeepSeek. Bewusst NICHT
 # `cc-worker`: der gehoert dem laufenden Worker, und `.claude.json` wird von der CLI
 # gelesen-geaendert-geschrieben - zwei Prozesse darin koennen sich den Stand zerkratzen.

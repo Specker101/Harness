@@ -200,9 +200,11 @@ class TestAskLauf(Base):
         gesehen: dict = {}
         frei = threading.Event()
 
-        def fake(cfg, log, frage, mock=False, zusatz="", neu=False):
+        def fake(cfg, log, frage, mock=False, zusatz="", neu=False, anbieter=None):
             gesehen["frage"] = frage
             gesehen["mock"] = mock
+            # R13bx-6: der Orchestrator reicht den per `/ask_swap` gewaehlten Anbieter durch.
+            gesehen["anbieter"] = anbieter
             gesehen.setdefault("fragen", []).append(frage)
             gesehen.setdefault("neu", []).append(neu)
             frei.set()
@@ -269,7 +271,7 @@ class TestAskLauf(Base):
     def test_fehler_wird_gemeldet_und_gibt_frei(self):
         gesagt: list[str] = []
 
-        def kaputt(cfg, log, frage, mock=False, zusatz="", neu=False):
+        def kaputt(cfg, log, frage, mock=False, zusatz="", neu=False, anbieter=None):
             raise RuntimeError("kein Token")
 
         self.orch.say = lambda t, *a, **k: gesagt.append(str(t))

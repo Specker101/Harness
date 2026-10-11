@@ -667,6 +667,18 @@ class Orchestrator:
                       session=rev.get("session_id"))
         self.say("Reviewer-Session wechselt beim naechsten Review (" + grund[:80] + ").")
 
+    def ask_anbieter(self) -> str:
+        """Anbieter des naechsten /ask (R13bx-6): "abo" oder "deepseek".
+
+        Quelle ist die Umschaltung im Zustand (`/ask_swap`), sonst das Abo. Ein Fehler darf
+        die Frage NIE kosten - er faellt auf das Abo zurueck.
+        """
+        try:
+            return (envs.anbieter_wort(str(self.state.data.get("ask_anbieter") or ""))
+                    or envs.ANBIETER_ABO)
+        except Exception:                                        # noqa: BLE001
+            return envs.ANBIETER_ABO
+
     def _do_ask(self, frage: str = "", neu: bool = False) -> None:
         """Freie Frage an Claude - eigener Lauf im EIGENEN THREAD (R13f/R13o).
 
@@ -1068,7 +1080,8 @@ class Orchestrator:
                 frage, neu = self._ask_queue.pop(0)
                 rest = len(self._ask_queue)
             try:
-                res = askmod.ask(self.cfg, self.log, frage, mock=self.mock, neu=neu)
+                res = askmod.ask(self.cfg, self.log, frage, mock=self.mock, neu=neu,
+                                 anbieter=self.ask_anbieter())
                 self.say(res.get("text") or "(keine Antwort)")
                 if res.get("hinweis"):
                     self.say(res["hinweis"])
@@ -1335,6 +1348,35 @@ class Orchestrator:
                      + " Wirkt beim NAECHSTEN Review (frische Sitzung) - der laufende "
                        "Batch ist nicht betroffen.")
             return True
+        elif cmd in ("ask_swap", "ask-swap"):
+            # R13bx-6 (Nutzerwunsch 11.10.2026): /ask wahlweise ohne Abo. Dieselbe Bauart wie
+            # /reviewer_swap - ausdruecklicher Befehl, keine Automatik.
+            wort = envs.anbieter_wort(rest)
+            if rest.strip() and wort is None:
+                self.say("Nutzung: /ask_swap [abo|deepseek]\n"
+                         "  ohne Zusatz  umschalten\n"
+                         "  abo          Claude-Abo (Modell laut `ask_modell`) - "
+                         "verbraucht das Wochenkontingent\n"
+                         "  deepseek     DeepSeek-Flash - verbraucht KEIN Abo-Kontingent")
+                return True
+            alt = self.ask_anbieter()
+            neu = wort or (envs.ANBIETER_DEEPSEEK if alt == envs.ANBIETER_ABO
+                           else envs.ANBIETER_ABO)
+            if neu == envs.ANBIETER_ABO:
+                # Das Abo ist die VORGABE - Merker entfernen, nicht auf "abo" setzen.
+                self.state.data.pop("ask_anbieter", None)
+            else:
+                self.state.data["ask_anbieter"] = neu
+            self.state.save()
+            w = askmod.ask_wahl(self.cfg, neu)
+            self.log.info("Frage-Anbieter umgeschaltet", vorher=alt, nachher=neu,
+                          modell=w["modell"], effort=w["effort"])
+            self.say(f"Frage-Anbieter (/ask): {neu.upper()} - {w['modell']}, Denkstufe "
+                     f"{w['effort']}."
+                     + (" Kein Abo-Kontingent verbraucht." if neu == envs.ANBIETER_DEEPSEEK
+                        else " Achtung: verbraucht das Claude-Wochenkontingent.")
+                     + " Der naechste Chat beginnt neu (die Sitzung gehoert zum Anbieter).")
+            return True
         elif cmd == "review":
             self.review_now = True
             self.state.data["paused"] = False
@@ -1474,6 +1516,9 @@ class Orchestrator:
             f"Review-Anbieter: {self.reviewer_anbieter().upper()}"
             + (" - kein Abo-Kontingent" if self.reviewer_anbieter() == rv.ANBIETER_DEEPSEEK
                else " (kostet Wochenkontingent)") + " - umschalten mit /reviewer_swap",
+            f"Frage-Anbieter: {self.ask_anbieter().upper()}"
+            + (" - kein Abo-Kontingent" if self.ask_anbieter() == envs.ANBIETER_DEEPSEEK
+               else " (kostet Wochenkontingent)") + " - umschalten mit /ask_swap",
             (f"Reviewer-Modell: {self.reviewer_model_seen() or '-'} "
              f"(C={self.model_reviewer()} | B/unklar={self.model_reviewer_b()}, "
              f"Effort {self.reviewer_effort_gewaehlt()})"),

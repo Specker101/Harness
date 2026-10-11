@@ -58,27 +58,15 @@ def review_modell(cfg, batch) -> tuple[str, str]:
 # Die Umschaltung ist bewusst KEINE Automatik (anders als bei der Aussensicht, R13bx-1):
 # der Review ist die STEUERUNG des Harness - welchem Modell die naechste Instruktion
 # anvertraut wird, entscheidet der Nutzer mit `/reviewer_swap`.
-ANBIETER_ABO = "abo"
-ANBIETER_DEEPSEEK = "deepseek"
-ANBIETER = (ANBIETER_ABO, ANBIETER_DEEPSEEK)
+# R13bx-6: die Anbieter-Namen und ihre Schreibweisen stehen in `envs` - EINE Quelle fuer
+# Review UND /ask. Hier bleiben nur die Namen stehen, damit `reviewer.ANBIETER_ABO` gilt.
+ANBIETER_ABO = envs.ANBIETER_ABO
+ANBIETER_DEEPSEEK = envs.ANBIETER_DEEPSEEK
+ANBIETER = envs.ANBIETER
+anbieter_wort = envs.anbieter_wort
 # Vorgabe des Review-Modells auf DeepSeek: leer heisst `model_worker` - dieselbe
 # 4.1-Flash-Kennung, EINE Quelle, kein zweiter Name im Baum (wie bei der Aussensicht).
 MODELL_DEEPSEEK_VORGABE = "deepseek-flash[1m]"
-
-
-def anbieter_wort(text: str) -> str | None:
-    """Ein Befehlswort auf einen Anbieter abbilden; None = unbekannt.
-
-    Leer ist NICHT "abo" - der Aufrufer entscheidet, was ein fehlendes Wort bedeutet
-    (beim Befehl: umschalten; in der Konfiguration: Abo). Die erlaubten Schreibweisen
-    sind die, die am Telegram tatsaechlich getippt werden.
-    """
-    t = (text or "").strip().lower()
-    if t in ("abo", "claude", "opus", "sonnet", "pro"):
-        return ANBIETER_ABO
-    if t in ("deepseek", "ds", "flash"):
-        return ANBIETER_DEEPSEEK
-    return None
 
 
 def review_wahl(cfg, state_data: dict | None, batch: int | None = None) -> dict:
@@ -275,8 +263,11 @@ def limit_erreicht(res, body: str, err: str) -> bool:
 
     Limitiert DeepSeek selbst, endet der Lauf mit `rc != 0` - das ist der normale
     Fehlerweg (Wiederholung), kein Wartezustand.
+
+    R13bx-6: die Regel selbst steht in `envs.abo_limit_moeglich` - sie gilt fuer Reviewer,
+    Aussensicht und /ask gemeinsam, statt dreimal verschieden formuliert zu werden.
     """
-    if str(getattr(res, "anbieter", "") or "") == ANBIETER_DEEPSEEK:
+    if not envs.abo_limit_moeglich(str(getattr(res, "anbieter", "") or "")):
         return False
     return bool(protocol.looks_like_limit(body + "\n" + err)
                 or protocol.looks_like_limit(res.text or ""))

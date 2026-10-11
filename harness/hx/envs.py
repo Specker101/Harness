@@ -111,7 +111,46 @@ FORBIDDEN_REVIEWER = ["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_A
 # die Verbotsliste ueber den Rollennamen; ein DeepSeek-Reviewer mit der Rolle `reviewer`
 # traegt `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` und wuerde dort sofort auffallen.
 # Das ist gewollt: der falsche Rollenname faellt LAUT auf, statt still durchzulaufen.
-ROLLEN_DEEPSEEK = ("worker", "aussensicht", "reviewer_ds")
+# R13bx-6: `ask_ds` dito fuer /ask.
+ROLLEN_DEEPSEEK = ("worker", "aussensicht", "reviewer_ds", "ask_ds")
+
+# ---------------------------------------------------------------- Anbieter (R13bx-5/-6)
+# EINE Quelle fuer die Anbieter-Namen und ihre Schreibweisen. Gebraucht werden sie vom
+# REVIEW (`/reviewer_swap`) UND von /ask (`/ask_swap`) - zwei Kopien waeren zwei Meinungen
+# darueber, was "ds" heisst.
+ANBIETER_ABO = "abo"
+ANBIETER_DEEPSEEK = "deepseek"
+ANBIETER = (ANBIETER_ABO, ANBIETER_DEEPSEEK)
+
+
+def anbieter_wort(text: str) -> str | None:
+    """Ein Befehlswort auf einen Anbieter abbilden; None = unbekannt.
+
+    Leer ist NICHT "abo" - der Aufrufer entscheidet, was ein fehlendes Wort bedeutet
+    (beim Befehl: umschalten; in der Konfiguration: Abo). Erlaubt sind die Schreibweisen,
+    die am Telegram tatsaechlich getippt werden.
+    """
+    t = (text or "").strip().lower()
+    if t in ("abo", "claude", "opus", "sonnet", "pro"):
+        return ANBIETER_ABO
+    if t in ("deepseek", "ds", "flash"):
+        return ANBIETER_DEEPSEEK
+    return None
+
+
+def abo_limit_moeglich(anbieter: str) -> bool:
+    """Kann DIESER Lauf ins **Claude-Abo**-Session-Limit laufen? (R13bx-4/-5/-6)
+
+    Nein, wenn er auf DeepSeek faehrt: seine Umgebung traegt kein Abo-Token (`precheck`
+    bricht sonst ab), und `protocol.LIMIT_PATTERNS` enthaelt das blanke Muster `quota` -
+    ein DeepSeek-Lauf DENKT englisch ueber genau dieses Thema. GEMESSEN (B321,
+    `runs/b321/meta.jsonl:2984`): "the reason for lowering was to save weekly quota".
+    Der fehlerfreie Lauf galt damit als Limit-Fall; der Harness pausierte eine Stunde.
+
+    Ein leerer oder unbekannter Anbieter gilt als Abo - dort bleibt die Pruefung scharf.
+    Die Regel steht hier EINMAL und wird von Reviewer, Aussensicht und /ask gerufen.
+    """
+    return anbieter_wort(anbieter) != ANBIETER_DEEPSEEK
 
 
 def base_env(environ: dict) -> dict:
@@ -201,6 +240,20 @@ def reviewer_deepseek_env(cfg, environ: dict, token: str,
     return _deepseek_env(cfg, environ, token,
                          str(cfg.get("claude", "config_dir_reviewer_ds", vorgabe)),
                          effort)
+
+
+def ask_deepseek_env(cfg, environ: dict, token: str, effort: str = "high") -> dict:
+    """/ask auf DeepSeek (R13bx-6).
+
+    Eigener Konfigordner (`cc-ask-ds`). /ask merkt sich seine Sitzung selbst
+    (`logs/ask/session.json`), aber die CLI legt ihren Gespraechsstand im Konfigordner ab -
+    ohne eigenen Ordner wuerden sich Abo-Chat und DeepSeek-Chat gegenseitig zerkratzen.
+    Rolle fuer `precheck`: `ask_ds` (nicht `reviewer`) - nur so greift die
+    DeepSeek-Verbotsliste.
+    """
+    vorgabe = str(Path(cfg.root) / "cc-ask-ds")
+    return _deepseek_env(cfg, environ, token,
+                         str(cfg.get("claude", "config_dir_ask_ds", vorgabe)), effort)
 
 
 def reviewer_env(cfg, environ: dict, oauth_token: str) -> dict:

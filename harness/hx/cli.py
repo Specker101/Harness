@@ -1217,7 +1217,10 @@ def cmd_ask(args) -> int:
               file=sys.stderr)
         return 2
     log = _log(cfg, "ask")
-    res = askmod.ask(cfg, log, frage, neu=bool(getattr(args, "neu", False)))
+    # R13bx-6: derselbe Anbieter wie am Telegram. Den Zustand liest `ask` selbst -
+    # der CLI-Prozess hat keinen Orchestrator.
+    res = askmod.ask(cfg, log, frage, neu=bool(getattr(args, "neu", False)),
+                     anbieter=askmod.anbieter_aus_zustand(cfg))
     print(res.get("text") or "(keine Antwort)")
     print()
     print(res.get("hinweis") or "")

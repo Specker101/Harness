@@ -2868,3 +2868,42 @@ freigeben koennen (`review-verworfen-*`) oder die Pflichtzeilen auslassen, beend
 Fenster - dann zurueck auf das Abo und den Grund im Batch-Dokument nennen. Tests:
 `harness/tests/test_r13bx5_fixes.py` (27 Tests).
 
+### 22b. Auch `/ask` ohne Abo (`/ask_swap`, R13bx-6, 2026-10-11)
+
+```
+/ask_swap              umschalten (Abo <-> DeepSeek)
+/ask_swap deepseek     /ask auf DeepSeek legen (Kurzform: ds)
+/ask_swap abo          zurueck auf das Abo (Kurzform: claude/opus/sonnet)
+```
+
+**Auftrag (Nutzer, 2026-10-11):** „am besten wir machen auch ein /ask_swap damit /ask auch
+ohne abo laufen kann". Bauart wie `/reviewer_swap` (§22): ausdruecklicher Befehl, keine
+Automatik; wirkt beim naechsten Aufruf, ohne Neustart.
+
+| | Abo (`abo`) | DeepSeek (`deepseek`) |
+|---|---|---|
+| Modell | `ask_modell` (laut Konfiguration **Sonnet 5.5**, R13bo-4) | `ask_modell_deepseek`, leer = `model_worker` |
+| Denkstufe | `reviewer_effort` | `ask_effort_deepseek` |
+| Kontingent | Wochenkontingent des Abos | keins (API-Kosten) |
+| Konfigordner | `config_dir_reviewer` (`cc-reviewer`) | `config_dir_ask_ds` (`cc-ask-ds`) |
+| Rolle der Vorher-Pruefung | `reviewer` | `ask_ds` |
+| Hinweiszeile | Token, **kein** Dollar (R13o) | **Dollarbetrag** (dort ist die Preistabelle richtig) |
+
+**Drei Besonderheiten von `/ask`:**
+
+1. **Der Anbieter gehoert zum Chat.** `/ask` hat ein eigenes Gedaechtnis
+   (`logs/ask/session.json`), die Kennung liegt aber im Konfigordner des Anbieters. Ein
+   Wechsel legt deshalb einen **neuen Chat** an; der Grund steht in der Chat-Zeile
+   („Anbieter gewechselt (abo -> deepseek)").
+2. **Auch die Konsole zieht mit.** `hx.cli ask` liest den Zustand selbst
+   (`ask.anbieter_aus_zustand`) - Telegram und Konsole koennen nicht auseinanderlaufen.
+3. **Die Regel „nur das Abo kann ins Abo-Limit laufen" steht jetzt EINMAL** in
+   `envs.abo_limit_moeglich`; Reviewer, Aussensicht und `/ask` rufen sie auf. Vorher stand
+   sie in zwei Modulen getrennt formuliert. Ebenso liegen die Anbieter-Namen und ihre
+   Schreibweisen in `envs` (`anbieter_wort`) - eine Quelle fuer Review und `/ask`.
+
+Sichtbar wird die Wahl in `/status` (Zeile `Frage-Anbieter`) und im Protokoll
+(`Frage gestartet`/`Frage beantwortet` mit `anbieter=`). Achtung: der Befehl selbst muss
+**einmal** nach dem Einbau im Harness ankommen - dafuer braucht es einen Neustart (wie bei
+`/reviewer_swap`). Tests: `harness/tests/test_r13bx6_fixes.py` (23 Tests).
+
