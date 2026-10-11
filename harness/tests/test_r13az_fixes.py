@@ -257,10 +257,25 @@ class TestAnlassImRepo(unittest.TestCase):
         # MAME-Log plus die Zahl verschiedener Paket-SHAs, der Anteil interpretierten
         # Codes ist nur noch INFORMATION. Dieser Test hat die Aenderung gemeldet (Gate
         # 2026-10-07 rot); er pinnt jetzt den neuen Satz an denselben Zeilen.
-        text = "\n".join(p.read_text(encoding="utf-8").splitlines()[8:12])
+        #
+        # R13bx-5 (11.10.2026): DERSELBE Fall noch einmal. B328 hat im Decomp-Repo einen
+        # Nachsatz VOR den A4-Wortlaut gesetzt (`b99c0a3`, 2026-10-10) - der Satz steht
+        # unveraendert da, nur weiter unten, und das Zeilenfenster `[8:12]` traf den
+        # Nachsatz. Das Gate 2026-10-11 war deshalb rot, OHNE dass sich am Inhalt etwas
+        # geaendert haette. Der Decomp-Strang schreibt dieses Dokument fort; ein
+        # Zeilenfenster ueberlebt das nicht. (Der Harness prueft NUR lesend - die
+        # Ursache liegt in einem fremden Commit, nicht in einer Regression.)
+        # Der Test sucht jetzt im GANZEN Text und pinnt BEIDE Aussagen: den A4-Wortlaut
+        # (unveraendert vorhanden) und den Nachsatz, der den Praefix zur
+        # REGRESSIONSPRUEFUNG erklaert und der R-Linie eine eigene Messgroesse gibt.
+        text = p.read_text(encoding="utf-8")
         self.assertIn("Praefix gegen den", text)
         self.assertIn("verschiedener Paket-SHAs", text)
         self.assertIn("als **Information** gefuehrt", text)
+        self.assertIn("kein Fortschrittsmass", text)
+        self.assertIn("Regressionspruefung", text)
+        self.assertIn("referenzgleich ja/nein", text)
+        self.assertIn("Insn der Gruppe", text)
 
     def test_bericht_b221_zaehlt_null_prozent(self):
         p = DEC / "analysis" / "bericht-b221-berichtspunkt-hybrid.md"
