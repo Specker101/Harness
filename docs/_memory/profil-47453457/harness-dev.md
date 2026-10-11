@@ -1669,3 +1669,25 @@
   LEHRE: einen Fehlalarm nicht an der Musterliste geradebiegen, wenn der ANBIETER die
   Ursache ist - und `looks_like_limit` ueber den ganzen Mitschnitt laeuft auch ueber
   DENKTEXT, den man selbst nie geschrieben hat. Beleg: Test speist die echte Rohzeile ein.
+- R13bx-5+R13bx-6 (11.10.2026, `fd05edf` / `126896b`, Gate 1782 -> 1805 Tests OK): **Review
+  UND /ask sind per Befehl auf DeepSeek umschaltbar** (`/reviewer_swap`, `/ask_swap`).
+  NUTZERAUFTRAG nach dem erschoepften Wochenkontingent; Beleg-Limitdatei
+  `runs/b332/review-limit-20261010-210706-v1.md`: "You've hit your weekly limit - resets
+  Oct 13, 7am (Europe/Berlin)". Keine Automatik - der Review ist die STEUERUNG des Harness.
+  JE ROLLE eigener Konfigordner (`cc-reviewer-ds`, `cc-ask-ds`) und eigener Rollenname fuer
+  `precheck` (`reviewer_ds`, `ask_ds` = `_deepseek_env`, KEIN Abo-Token); Anbieter gehoert
+  zur SESSION bzw. zum CHAT -> ein Wechsel rotiert/legt neu an und wird verbucht
+  (`state.reviewer_anbieter`, `logs/ask/session.json:anbieter`); Uebergabe beim ALTEN
+  Anbieter; `abo` ENTFERNT den Merker (Vorgabe). `/ask` zeigt auf DeepSeek Dollar, auf dem
+  Abo Token (R13o). `hx.cli ask` liest den Zustand selbst.
+  ZUSAMMENGEFASST: Anbieter-Namen/Schreibweisen und die Regel "nur das Abo kann ins
+  Abo-Limit laufen" liegen jetzt EINMAL in `envs` (`anbieter_wort`,
+  `abo_limit_moeglich`) - reviewer, aussensicht und ask rufen sie.
+  LEHRE 1 (zweimal passiert): ein Test, der ZEILENNUMMERN eines Dokuments aus dem ANDEREN
+  Repo pinnt, bricht, sobald dort jemand davor schreibt (B286 am 07.10., B328 am 10.10. ->
+  Gate rot ohne inhaltliche Aenderung). Immer im GANZEN Text suchen.
+  LEHRE 2: kein Modellname in Hilfe/Docstring - ich nahm Opus fuer /ask an, `ask_modell`
+  sagt Sonnet 5.5. Modell IMMER aus der Konfiguration lesen.
+  LEHRE 3: aendert man eine Aufrufsignatur, muessen die Attrappen alter Tests mit
+  (test_r13f_fixes brauchte `anbieter=None`).
+  WIRKUNG: alle drei (R13bx-4/-5/-6) erst nach EINEM Neustart des Harness.
