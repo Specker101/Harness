@@ -1295,6 +1295,46 @@ class Orchestrator:
                 meldung += (" - yolo ist abgeschaltet: der Peak wird wieder abgewartet "
                             "(nur /autonom yolo laedt es erneut).")
             self.say(meldung)
+        elif cmd in ("reviewer_swap", "reviewer-swap"):
+            # R13bx-5 (Nutzerauftrag 11.10.2026): den REVIEW wahlweise auf das Abo oder auf
+            # DeepSeek legen. Anlass: das Claude-Wochenkontingent war am 10.10. erschoepft
+            # (Beleg `runs/b332/review-limit-20261010-210706-v1.md`: "You've hit your weekly
+            # limit - resets Oct 13, 7am") - und der Bruchpunkt war der REVIEWER, nicht der
+            # Worker (der laeuft laengst auf DeepSeek).
+            # Ausdruecklicher Befehl, KEINE Automatik: der Review ist die STEUERUNG des
+            # Harness - welchem Modell die naechste Instruktion anvertraut wird, entscheidet
+            # der Nutzer. Wirkt beim NAECHSTEN Review und legt dort eine frische Sitzung an
+            # (ein Anbieter gehoert zur Sitzung); der laufende Batch ist nicht betroffen.
+            wort = rv.anbieter_wort(rest)
+            if rest.strip() and wort is None:
+                self.say("Nutzung: /reviewer_swap [abo|deepseek]\n"
+                         "  ohne Zusatz  umschalten\n"
+                         "  abo          Claude-Abo (B-Batch=Opus, C-Batch=Sonnet) -\n"
+                         "               verbraucht das Wochenkontingent\n"
+                         "  deepseek     DeepSeek-Flash - verbraucht KEIN Abo-Kontingent")
+                return True
+            alt = self.reviewer_anbieter()
+            neu = wort or (rv.ANBIETER_DEEPSEEK if alt == rv.ANBIETER_ABO
+                           else rv.ANBIETER_ABO)
+            if neu == rv.ANBIETER_ABO:
+                # Das Abo ist die VORGABE - der Merker wird entfernt, nicht auf "abo"
+                # gesetzt. Sonst stuende "abo" fuer immer im Zustand und ein spaeterer
+                # Sinneswandel in der Konfiguration waere wirkungslos.
+                self.state.data.pop("reviewer_anbieter", None)
+            else:
+                self.state.data["reviewer_anbieter"] = neu
+            self.state.save()
+            w = rv.review_wahl(self.cfg, self.state.data, self.state.batch)
+            self.log.info("Review-Anbieter umgeschaltet", vorher=alt, nachher=neu,
+                          modell=w["modell"], effort=w["effort"])
+            modell = ("Abo-Wahl je Batchart (B=Opus, C=Sonnet)"
+                      if neu == rv.ANBIETER_ABO else w["modell"])
+            self.say(f"Review-Anbieter: {neu.upper()} - {modell}, Denkstufe {w['effort']}."
+                     + (" Kein Abo-Kontingent verbraucht." if neu == rv.ANBIETER_DEEPSEEK
+                        else " Achtung: verbraucht das Claude-Wochenkontingent.")
+                     + " Wirkt beim NAECHSTEN Review (frische Sitzung) - der laufende "
+                       "Batch ist nicht betroffen.")
+            return True
         elif cmd == "review":
             self.review_now = True
             self.state.data["paused"] = False
@@ -1431,9 +1471,12 @@ class Orchestrator:
             self.live_batch_zeile(),
             f"Reviewer-Session: {rev.get('session_id')} ({rev.get('reviews')}/{self.cfg.get('reviewer','rotation_after',10)} Reviews)"
             + (" - Wechsel beim naechsten Review erzwungen" if rev.get("force_rotate") else ""),
+            f"Review-Anbieter: {self.reviewer_anbieter().upper()}"
+            + (" - kein Abo-Kontingent" if self.reviewer_anbieter() == rv.ANBIETER_DEEPSEEK
+               else " (kostet Wochenkontingent)") + " - umschalten mit /reviewer_swap",
             (f"Reviewer-Modell: {self.reviewer_model_seen() or '-'} "
              f"(C={self.model_reviewer()} | B/unklar={self.model_reviewer_b()}, "
-             f"Effort {self.reviewer_effort()})"),
+             f"Effort {self.reviewer_effort_gewaehlt()})"),
             f"Phase: {self.phase_text()}",
             f"Letzte Entscheidung: {rev.get('last_decision') or '-'}",
         ]
@@ -2096,16 +2139,19 @@ class Orchestrator:
             "(bis R13bj hiessen sie `*-v1.*`, u. a. `stream-v1.jsonl`).",
         ])
 
-    def ask_handover(self, session_id: str, rdir: Path) -> str:
+    def ask_handover(self, session_id: str, rdir: Path, anbieter: str = "") -> str:
         """Die alte Reviewer-Session um eine Uebergabe bitten (R13-2).
 
         Faellt der Aufruf aus (Limit, Netz, alter Prozess), geht es OHNE Uebergabe
         weiter - der neue Review bekommt Anker, Messdaten und Snapshot ohnehin.
+
+        R13bx-5: `anbieter` ist der Anbieter der ALTEN Sitzung (Vorgabe: Abo).
         """
         self.phase("uebergabe", "alte Reviewer-Session")
         try:
             text = rv.run_handover(self.cfg, self.log, session_id, mock=self.mock,
-                                   stream_path=rdir / "handover.jsonl")
+                                   stream_path=rdir / "handover.jsonl",
+                                   anbieter=anbieter or rv.ANBIETER_ABO)
         except Exception as exc:
             self.log.warn("Uebergabe fehlgeschlagen - neue Session startet ohne",
                           fehler=str(exc)[:200])
@@ -2145,6 +2191,13 @@ class Orchestrator:
         prompt_neu = rv.prompt_hash(self.cfg)
         prompt_alt = str(rev_state.get("prompt_hash") or "")
         wechsel_prompt = prompt_alt != prompt_neu
+        # R13bx-5: der Anbieter gehoert zur SITZUNG. Ein DeepSeek-Lauf kann die Opus-Sitzung
+        # nicht fortsetzen (anderer Konfigordner, dort unbekannte Kennung) - ein
+        # Anbieterwechsel IST deshalb ein Neuanfang und rotiert wie ein geaenderter
+        # Systemprompt.
+        anbieter = self.reviewer_anbieter()
+        anbieter_alt = rv.anbieter_wort(str(rev_state.get("anbieter") or "")) or rv.ANBIETER_ABO
+        wechsel_anbieter = anbieter_alt != anbieter
         evidence = int(self.state.batch or 0)
         target = self.expected_batch() or evidence or 0
         rdir = ensure_dir(Path(self.cfg.sub("runs")) / f"b{target:03d}")
@@ -2158,8 +2211,11 @@ class Orchestrator:
 
         if attempt > 1:
             handover = handover or str((rev_state.get("pending_handover") or {}).get("text") or "")
-        elif force or wechsel_prompt or (not session_id) or (count >= rot):
-            if wechsel_prompt:
+        elif force or wechsel_prompt or wechsel_anbieter or (not session_id) or (count >= rot):
+            if wechsel_anbieter:
+                # Der wichtigste Grund zuerst - ein Anbieterwechsel erklaert sich selbst.
+                grund = f"Anbieter gewechselt ({anbieter_alt} -> {anbieter})"
+            elif wechsel_prompt:
                 grund = ("Systemprompt geaendert (prompts/reviewer.md)"
                          if prompt_alt else
                          "Systemprompt-Hash fehlt (Session aus einer aelteren Fassung)")
@@ -2176,13 +2232,18 @@ class Orchestrator:
                 self.say("Frische Reviewer-Session - die vorhandene Uebergabe wird wiederverwendet.")
             elif alt:
                 self.say(f"Reviewer-Session wird gewechselt - {grund}. Die alte Session uebergibt.")
-                self.log.info("Reviewer-Session-Wechsel", grund=grund, alte_session=alt)
-                handover = self.ask_handover(alt, rdir)
+                self.log.info("Reviewer-Session-Wechsel", grund=grund, alte_session=alt,
+                              anbieter_vorher=anbieter_alt, anbieter=anbieter)
+                # R13bx-5: die Uebergabe wird beim ALTEN Anbieter erfragt - dort liegt die
+                # Sitzung. Beim Wechsel auf DeepSeek fragt sie also noch das Abo, beim
+                # Wechsel zurueck fragt sie DeepSeek. Sonst fragte der Harness einen
+                # Anbieter nach einer Sitzung, die er nicht kennt.
+                handover = self.ask_handover(alt, rdir, anbieter=anbieter_alt)
             neu = str(uuid.uuid4())
             if neu == alt:                       # Sicherheitsnetz: nie die alte Kennung erben
                 neu = str(uuid.uuid4())
             self.state.reviewer_new_session(neu, handover=handover, from_session=alt or "",
-                                            prompt_hash=prompt_neu)
+                                            prompt_hash=prompt_neu, anbieter=anbieter)
             self.state.save()
             sp = Path(self.cfg.sub("sessions"))
             write_text_atomic(sp / f"claude-{neu}.md", handover or "(keine Uebergabe erhalten)")
@@ -2228,7 +2289,7 @@ class Orchestrator:
                             new_session=bool(self._review_rotation), mock=self.mock,
                             mock_mode=self.mock_reviewer_mode,
                             stream_path=rdir / "reviewer.jsonl", mock_batch=target,
-                            attempt=attempt, batch=evidence)
+                            attempt=attempt, batch=evidence, anbieter=anbieter)
         res.review_dir = str(rdir)
         # R13bo: das gewaehlte Modell gehoert maschinenlesbar in den Beleg des BEWERTETEN
         # Batches (`runs/b<N>/result.json`, Feld `review`). Das geschieht VOR den
@@ -2300,13 +2361,43 @@ class Orchestrator:
         return res
 
     # ------------------------------------------------- Review-Modell belegen (R13bo)
+    def reviewer_anbieter(self) -> str:
+        """Anbieter des NAECHSTEN Reviews (R13bx-5): "abo" oder "deepseek".
+
+        Quelle ist die Umschaltung im Zustand (`/reviewer_swap`), sonst das Abo. Ein
+        Fehler darf den Review NIE kosten - deshalb faellt es auf das Abo zurueck (wie
+        `review_modell` bei unklarer Batchart).
+        """
+        try:
+            return rv.review_wahl(self.cfg, self.state.data, self.state.batch)["anbieter"]
+        except Exception:                                        # noqa: BLE001
+            return rv.ANBIETER_ABO
+
+    def reviewer_effort_gewaehlt(self) -> str:
+        """Die Denkstufe, die der naechste Review TATSAECHLICH bekommt (R13bx-5).
+
+        Auf dem Abo ist das `reviewer_effort` (EINE Stufe fuer alle Abo-Laeufe - Reviewer,
+        Aussensicht und /ask teilen die Umgebung), auf DeepSeek `reviewer_effort_deepseek`.
+        """
+        if self.reviewer_anbieter() == rv.ANBIETER_DEEPSEEK:
+            return str(self.cfg.get("claude", "reviewer_effort_deepseek", "high"))
+        return self.reviewer_effort()
+
     def review_modell_soll(self, batch: int) -> str:
-        """`<Modell> (<Art>)` - das fuer den Review des Batches `batch` gewaehlte Modell."""
-        modell, art = rv.review_modell(self.cfg, batch)
-        return f"{modell} ({art})"
+        """`<Modell> (<Art|Anbieter>)` - die Wahl fuer den Review des Batches `batch`.
+
+        R13bo: die Art (B/C/unklar) beschreibt die Abo-Modellwahl. R13bx-5: auf DeepSeek
+        gibt es diese Wahl nicht - dort steht der Anbieter.
+        """
+        w = rv.review_wahl(self.cfg, self.state.data, batch)
+        return f"{w['modell']} ({w['art'] or w['anbieter']})"
 
     def review_modell_zeile(self, res) -> str:
-        """Eine Zeile fuer die Telegram-Zusammenfassung des Reviews (R13bo)."""
+        """Eine Zeile fuer die Telegram-Zusammenfassung des Reviews (R13bo/R13bx-5)."""
+        if str(getattr(res, "anbieter", "") or "") == rv.ANBIETER_DEEPSEEK:
+            return (f"Review-Modell: {getattr(res, 'model_seen', None) or '-'} "
+                    f"| DeepSeek (kein Abo-Kontingent), Effort "
+                    f"{self.cfg.get('claude', 'reviewer_effort_deepseek', 'high')}")
         art = (getattr(res, "modell_art", "") or "") or "unklar"
         art_text = {"B": "B-Batch/Erkundung", "C": "C-Batch"}.get(art, "Art unklar")
         return (f"Review-Modell: {getattr(res, 'model_seen', None) or '-'} "
@@ -2332,7 +2423,13 @@ class Orchestrator:
             "modell": getattr(res, "model_seen", None) or res.model_expected or "",
             "modell_soll": res.model_expected or "",
             "art": getattr(res, "modell_art", "") or "",
-            "effort": self.reviewer_effort(),
+            # R13bx-5: Anbieter und die TATSAECHLICHE Denkstufe gehoeren in den Beleg -
+            # sonst ist an den Zahlen nicht zu sehen, welches Modell sie geliefert hat,
+            # wenn zwei Anbieter abwechseln.
+            "anbieter": str(getattr(res, "anbieter", "") or rv.ANBIETER_ABO),
+            "effort": (str(self.cfg.get("claude", "reviewer_effort_deepseek", "high"))
+                       if str(getattr(res, "anbieter", "") or "") == rv.ANBIETER_DEEPSEEK
+                       else self.reviewer_effort()),
             "kind": kind,
             "session_id": res.session_id or "",
             "ts": now_iso(),

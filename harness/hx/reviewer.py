@@ -50,6 +50,61 @@ def review_modell(cfg, batch) -> tuple[str, str]:
             "B" if strang == "B" else "unklar")
 
 
+# R13bx-5 (11.10.2026, Nutzerauftrag): der REVIEW kann auf DeepSeek laufen. Anlass: das
+# Claude-Wochenkontingent war am 10.10. erschoepft - der gescheiterte Lauf hinterliess
+# `runs/b332/review-limit-20261010-210706-v1.md` mit "You've hit your weekly limit -
+# resets Oct 13, 7am (Europe/Berlin)"; damit war der REVIEWER der Bruchpunkt, nicht der
+# Worker (der laeuft laengst auf DeepSeek).
+# Die Umschaltung ist bewusst KEINE Automatik (anders als bei der Aussensicht, R13bx-1):
+# der Review ist die STEUERUNG des Harness - welchem Modell die naechste Instruktion
+# anvertraut wird, entscheidet der Nutzer mit `/reviewer_swap`.
+ANBIETER_ABO = "abo"
+ANBIETER_DEEPSEEK = "deepseek"
+ANBIETER = (ANBIETER_ABO, ANBIETER_DEEPSEEK)
+# Vorgabe des Review-Modells auf DeepSeek: leer heisst `model_worker` - dieselbe
+# 4.1-Flash-Kennung, EINE Quelle, kein zweiter Name im Baum (wie bei der Aussensicht).
+MODELL_DEEPSEEK_VORGABE = "deepseek-flash[1m]"
+
+
+def anbieter_wort(text: str) -> str | None:
+    """Ein Befehlswort auf einen Anbieter abbilden; None = unbekannt.
+
+    Leer ist NICHT "abo" - der Aufrufer entscheidet, was ein fehlendes Wort bedeutet
+    (beim Befehl: umschalten; in der Konfiguration: Abo). Die erlaubten Schreibweisen
+    sind die, die am Telegram tatsaechlich getippt werden.
+    """
+    t = (text or "").strip().lower()
+    if t in ("abo", "claude", "opus", "sonnet", "pro"):
+        return ANBIETER_ABO
+    if t in ("deepseek", "ds", "flash"):
+        return ANBIETER_DEEPSEEK
+    return None
+
+
+def review_wahl(cfg, state_data: dict | None, batch: int | None = None) -> dict:
+    """(Anbieter, Modell, Denkstufe, Art, Grund) fuer den Review dieses Batches.
+
+    Reihenfolge: die UMSCHALTUNG im Zustand schlaegt die Konfiguration. Ohne Umschaltung
+    bleibt alles wie bisher (`review_modell`: B-Batch/Erkundung -> Opus, C-Batch ->
+    Sonnet). `art` ist auf DeepSeek leer - sie beschreibt die ABO-Modellwahl und hat dort
+    keine Entsprechung.
+    """
+    roh = str((state_data or {}).get("reviewer_anbieter") or "").strip()
+    anbieter = anbieter_wort(roh) or ANBIETER_ABO
+    if anbieter == ANBIETER_DEEPSEEK:
+        modell = str(cfg.get("claude", "reviewer_modell_deepseek", "")
+                     or cfg.get("claude", "model_worker", MODELL_DEEPSEEK_VORGABE))
+        effort = str(cfg.get("claude", "reviewer_effort_deepseek", "high"))
+        grund = "per /reviewer_swap auf DeepSeek" if roh else "DeepSeek (Vorgabe)"
+        return {"anbieter": anbieter, "modell": modell, "effort": effort,
+                "art": "", "grund": grund}
+    modell, art = review_modell(cfg, batch)
+    effort = str(cfg.get("claude", "reviewer_effort", "high"))
+    grund = "per /reviewer_swap auf das Abo" if roh else "Abo (Vorgabe)"
+    return {"anbieter": ANBIETER_ABO, "modell": modell, "effort": effort,
+            "art": art, "grund": grund}
+
+
 class ReviewResult:
     def __init__(self):
         self.rc: int | None = None
@@ -62,6 +117,10 @@ class ReviewResult:
         # R13bo: das GEWAEHLTE Modell und die Review-Art (B/C/unklar) dieses Aufrufs.
         self.modell: str = ""
         self.modell_art: str = ""
+        # R13bx-5: der Anbieter dieses Aufrufs ("abo" | "deepseek"). Geht in den Beleg
+        # (`result.json`) und in die Telegram-Zeile - sonst waere an einer Zahl nicht zu
+        # sehen, WELCHES Modell sie geliefert hat, wenn zwei Anbieter abwechseln.
+        self.anbieter: str = ""
         self.limit_reached = False
         self.raw_path: str | None = None
         self.parsed: protocol.Review | None = None
@@ -203,18 +262,50 @@ def _stream_result(body: str) -> tuple[str, str | None, str | None]:
     return text, session, model
 
 
+def limit_erreicht(res, body: str, err: str) -> bool:
+    """Ins **Claude-Abo**-Session-Limit gelaufen? (R13bm; R13bx-5)
+
+    Auf DeepSeek wird die Frage GAR NICHT gestellt - ein solcher Lauf kann das Abo-Limit
+    nicht erreichen (seine Umgebung traegt kein Abo-Token; `envs.precheck` bricht sonst ab).
+    GEMESSEN (B321, `runs/b321/meta.jsonl:2984`): in `protocol.LIMIT_PATTERNS` steht das
+    blanke Muster `quota`, und der DeepSeek-Lauf denkt ENGLISCH ueber genau dieses Thema
+    ("the reason for lowering was to save weekly quota"). Der fehlerfreie Lauf galt damit
+    als Limit-Fall: der Harness pausierte eine Stunde und startete keinen Batch.
+    Dieselbe Regel steht fuer die Aussensicht in `aussensicht.limit_erreicht` (R13bx-4).
+
+    Limitiert DeepSeek selbst, endet der Lauf mit `rc != 0` - das ist der normale
+    Fehlerweg (Wiederholung), kein Wartezustand.
+    """
+    if str(getattr(res, "anbieter", "") or "") == ANBIETER_DEEPSEEK:
+        return False
+    return bool(protocol.looks_like_limit(body + "\n" + err)
+                or protocol.looks_like_limit(res.text or ""))
+
+
 def run_review(cfg, log, prompt: str, session_id: str | None = None, new_session: bool = False,
                mock: bool = False, mock_mode: str = "ok", stream_path=None,
                mock_batch: int | None = None, attempt: int = 1,
-               batch: int | None = None, modell: str | None = None) -> ReviewResult:
+               batch: int | None = None, modell: str | None = None,
+               anbieter: str | None = None) -> ReviewResult:
     res = ReviewResult()
     rd = ensure_dir(Path(cfg.root) / "logs")
+    # R13bx-5: der ANBIETER entscheidet ueber Umgebung, Modell und Denkstufe. Ohne Angabe
+    # bleibt es beim Abo - so bleiben Altaufrufer und Tests gueltig.
+    anb = anbieter_wort(anbieter or "") or ANBIETER_ABO
+    res.anbieter = anb
     # R13bo: (Modell, Art) gehoeren zum BEWERTETEN Batch (`batch`). Fehlt `batch`, gilt
     # `reviewer_modell` (C-Batch) - so bleiben Altaufrufer/Tests gueltig.
-    if modell is None:
-        modell, art = review_modell(cfg, batch)
-    else:
+    if anb == ANBIETER_DEEPSEEK:
+        wahl = review_wahl(cfg, {"reviewer_anbieter": ANBIETER_DEEPSEEK}, batch)
+        modell = modell or wahl["modell"]
+        effort = wahl["effort"]
         art = ""
+    else:
+        effort = str(cfg.get("claude", "reviewer_effort", "high"))
+        if modell is None:
+            modell, art = review_modell(cfg, batch)
+        else:
+            art = ""
     res.modell, res.modell_art = modell, art
     res.model_expected = modell
 
@@ -242,9 +333,17 @@ def run_review(cfg, log, prompt: str, session_id: str | None = None, new_session
             res.raw_path = str(write_text_atomic(rd / "reviewer-mock.json",
                                                 json.dumps({"result": res.text}, indent=1)))
     else:
-        oauth = secrets.load(cfg.secrets_dir, secrets.CLAUDE_OAUTH)
-        env = envs.reviewer_env(cfg, os.environ, oauth)
-        bad = envs.precheck(env, "reviewer")
+        # R13bx-5: die Umgebung haengt am Anbieter. Die Rolle fuer die Vorher-Pruefung
+        # heisst auf DeepSeek `reviewer_ds` - sonst griffe die Abo-Verbotsliste und der
+        # Lauf waere sofort "fehlerhaft", statt gegen DeepSeek zu laufen.
+        if anb == ANBIETER_DEEPSEEK:
+            token = secrets.load(cfg.secrets_dir, secrets.DEEPSEEK)
+            env = envs.reviewer_deepseek_env(cfg, os.environ, token, effort)
+            bad = envs.precheck(env, "reviewer_ds")
+        else:
+            oauth = secrets.load(cfg.secrets_dir, secrets.CLAUDE_OAUTH)
+            env = envs.reviewer_env(cfg, os.environ, oauth)
+            bad = envs.precheck(env, "reviewer")
         if bad:
             res.error = f"Umgebungs-Vorher-Pruefung fehlgeschlagen: {bad}"
             log.error(res.error)
@@ -269,8 +368,7 @@ def run_review(cfg, log, prompt: str, session_id: str | None = None, new_session
             res.model_seen = model
         if not res.text:
             res.text = body.strip()[:4000]
-        if protocol.looks_like_limit(body + "\n" + err) or protocol.looks_like_limit(res.text):
-            res.limit_reached = True
+        res.limit_reached = limit_erreicht(res, body, err)
         if not res.text and res.rc not in (0, None):
             res.error = f"Reviewer ohne Ergebnis (rc={res.rc}): {err.strip()[:300]}"
 
@@ -354,13 +452,25 @@ Keine Werkzeuge, keine Dateien, keine Einleitung, keine Entschuldigung - nur die
 
 
 def run_handover(cfg, log, session_id: str, mock: bool = False, stream_path=None,
-                 max_turns: int = 4) -> str:
-    """Die alte Session um eine Uebergabe bitten, BEVOR die neue startet (R13-2)."""
+                 max_turns: int = 4, anbieter: str = ANBIETER_ABO) -> str:
+    """Die alte Session um eine Uebergabe bitten, BEVOR die neue startet (R13-2).
+
+    R13bx-5: `anbieter` ist der Anbieter der ALTEN Session - die Uebergabe muss in DEREN
+    Umgebung erfragt werden. Beim Wechsel Abo -> DeepSeek laeuft sie also noch ueber das
+    Abo, beim Wechsel zurueck ueber DeepSeek. Sonst fragte der Harness einen Anbieter nach
+    einer Sitzung, die er nicht kennt.
+    """
     if mock:
         return ("(Attrappe) Uebergabe der vorigen Session: Stand laut Anker, Entscheidungen "
                 "und offene Punkte stehen im Messdatenblock.")
-    oauth = secrets.load(cfg.secrets_dir, secrets.CLAUDE_OAUTH)
-    env = envs.reviewer_env(cfg, os.environ, oauth)
+    if anbieter_wort(anbieter or "") == ANBIETER_DEEPSEEK:
+        token = secrets.load(cfg.secrets_dir, secrets.DEEPSEEK)
+        env = envs.reviewer_deepseek_env(
+            cfg, os.environ, token,
+            str(cfg.get("claude", "reviewer_effort_deepseek", "high")))
+    else:
+        oauth = secrets.load(cfg.secrets_dir, secrets.CLAUDE_OAUTH)
+        env = envs.reviewer_env(cfg, os.environ, oauth)
     cmd = build_command(cfg, session_id, new_session=False)
     if "--max-turns" in cmd:
         cmd[cmd.index("--max-turns") + 1] = str(max_turns)

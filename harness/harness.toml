@@ -46,11 +46,25 @@ aussensicht_modell  = "claude-opus-5-5"
 # Arme, `docs/_beleg_probe.txt`): `max` findet nicht mehr als `high` und braucht ~47 %
 # mehr Zeit - deshalb steht hier `high`.
 aussensicht_effort  = "high"
+# R13bx-5 (11.10.2026): Modell und Denkstufe des REVIEWS, wenn er auf DeepSeek laeuft
+# (Umschaltung per `/reviewer_swap`, ausdruecklich KEINE Automatik - der Review ist die
+# Steuerung des Harness). Ein nicht gesetztes `reviewer_modell_deepseek` bedeutet
+# `model_worker` - dieselbe 4.1-Flash-Kennung, EINE Quelle, kein zweiter Name im Baum (wie
+# bei der Aussensicht). `reviewer_effort_deepseek` ist bewusst ein EIGENER Schluessel:
+# `reviewer_effort` gilt fuer alle ABO-Laeufe (Reviewer, Aussensicht und /ask teilen die
+# Umgebung) und soll von einem DeepSeek-Versuch nicht mitgezogen werden.
+reviewer_effort_deepseek = "high"
 ask_modell          = "claude-sonnet-5-5"
 reviewer_effort     = "high"
 base_url            = "https://api.deepseek.com/anthropic"
 config_dir_worker   = "g:/Harness/harness/cc-worker"
 config_dir_reviewer = "g:/Harness/harness/cc-reviewer"
+# R13bx-5 (11.10.2026): eigener Konfigordner fuer den REVIEW auf DeepSeek. Bewusst NICHT
+# `cc-reviewer`: dort liegt die Abo-Sitzung (Opus/Sonnet), und `.claude.json` wird von der
+# CLI gelesen-geaendert-geschrieben - zwei Anbieter in EINEM Ordner wuerden Sitzung und
+# Stand zerkratzen. Ein Anbieterwechsel legt ohnehin eine frische Sitzung an
+# (`orchestrator.do_review`: der Anbieter gehoert zur Sitzung).
+config_dir_reviewer_ds = "g:/Harness/harness/cc-reviewer-ds"
 # R13bx: eigener Konfigordner fuer die Aussensicht auf DeepSeek. Bewusst NICHT
 # `cc-worker`: der gehoert dem laufenden Worker, und `.claude.json` wird von der CLI
 # gelesen-geaendert-geschrieben - zwei Prozesse darin koennen sich den Stand zerkratzen.

@@ -188,7 +188,8 @@ class State:
         return int(rev["reviews"])
 
     def reviewer_new_session(self, session_id: str, handover: str = "",
-                             from_session: str = "", prompt_hash: str = "") -> None:
+                             from_session: str = "", prompt_hash: str = "",
+                             anbieter: str = "") -> None:
         """Neue Reviewer-Session verbuchen (R13b).
 
         Die Uebergabe der alten Session wird MITGESPEICHERT. Scheitert der Review oder
@@ -198,6 +199,11 @@ class State:
         R13ab: `prompt_hash` ist der Hash von `prompts/reviewer.md` in dem Moment, in dem
         die Session angelegt wurde. Die CLI liest die Datei bei `--resume` nicht neu
         (gemessen) - nur so laesst sich erkennen, dass der Systemprompt veraltet ist.
+
+        R13bx-5: `anbieter` ist der Anbieter, dem diese Sitzung gehoert ("abo" oder
+        "deepseek"). Er gehoert HIER hinein, weil diese Funktion den ganzen Eintrag neu
+        schreibt - ein Feld, das nur daneben gesetzt wird, waere nach der naechsten
+        Rotation weg.
         """
         self.data["reviewer"] = {
             "session_id": session_id,
@@ -206,6 +212,7 @@ class State:
             "last_decision": None,
             "force_rotate": False,
             "prompt_hash": str(prompt_hash or ""),
+            "anbieter": str(anbieter or ""),
             "pending_handover": ({"from_session": from_session, "text": handover,
                                   "at": now_iso()} if handover else {}),
         }

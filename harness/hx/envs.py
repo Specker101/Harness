@@ -107,7 +107,11 @@ FORBIDDEN_REVIEWER = ["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_A
 # R13bx: Laeufe, die auf DeepSeek fahren (Worker, Aussensicht auf DeepSeek). Sie
 # brauchen `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` - verboten ist bei ihnen das
 # Abo-Token, denn sonst liefe der Lauf still gegen das knappe Kontingent.
-ROLLEN_DEEPSEEK = ("worker", "aussensicht")
+# R13bx-5: `reviewer_ds` ist ein EIGENER Rollenname, nicht `reviewer`. `precheck` waehlt
+# die Verbotsliste ueber den Rollennamen; ein DeepSeek-Reviewer mit der Rolle `reviewer`
+# traegt `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` und wuerde dort sofort auffallen.
+# Das ist gewollt: der falsche Rollenname faellt LAUT auf, statt still durchzulaufen.
+ROLLEN_DEEPSEEK = ("worker", "aussensicht", "reviewer_ds")
 
 
 def base_env(environ: dict) -> dict:
@@ -177,6 +181,25 @@ def aussensicht_deepseek_env(cfg, environ: dict, token: str,
     vorgabe = str(Path(cfg.root) / "cc-aussensicht")
     return _deepseek_env(cfg, environ, token,
                          str(cfg.get("claude", "config_dir_aussensicht", vorgabe)),
+                         effort)
+
+
+def reviewer_deepseek_env(cfg, environ: dict, token: str,
+                          effort: str = "high") -> dict:
+    """Reviewer auf DeepSeek (R13bx-5).
+
+    Eigener Konfigordner (`cc-reviewer-ds`) - aus demselben Grund wie bei der Aussensicht:
+    `.claude.json` wird von der CLI gelesen-geaendert-geschrieben, und `cc-reviewer` haelt
+    die Abo-Sitzung. Zwei Anbieter in EINEM Ordner wuerden sich Sitzung und Stand
+    zerkratzen; ein Wechsel legt deshalb ohnehin eine frische Sitzung an
+    (`orchestrator.do_review`: Anbieter gehoert zur Sitzung).
+
+    Die Rolle fuer `precheck` heisst `reviewer_ds`, nicht `reviewer` - nur so greift die
+    Verbotsliste fuer DeepSeek-Laeufe (kein Abo-Token) und nicht die des Abo-Reviewers.
+    """
+    vorgabe = str(Path(cfg.root) / "cc-reviewer-ds")
+    return _deepseek_env(cfg, environ, token,
+                         str(cfg.get("claude", "config_dir_reviewer_ds", vorgabe)),
                          effort)
 
 

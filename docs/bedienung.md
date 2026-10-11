@@ -2784,7 +2784,87 @@ aus dem sich die tragenden Muster ableiten liessen.
 **Limitiert DeepSeek selbst**, endet der Lauf mit `rc != 0` - das ist der normale Fehlerweg
 (Wiederholung am naechsten Batch-Ende), kein Wartezustand.
 
-**Offen fuer spaeter:** `reviewer.run_review` hat dieselbe Pruefung. Solange der Reviewer auf
-dem Abo laeuft, ist das richtig; bei einem DeepSeek-Reviewer muss dieselbe Bedingung dort
-mitgebaut werden. Tests: `harness/tests/test_r13bx4_fixes.py`.
+**Nachtrag R13bx-5 (2026-10-10):** `reviewer.run_review` hatte dieselbe Pruefung. Sie ist
+jetzt ebenfalls anbietergesteuert (`reviewer.limit_erreicht`): auf DeepSeek wird die Frage
+gar nicht erst gestellt. Ohne das haette die neue Umschaltung den Fehlalarm aus B321 in den
+Review zurueckgeholt - und ein Review, der als Limit-Fall gilt, gibt nichts frei.
+
+---
+
+## 22. Den Review auf DeepSeek legen (`/reviewer_swap`, R13bx-5, 2026-10-10)
+
+```
+/reviewer_swap              umschalten (Abo <-> DeepSeek)
+/reviewer_swap deepseek     auf DeepSeek legen (Kurzform: ds)
+/reviewer_swap abo          zurueck auf das Abo (Kurzform: claude/opus/sonnet)
+```
+
+**Anlass (gemessen).** Am 10.10. war das Claude-Wochenkontingent erschoepft. Der
+gescheiterte Review-Lauf hinterliess `runs/b332/review-limit-20261010-210706-v1.md`:
+
+    You've hit your weekly limit - resets Oct 13, 7am (Europe/Berlin)
+
+Der Bruchpunkt war damit der **Reviewer** - der Worker faehrt laengst auf DeepSeek, und die
+Aussensicht kann seit R13bx-1 selbst umschalten. Nur der Review brauchte das Abo.
+
+**Warum ein ausdruecklicher Befehl und keine Automatik.** Bei der Aussensicht (R13bx-1) ist
+die Umschaltung automatisch, weil sie nur *berichtet*. Der Review dagegen ist die
+**Steuerung** des Harness: er schreibt die Instruktion fuer den naechsten Batch. Welchem
+Modell man das anvertraut, entscheidet der Nutzer - nicht eine Prozentschwelle.
+
+**Was der Wechsel bewirkt.**
+
+| | Abo (`abo`) | DeepSeek (`deepseek`) |
+|---|---|---|
+| Modell | B-Batch/Erkundung -> Opus, C-Batch -> Sonnet (R13bo) | `reviewer_modell_deepseek`, leer = `model_worker` |
+| Denkstufe | `reviewer_effort` (gilt fuer alle Abo-Laeufe) | `reviewer_effort_deepseek` |
+| Kontingent | Wochenkontingent des Abos | keins (API-Kosten) |
+| Konfigordner | `config_dir_reviewer` (`cc-reviewer`) | `config_dir_reviewer_ds` (`cc-reviewer-ds`) |
+| Rolle der Vorher-Pruefung | `reviewer` | `reviewer_ds` |
+
+**Der Anbieter gehoert zur Sitzung.** Ein Wechsel rotiert die Reviewer-Session sofort (wie
+eine Aenderung an `prompts/reviewer.md`, R13ab) und wird im Zustand verbucht. Ohne das
+zeigte `--resume` in einen fremden Konfigordner, in dem die Kennung unbekannt ist. Die
+**Uebergabe** wird dabei beim **alten** Anbieter erfragt - dort liegt die Sitzung. Beim
+Wechsel auf DeepSeek fragt sie also noch das Abo, beim Wechsel zurueck fragt sie DeepSeek.
+
+**Wirksam wird es beim naechsten Review.** Der laufende Batch ist nicht betroffen; es ist
+kein Neustart des Harness noetig. Der Befehl selbst muss allerdings **einmal** nach dem
+Einbau im Harness ankommen - dafuer braucht es einen Neustart (wie bei jeder Codeaenderung).
+
+**Sichtbar wird die Wahl an drei Stellen:** `/status` (Zeile `Review-Anbieter`), die
+`Review-Modell:`-Zeile in der Telegram-Zusammenfassung, und maschinenlesbar in
+`runs/b<N>/result.json` als `review.anbieter` und `review.effort`.
+
+**Grenzen, die bleiben:**
+
+* Die B/C-Modellwahl (R13bo) gibt es auf DeepSeek nicht - dort steht ein Modell fuer beide
+  Batcharten.
+* `/ask` **bleibt auf dem Abo** (eigener Weg, `envs.reviewer_env`). Wer ganz ohne
+  Abo-Kontingent fahren will, muss auch das noch bauen.
+* Die Aussensicht-Umschaltung (R13bx-1) ist davon **unberuehrt** - sie folgt weiter der
+  80-%-Schwelle in `[meta]`.
+* Der erste DeepSeek-Review beginnt **ohne** geerbten Gespraechskontext (frische Sitzung in
+  einem neuen Ordner). Er liest Anker, Messdaten und Snapshot ohnehin selbst.
+
+### 22a. Testfenster „Review auf DeepSeek" (vorgemerkt 2026-10-10)
+
+Wie bei §19 ist das ein **begrenztes** Fenster, kein Dauerzustand. Beobachtet wird:
+
+1. **Vollstaendigkeit**: liefert der Review alle Pflichtbloecke (`TELEGRAM_SUMMARY`,
+   `DS_TOOLS`, `DS_INSTRUCTION`) ohne Format-Erinnerung? Der Harness verwirft sonst und
+   wiederholt einmal.
+2. **Modellnachweis**: `result.json` -> `review.modell` muss `deepseek-flash[1m]` zeigen
+   (`review.modell_soll` ebenso); sonst greift die Nachher-Pruefung (R11-5c) und der Review
+   gilt als ungueltig.
+3. **Qualitaet gegen das Abo**: an denselben Belegen pruefen - werden die Pflichtzeilen
+   (`UEBERTRAG:`/`VERWORFEN:`) gesetzt, die Nachrueckliste abgearbeitet, die
+   `VERALLGEMEINERUNG` gefuellt (R13z)?
+4. **Rueckweg**: `/reviewer_swap abo` muss ohne Nacharbeit wieder einen gueltigen
+   Abo-Review ergeben (frische Sitzung, Uebergabe von DeepSeek geholt).
+
+**Abbruchkriterium (vorher festgelegt):** Zwei Reviews in Folge, die den Harness nicht
+freigeben koennen (`review-verworfen-*`) oder die Pflichtzeilen auslassen, beenden das
+Fenster - dann zurueck auf das Abo und den Grund im Batch-Dokument nennen. Tests:
+`harness/tests/test_r13bx5_fixes.py` (27 Tests).
 
